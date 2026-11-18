@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "firmware-table-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/radeon/radeon_atombios.c",
+      "start": 3693,
+      "end": 3716,
+      "quote": "*true_voltage = min_voltage +\n\t\t\t((nominal_voltage - min_voltage) / voltage_step) *\n\t\t\tvoltage_step;",
+      "confidence": "medium",
+      "reason": "Untrusted source: voltage_step (u16) is copied verbatim from the GPU's ATOM BIOS VoltageObjectInfo firmware table by radeon_atom_get_voltage_step() (radeon_atombios.c:3653-3681) from formula->usVoltageStep, or (le16_to_cpu(usVoltageStep)+1)/2 when ucFlag bit0 is set - the only 'scaling' applied is on the table value itself and no check anywhere proves the stored value nonzero. Missing invariant: the divisor is not validated to be nonzero at the u16/int width where the division executes; the callee returns 0 (success) as long as the table object exists, so validation of the fetch does not validate the value. Unsafe use: radeon_atombios.c:3714 divides (nominal_voltage - min_voltage) by voltage_step with no zero guard, so a corrupt/zeroed VBIOS field yields a kernel divide-by-zero oops. Reachability: sole caller rv6xx_step_sw_voltage() (drivers/gpu/drm/radeon/rv6xx_dpm.c:1272-1290) uses the same fetched voltage_step only as an increment (an independent later use for PM state), meaning the while-loop stepping can also never terminate when step==0, and the division inside round_to_true_voltage executes first; both paths are driven purely by probe/DPM init with attacker-suppliable firmware tables. Counterevidence checked: atom.c atom_op_div (the VBIOS command interpreter's divide) explicitly guards src!=0 at atom.c:693-696, showing the guard convention exists but is absent here; no of_property_read/acpi_evaluate/EDID path in s01 surfaced a scaled-divisor hit in the bounded greps. Impact is a boot/probe-time DoS from tampered or malformed VBIOS, not memory corruption - same reliability-bug class as the seed. Confidence medium because triggering requires a VBIOS whose usVoltageStep is 0 with a matching voltage object of crev 1, which stock vendor tables do not ship, and the rv6xx path is pre-HD7xxx hardware."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/radeon/radeon_atombios.c",
+      "line": 3714,
+      "status": "reported",
+      "reason": "Divide by firmware-table-sourced u16 voltage_step with no nonzero validation; details in findings"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/radeon/atom.c",
+      "line": 694,
+      "status": "safe",
+      "reason": "atom_op_div guards 'if (src != 0)' before both '/' and '%', so the VBIOS interpreter's generic divide is protected against zero denominators"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/ppatomctrl.c",
+      "line": 107,
+      "status": "safe",
+      "reason": "Only table-size division found in powerplay VBIOS parsers (ppatomctrl/ppatomfwctrl/process_pptables_v1_0/processpptables/vega10_processpptables) is by sizeof(ATOM_INIT_REG_INDEX_FORMAT), a compile-time constant"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/arcturus_ppt.c",
+      "line": 1078,
+      "status": "safe",
+      "reason": "pptable->TedgeLimit etc. are only multiplied into range->max thermal limits; FanMaximumRpm is stored not divided; no firmware-derived denominator found in swsmu greps"
+    }
+  ],
+  "limitations": [
+    "Bounded search: EDID-field divisions, of_property_read_* (4516 driver sites), and acpi_evaluate (632 sites) were covered only by targeted greps, not line-by-line audit; a wrapped/truncated-to-zero DT or ACPI divisor could remain outside the examined hits.",
+    "SMBIOS/EEPROM-sourced divisors were not separately enumerated; only drm/radeon, drm/amd/pm, and drm/i915 VBT/BIOS parsers were directly inspected.",
+    "The reported candidate is reachable at probe/DPM-init time from a tampered VBIOS; no runtime reproducibility test (no hardware/QEMU harness) was performed, so exploitability is inferred from source structure only.",
+    "vega10_thermal.c in s01 still contains the raw seed bug (8 * speed) but it is the seed itself (sysfs/user branch), out of scope for this firmware-table branch and not reported here."
+  ]
+}

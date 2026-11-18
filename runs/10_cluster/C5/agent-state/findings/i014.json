@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "xsk-umem-rereads",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 199,
+      "status": "safe",
+      "reason": "xskq_cons_read_desc() fetches the UMEM-resident TX descriptor with a single struct assignment '*desc = ring->desc[idx]' (line 199) and then validates that same kernel copy via xskq_cons_is_valid_desc() -> xp_validate_desc() (line 200). No second read of the shared ring occurs; validated value and used value are the same copy. This is the pre-READ_ONCE version of upstream commit 2021d65117a5 but the copy is already struct-atomic into kernel memory, so no validate-then-reread divergence exists."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 224,
+      "status": "safe",
+      "reason": "xskq_cons_read_desc_batch() copies each shared descriptor into kernel memory (pool->tx_descs) at line 224 and validates that copy at line 225; all driver consumers (i40e, ice, dpaa2) read pool->tx_descs, never the UMEM ring. Single-fetch invariant holds."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 120,
+      "status": "safe",
+      "reason": "__xskq_cons_read_addr_unchecked() reads the fill-ring addr into *addr (kernel stack) once; it is deliberately unchecked here because the address is only translated to a kernel pointer later (xp_assign_dev / xp_raw_get_data / xp_alloc path) where chunk-index and frame-size checks are applied to the same fetched value. No double fetch of the same UMEM location."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk.c",
+      "line": 536,
+      "status": "safe",
+      "reason": "__xsk_generic_xmit() copies each TX descriptor once into the stack 'desc' via xskq_cons_peek_desc(); xsk_build_skb() and xsk_build_skb_zerocopy() then use desc->len/desc->addr from that stack copy (xsk.c lines 444/447/489/498). No re-read of the shared ring between validation and use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_xsk.c",
+      "line": 415,
+      "status": "safe",
+      "reason": "ixgbe_xmit_zc() uses desc.addr/desc.len exclusively from the stack struct filled by xsk_tx_peek_desc(); DMA and length fields are derived from the validated kernel copy."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_xsk.c",
+      "line": 542,
+      "status": "safe",
+      "reason": "i40e_xmit_zc() batch path consumes xdp_ring->xsk_pool->tx_descs (kernel memory) after xsk_tx_peek_release_desc_batch(); no direct UMEM ring access."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/ice/ice_xsk.c",
+      "line": 975,
+      "status": "safe",
+      "reason": "ice uses the batch API; descriptors come from pool->tx_descs kernel copy."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/igc/igc_main.c",
+      "line": 2781,
+      "status": "safe",
+      "reason": "igc TX loop consumes xdp_desc stack copy; len/addr not re-fetched from UMEM."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/en/xsk/tx.c",
+      "line": 84,
+      "status": "safe",
+      "reason": "mlx5e_xsk_tx() fills a stack 'desc' via xsk_tx_peek_desc() and derives dma_addr/data/len from it once."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/netronome/nfp/nfd3/xsk.c",
+      "line": 346,
+      "status": "safe",
+      "reason": "nfp_nfd3_xsk_tx() fills a stack desc[] array via xsk_tx_peek_desc(); later loops index the stack array, not the shared ring."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/freescale/dpaa2/dpaa2-xsk.c",
+      "line": 410,
+      "status": "safe",
+      "reason": "dpaa2_xsk_tx() consumes ch->xsk_pool->tx_descs kernel copy from the batch API."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/stmicro/stmmac/stmmac_main.c",
+      "line": 2435,
+      "status": "safe",
+      "reason": "stmmac xsk TX loop consumes xdp_desc stack copy for dma_addr and len."
+    }
+  ],
+  "limitations": [
+    "s04 contains no xsk_tx_metadata / XDP_TXMD_FLAGS / tx_metadata_len anywhere (verified by grep over the whole tree), so the seed's TX-metadata mechanism cannot exist in this snapshot; the seed function itself is absent (xsk.c is a pre-6.8 vintage without metadata support).",
+    "The single struct assignment '*desc = ring->desc[idx]' is not READ_ONCE-wrapped; a hostile compiler could theoretically re-load the 16-byte shared descriptor after validation. This is a hardening gap matching upstream commit 2021d65117a5 ('xsk: ...) rather than the seed's double-fetch, and was not counted as a finding.",
+    "Non-TX consumers of UMEM pages (RX data content itself, XDP program reads of frame data) are inherently racy by design and were judged out of scope for the validated-value-identity invariant.",
+    "Not audited: virtio/vhost and syscall double-fetch branches (assigned to separate intents i016/i015)."
+  ]
+}

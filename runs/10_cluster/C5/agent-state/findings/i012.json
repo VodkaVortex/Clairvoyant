@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "vm-shared-desc-rereads",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2881,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc_n(): guest-writable descriptor table is fetched via vhost_get_desc(vq, &desc, i) (vhost.c:2881) which copies the whole struct vring_desc once into a stack local via vhost_copy_from_user (vhost.c:1582-1586). All subsequent uses -- flags checks (2895, 2903), translate_desc(vhost64_to_cpu(vq, desc.addr), vhost32_to_cpu(vq, desc.len)) (2905-2906), log entries, and next_desc() chain walking -- consume only the local copy 'desc'; next_desc() even uses READ_ONCE(desc->next) on the local. avail->idx/avail->ring head values are likewise single get_user fetches into locals with bounds checks (avail_idx sanity check in vhost_get_avail_idx at ~1530-1545; head >= vq->num check at 2856). No validate-then-refetch on shared memory found in the descriptor path."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2716,
+      "status": "safe",
+      "reason": "get_indirect(): indirect descriptor table is first translated (translate_desc of indirect->addr/len from the already-copied caller-local 'indirect' struct) and then read with copy_from_iter_full(&desc, sizeof(desc), &from) into a fresh local per iteration (vhost.c:~2743-2747); flags/addr/len of each indirect desc are used only from that local. Guest cannot cause validated-vs-used divergence here."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/vhost/vringh.c",
+      "line": 332,
+      "status": "safe",
+      "reason": "__vringh_iov(): each guest descriptor is copied once into local 'struct vring_desc desc' (vringh.c:332 'err = copy(vrh, &desc, &descs[i], sizeof(desc))'), and all validation plus use -- rcheck(len/addr), iov_base/iov_len assignment (403-408), partial-split rewriting of desc.len/desc.addr (412-417), chained next index (419-420), i >= desc_max bounds check (434) -- operate exclusively on that local copy. __vringh_get_head() fetches avail->idx and avail->ring[i] once each via getu16 into locals and bounds-checks head before use (vringh.c:44-77)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/vhost/vdpa.c",
+      "line": 355,
+      "status": "safe",
+      "reason": "vhost_vdpa_get_config()/vhost_vdpa_set_config(): vhost_vdpa_config is copy_from_user'd once into a local 'config' (off/len), validated against device config size in vhost_vdpa_config_validate (vdpa.c:340-352) using the same local, and the same local values are then used for vdpa_get_config/vdpa_set_config and copy_to_user/vmemdup_user. Buffer contents are copied into a kernel-local buf before use. No double fetch of c->len/c->off from user memory."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/vdpa/vdpa_user/vduse_dev.c",
+      "line": 361,
+      "status": "safe",
+      "reason": "vduse_dev_read_iter()/vduse_dev_write_iter(): responses are copied once via copy_from_iter into a local 'struct vduse_dev_response resp', reserved bytes validated (is_mem_zero) on the local, and request_id lookup uses the same local; requests dequeued to userspace are memcpy'd from kernel-owned msg->req. vduse_vdpa_get_config (vduse_dev.c:813-827) clamps offset/len against dev->config_size before memcpy from kernel-private config memory, which is not directly guest-shared (userspace daemon writes it through a validated ioctl path at 1423-1438). No shared-memory double-fetch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/vhost/net.c",
+      "line": 692,
+      "status": "safe",
+      "reason": "vhost_net_build_xdp(): the virtio_net_hdr gso fields (csum_start/csum_offset/hdr_len) are read from a private kernel buffer 'buf' that was filled by copy_from_iter from the already-translated descriptor iov (net.c:724 copied = copy_from_iter(...)); the header validation at net.c:731-746 reads gso->csum_start/csum_offset multiple times, but from the kernel-private copy where re-reads cannot diverge from a validated value in a security-relevant way beyond the same benign inconsistency noted in the seed commit, and hdr_len is checked against 'len' before use. Consumers (vhost_net_tx_get_vq_desc at 599-625, get_tx_bufs at 648-676) operate on vhost_core locals."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/virtio_net.c",
+      "line": 2275,
+      "status": "unresolved",
+      "reason": "receive_mergeable()/receive_mergeable_xdp() read hdr->num_buffers from the device-DMA'd buffer once into local num_buf (virtio_net.c:2275 'int num_buf = virtio16_to_cpu(vi->vdev, hdr->num_buffers);') and loop with the local; a second read of hdr->num_buffers only feeds a pr_debug after failure. Device-controlled buffer contents are otherwise length-checked per-buffer (check_mergeable_len, len - vi->hdr_len). The single-fetch pattern is followed, and RX buffers are not concurrently guest-mutable while DMA is owned by the device, so this is likely safe; left unresolved only because per-fragment len/truesize validation (mergeable_buf_free, virtnet_skb_append_frag) was not exhaustively audited within this intent's bounds."
+    }
+  ],
+  "limitations": [
+    "Bounded to the vm-shared-desc-rereads branch in snapshots/s03: drivers/vhost/*, drivers/vdpa/*, drivers/virtio/*, drivers/net/virtio_net.c, and net/vmw_vsock/virtio_transport_common.c header-consumer patterns; other subsystems (e.g. drivers/xen, KVM paravirt structs, sparse mmap-based vdpa sim) were not exhaustively audited.",
+    "drivers/vhost/vsock.c and net/vmw_vsock/virtio_transport_common.c were only surveyed via grep for vhost_get_vq_desc/copy_from_iter call sites; a full read of their header-field validation was not completed before the finalize directive.",
+    "No runtime race reproducer was built: conclusions rest on static single-fetch vs double-fetch analysis of the literal source, per the report-as-hypothesis standard."
+  ]
+}

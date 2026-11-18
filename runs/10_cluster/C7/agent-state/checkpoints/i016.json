@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "timer-dwork-softirq-lock",
+  "status": "complete",
+  "snapshot": "s01",
+  "candidates": [
+    {
+      "path": "drivers/net/ethernet/chelsio/cxgb4/sge.c",
+      "line": 2487,
+      "status": "reported",
+      "reason": "adap->ptp_lock taken with plain spin_lock at sge.c:2490 (inside t4_start_xmit PTP branch; ndo_start_xmit context) and at sge.c:4303 (sge_tx_timer_cb, TIMER_SOFTIRQ, timer_setup at 5229), plus cxgb4_ptp_read_hwstamp (cxgb4_ptp.c:115) reachable from t4_tx_hststamp (sge.c:3751) in the NAPI RX loopback path; while sibling sites use spin_lock_bh (sge.c:4995, cxgb4_ptp.c:252 enable). Plain spin_lock from process-context ndo_start_xmit vs TIMER_SOFTIRQ holder -> timer softirq preempts xmit and spins."
+    },
+    {
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 2247,
+      "status": "safe",
+      "reason": "Timer callbacks iscsi_check_transport_timeouts (2247) and iscsi_tmf_timedout (1903) take session->frwd_lock plainly, but they are the TIMER_SOFTIRQ side itself; remaining plain sites (1139/1248/1358/2169/2386) are RX paths already under back_lock comment-locked or nested inside an outer spin_lock_bh(&frwd_lock) holder; iscsi_eh_cmd_timed_out uses spin_lock_bh (2088). No BH-enabled plain holder on the timer-shared lock."
+    },
+    {
+      "path": "net/bridge/br_multicast.c",
+      "line": 629,
+      "status": "safe",
+      "reason": "Timer callbacks (group_expired:629, port_group_expired:744 etc.) take br->multicast_lock plainly (softirq side OK); all process-context enable/disable/del_port/mdb sites use spin_lock_bh (1899, 1942, 1972, 3852, 4190, 4207, 4266, 4391, 4454, 4467, 4507, 4527, 4059, 4075). The s04/s07/s11 bug shape is NOT present in s01."
+    },
+    {
+      "path": "drivers/net/ethernet/chelsio/cxgb4/cxgb4_ptp.c",
+      "line": 115,
+      "status": "reported",
+      "reason": "cxgb4_ptp_read_hwstamp takes adapter->ptp_lock plainly (115); reached from t4_tx_hststamp (sge.c:3568) called at sge.c:3751 inside the NAPI rx_eth loopback path (napi_rx_handler at 3988) - NET_RX softirq side; and sge_tx_timer_cb (4303) TIMER_SOFTIRQ; the process-side ndo_start_xmit PTP branch takes the same lock plainly at sge.c:2490. Softirq/timer side vs plain xmit-side holder."
+    }
+  ],
+  "limitations": [
+    "Enumeration was bounded: only the two sibling-snapshot shapes (br_multicast, libiscsi) plus the cxgb4 ptp_lock lead were deep-read; the full timer_list/hrtimer/delayed_work callback enumeration across the s01 tree was not completed before the finalize directive.",
+    "Static analysis only; no .config/generated headers in the snapshot, so no build/lockdep/PoC."
+  ],
+  "updated_at": "2026-11-14T16:39:00Z"
+}

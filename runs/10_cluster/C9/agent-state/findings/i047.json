@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "intent_id": "i047",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": ["s12"],
+  "findings": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 240,
+      "quote": "num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: ioctl_memcpy() (drivers/virt/fsl_hypervisor.c:147) copies a fully userspace-controlled struct fsl_hv_ioctl_memcpy via copy_from_user at line 165; param.count is an unrestricted u64 and the only checks are that exactly one of source/target is -1 (lines 174-176) and, at lines 218-220, 'param.count == 0 || param.count > U64_MAX - lb_offset - PAGE_SIZE + 1' which guards ONLY 64-bit wraparound of the addition, not the 32-bit truncation that follows. Missing guarantee: num_pages is declared 'unsigned int num_pages' (line 155) and assigned at line 221 as (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT -- a 64-bit u64 sum whose result is truncated to 32 bits with no clamp against any maximum; the allocation at lines 239-240 'sg_list_unaligned = kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1, GFP_KERNEL)' is a plain 32-bit unsigned multiply-add with no kcalloc/array_size/struct_size/size_mul overflow check (element size 32 bytes, struct fh_sg_list = four uint64_t members aligned(32), arch/powerpc/include/asm/fsl_hcalls.h:341-346). Unsafe use: the fill loop 'for (i = 1; i < num_pages; i++)' (line 274) writes sg_list[i].source/.target/.size (lines 277-287) into the kmalloc'd buffer for all num_pages entries while kmalloc received only the wrapped 32-bit product; e.g. param.count near 2^41 yields num_pages = 2^29 whose product 2^29*32 = 2^34 wraps to 0, so kmalloc(sizeof(*sg_list)-1 = 31) succeeds and the loop writes gigabytes past the heap buffer; get_user_pages_fast at lines 249-250 must pin num_pages pages into the kcalloc'd pages array (line 229) first, bounding the practical attacker to a local user with ~2^27+ pinnable pages and access to /dev/fsl-hv. This is the seed's exact sizing mechanism (unchecked count-derived multiply -> undersized allocator -> element-indexed loop) under a different subsystem and attacker (local ioctl u64 count instead of remote peer count). Counterevidence checked: the pages kcalloc at line 229 is overflow-checked only in that kcalloc truncates on overflow rather than wrapping the size argument (kcalloc num_pages*8 wraps identically for num_pages >= 2^29, so the sibling allocation shares the truncation); no clamp on num_pages exists anywhere between line 221 and the kmalloc at 239 (window read in full, lines 147-300)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 221,
+      "status": "reported",
+      "reason": "64-to-32-bit truncation of num_pages from u64 param.count followed by unchecked 32-bit multiply-add kmalloc (lines 239-240) and element-indexed fill loop (line 274) writing sg_list[i] entries; reported as the finding."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 239,
+      "status": "reported",
+      "reason": "kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1, GFP_KERNEL) -- plain 32-bit unsigned multiply-add from the truncated num_pages with no overflow-checked sizing; part of the reported finding."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 274,
+      "status": "reported",
+      "reason": "for (i = 1; i < num_pages; i++) writes sg_list[i].source/.target/.size per iteration into the buffer sized by the possibly-wrapped product, plus get_user_pages_fast(..., num_pages, ..., pages) at line 249 filling the same-truncated pages kcalloc; the element-indexed consuming loop of the reported finding."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 665,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim and UNPATCHED in s12: usbip_recv_iso reads 'int np = urb->number_of_packets;' (line 664) and computes 'int size = np * sizeof(*iso);' (line 665) with no clamp, then kzalloc(size) at line 677 and the per-element loop 'for (i = 0; i < np; i++)' at line 696 writing urb->iso_frame_desc[i]; the poisoning store 'urb->number_of_packets = rpdu->number_of_packets;' in usbip_pack_ret_submit unpack (usbip_common.c:473) has no range check, while USBIP_MAX_ISO_PACKETS (usbip_common.h:130) is enforced only on the CMD_SUBMIT sibling direction (stub_rx.c:379-381, window read) -- the asymmetric-validation signature. Excluded from findings per the seed-never-reportable rule; recorded as excluded-by-rule per the intent instructions so a later worker can decide snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s12",
+      "path": "block/partitions/ldm.c",
+      "line": 1247,
+      "status": "unresolved",
+      "reason": "On-disk count into 32-bit multiply then copy loop: ldm_frag_add (block/partitions/ldm.c:1216) contains 'f = kmalloc (sizeof (*f) + size*num, GFP_KERNEL);' at line 1247 where size = ldb->vm.vblk_size is a raw on-disk be32 field and num is the disk-supplied fragment record count; the copy at ~line 1293 'memcpy(f->data + VBLK_SIZE_HEAD + rec * size, data, size)' trusts the same values. Location verified (grep line 1247 exact); reachability not deep-read in this session -- the ldm_get_vblks caller computes perbuf = 512 / size and only enters the loop when perbuf > 0, which may bound vblk_size <= 512 and keep size*num small; left unresolved for a later audit of the alternate large-size caller."
+    }
+  ],
+  "limitations": [
+    "The audit was halted by the finalize directive after verifying the seed usbip state (unpatched, excluded by rule), deep-reading drivers/virt/fsl_hypervisor.c in full (lines 147-300, all allocation and loop sites), and locating block/partitions/ldm.c:1247; the planned six-family regex sweep of narrow-typed 'size = count * sizeof' assignments, raw-multiply allocator arguments, and 'count << shift' sizings across the rest of drivers/, fs/, net/, sound/, block/, crypto/ was NOT executed, so additional same-mechanism variants elsewhere in s12 cannot be ruled out.",
+    "The fsl_hypervisor finding is a source-verified hypothesis, not a proven exploit: triggering requires /dev/fsl-hv access (root-owned misc device on Freescale/QorIQ powerpc), a param.count large enough that (count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT truncates past the 32-bit product (num_pages >= 2^27 for the 32-byte element), and a successful get_user_pages_fast pin of num_pages pages before the fill loop runs; no runtime reproducer or compilation was performed (read-only snapshot).",
+    "block/partitions/ldm.c:1247 (on-disk vblk_size * fragment count into kmalloc then memcpy at rec*size offsets) was only located, not deep-read: the ldm_get_vblks perbuf = 512/size gate may bound vblk_size <= 512 and defuse the 32-bit wrap; a later audit should trace the full ldm_parse_vmdb -> ldm_get_vblks -> ldm_frag_add size provenance.",
+    "Known variant families from other snapshots were spot-checked only by presence and exact-line grep: net/sched/ematch.c, drivers/video/fbdev/core/fbcmap.c, drivers/firmware/qemu_fw_cfg.c, fs/nfsd, drivers/infiniband vmw_pvrdma, sound/soc tas571x were not re-verified in s12 before the finalize directive (fsl_hypervisor and ldm.c were the two explicitly confirmed present with matching line structure).",
+    "All conclusions come from direct numbered sed/grep reads of snapshots/s12 (working directory of the session shell was the s12 tree root; the PATH-pinned rg binary is permission-denied, /usr/bin/rg and grep were used); no compilation, static analysis, or reproducer harness was run."
+  ]
+}

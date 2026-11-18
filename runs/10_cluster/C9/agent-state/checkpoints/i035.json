@@ -1,0 +1,16 @@
+{
+  "intent_id": "i035",
+  "branch": "alloc-multiply-overflow",
+  "snapshot": "s09",
+  "status": "complete",
+  "progress": "Finalized. Verified in snapshots/s09: (1) REPORTED drivers/virt/fsl_hypervisor.c ioctl_memcpy - unsigned int num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT truncates the u64 ioctl count (line 221, copy_from_user at 165, only count==0/U64 wraparound guard at 218-220), then kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1) at 239-240 is a plain 32-bit multiply-add (32-byte element), followed by the for (i = 1; i < num_pages; i++) sg_list[i] fill loop at 274-287 and get_user_pages_fast/fh_partition_memcpy using the same count; sibling pages kcalloc at 229 is overflow-checked (within-function asymmetry). (2) usbip seed chain present UNPATCHED (usbip_common.c:473/664-665/677/699-703) - excluded by rule, recorded unresolved. (3) block/partitions/ldm.c:1247 kmalloc(sizeof(*f)+size*num) safe: on-disk vblk_size bounded to <=512 by the ldm_get_vblks perbuf=512/size caller loop (1352-1376) and num clamped 1..4 (1232-1235), product <=2048 cannot wrap. Broad tree sweep not run before finalize directive (see limitations).",
+  "candidates_classified": [
+    "s09:drivers/virt/fsl_hypervisor.c:239 reported",
+    "s09:drivers/virt/fsl_hypervisor.c:274 reported",
+    "s09:drivers/virt/fsl_hypervisor.c:229 safe",
+    "s09:drivers/usb/usbip/usbip_common.c:665 unresolved (excluded-by-rule seed)",
+    "s09:block/partitions/ldm.c:1247 safe"
+  ],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C9/agent-state/findings/i035.json",
+  "timestamp": "2026-11-15"
+}

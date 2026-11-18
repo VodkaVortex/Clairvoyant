@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "proc-config-write-unterminated",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "arch/um/kernel/exitcode.c",
+      "start": 42,
+      "end": 52,
+      "quote": "size = min(count, sizeof(buf));\n\tif (copy_from_user(buf, buffer, size))\n\t\treturn -EFAULT;\n\n\ttmp = simple_strtol(buf, &end, 0);",
+      "confidence": "medium",
+      "reason": "Untrusted source: /proc/exitcode write (proc_create(\"exitcode\", 0600, ...) with .proc_write = exitcode_proc_write); 'count' and full buffer contents are attacker/root-supplied. Violated invariant: buf is a 7-byte stack array (char buf[sizeof(\"nnnnn\\0\")]); size = min(count, sizeof(buf)) allows size == sizeof(buf) == 7, so copy_from_user fills every byte of the array with no +1 terminator slot and no buf[size] = 0. Unsafe use: simple_strtol(buf, &end, 0) scans past digits until a non-digit/NUL, reading buf[7] one byte past the 7-byte stack array when the write is all digits, and *end then dereferences that out-of-bounds byte in the following check. Consequence: 1-byte stack out-of-bounds read (KASAN stack-OOB; info leak of one stack byte / crash). Counterevidence checked: no memset, no explicit terminator, no count < sizeof(buf) bound anywhere in the handler (lines 40-52); same pattern as seed but in a /proc write handler. Reachability limited to UML builds (CONFIG_UML) and root-only 0600 mode, matching the seed's root-only debugfs threat model; impact is a single OOB byte, hence medium confidence."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "start": 98,
+      "end": 103,
+      "quote": "buffer = vmemdup_user(buf, lbuf);\n\tif (IS_ERR(buffer))\n\t\treturn -ENOMEM;\n\n\trc = sscanf(buffer, \"%x %x %x %x %x %x %x\", &slct, &oflw, &chn, &rsc, &anc,",
+      "confidence": "high",
+      "reason": "Untrusted source: crw_inject_write is the .write handler for a textual error-injection control file (debugfs_create_file(\"crw_inject\", 0200, cio_debugfs_dir, ...) plus enable_inject gate at lines 160-169); 'lbuf' and full contents come from the write syscall. Violated invariant: vmemdup_user(buf, lbuf) allocates exactly lbuf bytes (kmalloc for small sizes, exact-size vmalloc otherwise) with no NUL terminator, unlike vmemdup_user_nul/memdup_user_nul. Unsafe use: sscanf(buffer, \"%x %x %x %x %x %x %x\", ...) is a C-string consumer that scans until NUL; with 7 non-NUL input bytes of exactly lbuf length it reads past the allocation. Consequence: heap/vmalloc out-of-bounds read (KASAN OOB, info leak/crash) - structurally identical to the seed's memdup_user+sscanf bug. Counterevidence checked: no terminator write, no length-bounded parse (lines 85-125); kvfree immediately after sscanf confirms the buffer is exactly the user copy. Notes: s390-only, requires root to first enable via the enable_inject file (static key cio_inject_enabled); registered under debugfs so it overlaps branch1 (i002) but is a textual error-injection control writer."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 315,
+      "end": 319,
+      "quote": "kern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &len);",
+      "confidence": "high",
+      "reason": "Untrusted source: bnad_debugfs_write_regrd .write handler on the bna driver debugfs control file; 'nbytes' and buffer contents are attacker-supplied. Violated invariant: memdup_user(buf, nbytes) allocates exactly nbytes bytes with no NUL terminator (the seed's exact API and shape; bnad is the Brocade BNA sibling of the scsi bfa driver fixed by the same upstream series that introduced memdup_user_nul). Unsafe use: sscanf(kern_buf, \"%x:%x\", &addr, &len) scans until NUL and can read past the nbytes-sized heap allocation; the regwr sibling at line 375 (bnad_debugfs_write_regwr, memdup_user then sscanf(kern_buf, \"%x:%x\", &addr, &val)) has the identical defect. Consequence: heap out-of-bounds read (KASAN slab-OOB, info leak/crash). Counterevidence checked: no terminator write or length-bounded parse between copy and sscanf (lines 314-324); no memdup_user_nul anywhere in the file. Registered under debugfs, so it overlaps branch1 (i002); recorded here because it surfaced during the s01 textual-control-writer sweep."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "arch/um/kernel/exitcode.c",
+      "line": 46,
+      "status": "reported",
+      "reason": "See finding 1: copy_from_user fills the full 7-byte stack array with no terminator slot, then simple_strtol scans past it."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "line": 98,
+      "status": "reported",
+      "reason": "See finding 2: vmemdup_user of attacker-sized lbuf followed by sscanf with no termination."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 315,
+      "status": "reported",
+      "reason": "See finding 3: memdup_user(buf, nbytes) + sscanf; sibling at line 375 identical."
+    },
+    {
+      "snapshot": "s01",
+      "path": "fs/proc/base.c",
+      "line": 2775,
+      "status": "safe",
+      "reason": "proc_pid_attr_write uses memdup_user(buf, count) then security_setprocattr dispatches to LSMs; apparmor do_setattr (security/apparmor/lsm.c:851-863) explicitly re-allocates kmalloc(size+1) and writes args[size]='\\0' before strsep/strcmp/strlen; selinux_lsm_setattr passes (value,size) into security_context_to_sid_core which does kmemdup_nul (security/selinux/ss/services.c:1518-1519); smack do_setattr -> smk_import_entry -> smk_parse_smack iterates only len bytes and kstrndup's the result. All string consumers are termination-safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "security/smack/smackfs.c",
+      "line": 2548,
+      "status": "safe",
+      "reason": "smk_write_revoke_subj uses memdup_user then smk_parse_smack(data, count); smk_parse_smack loops i < len with break on invalid chars and kstrndup(string, i, GFP_NOFS), so it never scans past count and always produces a NUL-terminated copy; string[0] check is in-bounds (count >= 1 enforced). All other smackfs write handlers in the file use memdup_user_nul (lines 476, 861, 1188, 1447, 1855, 2029, 2119, 2679, 2779)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/acpi/proc.c",
+      "line": 101,
+      "status": "safe",
+      "reason": "acpi_system_write_wakeup_device caps count at 4 (buf is char[5]) and writes strbuf[count]='\\0' before sscanf(strbuf, \"%s\", str); termination enforced."
+    },
+    {
+      "snapshot": "s01",
+      "path": "arch/powerpc/kernel/rtas-proc.c",
+      "line": 315,
+      "status": "safe",
+      "reason": "ppc_rtas_progress_write caps count at MAX_LINELENGTH-1 and writes progress_led[count]=0 after copy_from_user; simple_strtoul then operates on a terminated buffer."
+    },
+    {
+      "snapshot": "s01",
+      "path": "arch/powerpc/kernel/rtas_flash.c",
+      "line": 419,
+      "status": "safe",
+      "reason": "manage_flash_write copies up to 9 bytes into stkbuf[10] and uses strncmp(stkbuf, \"0\"/\"1\", 1); the fixed-length compare does not depend on NUL termination and reads at most 1 byte of stkbuf, so no OOB. The other rtas_flash copy paths store length-tagged binary flash blocks, not strings."
+    },
+    {
+      "snapshot": "s01",
+      "path": "arch/alpha/kernel/srm_env.c",
+      "line": 105,
+      "status": "safe",
+      "reason": "srm_env_proc_write rejects count >= PAGE_SIZE, copies into a full free page, and writes buf[count]='\\0' before callback_setenv; termination enforced."
+    },
+    {
+      "snapshot": "s01",
+      "path": "fs/proc/generic.c",
+      "line": 812,
+      "status": "safe",
+      "reason": "Proc sysctl write path already uses memdup_user_nul(ubuf, size); terminator guaranteed."
+    },
+    {
+      "snapshot": "s01",
+      "path": "lib/dynamic_debug.c",
+      "line": 1011,
+      "status": "safe",
+      "reason": "ddebug_proc_write (/proc/dynamic_debug/control and debugfs twin) uses memdup_user_nul(ubuf, len) before ddebug_exec_queries; terminator guaranteed."
+    },
+    {
+      "snapshot": "s01",
+      "path": "fs/configfs/file.c",
+      "line": 192,
+      "status": "safe",
+      "reason": "fill_write_buffer copies at most SIMPLE_ATTR_SIZE-1 bytes into a page and writes buffer->page[copied] = 0 with the explicit comment that sscanf() can scan the string; every configfs ->store_* callback therefore receives a NUL-terminated buffer, so the configfs store population checked (acpi_configfs, null_blk, gpio-sim, iio, nvme target, target_core, netconsole, etc.) inherits the guarantee."
+    },
+    {
+      "snapshot": "s01",
+      "path": "kernel/sched/psi.c",
+      "line": 1527,
+      "status": "safe",
+      "reason": "psi_write copies min(nbytes, 32) into buf[32] then writes buf[buf_size-1]='\\0' before psi_trigger_create; termination enforced."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/xt_recent.c",
+      "line": 574,
+      "status": "safe",
+      "reason": "recent_mt_proc_write caps size at sizeof(buf) and consumes with strnchr(c, size, ':') and in4_pton/in6_pton(c, size, ...), all bounded by the explicit remaining size; no unbounded string consumer."
+    },
+    {
+      "snapshot": "s01",
+      "path": "fs/smb/client/cifs_debug.c",
+      "line": 1100,
+      "status": "safe",
+      "reason": "cifs_security_flags_proc_write rejects count outside [1,11], memsets flags_string[12] to zero before copy_from_user, so the 12-byte stack array always keeps a NUL in-bounds for kstrtobool/kstrtouint."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/pktgen.c",
+      "line": 531,
+      "status": "safe",
+      "reason": "pgctrl_write copies min(count,128) into data[128] and writes data[count-1]=0 before strcmp; count >= 1 is enforced. The per-interface pktgen_if_write copies (lines 984-1450) use explicit token lengths with bounded copies (copy_from_user(f, &user_buffer[i], len) after computing len from the token span) rather than whole-buffer string scans."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/pnp/pnpbios/proc.c",
+      "line": 199,
+      "status": "safe",
+      "reason": "pnpbios_proc_write copies count bytes (count validated == node->size - sizeof(node)) into node->data and passes the binary blob to pnp_bios_set_dev_node; no string consumer, so non-string consumption makes the invariant irrelevant."
+    },
+    {
+      "snapshot": "s01",
+      "path": "fs/ntfs3/super.c",
+      "line": 505,
+      "status": "unresolved",
+      "reason": "ntfs3_label_write (/proc/fs/ntfs3/<dev>/label) does label = kmalloc(count) with no +1, copy_from_user(label, buffer, count), strips trailing newlines to compute ret, then calls ntfs_set_label(sb->s_fs_info, label, ret). The explicit length is passed down, but ntfs_set_label and its utf16 conversion path were not read in this session; if any downstream strlen/strcmp/memchr(str) runs on the non-terminated label this would be a heap OOB read. Bounded remaining check."
+    },
+    {
+      "snapshot": "s01",
+      "path": "sound/core/info.c",
+      "line": 326,
+      "status": "unresolved",
+      "reason": "snd_info_text_entry_write copies user data into a kvzalloc'd (zeroed) PAGE_ALIGN(next) buffer with buf->size = next and no explicit terminator; the standard consumers snd_info_get_line/snd_info_get_str are bounded by buffer->size and len so the generic path is safe, but individual snd_info_entry c.text.write callbacks that parse the accumulated buffer with raw string functions were not enumerated. Bounded remaining check."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 174,
+      "status": "unresolved",
+      "reason": "Four memdup_user-then-string-op sites (lines 174, 260, 335, 431) in the ice fwlog debugfs write handlers were flagged by the mechanical sweep but not deeply read in this branch (debugfs-write branch i002 territory); termination status unverified here."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 1002,
+      "status": "unresolved",
+      "reason": "rvu_debugfs memdup_user + string-op site flagged by the sweep but not deeply read; debugfs branch territory, termination status unverified here."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/scsi/qedf/qedf_debugfs.c",
+      "line": 173,
+      "status": "unresolved",
+      "reason": "qedf_debugfs memdup_user + string-op site flagged by the sweep but not deeply read; debugfs branch territory, termination status unverified here."
+    }
+  ],
+  "limitations": [
+    "The mechanical sweep covered memdup_user/vmemdup_user/copy_from_user call sites reachable from proc, configfs, securityfs/smackfs, debugfs-adjacent control files, and textual net proc writers; write paths using other copy primitives (direct iov_iter, splice, individual driver ioctls) were not exhaustively enumerated.",
+    "fs/ntfs3/super.c ntfs3_label_write downstream (ntfs_set_label) and sound/core/info.c per-entry c.text.write callbacks remain unverified for string consumption on non-terminated buffers.",
+    "Debugfs-branch sites found in the same sweep (ice_debugfs.c x4, rvu_debugfs.c:1002, qedf_debugfs.c:173, plus the remaining ~40 memdup_user files without adjacent string ops) were not deeply read in this intent; they belong to branch1 (i002) for this snapshot.",
+    "arch/um/kernel/exitcode.c finding is limited to UML builds (CONFIG_UML), a root-only 0600 proc file, and a 1-byte stack OOB read; cio_inject.c and bnad_debugfs.c findings are root-only (0200) debugfs files, with cio_inject additionally gated behind the enable_inject static key and restricted to s390.",
+    "No compilation or KASAN reproducer was run (read-only source snapshot, no build attempted); classification rests on source reading of the copy call, size argument, and the unbounded C-string consumer."
+  ]
+}

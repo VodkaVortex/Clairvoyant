@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "intent_id": "i042",
+  "branch": "tasklet-napi-softirq-lock",
+  "phase": "finalized",
+  "snapshot": "s13",
+  "status": "complete - 2 findings in drivers/atm/solos-pci.c (cli_queue_lock high, tx_queue_lock medium), 11 candidates classified (6 safe, 5 unresolved)",
+  "candidates": [
+    {
+      "path": "drivers/atm/solos-pci.c",
+      "line": 461,
+      "status": "reported",
+      "lock": "card->cli_queue_lock",
+      "evidence": "console_show process ctx plain spin_lock (461) vs solos_bh tasklet softirq spin_lock (868); tasklet scheduled from hardirq at 762; sysfs DEVICE_ATTR_RW(console) at 587."
+    },
+    {
+      "path": "drivers/atm/solos-pci.c",
+      "line": 971,
+      "status": "reported",
+      "lock": "card->tx_queue_lock",
+      "evidence": "pclose process ctx plain spin_lock (971) vs solos_bh->fpga_tx softirq spin_lock (1090); ATM core BH state unverified so medium confidence."
+    }
+  ],
+  "notes": "Safe: he.c, eni.c, fore200e.c, ipwireless, rtl8150/pegasus/lan78xx, carl9170 cmd_lock (process side correctly spin_lock_bh). Unresolved: carl9170 flush_ba tid_info->lock, ath5k txbuflock/block, ath9k_htc tasklets, rt2x00 queue->tx_lock, mwl8k stream_lock (branch1 reassign)."
+}

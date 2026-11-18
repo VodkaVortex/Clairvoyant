@@ -1,0 +1,58 @@
+{
+  "intent_id": "i017",
+  "branch": "firmware-table-divisor",
+  "status": "finalizing",
+  "phase": "complete",
+  "snapshot": "s04",
+  "candidates": [
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 59,
+      "status": "reported",
+      "reason": "gk104_volt_set: div = 27648000 / bios->pwm_freq with pwm_freq straight from VBIOS (bios/volt.c:110, raw u32 /1000 so 1..999 truncates to 0), no validation between parse and division."
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 60,
+      "status": "reported",
+      "reason": "same function: DIV_ROUND_UP((uv - bios->base) * div, bios->pwm_range); pwm_range is raw u32 VBIOS field (bios/volt.c:111), unchecked; also u32 multiply (uv - bios->base) * div can wrap."
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 48,
+      "status": "reported",
+      "reason": "gk104_volt_get: bios->pwm_range * duty / div with div = nvkm_rd32(device, 0x20340) unvalidated register read (device-provided divisor); lower confidence."
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/bios/volt.c",
+      "line": 110,
+      "status": "reported",
+      "reason": "unvalidated untrusted source of the finding: nvbios_volt_parse 0x50 PWM branch fills pwm_freq (rd32/1000) and pwm_range (rd32) with no range checks."
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk20a.c",
+      "line": 56,
+      "status": "safe",
+      "reason": "gk20a_volt_get_cvb_voltage/_t_voltage: divisors s_scale/t_scale are compile-time constants (100, 10) at all call sites in gk20a_volt_calc_voltage; coefficients are static const tables, not firmware; Tegra fuse speedo only feeds numerators, so no zero-divisor variant (int overflow of c2*speedo is numerator-side only)."
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/r600_dpm.c",
+      "line": 227,
+      "status": "unresolved",
+      "reason": "k = (100 * fh) / fl; divisor fl provenance not examined before finalization; r600 clock code may derive fh/fl from firmware SCLK/MCLK values."
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/r600_dpm.c",
+      "line": 207,
+      "status": "safe",
+      "reason": "i_c = (i * r_c) / 100; divisor is the literal constant 100."
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 310,
+      "status": "safe",
+      "reason": "seed site itself is already patched in s04 (!speed || speed > UINT_MAX/8); same guard present in smu7_thermal.c:270, vega20_thermal.c:194, arcturus_ppt.c:1270, smu_v13_0.c:1229, so the literal seed bug is not present unfixed in s04's AMD PM code."
+    }
+  ],
+  "notes": "Finalized per instruction. Primary finding: nouveau gk104 PWM voltage programming divides by unvalidated VBIOS fields (firmware-table-divisor branch). Broader ACPI/DT/EDID/SMBIOS/EEPROM divisor queries were not run (finalization)."
+}

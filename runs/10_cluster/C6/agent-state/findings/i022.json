@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "intent_id": "i022",
+  "branch": "callee-pull-caller-stale",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "start": 1918,
+      "end": 1984,
+      "quote": "struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb->data;",
+      "confidence": "medium",
+      "reason": "Interprocedural duplicate of the seed's callee-pull-caller-stale shape in s01 (same site already validated on the s04 twin by fact f024, which proves the pattern is a live bug class in this driver family). CALLER CAPTURE: mwl8k_txq_xmit() (drivers/net/wireless/marvell/mwl8k.c:1898) captures mgmt = (struct ieee80211_mgmt *)skb->data at line 1918, a raw pointer into skb->head taken before any transformation; wh = (struct ieee80211_hdr *)skb->data is likewise captured at 1921. CALLEE RELOCATING CALL: lines 1933-1936 dispatch every TX skb to either mwl8k_encapsulate_tx_frame(priv, skb) (ap_fw branch, which itself calls mwl8k_add_dma_header at line 935) or mwl8k_add_dma_header(priv, skb, 0, 0); mwl8k_add_dma_header() (mwl8k.c:838) reads hdrlen = ieee80211_hdrlen(wh->frame_control) at 854 and, when priv->ap_fw && hdrlen < sizeof(struct ieee80211_cts) + REDUCED_TX_HEADROOM(8), executes pskb_expand_head(skb, REDUCED_TX_HEADROOM, 0, GFP_ATOMIC) at line 862. pskb_expand_head() unconditionally allocates a new head and frees the old data area, so every pre-call pointer into skb->head is a use-after-free afterward. STALE POST-RETURN DEREFERENCE: the caller refetches only wh at line 1938 ('wh = &((struct mwl8k_dma_data *)skb->data)->wh') and NEVER reloads mgmt; the stale pre-call mgmt is then dereferenced after the callee returns at line 1978 (mgmt->u.action.category, gating the WLAN_CATEGORY_BACK comparison), line 1979 (mgmt->u.action.u.addba_req.action_code, compared to WLAN_ACTION_ADDBA_REQ) and line 1981 (capab = le16_to_cpu(mgmt->u.action.u.addba_req.capab), whose TID bits then drive mwl8k_tid_queue_mapping(tid) at 1983 and the hardware TX-queue selection 'index/txpriority') \u2014 kernel TX state (hardware queue assignment, BA session routing) selected by reads through potentially freed slab memory, the seed's exact validated-elsewhere-then-independently-used-after-free class at a call boundary. UNTRUSTED SOURCE: the skb is mac80211 TX traffic whose 802.11 header/action-frame bytes at skb->data are packet data, not kernel-private storage; under AP firmware the frames include station-triggered action traffic (ADDBA requests), and the stale-read values directly choose the hardware queue. COUNTEREVIDENCE/UNCERTAINTY: the reallocating branch requires priv->ap_fw plus a short 802.11 header (hdrlen < sizeof(struct ieee80211_cts)+8, reachable with 10-16 byte null-function/CTS-like frames under headroom pressure) so pskb_expand_head actually executes; mwl8k_encapsulate_tx_frame also passes head_pad>0 which does not change the expand condition; the degree of attacker control over the stale bytes is lower than the seed's remote RX peer since the skb originates from the local mac80211 TX path (an injected/forwarded frame with a chosen short 802.11 header is the plausible trigger); no runtime KASAN reproducer was run. Confidence medium: the structural evidence (caller capture, callee pskb_expand_head, three post-return stale dereferences feeding TX-queue state) is exact and complete in source, while the reallocation precondition is argued from pskb_expand_head semantics, not demonstrated dynamically."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 1978,
+      "status": "reported",
+      "reason": "mwl8k_txq_xmit(): mgmt captured at 1918 from skb->data; callees mwl8k_encapsulate_tx_frame (1934) / mwl8k_add_dma_header (1936) internally pskb_expand_head at 862 (old head freed); caller refetches only wh (1938), never mgmt; stale mgmt->u.action.category/.action_code/.capab dereferenced at 1978/1979/1981 and drives TX queue selection at 1983. Raised as the finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 876,
+      "status": "unresolved",
+      "reason": "Same-function callee-internal case: inside mwl8k_add_dma_header(), wh captured at 852 survives the pskb_expand_head at 862 and is read at 876 (ieee80211_is_data_qos(wh->frame_control)) and used as the memmove source at 880-881 with hdrlen derived from the same freed frame_control. Structurally identical to the s04 tx-cow finding (fact f014, mwl8k.c:867/881); left unresolved here rather than duplicated because it is a same-function chain that belongs to the s01 tx-cow-head-realloc surface (fact f006) and this intent is scoped to the callee->caller boundary; it corroborates that pskb_expand_head on this path really frees the head the caller's mgmt points into."
+    }
+  ],
+  "limitations": [
+    "The finalize directive halted the audit at the first credible interprocedural finding: the callee->caller enumeration across s01 net/ and drivers/ (indexing every function containing pskb_may_pull/pskb_pull/__pskb_pull_tail/skb_linearize/skb_cow/skb_cow_head/pskb_expand_head or a thin wrapper, then auditing each caller for a live pre-call header pointer) was not executed tree-wide; only the mwl8k chain was deep-read with exact source lines.",
+    "The unresolved sites named by the intent (net/bluetooth/hidp/core.c:1214, net/bluetooth/rfcomm/core.c:1944, drivers/net/ppp/ppp_generic.c:2669, xen-netfront.c, net/strparser.c:194, net/core/skbuff.c:4372, drivers/net/veth.c:977) were not re-read in this session before finalization; per the sibling facts they are RX-session/dequeue loops where the pull typically precedes parsing, but they remain unclassified for the interprocedural boundary in s01.",
+    "Same-function capture->pull->use chains already classified by the concluded s01 artifacts were skipped per intent scope: ip_tunnel_core PMTU builders (f006), mac80211 tdls, mt7925 mcu, ipv6 exthdrs, ovs actions (f006), mpls af_mpls (f010), x25, ip6_tunnel, ip6_offload, bluetooth bnep/cmtp, and the still-open same-function rx-pull surface (f013) including udp_offload __skb_udp_tunnel_segment.",
+    "The mwl8k finding is a static source hypothesis: no runtime reproducer or KASAN trace was produced; triggering requires pskb_expand_head to actually execute (priv->ap_fw, short 802.11 header, headroom pressure) so the old head is really freed before lines 1978-1984 run, which was argued from pskb_expand_head semantics, not demonstrated.",
+    "Whether upstream Linux has since fixed mwl8k_txq_xmit/mwl8k_add_dma_header could not be checked (no network/Git access); the identical shape independently reported for the s04 snapshot (facts f014/f024) supports that the pattern persisted in this driver family at these snapshot versions."
+  ]
+}

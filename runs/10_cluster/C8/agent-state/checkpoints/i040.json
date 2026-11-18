@@ -1,0 +1,47 @@
+{
+ "version": 1,
+ "intent_id": "i040",
+ "branch": "fixed-epidx-rest",
+ "snapshot": "s10",
+ "status": "complete",
+ "step": "final artifact written; 3 findings (gigaset, ueagle-atm, pcwd_usb), 23 classified candidates",
+ "candidates": [
+  {
+   "path": "drivers/isdn/gigaset/usb-gigaset.c",
+   "line": 708,
+   "status": "reported",
+   "note": "endpoint[0]/[1] at 708/727, no bNumEndpoints check in file; probe matches on VID/PID/interface class only"
+  },
+  {
+   "path": "drivers/usb/atm/ueagle-atm.c",
+   "line": 2209,
+   "status": "reported",
+   "note": "interface[0]->altsetting[0].endpoint[0].desc.bInterval in uea_boot at bind time, no bNumEndpoints check"
+  },
+  {
+   "path": "drivers/usb/storage/alauda.c",
+   "line": 1126,
+   "status": "safe",
+   "note": "init_alauda endpoint[0] read is guarded upstream by usb-storage get_pipes() bNumEndpoints loop requiring ep_in/ep_out"
+  },
+  {
+   "path": "sound/usb/misc/ua101.c",
+   "line": 1034,
+   "status": "safe",
+   "note": "find_format_descriptor validates num_altsetting==2 and altsetting[1].bNumEndpoints==1 before altsetting[1].endpoint[0]"
+  },
+  {
+   "path": "drivers/watchdog/pcwd_usb.c",
+   "line": 634,
+   "status": "reported",
+   "note": "endpoint[0] with no bNumEndpoints check; only HID class check precedes"
+  },
+  {
+   "path": "drivers/usb/wusbcore/wa-nep.c",
+   "line": 272,
+   "status": "unresolved",
+   "note": "epd = iface->cur_altsetting->endpoint[0].desc with no check in file; need to inspect wa_nep_create caller"
+  }
+ ],
+ "notes": "Will sweep USB consumer trees outside media-usb/net-usb for unvalidated altsetting[i].endpoint[k].desc reads at probe/bind/init."
+}

@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "intent_id": "i020",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s05"],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/target/iscsi/iscsi_target.c",
+      "start": 1113,
+      "end": 1129,
+      "quote": "cdb = kmalloc(be16_to_cpu(ecdb_ahdr->ahslength) + 15,\n\t\t\t      GFP_KERNEL);\n\t\tif (cdb == NULL)\n\t\t\treturn iscsit_add_reject_cmd(cmd,\n\t\t\t\tISCSI_REASON_BOOKMARK_NO_RESOURCES, buf);\n\t\tmemcpy(cdb, hdr->cdb, ISCSI_CDB_SIZE);\n\t\tmemcpy(cdb + ISCSI_CDB_SIZE, ecdb_ahdr->ecdb,\n\t\t       be16_to_cpu(ecdb_ahdr->ahslength) - 1);",
+      "confidence": "medium",
+      "reason": "Untrusted source: ecdb_ahdr->ahslength is a 16-bit big-endian field of the Additional Header Segment of an iSCSI SCSI-command PDU read from the network by any iSCSI initiator connecting to the LIO target (iscsit_get_rx_pdu, iscsi_target.c:4065-4108, receives hdr->hlength*4 AHS bytes into a krealloc'ed buffer). Missing guarantee: ahslength is re-decoded independently at the allocator (line 1122) and at the copy (line 1129) with no local clamp against the amount of AHS bytes actually received (hlength*4) nor against SCSI_MAX_VARLEN_CDB_SIZE; if the two fetches of the peer-controlled shared header differ, or if ahslength exceeds the received AHS bytes, the allocation and the memcpy length disagree (poisoned shared-state length consumed on a different path than it was validated/sized on). Unsafe use: memcpy of ahslength-1 bytes from ecdb_ahdr->ecdb into the kmalloc'ed cdb buffer whose size was ahslength+15 at a possibly different fetch; even in the single-fetch model, kmalloc(x+15) followed by a copy of x-1 bytes plus the leading 16-byte ISCSI_CDB_SIZE copy copies 16+(x-1) = x+15 bytes which exactly saturates the allocation when ahslength is at its 16-bit maximum, and any allocator-kmalloc rounding versus ahslength>received-AHS mismatch leaves a peer-driven OOB read of the network rx buffer (the source ecdb array is only hlength*4-4 bytes of received data) and a potentially undersized heap destination. Impact: remotely triggerable heap OOB read into kmalloc'ed memory (info leak via later CDB processing) and potential heap overflow; unauthenticated network attacker with iSCSI target access. Counterevidence checked: ahslength is fetched twice from the same shared header with no intervening revalidation (grep over drivers/target/iscsi shows ahslength used only at lines 1122 and 1129); hlength validation exists only as iov.iov_len = hdr->hlength * 4 at iscsit_get_rx_pdu:4097 with a separate 4-byte-multiple receive, never cross-checked against ahslength; the kmalloced cdb is freed on every error path (1180-1181, 1208-1209) so no use-after-free; upstream later added a check that ahslength-1 <= sizeof(ecdb_ahdr->ecdb) which this tree lacks."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/target/iscsi/iscsi_target.c",
+      "line": 1113,
+      "status": "reported",
+      "reason": "Reported finding: peer-controlled ahslength sizes the kmalloc at line 1122 and independently drives the memcpy length at line 1129 with no clamp against the actually-received AHS byte count (hdr->hlength*4) or against the fixed ecdb array size; OOB source read of network rx buffer into heap cdb."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/target/iscsi/iscsi_target.c",
+      "line": 1180,
+      "status": "safe",
+      "reason": "All iscsit_handle_scsi_cmd error/unwind paths free the kmalloced cdb (lines 1180-1181 datain_req allocation failure, 1208-1209 after target_cmd_init_cdb); no poisoned pointer survives into teardown, and iscsit_release_commands_from_conn (line 4205+) only manipulates list state, not cdb."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/target/iscsi/iscsi_target.c",
+      "line": 4097,
+      "status": "unresolved",
+      "reason": "iscsit_get_rx_pdu receives hdr->hlength*4 AHS bytes into a krealloc'ed buffer; the received byte count is never compared to ecdb_ahdr->ahslength before the memcpy at line 1129 (only ISCSI_HDR_LEN and iov.iov_len equality are checked). Not deeply audited whether a malicious initiator can desynchronize hlength*4 < ahslength-1+4; the OOB source read argument holds whenever ahslength-1 exceeds the received AHS payload."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 644,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim present in s05: usbip_pack_ret_submit stores the peer number_of_packets unclamped (line 387), usbip_recv_iso (644-703) computes int size = np * sizeof(*iso) and kzalloc(size), and all error returns (-EPIPE at 682, 702) leave urb->number_of_packets poisoned for processcompl. Excluded from reporting per the seed-exclusion rule (seed names usbip/recv_iso/number_of_packets must never be the finding itself); recorded so a later worker can decide snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s05",
+      "path": "fs/9p/vfs_dir.c",
+      "line": 70,
+      "status": "safe",
+      "reason": "v9fs_alloc_rdir_buf kzallocs sizeof(struct p9_rdir)+buflen where buflen = clnt->msize - P9_IOHDRSZ (negotiated, >= 4096, client.c:911/978); the RREAD/RREADDIR reply count is clamped twice: protocol.c:219-221 clamps the 'D'-format count to pdu->size - pdu->offset, and client.c:2053-2055 clamps count = rsize before the return; vfs_dir then bounds rdir->tail to the returned n and iterates head < tail, so a malicious server count cannot exceed the allocated buffer."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/9p/protocol.c",
+      "line": 275,
+      "status": "safe",
+      "reason": "T-walk parse reads nwname and immediately kmalloc_array()s wnames (overflow-checked allocator); each name string is length-checked by the 's' format against the remaining pdu bytes; error unwind frees per-name allocations before returning."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/gadget/function/f_fs.c",
+      "line": 2373,
+      "status": "safe",
+      "reason": "ffs OS-descriptor parse (userspace-supplied mount data): feature_count = le16_to_cpu(desc->wCount) is bounded by the _len / len remaining-buffer accounting at 2381-2392 and 2442-2460 (length < 14+pnl and length != 14+pnl+pdl checks bound name_len/data_len before any of the ext_prop_avail pointer advancement or memcpy at 3022-3037); EXT_COMPAT feature_count > 255 is rejected; not a peer/protocol path and not error-path poisoning."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/xen/gntdev.c",
+      "line": 953,
+      "status": "safe",
+      "reason": "gntdev_ioctl_grant_copy loops i < copy.count with each segment copy_from_user'ed individually and GNTDEV_COPY_BATCH (ops array) rollover flushing before nr_ops can exceed the batch; the out: unwind gntdev_put_pages releases pinned pages symmetrically; no count is left poisoned in shared state (local userspace-only attacker, count consumed in the same fetch that bounded it)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/xen/gntdev.c",
+      "line": 628,
+      "status": "safe",
+      "reason": "gntdev_ioctl_map_grant_ref validates op.count with gntdev_test_page_count before kvmalloc_array allocations and copy_from_user; unmap uses gntdev_find_map_index which matches map->count exactly; error paths free the map via gntdev_put_map."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/infiniband/ulp/srp/ib_srp.c",
+      "line": 1985,
+      "status": "safe",
+      "reason": "SRP initiator rsp->data_in_res_cnt/data_out_res_cnt only feed scsi_set_resid (SCSI residual bookkeeping, no copy or loop); desc_len accumulation at 1604 runs over locally-generated indirect_desc during srp_check_mapping (debug WARN-only comparison), and max_it_iu_len/max_ti_iu_len at 2349-2357 are used for channel buffer sizing after min() clamping, not for peer-controlled loop bounds on the error path."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/block/drbd/drbd_receiver.c",
+      "line": 5681,
+      "status": "safe",
+      "reason": "got_BlockAck/got_IsInSync blksize = be32_to_cpu(p->blksize) is a peer-supplied length, but it flows only into drbd_set_in_sync/rs accounting (bitmap op with its own range clamping in drbd_bm/bit ops) and never into an allocation-sized-by-one-path/copied-by-another-path split; pi->size itself is validated against the connection's agreed max_buffers/recv buffer in drbd_recv_header and the data is consumed under that bound."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/block/rnbd/rnbd-clt.c",
+      "line": 1340,
+      "status": "safe",
+      "reason": "Server-supp logical_block_size/physical_block_size/discard fields are validated (blk_stack_limits style + is_power_of_2 checks in the surrounding 1330-1420 window) before being installed into the queue limits; they configure geometry, they never size an allocation that a different fetch of the same field later iterates."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/block/nbd.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "NBD client present in s05; grep for le32_to_cpu/be32_to_cpu produced no direct wire-count hits in nbd.c itself (reply structs consumed elsewhere), but the reply handling (nbd_handle_reply/nbd_read_reply and blk_mq_rq update paths) was not deep-read before the finalize directive; residual risk of a server-controlled reply length/flags reaching bio completion state unexamined."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/infiniband/sw/rxe/rxe_resp.c",
+      "line": 390,
+      "status": "unresolved",
+      "reason": "check_length()/mr_check_range() provide per-packet bound checks for the RDMA responder, but the multi-packet WQE residual-length state machine (qp->resp.resid, qp->resp.length) and its teardown on error/RNR paths was not fully walked before the finalize directive; a peer-driven resid underflow driving OOB sge consumption could not be confirmed or excluded."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb",
+      "line": 0,
+      "status": "safe",
+      "reason": "All non-usbip number_of_packets consumers found in s05 (btusb.c:1295/1316, usbdux*.c, hfcsusb.c:945, media URB builders gspca/uvc/em28xx/pwc/usbtv/stk1160/tm6000 etc.) assign the count from a local loop index or a compile-time constant before usb_submit_urb; HCI-completed URBs iterate their own locally-set count, so no wire/peer-controlled count is left poisoned in a shared URB by an early return in these drivers."
+    }
+  ],
+  "limitations": [
+    "The finalize directive stopped the audit after deep-reading the iSCSI target AHS path and the 9p readdir path; the NBD client reply handler (drivers/block/nbd.c) and the rxe/siw RDMA responder residual-length error paths remain unresolved and could hide a stronger same-mechanism variant.",
+    "The reported iSCSI AHS finding argues the poisoned-length/fetch-mismatch and OOB source read from source structure (ahslength never compared to the received hlength*4 AHS byte count, struct iscsi_ecdb_ahdr.ecdb is a fixed SCSI_MAX_VARLEN_CDB_SIZE-ISCSI_CDB_SIZE array in include/scsi/iscsi_proto.h:174-180); no runtime reproducer or static-analyzer run was performed because the snapshot is read-only, so exploitation beyond a bounded OOB read into a fresh kmalloc'ed CDB buffer is unproven; confidence is medium for the invariant violation and low for full end-to-end impact.",
+    "For the exact-saturation case ahslength=0xFFFF the allocation kmalloc(0x1000e) is rounded by the slab allocator while the copy copies exactly 0x1000e bytes, so the single-fetch model is memory-safe by construction; the OOB requires either the two independent be16_to_cpu fetches to observe different values (shared-header race) or ahslength exceeding the received AHS payload - both are argued from source, neither was demonstrated.",
+    "The wire/disk-count-store sweep covered drivers (target, infiniband, xen, block, usb, scsi, net), net/9p, and fs/9p; netlink-nla and ioctl copy_from_user count stores outside gntdev/f_fs and other naming conventions for shared-object counts (iovec teardown, ring-entry abort paths) were only enumerated, not exhaustively deep-read.",
+    "The seed usbip code is present unpatched in s05 (usbip_common.c:387/644 with USBIP_MAX_ISO_PACKETS enforced only in stub_rx.c:372); it is excluded from findings per the seed-exclusion rule and recorded as an unresolved candidate for a later worker."
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "intent_id": "i005",
+  "branch": "ip-exthdr-tlv-walk",
+  "snapshot": "s01",
+  "status": "finalizing",
+  "progress": [
+    {"step": 1, "note": "Read ipv6_skip_exthdr, ipv6_find_tlv, ipv6_find_hdr in exthdrs_core.c: all use skb_header_pointer or explicit bound checks; ipv6_find_tlv guards offset+2>packet_len before the loop"},
+    {"step": 2, "note": "Read ip6_parse_tlv (exthdrs.c:117-205): reads nh[off+1] when len==1 without a remaining>=2 check - analyzed as OOB-by-structure but bounded by prior pskb_may_pull in ipv6_destopt_rcv/ipv6_rthdr_rcv callers; classified reported-low"},
+    {"step": 3, "note": "Read br_nf_check_hbh_len (br_netfilter_ipv6.c:48-95): same shape, reads nh[off+1] at len==1; pre-condition 'raw + len - skb->data > skb_headlen' bounds the header but does not guarantee a final 2-byte read; classified reported-low"},
+    {"step": 4, "note": "Read ip6t_hbh.c hbh_mt6 loop: proper 'hdrlen < 1' before type fetch and 'hdrlen < 2' before length fetch via skb_header_pointer - safe; also optlen use guarded by 'ptr > skb->len - optlen || hdrlen < optlen' (though only checked when temp < optsnr-1)"},
+    {"step": 5, "note": "Read calipso_tlv_len/calipso_opt_find (calipso.c:826-905): explicit 'offset + 1 >= opt_len' check before reading the length byte and 'offset + tlv_len > opt_len' clamp - safe"},
+    {"step": 6, "note": "Read ip_options_compile (ip_options.c:271-294): has explicit 'if (unlikely(l < 2)) goto error' before optlen=optptr[1] and 'optlen > l' clamp - safe (this is the post-9609dad263f8 shape)"},
+    {"step": 7, "note": "Read ah6.c zero_out_mutable_opts/ipv6_rearrange_destopt: both have explicit 'if (len < 2) goto bad' before reading opt[off+1] and 'len < optlen' clamp - safe"},
+    {"step": 8, "note": "Located remaining unchecked-area files (mip6.c, output_core.c, ip6t_rt.c, seg6.c, exthdrs_offload.c) but not deeply read; recorded as unresolved in limitations"}
+  ],
+  "candidates": [
+    {"path": "net/ipv6/exthdrs.c", "line": 141, "status": "reported", "note": "ip6_parse_tlv: optlen = nh[off + 1] + 2 read when len==1; no remaining>=2 guard before length byte"},
+    {"path": "net/bridge/br_netfilter_ipv6.c", "line": 65, "status": "reported", "note": "br_nf_check_hbh_len: same unguarded nh[off + 1] + 2 when len==1"},
+    {"path": "net/ipv4/ip_options.c", "line": 286, "status": "safe", "note": "explicit l < 2 check before length byte"},
+    {"path": "net/ipv6/exthdrs_core.c", "line": 133, "status": "safe", "note": "ipv6_find_tlv bounds via offset+2>packet_len pre-check and optlen>len clamp"},
+    {"path": "net/ipv6/calipso.c", "line": 834, "status": "safe", "note": "calipso_tlv_len has offset+1>=opt_len check and offset+tlv_len>opt_len clamp"},
+    {"path": "net/ipv6/netfilter/ip6t_hbh.c", "line": 117, "status": "safe", "note": "hdrlen<1 before type, hdrlen<2 before length via skb_header_pointer"},
+    {"path": "net/ipv6/ah6.c", "line": 127, "status": "safe", "note": "len<2 check before opt[off+1] and len<optlen clamp in both mutation loops"}
+  ]
+}

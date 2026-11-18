@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "optsize-body-clamp",
+  "status": "complete",
+  "snapshot": "s03",
+  "summary": "Bounded audit of s03 network option parsers that read a size byte and use it unclamped. All TCP-option walkers checked (tcp_input.c tcp_parse_options/tcp_parse_mss_option, mptcp_get_options, nf_conntrack_proto_tcp tcp_options/tcp_sack, nf_synproxy_core synproxy_parse_options, core/filter.c bpf_search_tcp_opt) contain the length<2 plus opsize<=length guards. One credible candidate found: net/netfilter/xt_dccp.c dccp_find_option walks DCCP options reading op[i+1] as a size byte without any (optlen - i) >= 2 guard and without clamping op[i+1] to remaining bytes, unlike the sibling xt_tcpmss.c which guards 'i == optlen - 1'.",
+  "candidates": [
+    {"path": "net/netfilter/xt_dccp.c", "line": 68, "status": "reported", "reason": "i += op[i+1]?:1 reads a size byte with no 2-byte-remaining check and no clamp to optlen"},
+    {"path": "net/ipv4/tcp_input.c", "line": 4558, "status": "safe", "reason": "tcp_parse_options has length<2 return plus opsize>length return before any body use"},
+    {"path": "net/ipv4/tcp_input.c", "line": 4499, "status": "safe", "reason": "tcp_parse_mss_option has same guards"},
+    {"path": "net/ipv4/tcp_input.c", "line": 4459, "status": "safe", "reason": "tcp_parse_fastopen_option clamps len to [TCP_FASTOPEN_COOKIE_MIN, TCP_FASTOPEN_COOKIE_MAX] before memcpy; callers pass opsize-derived len with opsize<=length already enforced"},
+    {"path": "net/mptcp/options.c", "line": 386, "status": "safe", "reason": "mptcp_get_options in this tree already contains the length<2 fix (seed patch applied)"},
+    {"path": "net/netfilter/nf_conntrack_proto_tcp.c", "line": 366, "status": "safe", "reason": "tcp_options/tcp_sack have length<2 and opsize>length guards before body reads"},
+    {"path": "net/netfilter/nf_synproxy_core.c", "line": 54, "status": "safe", "reason": "synproxy_parse_options has both guards"},
+    {"path": "net/core/filter.c", "line": 7740, "status": "safe", "reason": "bpf_search_tcp_opt checks opend-op<2, opend-op<op[1], op[1]>=2 before use"},
+    {"path": "net/netfilter/xt_tcpmss.c", "line": 64, "status": "safe", "reason": "guard 'op[i] < 2 || i == optlen - 1' prevents final-byte size read; MSS read also has (optlen-i)>=TCPOLEN_MSS"},
+    {"path": "net/netfilter/xt_TCPOPTSTRIP.c", "line": 19, "status": "safe", "reason": "optlen() reads opt[offset+1] but caller loop bound i < tcp_hdrlen - 1 ensures offset+1 within header"}
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/xt_dccp.c",
+      "start": 59,
+      "end": 69,
+      "confidence": "medium",
+      "reason": "DCCP header option walk"
+    }
+  ]
+}

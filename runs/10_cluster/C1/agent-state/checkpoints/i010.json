@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "chardev-ioctl-divisor",
+  "phase": "final",
+  "snapshot": "s01",
+  "timestamp": "2026-11-11T23:38:40.953012+00:00",
+  "status": "Finalized: 1 high-confidence finding (synclink_gt.c async_mode modulo-by-wrapped-zero via MGSL_IOCSPARAMS data_rate*16), 7 candidates classified (5 safe, 2 unresolved), final artifact written.",
+  "candidates": [
+    {
+      "id": "C1",
+      "path": "drivers/tty/synclink_gt.c",
+      "line": 4125,
+      "status": "reported",
+      "note": "base_clock % (data_rate*16): u32 wrap to zero modulo-by-zero; user-controlled via MGSL_IOCSPARAMS/compat ioctl; no validation of data_rate in set_params/set_params32; tty baudrate path limited to 4M so main risk is ioctl path"
+    },
+    {
+      "id": "C2",
+      "path": "drivers/tty/synclink_gt.c",
+      "line": 4329,
+      "status": "safe",
+      "note": "set_rate(info, clock_speed*16): set_rate checks if(rate) so wrapped-zero arg is skipped"
+    },
+    {
+      "id": "C3",
+      "path": "drivers/tty/synclink_gt.c",
+      "line": 3818,
+      "status": "safe",
+      "note": "set_rate guarded by if(clock_speed) and set_rate itself checks rate"
+    }
+  ],
+  "next": "Continue bounded search of other chardev subsystems (iio/media/hid/input/misc) for same pattern before finalizing artifact"
+}

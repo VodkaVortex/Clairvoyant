@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "xmit-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "start": 1991,
+      "end": 1996,
+      "quote": "spin_lock(&priv->stream_lock);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency triggers, not data - any transmitted QoS data frame that makes mac80211 call the driver's .tx op under NET_TX softirq (qdisc dequeue / net_tx_action) or process-context xmit, plus any hardirq that schedules the watchdog worker on the same CPU. VIOLATED INVARIANT: priv->stream_lock (declared mwl8k.c:209, spin_lock_init at 6150) is shared between softirq-reachable xmit code and process/workqueue code, yet is never acquired with spin_lock_bh()/local_bh_disable() anywhere in the file (all 16 acquisitions at lines 1992, 2056, 2079, 2129, 3835, 3848, 4165, 4176, 5461, 5502, 5523, 5541, 5552, 5559 are plain spin_lock). SOFTIRQ SIDE: mwl8k_tx (ieee80211_ops .tx, mwl8k.c:4691) -> mwl8k_txq_xmit (defined mwl8k.c:1898, called at 4705) -> spin_lock(&priv->stream_lock) at 1992/2056/2079/2129 with no BH disable, while the very same function takes priv->tx_lock with spin_lock_bh at 2064 - proving this xmit path is expected to run with bottom halves enabled. PROCESS/WORKQUEUE SIDE (holders): mwl8k_watchdog_ba_events worker (mwl8k.c:3818, INIT_WORK at 6127, queued from hardirq handler mwl8k_interrupt via ieee80211_queue_work at 4620) takes plain spin_lock(&priv->stream_lock) at 3835; mwl8k_cmd_set_new_stn_del (4157, plain lock at 4165) reached from mwl8k_sta_remove (5331) under cfg80211/mac80211 process context; mwl8k_ampdu_action (plain stream_lock at 5461+) from cfg80211 process context. UNSAFE USE: while the watchdog_ba_handle worker (or a user-triggered sta-remove/ampdu action) holds stream_lock on a CPU, a NET_TX softirq on that CPU executing mwl8k_txq_xmit spins on stream_lock forever while the preempted holder can never resume. CONSEQUENCE: softirq soft-lockup on one CPU, RCU stall/watchdog splats, device TX stall, repeatable DoS - the exact seed mechanism (missing spin_lock_bh on a lock shared between process/workqueue context and xmit softirq context). COUNTEREVIDENCE CHECKED: no spin_lock_bh/irqsave variant exists for stream_lock anywhere in mwl8k.c (grep over all lock sites); the driver demonstrably knows the _bh pattern for the sibling tx_lock (1578/1591/1597/2064), so the omission is a discipline gap, not a global lock-hierarchy guarantee; mac80211 may also invoke .tx from process context (direct xmit), which narrows but does not close the softirq window since qdisc-based TX and tx-dequeue under NET_TX softirq reach the same function. Static hypothesis; no runtime reproducer built (tree lacks .config/headers for standalone build)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 1992,
+      "status": "reported",
+      "reason": "stream_lock plain spin_lock at 1992/2056/2079/2129 inside mwl8k_txq_xmit (softirq-reachable xmit chain mwl8k_tx:4691 -> 4705) vs process/workqueue holders at 3835 (watchdog_ba_events worker queued from hardirq at 4620), 4165 (mwl8k_cmd_set_new_stn_del from mwl8k_sta_remove:5331), 5461 (mwl8k_ampdu_action); sibling tx_lock uses spin_lock_bh at 2064 proving BH-enabled xmit context. Reported as the finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wwan/wwan_hwsim.c",
+      "line": 202,
+      "status": "safe",
+      "reason": "All 12 plain spin_lock sites (lines 202-500 on dev->ports_lock and wwan_hwsim_devs_lock) sit in debugfs attribute handlers, netlink/deldev config paths, and module init/exit - process-context both sides of every pairing; wwan_hwsim is a software simulator with no ndo_start_xmit/TX-completion or NAPI/tasklet path taking these locks, so no softirq-vs-holder shape exists."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+      "line": 30,
+      "status": "unresolved",
+      "reason": "4 plain spin_lock sites on ctl_node->resp_lock (trans.c:30/47/87/136); qtnfmac bus locks use spin_lock_irqsave, but whether any resp_lock site is reachable from TX softirq was not traced before the finalize deadline (mirrors the unresolved s14 qtnfmac candidate)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "Highest plain spin_lock density in drivers/net (29 sites); ranking only - the per-lock softirq/process pairing was not traced before the finalize deadline."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/chelsio/cxgb4/sge.c",
+      "line": 14,
+      "status": "unresolved",
+      "reason": "14 plain spin_lock sites ranked by density; control-queue vs xmit-completion context pairing not traced before the deadline."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/intersil/hostap/hostap_ap.c",
+      "line": 13,
+      "status": "unresolved",
+      "reason": "13 plain spin_lock sites (plus 11 in hostap_hw.c); hostap runs xmit and IRQ paths whose lock-context pairing was not traced before the deadline."
+    }
+  ],
+  "limitations": [
+    "Search bounded to snapshot s02 only, as required; no other snapshot was inspected.",
+    "The mwl8k stream_lock finding is a static hypothesis: no runtime reproducer or lockdep run was performed because the tree lacks .config/headers for a standalone driver build.",
+    "Candidate enumeration ranked drivers/net and drivers/net/wireless by plain-spin_lock density and deeply traced only mwl8k and wwan_hwsim; cassini.c, cxgb4/sge.c, cxgb3/sge.c, hostap_ap.c/hostap_hw.c, cw1200/wsm.c, altera_tse_main.c, lan966x_mac.c, mt76/tx.c, iwlwifi pcie/rx.c and qtnfmac/trans.c remain untraced (unresolved).",
+    "mac80211 .tx softirq reachability for mwl8k was established from the mac80211 call model (drv_tx from qdisc dequeue/net_tx_action and from ieee80211_subif_start_xmit) rather than by dynamic tracing; process-context direct-xmit calls narrow the window, which is reflected in medium confidence.",
+    "Whether the literal ks7010 seed bug is present unpatched in s02 was not checked; per instructions the seed must never be reported regardless."
+  ]
+}

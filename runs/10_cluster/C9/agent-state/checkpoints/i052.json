@@ -1,0 +1,76 @@
+{
+ "checkpoint": "after-sweep-1",
+ "intent_id": "i052",
+ "snapshot": "s13",
+ "branch": "unclamped-wire-count",
+ "status": "broad sweep of le/be count conversion sites in drivers/net, drivers/scsi, fs, net done; cifs cifsacl num_aces also unclamped (sibling confirmed in other trees)",
+ "candidates": [
+  {
+   "path": "fs/cifs/misc.c",
+   "line": 651,
+   "status": "reported",
+   "note": "NumberOfReferrals only <1 check; kcalloc + ref++ walk no rsp_size bound"
+  },
+  {
+   "path": "fs/cifs/cifsacl.c",
+   "line": 742,
+   "status": "reported",
+   "note": "num_aces le32 no cross-check vs pdacl->size; ACE loop OOB read via compare_sids"
+  },
+  {
+   "path": "net/bluetooth/hci_event.c",
+   "line": 4928,
+   "status": "reported",
+   "note": "hci_le_adv_report_evt num_reports loop, no skb len validation"
+  },
+  {
+   "path": "net/bluetooth/hci_event.c",
+   "line": 5127,
+   "status": "reported",
+   "note": "hci_le_direct_adv_report_evt same pattern"
+  },
+  {
+   "path": "drivers/md/raid5-ppl.c",
+   "line": 831,
+   "status": "reported",
+   "note": "ppl_recover entries_count no clamp vs PPL_HDR_MAX_ENTRIES; but header CRC verified first"
+  },
+  {
+   "path": "fs/ceph/inode.c",
+   "line": 333,
+   "status": "safe",
+   "note": "nsplits bounded by decoder p+=advance under ceph_decode_need end checks"
+  },
+  {
+   "path": "fs/ceph/snap.c",
+   "line": 854,
+   "status": "safe",
+   "note": "num_split_inos/realms: p advances then ceph_decode_need(&p,e,...) bounds-checks cumulative advance before loops"
+  },
+  {
+   "path": "drivers/net/ethernet/qlogic/netxen/netxen_nic_ctx.c",
+   "line": 380,
+   "status": "reported",
+   "note": "num_rds_rings/num_sds_rings from firmware reply drive rds_rings[i]/sds_rings[i] and prsp_rds[i] walks with no bound vs max_rds_rings/rsp_size"
+  },
+  {
+   "path": "drivers/net/ethernet/mellanox/mlx4/mcg.c",
+   "line": 350,
+   "status": "unresolved",
+   "note": "members_count &0xffffff (max 16M) loops mgm->qp[i] (MLX4_MAX_QP_PER_MGM=1020) with no clamp vs num_qp_per_mgm; device is PCIe peer, malicious-firmware threat model"
+  },
+  {
+   "path": "drivers/usb/usbip/usbip_common.c",
+   "line": 611,
+   "status": "unresolved",
+   "note": "seed present unpatched; excluded-by-rule"
+  },
+  {
+   "path": "drivers/accel/qaic",
+   "status": "safe",
+   "note": "qaic driver absent from s13"
+  }
+ ],
+ "findings": [],
+ "next": "final verification of report quotes and line ranges; write final artifact"
+}

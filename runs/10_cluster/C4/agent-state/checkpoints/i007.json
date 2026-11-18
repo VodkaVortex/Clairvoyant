@@ -1,0 +1,79 @@
+{
+  "intent_id": "i007",
+  "branch": "uninit-parse-outparam",
+  "status": "complete",
+  "snapshot": "s02",
+  "notes": "Finalized. Two reported candidates: (1) drivers/infiniband/hw/mlx4/sysfs.c store_admin_alias_guid \u2014 uninitialized u64 sysadmin_ag_val passed as sscanf out-param; sscanf return ignored; on non-numeric user write the stack garbage is persisted twice (per-port record store and mlx4_set_admin_guid) and drives alias-GUID work scheduling; sysfs entry read-back is root-only (ADMIN), hence garbage-state variant, not unprivileged disclosure. (2) drivers/scsi/scsi_transport_iscsi.c iscsi_if_set_param \u2014 sscanf(data,'%d',&value) return ignored; value initialized to 0 so not a stack leak, but non-numeric CAP_SYS_ADMIN netlink input silently coerces session->recovery_tmo to 0 (immediate session replacement semantics) \u2014 adjacent error-path-commit semantics. All other triaged candidates safe (nla_parse zeroes tb in lib/nlattr.c __nla_validate_parse; kstrto* wrappers check returns; copy_from_sockptr in do_sock_getsockopt is best-effort by design and never used as validated input; CAN netlink bittiming paths memcpy fully-validated policy-length attrs and check subsequent errors; pcie-designware-debugfs, hisi_sas, greybus, iwlwifi mld, libie fwlog, ixgbe debugfs, tlclk all check parse results or are root-only debug with checked parses).",
+  "candidates": [
+    {
+      "path": "drivers/infiniband/hw/mlx4/sysfs.c",
+      "line": 88,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/scsi/scsi_transport_iscsi.c",
+      "line": 3015,
+      "status": "reported"
+    },
+    {
+      "path": "net/wireless/nl80211.c",
+      "line": 12942,
+      "status": "safe",
+      "reason": "nla_parse_nested return ignored but __nla_validate_parse memsets the tb out-array before returning; attrs[] is kzalloc'd + memset each iteration, so failure leaves NULLs, not stale stack"
+    },
+    {
+      "path": "net/wireless/pmsr.c",
+      "line": 317,
+      "status": "safe",
+      "reason": "same: tb/req arrays are zeroed by the parser even on error; NULL-checked before use"
+    },
+    {
+      "path": "drivers/net/can/dev/netlink.c",
+      "line": 624,
+      "status": "safe",
+      "reason": "memcpy from policy-validated fixed-length NLA_BINARY attr into local bt, all subsequent errors abort"
+    },
+    {
+      "path": "net/ipv4/ip_gre.c",
+      "line": 1133,
+      "status": "safe",
+      "reason": "daddr copied from policy-length-validated attr and immediately NULL-checked"
+    },
+    {
+      "path": "drivers/infiniband/core/addr.c",
+      "line": 100,
+      "status": "safe",
+      "reason": "gid copied from attr with strict min-length NLA policy; kernel-to-kernel LS response only"
+    },
+    {
+      "path": "drivers/block/rbd.c",
+      "line": 7246,
+      "status": "safe",
+      "reason": "dev_id pre-initialized to -1 and range-checked; opt_buf pre-NUL-terminated; non-numeric input rejected"
+    },
+    {
+      "path": "drivers/infiniband/ulp/iser/iscsi_iser.c",
+      "line": 700,
+      "status": "safe",
+      "reason": "sscanf result unchecked but value only tested for non-zero; non-numeric parse failure leaves value possibly uninitialized yet only widens an error return; low impact"
+    },
+    {
+      "path": "drivers/pci/controller/dwc/pcie-designware-debugfs.c",
+      "line": 330,
+      "status": "safe",
+      "reason": "kstrtou32/sscanf return values checked against expected counts"
+    },
+    {
+      "path": "drivers/scsi/hisi_sas/hisi_sas_v3_hw.c",
+      "line": 4504,
+      "status": "safe",
+      "reason": "kstrtobool_from_user return checked"
+    },
+    {
+      "path": "drivers/net/wireless/intel/iwlwifi/mld/debugfs.c",
+      "line": 1056,
+      "status": "unresolved",
+      "reason": "sscanf==0 checked so rate uninit impossible only when 0 conversions; partial==false pre-init makes mixed parse safe; full exploitability unassessed"
+    }
+  ]
+}

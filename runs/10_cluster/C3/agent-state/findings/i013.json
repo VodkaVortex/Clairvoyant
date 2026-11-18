@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "rtnl-doit-attr-gaps",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/core/rtnetlink.c",
+      "line": 4014,
+      "status": "safe",
+      "reason": "rtnl_fdb_add (RTM_NEWNEIGH/PF_BRIDGE, registered net/core/rtnetlink.c:5680) parses with nlmsg_parse_deprecated(..., NDA_MAX, NULL, ...) at line 3997, then guards tb[NDA_LLADDR] at 4014 ('if (!tb[NDA_LLADDR] || nla_len(tb[NDA_LLADDR]) != ETH_ALEN) return -EINVAL;') BEFORE 'addr = nla_data(tb[NDA_LLADDR]);' at 4024; tb[NDA_VLAN] only reaches fdb_vid_parse (line 3964) which is NULL-safe ('if (vlan_attr)'). No unguarded tb[] dereference. Side observation outside this branch's mechanism: unlike rtnl_fdb_del (netlink_capable check right before its parse at line 4108), rtnl_fdb_add has no netlink_capable(CAP_NET_ADMIN) check between its prologue and parse at 3997 — a capability asymmetry, not an attribute-presence gap."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/rtnetlink.c",
+      "line": 4125,
+      "status": "safe",
+      "reason": "rtnl_fdb_del (RTM_DELNEIGH/PF_BRIDGE, registered line 5681) guards tb[NDA_LLADDR] at 4125 ('if (!tb[NDA_LLADDR] || nla_len(tb[NDA_LLADDR]) != ETH_ALEN)') before 'addr = nla_data(tb[NDA_LLADDR]);' at 4135, checks CAP_NET_ADMIN before its nlmsg_parse at 4108, and passes tb[NDA_VLAN] only to NULL-safe fdb_vid_parse."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/rtnetlink.c",
+      "line": 4452,
+      "status": "safe",
+      "reason": "rtnl_fdb_get (RTM_GETNEIGH/PF_BRIDGE, registered line 5682): valid_fdb_get_strict uses nlmsg_parse_deprecated_strict with nda_policy at 4452, iterates tb[i] with 'if (!tb[i]) continue;' plus a per-attribute switch enforcing nla_len(tb[NDA_LLADDR]) == ETH_ALEN, and rtnl_fdb_get rejects a missing address via 'if (!addr) ... return -EINVAL;' before ops->ndo_fdb_get(skb, tb, dev, addr, vid, ...)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/vxlan.c",
+      "line": 1287,
+      "status": "safe",
+      "reason": "vxlan_fdb_add (ndo_fdb_add reached via rtnl_fdb_add) uses the CORRECT connective at 1287 ('if (!tb || (!tb[NDA_DST] && !tb[NDA_NH_ID])) return -EINVAL;' — reject only when both are missing) and every later use goes through vxlan_fdb_parse (line 1192) whose NDA_DST/NDA_PORT/NDA_VNI/NDA_SRC_VNI/NDA_IFINDEX/NDA_NH_ID accesses are each individually wrapped in 'if (tb[X])' with nla_len checks; no NULL slot is dereferenced."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/vxlan.c",
+      "line": 1343,
+      "status": "safe",
+      "reason": "vxlan_fdb_delete (ndo_fdb_del via rtnl_fdb_del) has no top-level guard but performs no direct tb[] dereference; it only calls vxlan_fdb_parse (line 1192) which per-attribute-checks every slot it touches, so a NULL/absent NDA_* cannot be dereferenced."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/can/dev/netlink.c",
+      "line": 57,
+      "status": "safe",
+      "reason": "can_changelink (rtnl_link_ops .changelink, line 363) guards every data[] use: IFLA_CAN_BITTIMING at 67, IFLA_CAN_CTRLMODE at 106, IFLA_CAN_RESTART_MS at 141, IFLA_CAN_RESTART at 148, IFLA_CAN_DATA_BITTIMING at 157, IFLA_CAN_TERMINATION at 199; the can_policy (lines 10-22) gives struct attrs '.len = sizeof(...)' and scalars NLA_U32/NLA_U16, so the memcpy(&bt, nla_data(data[IFLA_CAN_BITTIMING]), sizeof(bt)) at ~79 reads at most the policy-guaranteed payload length."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bridge/br_mdb.c",
+      "line": 921,
+      "status": "safe",
+      "reason": "br_mdb_parse (RTM_NEWMDB/RTM_DELMDB, registered lines 1242-1244) checks 'if (!tb[MDBA_SET_ENTRY]) return -EINVAL;' at 921 and 'nla_len(tb[MDBA_SET_ENTRY]) != sizeof(struct br_mdb_entry)' at 925 before 'entry = nla_data(tb[MDBA_SET_ENTRY])' at 930, and only nested-parses tb[MDBA_SET_ENTRY_ATTRS] under 'if (tb[MDBA_SET_ENTRY_ATTRS])' at 935 with a memset(mdb_attrs, 0, ...) fallback so downstream mdb_attrs[] slots are defined."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/vxlan.c",
+      "line": 4246,
+      "status": "unresolved",
+      "reason": "vxlan_changelink (rtnl_link_ops .changelink at 4470) itself contains no direct tb[]/data[] dereference and delegates all attribute decoding to vxlan_nl2conf(tb, data, dev, &conf, true, extack); that helper was enumerated but not read attribute-by-attribute within this intent's budget, so per-attribute NULL coverage inside it remains unverified."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/rtnetlink.c",
+      "line": 4886,
+      "status": "unresolved",
+      "reason": "rtnl_bridge_getlink/rtnl_bridge_setlink (RTM_GETLINK/RTM_SETLINK PF_BRIDGE, registered lines 5684/5686) fetch 'br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC);' at lines 4886 and 4963; the subsequent IFLA_AF_SPEC nested per-family attribute handling was not audited in this intent, so unguarded nested-attr uses there remain unverified."
+    }
+  ],
+  "limitations": [
+    "vxlan_nl2conf (drivers/net/vxlan.c, sole attribute consumer of vxlan_changelink at line 4246) was not audited attribute-by-attribute; this is the largest single unaudited parsing surface among the read changelink handlers.",
+    "23 .changelink implementations exist in snapshots/s03 (bond_netlink.c:760, geneve.c:1821, macsec.c:4255, vlan_netlink.c:290, br_netlink.c:1771, ip_gre.c:1591/1606/1621, ip6_gre.c:2300/2315/2329, ip6_tunnel.c:2199, ip_vti.c:636, ipip.c:622, ip6_vti.c:1112, sit.c:1832, xfrm_interface.c:727, ipoib_netlink.c:173, rmnet_config.c:399, caif_hsi.c:1427, chnl_net.c:522) plus their .newlink/.validate companions; only drivers/net/can/dev/netlink.c:363 was fully read.",
+    "ndo_fdb_add/ndo_fdb_del callbacks invoked by rtnl_fdb_add/rtnl_fdb_del (br_fdb_add/br_fdb_delete in net/bridge/br_fdb.c, ice_fdb_add/ice_fdb_del, i40e_ndo_fdb_add, ocelot_port_fdb_add/del, macvlan_fdb_add/del, dsa_legacy_fdb_add/del, qlcnic_fdb_add/del) receive tb[] in which rtnl core guarantees only NDA_LLADDR/vid; other slots (e.g. NDA_DST, NDA_VNI) may be NULL, and only igb/ixgbe/qlcnic wrappers plus vxlan/macvlan registrations were inspected, not all callback bodies.",
+    "rtnl_bridge_getlink/rtnl_bridge_setlink IFLA_AF_SPEC nested paths (net/core/rtnetlink.c:4886, 4963) and the per-family AF_SPEC handlers were not audited.",
+    "rtnetlink doit/dumpit handlers registered in net/sched (act_api.c, cls_api.c, sch_api.c), net/ipv4 (devinet.c, route.c, ipmr.c, nexthop.c, fib_frontend.c), net/ipv6 (addrconf.c, route.c, ip6mr.c, ip6_fib.c, addrlabel.c), net/dcb/dcbnl.c, net/decnet (dn_dev.c, dn_fib.c, dn_route.c), net/mpls/af_mpls.c, net/phonet/pn_netlink.c, net/core (fib_rules.c, neighbour.c, net_namespace.c) were enumerated by registration but not deep-read.",
+    "The absent netlink_capable(CAP_NET_ADMIN) check in rtnl_fdb_add (net/core/rtnetlink.c:3986, parse at 3997) compared with rtnl_fdb_del is a capability asymmetry outside this intent's attribute-presence mechanism and was not investigated further."
+  ]
+}

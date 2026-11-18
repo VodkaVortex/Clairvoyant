@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "l2-wireless-ie-tlv",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/scan.c",
+      "start": 304,
+      "end": 311,
+      "quote": "while (tmp_old + tmp_old[1] + 2 - ie <= ielen) {",
+      "confidence": "high",
+      "reason": "cfg80211_gen_new_ie walks the transmitted-BSS IE buffer ie[0..ielen-1] (remote beacon/probe-response IEs fed via cfg80211_inform_bss_data -> cfg80211_parse_mbssid_data at scan.c:2137). The loop CONDITION itself dereferences the element length byte tmp_old[1] with no check that at least 2 bytes remain: when the walk lands on the final lone byte (offset ielen-1, e.g. a truncated last MBSSID-derived element), tmp_old[1] reads one byte past the end of the ie buffer, exactly the seed mechanism (kind byte consumed, size byte read while remaining==1). tmp_old advances by attacker-chosen tmp_old[1]+2 sums, so landing on ielen-1 is fully attacker-controlled; the id byte at 308 is then also used for the WLAN_EID_EXTENSION/WLAN_EID_VENDOR_SPECIFIC decisions. Counterevidence checked: memcpy at scan.c:326/346 is bounded by the same <= ielen condition, so the OOB is the length-byte read itself; no caller validates trailing bytes before this walk."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/scan.c",
+      "start": 366,
+      "end": 371,
+      "quote": "while (tmp_new + tmp_new[1] + 2 - sub_copy <= subie_len) {",
+      "confidence": "high",
+      "reason": "Second loop of the same cfg80211_gen_new_ie: sub_copy is kmemdup(profile, profile_len) (scan.c:283), where profile is the attacker-controlled merged MBSSID profile produced by cfg80211_merge_profile from remote beacon data. The condition dereferences sub_copy[tmp_new - sub_copy + 1] as the length byte without a remaining>=2 guard; if the profile ends with a lone element-ID byte, sub_copy[subie_len] is a 1-byte out-of-bounds read past a heap kmalloc allocation (KASAN-detectable), and that attacker-influenced value then drives the memcpy at line 370 and the cursor advance at line 375. Same seed shape: element-id consumed, size byte read when fewer than 2 bytes remain; no trailing-length validation exists between merge and this walk."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/util.c",
+      "start": 1573,
+      "end": 1589,
+      "quote": "u8 len = ies[pos + 1];",
+      "confidence": "medium",
+      "reason": "skip_ie explicitly assumes 'a validly formed IEs buffer' but is reached from ieee80211_ie_split/ieee80211_ie_split_ric (util.c:1592-1637) whose callers pass nl80211-supplied buffers (net/mac80211/mlme.c:933/969/995 assoc_data->ie, net/mac80211/tdls.c:391+ extra_ies), which userspace can end with a lone element-ID byte. The outer loop only checks pos < ielen before reading the id byte ies[pos]; skip_ie then unconditionally reads ies[pos+1] (and again at 1585 for fragments) without confirming pos+1 < ielen, a 1-byte OOB read when exactly one byte remains, and advances pos by an unvalidated 2+len. Counter-evidence: source is a privileged local user (CAP_NET_ADMIN for nl80211), not fully remote, hence medium confidence; the RIC inner loop's own id reads at util.c:1607/1623 are guarded by (pos+ext) >= ielen."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/scan.c",
+      "line": 244,
+      "status": "safe",
+      "reason": "cfg80211_is_element_inherited: ext_id_len = non_inherit_elem->data[2 + id_len] is preceded by 'if (non_inherit_elem->datalen < 3 + id_len) return true;' so the index read is in-bounds; the second list is likewise guarded at 245."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/util.c",
+      "line": 1461,
+      "status": "safe",
+      "reason": "cfg80211_get_p2p_attr: 'if (len < 2) return -EILSEQ;' precedes ies[1] and 'iedatalen + 2 > len' precedes any body use; inner P2P attr loop requires iedatalen >= 3 before get_unaligned_le16. This is the canonical fixed shape (the guard the seed patch adds)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "include/linux/ieee80211.h",
+      "line": 3783,
+      "status": "safe",
+      "reason": "for_each_element requires (data+datalen-elem) >= sizeof(*_elem) AND >= sizeof(*_elem)+elem->datalen before the body, so the 2-byte header and body are always in bounds; scan.c:2084/2087 mbssid walks use this macro and validate datalen>=4 before data[0]/data[1] use."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/scan.c",
+      "line": 2087,
+      "status": "safe",
+      "reason": "cfg80211_parse_mbssid_data subelement walk uses for_each_element (bounds-safe macro) and checks sub->datalen < 4 before reading sub->data[0]/data[1]; mbssid_index_ie[1] < 1 and [2] bounds are validated at 2115-2117."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/util.c",
+      "line": 1599,
+      "status": "reported",
+      "reason": "ieee80211_ie_split_ric outer loop is itself guarded, but it calls skip_ie (line 1612/1627/1632) which reads the length byte with no remaining>=2 check; reported as finding 3."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/util.c",
+      "line": 2749,
+      "status": "unresolved",
+      "reason": "while (pos < ielen && ies[pos] != WLAN_EID_VENDOR_SPECIFIC) walk in ieee80211_txq selection path was located but its body (possible reads of ies[pos+1]) was not read before the intent was finalized."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/mgmt.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "Bluetooth EIR/AD and HCI-event attribute walks in net/bluetooth (mgmt.c, hci_event.c, a2mp.c) were not yet searched when the intent was ordered to finalize; only cfg80211/mac80211 IE walkers were audited."
+    }
+  ],
+  "limitations": [
+    "Bluetooth EIR/AD/SDP/AMP attribute loops and radiotap parsing in s02 were not searched (intent finalized early); only cfg80211/mac80211 802.11 IE walkers plus include/linux/ieee80211.h helpers were audited.",
+    "net/mac80211/util.c:2749 IE walk and net/mac80211/he.c, ht.c, spectrum.c element readers were located but their loop bodies were not fully read.",
+    "No compile/KASAN reproducer was built (read-only snapshot, no kernel tree configuration attempted); findings are source-level hypotheses derived from loop-condition dereferences, not runtime-confirmed.",
+    "Finding 3's untrusted source is a CAP_NET_ADMIN nl80211 user rather than a fully remote peer; exploit impact of the 1-byte OOB reads is unproven."
+  ]
+}

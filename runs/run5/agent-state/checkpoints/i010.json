@@ -1,0 +1,13 @@
+{
+  "intent_id": "i010",
+  "branch": "tpacket-ring-fetch",
+  "snapshot": "s01",
+  "status": "in_progress",
+  "invariant": "Every field sourced from concurrently user-writable mmap'd TPACKET ring memory (tp_len, tp_snaplen, tp_mac/tp_net via macoff/netoff, tp_status, sockaddr addrlen, block descriptors) must be fetched exactly once into a private kernel copy that is both validated and used; validation against the true frame/block bounds; no re-fetch of shared memory between check and use.",
+  "next_steps": [
+    "Read net/packet/af_packet.c tpacket_snd/tpacket_rcv/packet_mmap paths in snapshots/s01",
+    "Grep tp_len/tp_snaplen/tp_mac/tp_net/macoff/netoff accesses",
+    "Check tpacket_parse_header, __packet_lookup_frame, tpacket_fill_skb, packet_current_frame for double fetches",
+    "Check tpacket_rcv vs tpacket_rcv path in fanout/bind for RX double fetches of shared block headers"
+  ]
+}

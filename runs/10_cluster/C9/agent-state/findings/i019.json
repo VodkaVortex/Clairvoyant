@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "intent_id": "i019",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s05"
+  ],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "fs/ceph/inode.c",
+      "start": 360,
+      "end": 392,
+      "quote": "nsplits = le32_to_cpu(fragtree->nsplits);\n\tif (nsplits != ci->i_fragtree_nsplits) {\n\t\tupdate = true;\n\t} else if (nsplits) {\n\t\ti = prandom_u32() % nsplits;\n\t\tid = le32_to_cpu(fragtree->splits[i].frag);",
+      "confidence": "medium",
+      "reason": "Untrusted source: ceph_fill_fragtree() consumes fragtree->nsplits copied verbatim (le32_to_cpu, no clamp) from the MDS (metadata server) reply into the inode's frag-tree state; the MDS is the remote peer endpoint of the Ceph protocol, and ceph_fill_fragtree() is called from ceph_fill_inode() (fs/ceph/inode.c:1081) with &info->fragtree pointing directly into the decoded reply buffer (decode path mds_client.c:120-124). Missing guarantee: unlike the same file's wire counts that ARE clamped (e.g. ceph_handle_snap in fs/ceph/snap.c validates num_split_inos/num_split_realms via ceph_decode_need before splitting, and tipc monitor.c:488-500 validates new_member_cnt > MAX_MON_DOMAIN plus exact dlen match), nsplits from the MDS reply has NO maximum check here - the mirror-path asymmetry: snap.c's wire counts are bounds-validated against the message end, this inode-fragtree path is not. The pointer arithmetic at mds_client.c:122-124 (*p += sizeof(inode) + sizeof(splits) * le32_to_cpu(nsplits)) does bound nsplits against the message length for the decode step, BUT the later use in ceph_fill_fragtree is an INDEPENDENT re-fetch of the shared-memory field le32_to_cpu(fragtree->nsplits) at line 361 with no local maximum: i = prandom_u32() % nsplits (line 365) then le32_to_cpu(fragtree->splits[i].frag) reads splits[i], and the consuming loop at line 390 iterates i < nsplits reading fragtree->splits[i] again from the shared buffer. If the MDS reply frame is in shared kernel memory that another CPU can modify (e.g. via the messenger's zero-copy/kvec pages reusing pages also mapped elsewhere) between the decode-time check and the later consumption, the validated count and the used count diverge. Consequence: OOB read of fragtree->splits[i] beyond the reply message frame feeding sort(fragtree->splits, nsplits, ...) (line 383-385, OOB read/write over the buffer) and the split-by-id loop. Counter-evidence checked: nsplits is bounded indirectly by ceph_decode_need at decode time (mds_client.c:123 uses ceph_decode_need for struct_len and the splits advance is inside the bounded region), and in current kernels the reply lives in the msg->front.iov_base linear buffer not user-mappable memory, so exploitation requires a concurrent mutation of the shared reply buffer - hence medium confidence for the invariant violation (missing local clamp on the re-fetched field at the use site), lower confidence for end-to-end impact. Same-mechanism evidence that the sibling path validates: ceph_handle_snap (fs/ceph/snap.c:994-995) validates its wire counts against message end via ceph_decode_need(&p, e, ...) at line 1013 before iterating."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "fs/ceph/inode.c",
+      "line": 361,
+      "status": "reported",
+      "reason": "Unclamped wire count (le32 nsplits from MDS reply) re-fetched independently at the use site (line 361) after a different decode-time fetch validated the pointer advance (mds_client.c:123-124); the use site applies no local maximum while the sibling wire-count path in the same filesystem (ceph_handle_snap, snap.c:994-1013) validates counts with ceph_decode_need before its loops, and sort() at inode.c:384 runs over nsplits elements read from the shared reply buffer."
+    },
+    {
+      "snapshot": "s05",
+      "path": "fs/cifs/misc.c",
+      "line": 838,
+      "status": "unresolved",
+      "reason": "parse_dfs_referrals() stores *num_of_nodes = le16_to_cpu(rsp->NumberOfReferrals) from the DFS server reply with only a < 1 lower-bound check (no maximum); kcalloc(*num_of_nodes, sizeof(struct dfs_info3_param)) at line 861 sizes the output array from the wire count and the loop at line 869 advances ref++ per iteration reading ref->DfsPathOffset/ref->NetworkAddressOffset offsets. Per-element string copies use max_len = data_end - temp with temp derived from a server-supplied 16-bit offset, so an offset past data_end yields negative max_len; whether cifs_strndup_from_utf16 handles negative lengths was not verified (time-bounded), and no max-referrals constant was found to confirm asymmetric validation against a sibling path."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/tipc/monitor.c",
+      "line": 488,
+      "status": "safe",
+      "reason": "tipc_mon_rcv() reads new_member_cnt = mon_le16_to_cpu(arrv_dom->member_cnt) but immediately enforces new_member_cnt > MAX_MON_DOMAIN -> return, dlen < dom_rec_len(arrv_dom,0) -> return, and dlen != dom_rec_len(arrv_dom, new_member_cnt) -> return before any kmalloc(new_dlen) or the members[i] copy loop; full local cross-check against the actual received frame length, the model clamped-wire-count pattern."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/xfrm/xfrm_user.c",
+      "line": 2556,
+      "status": "safe",
+      "reason": "copy_from_user_migrate() computes num_migrate = nla_len(rt)/sizeof(*um) from the netlink attribute and rejects num_migrate <= 0 || num_migrate > XFRM_MAX_DEPTH before the copy loop into the fixed m[XFRM_MAX_DEPTH] array; clamped against a known protocol maximum. The sibling XFRMA_TMPL path (line 1663) runs validate_tmpl(nr, utmpl, pol->family) on the derived nr before copy_templates."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/nexthop.c",
+      "line": 2413,
+      "status": "safe",
+      "reason": "nexthop_create_group() derives num_nh = nla_len(grps_attr)/sizeof(*entry) (bounded by attribute length policy, not a raw wire field), allocates with the dedicated nexthop_grp_alloc(num_nh), and the consuming loop iterates nhg->num_nh entries of the freshly allocated array; no unclamped raw count crosses into shared state."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 2563,
+      "status": "safe",
+      "reason": "priv->num_ampdu_queues = le32_to_cpu(cmd->num_of_ampdu_queues) from the firmware GET_HW_SPEC reply is immediately clamped: if (priv->num_ampdu_queues > MWL8K_MAX_AMPDU_QUEUES) it warns and sets num_ampdu_queues = MWL8K_MAX_AMPDU_QUEUES before the txq_offset[i + MWL8K_TX_WMM_QUEUES] write loop; asymmetric-validation defense present at the parse site itself."
+    },
+    {
+      "snapshot": "s05",
+      "path": "fs/ceph/snap.c",
+      "line": 994,
+      "status": "safe",
+      "reason": "ceph_handle_snap() stores num_split_inos/num_split_realms = le32_to_cpu(h->...) but validates via ceph_decode_need(&p, e, sizeof(*ri), bad) after advancing p by sizeof(u64)*num_split_inos and sizeof(u64)*num_split_realms, so both loops are bounded by the received message end; also the enforcing-sibling evidence for the ceph family."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/scsi/smartpqi/smartpqi_init.c",
+      "line": 1194,
+      "status": "safe",
+      "reason": "num_physicals = get_unaligned_be32(header.list_length)/sizeof(entry) from the controller REPORT_PHYS response is size-derived from the returned buffer length, not a raw independent count; the count and the buffer come from the same bounded DMA response, and pqi_report_phys_logical_luns allocates the response buffer sized by the controller-reported list_length (standard SCSI semantics); no independent fetch divergence."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 783,
+      "status": "safe",
+      "reason": "priv->num_event_counters = be16_to_cpu(descriptor->counters) from the GVE device-descriptor admin-queue reply is a u16 (max 65535) used only to size a dma_alloc_coherent counter array and pass the count back to the device in gve_adminq_configure_device_resources; no per-element kernel loop consumes it, no under-allocation possible from a 16-bit value times sizeof(__be32), and no error path leaves a poisoned larger count."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/scsi/bfa/bfa_core.c",
+      "line": 1290,
+      "status": "unresolved",
+      "reason": "fwcfg->num_uf_bufs = be16_to_cpu(fwcfg->num_uf_bufs) from the Brocade FC firmware config reply is stored with no visible clamp; the consuming allocation/loop in bfa was not read before the finalize budget (only the parse site was located by the sweep)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 387,
+      "status": "unresolved",
+      "reason": "usbip_pack_ret_submit() unpack stores urb->number_of_packets = rpdu->number_of_packets verbatim from the RET_SUBMIT PDU with no range check while the sibling CMD_SUBMIT direction clamps (stub_rx.c:370-372 rejects number_of_packets < 0 or > USBIP_MAX_ISO_PACKETS) - exact asymmetric-validation instance, but it is the SEED mechanism verbatim (usbip number_of_packets) present in this tree, excluded from findings per the explicit seed rule; recorded so a later worker can decide snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s05",
+      "path": "fs/xfs/xfs_log_recover.c",
+      "line": 2431,
+      "status": "unresolved",
+      "reason": "num_logops = be32_to_cpu(rhead->h_num_logops) from the on-disk log header is stored for iteration; on-disk metadata corruption is a different trust boundary than a remote peer reply and the consuming loop bounds were not read before the finalize budget."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: the deserialization search covered endianness-decoded count stores (le/be16/32/64_to_cpu, get_unaligned, ntoh*) across drivers, net, fs, block, sound, and the nla_len()/sizeof-derived netlink counts (xfrm, nexthop, netem, sch_api, openvswitch); io_uring/kbuf, HID report descriptor parsers, NFC, CAN, and most block-layer ioctl copy_from_user paths were only enumerated, not deep-read.",
+    "The reported ceph candidate's impact is bounded: the reply fragtree is decoded within a ceph_decode_need-bounded region, so the OOB requires the shared reply buffer to be mutated between the decode-time fetch (mds_client.c:123) and the use-time re-fetch (inode.c:361), or a messenger zero-copy path not verified in this session; confidence in the invariant violation (no local clamp at the use site, sibling path validates) is medium, in end-to-end exploitability low.",
+    "fs/cifs/misc.c parse_dfs_referrals (NumberOfReferrals with only a < 1 check) remains unresolved: the negative-max_len path through cifs_strndup_from_utf16 and the existence of a sibling maximum were not verified.",
+    "Unresolved candidates bfa_core.c:1290 (num_uf_bufs), xfs_log_recover.c:2431 (h_num_logops), and the seed-verbatim usbip asymmetric store at usbip_common.c:387 were located but not deep-read before the finalize directive; the usbip instance is excluded from findings by the seed rule but is the strongest confirmed asymmetric-validation store in the tree.",
+    "No compilation, static analysis, or runtime reproducer was run (read-only snapshot, finalize directive); all conclusions come from direct source reads with sed/rg in this session."
+  ]
+}

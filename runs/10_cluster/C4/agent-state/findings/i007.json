@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "uninit-parse-outparam",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/infiniband/hw/mlx4/sysfs.c",
+      "start": 78,
+      "end": 99,
+      "quote": "\tu64 sysadmin_ag_val;\n\tunsigned long flags;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: store_admin_alias_guid() is the .store callback for per-port admin-alias-GUID sysfs attributes (lines 68-70, wired via create_sysfs_entry at line 164/180); its buf is arbitrary-format user bytes. MISSING GUARANTEE: the stack local sysadmin_ag_val (declared line 78, never initialized) is the out-param of sscanf(buf, '%llx', &sysadmin_ag_val) at line 88, and the sscanf return code (number of conversions; 0/EOF on non-numeric input, e.g. an empty or 'nope' write) is completely ignored \u2014 exactly the seed's invariant that a parse out-param is only defined on success. UNSAFE USE: on parse failure sysadmin_ag_val still holds uninitialized stack bytes and is consumed twice \u2014 stored into mdev->sriov.alias_guid.ports_guid[].all_rec_per_port[record_num].all_recs[GUID_REC_SIZE*guid_index_in_rec] (lines 89-92) and committed via mlx4_set_admin_guid(mdev->dev, cpu_to_be64(sysadmin_ag_val), ...) (lines 97-99), plus state transition to MLX4_GUID_INFO_STATUS_IDLE (95-96) and alias-guid work scheduling (106), so garbage becomes persistent device/GUID-table state that is later re-read and re-applied to the InfiniBand SM. COUNTEREVIDENCE CHECKED: I verified show_admin_alias_guid reads back only the stored value, that no earlier memset/initializer touches sysadmin_ag_val in this function, and that all other sscanf callers in the tree either check the conversion count or pre-initialize; impact is bounded because the sysfs node is root-writable (DEVICE_ATTR admin mode) so this is a garbage-state/uninitialized-value variant rather than an unprivileged stack disclosure \u2014 hence medium, not high, confidence."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/scsi/scsi_transport_iscsi.c",
+      "start": 3013,
+      "end": 3018,
+      "quote": "\tswitch (ev->u.set_param.param) {\n\tcase ISCSI_PARAM_SESS_RECOVERY_TMO:",
+      "confidence": "low",
+      "reason": "UNTRUSTED SOURCE: iscsi_if_set_param() handles ISCSI_UEVENT_SET_PARAM netlink messages (dispatched at line 3974); the payload string data is fully attacker-controlled (gated only by netlink_capable(skb, CAP_SYS_ADMIN) at line 3894, so privileged). MISSING GUARANTEE: sscanf(data, '%d', &value) at line 3015 ignores its return, so a non-numeric payload performs zero conversions. UNSAFE USE: session->recovery_tmo = value at line 3017 still executes \u2014 value is pre-initialized to 0 at line 2998, so this is not a stack leak, but the failed parse silently coerces the session recovery timeout to 0 (immediate-failover semantics) instead of rejecting the write, and the write-side commit is not gated on the parse. COUNTEREVIDENCE CHECKED: value initialization removes the uninitialized-disclosure reading; CAP_SYS_ADMIN requirement limits exposure; the default branch correctly propagates transport->set_param errors. Kept as a low-confidence adjacent variant of the seed's unchecked-parse-outparam mechanism (unchecked parse -> unconditional state commit)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/nl80211.c",
+      "line": 12942,
+      "status": "safe",
+      "reason": "nla_parse_nested() return ignored in nl80211_process_links, but __nla_validate_parse() in lib/nlattr.c memsets the tb out-array before parsing, and attrs here is kzalloc'd and re-memset each iteration, so failure leaves NULL pointers which are NULL-checked."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/pmsr.c",
+      "line": 317,
+      "status": "safe",
+      "reason": "tb[NL80211_PMSR_PEER_ATTR_MAX+1] and req[] are zeroed by the parser before returning; presence checks guard every nla_data use."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/can/dev/netlink.c",
+      "line": 624,
+      "status": "safe",
+      "reason": "memcpy(&bt, nla_data(...), sizeof(bt)) copies from a policy-validated NLA_BINARY attribute of exact struct size; all subsequent validation errors return."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/ip_gre.c",
+      "line": 1133,
+      "status": "safe",
+      "reason": "daddr copied from length-validated attr and immediately value-checked."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/infiniband/core/addr.c",
+      "line": 100,
+      "status": "safe",
+      "reason": "gid copied from attr enforced by strict min-length NLA policy; handler is a kernel-to-kernel RDMA netlink LS response, not direct userspace."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/block/rbd.c",
+      "line": 7246,
+      "status": "safe",
+      "reason": "sscanf result ignored but dev_id pre-initialized to -1 and range-checked; opt_buf pre-NUL-terminated; bad input rejected."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/infiniband/ulp/iser/iscsi_iser.c",
+      "line": 700,
+      "status": "safe",
+      "reason": "sscanf result ignored and value potentially uninitialized on parse failure, but value is only tested for non-zero to produce an -EPROTO; worst case is a spurious error return, no state commit or disclosure."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/pci/controller/dwc/pcie-designware-debugfs.c",
+      "line": 330,
+      "status": "safe",
+      "reason": "kstrtou32 return checked (if (val) return) and sscanf conversion counts compared to expected values."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/scsi/hisi_sas/hisi_sas_v3_hw.c",
+      "line": 4504,
+      "status": "safe",
+      "reason": "kstrtobool_from_user return value checked."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/intel/iwlwifi/mld/debugfs.c",
+      "line": 1056,
+      "status": "unresolved",
+      "reason": "sscanf(...)==0 checked so all-zero-conversion fails closed; rate would be uninitialized only if sscanf returned 1 while %i failed, which glibc/kernel sscanf does not do; partial pre-initialized to false; root-only debugfs; not fully audited for callers."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_debugfs.c",
+      "line": 88,
+      "status": "safe",
+      "reason": "sscanf conversion count checked (cnt == 2 / cnt == 1) before register access."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/socket.c",
+      "line": 2451,
+      "status": "safe",
+      "reason": "unchecked copy_from_sockptr(&max_optlen) is a documented best-effort read of the user length for the legacy !compat getsockopt path; koptlen is separately validated inside sockptr_to_sockopt; no state commit from the unchecked copy."
+    }
+  ],
+  "limitations": [
+    "Scope was bounded to high-signal patterns (ignored nla_parse/nla_memcpy return codes, unchecked sscanf/kstrto*/copy_from_sockptr/copy_struct_from_user in non-sysctl write surfaces); a fully automated per-function dataflow pass was not run, so an unchecked parse in a less idiomatic pattern could be missed.",
+    "The mlx4 finding's exploitability as a stack disclosure is bounded: the attribute is admin-writable (root) and show_admin_alias_guid reads back the stored value, so I report it as an uninitialized-stack-value-to-persistent-state variant, not an unprivileged information leak; on-stack attacker influence over sysadmin_ag_val was not measured.",
+    "The iscsi finding was not traced into all iSCSI transports' recovery_tmo consumers, so the operational impact of a silently-zeroed recovery timeout is asserted from the field semantics only.",
+    "The iwlwifi mld candidate remains unresolved (strong evidence of safety but caller-side analysis incomplete); drivers/tty/serial serial_core and a handful of fbdev/omapfb sysfs stores named in the heuristic list were not individually deep-read."
+  ]
+}

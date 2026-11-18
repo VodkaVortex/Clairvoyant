@@ -1,0 +1,35 @@
+{
+  "intent_id": "i032",
+  "branch": "fixed-epidx-rest",
+  "snapshot": "s08",
+  "status": "complete",
+  "progress": "Swept all USB interface consumer trees outside media-usb/net-usb: drivers/usb (serial, class, misc, storage, atm, image, core spot-check), sound/usb, drivers/hid, drivers/input, drivers/bluetooth, drivers/nfc, drivers/mmc/host, drivers/staging. Reported sound/usb/fcp.c fcp_find_fc_interface endpoint[0] read with no bNumEndpoints check (twin at mixer_scarlett2.c). ueagle-atm.c f002 pattern classified safe (check at line 2156). Two unresolved: alauda.c init_alauda, usbkbd/usbmouse endpoint[0].",
+  "queries_run": [
+    "grep -rln 'endpoint[' across target trees",
+    "grep 'get_endpoint(' sound/usb",
+    "grep 'bNumEndpoints' sound/usb + context reads",
+    "whole-tree sweep 'cur_altsetting->endpoint/altsetting->endpoint' excluding covered trees",
+    "config.c endpoint array allocation semantics"
+  ],
+  "candidates": [
+    {"path": "sound/usb/fcp.c", "line": 1087, "status": "reported"},
+    {"path": "sound/usb/mixer_scarlett2.c", "line": 8255, "status": "reported"},
+    {"path": "sound/usb/stream.c", "line": 596, "status": "safe"},
+    {"path": "sound/usb/endpoint.c", "line": 735, "status": "safe"},
+    {"path": "sound/usb/pcm.c", "line": 366, "status": "safe"},
+    {"path": "sound/usb/quirks.c", "line": 330, "status": "safe"},
+    {"path": "sound/usb/misc/ua101.c", "line": 982, "status": "safe"},
+    {"path": "sound/usb/midi.c", "line": 2316, "status": "safe"},
+    {"path": "sound/usb/mixer.c", "line": 3141, "status": "safe"},
+    {"path": "drivers/usb/atm/ueagle-atm.c", "line": 2172, "status": "safe"},
+    {"path": "drivers/usb/storage/alauda.c", "line": 1124, "status": "unresolved"},
+    {"path": "drivers/usb/class/cdc-acm.c", "line": 1338, "status": "safe"},
+    {"path": "drivers/usb/serial/qcserial.c", "line": 259, "status": "safe"},
+    {"path": "drivers/hid/usbhid/hid-core.c", "line": 1116, "status": "safe"},
+    {"path": "drivers/hid/usbhid/usbkbd.c", "line": 277, "status": "unresolved"},
+    {"path": "drivers/input/tablet/hanwang.c", "line": 390, "status": "safe"},
+    {"path": "drivers/input/misc/ims-pcu.c", "line": 1684, "status": "safe"},
+    {"path": "drivers/input/touchscreen/sur40.c", "line": 670, "status": "safe"},
+    {"path": "drivers/usb/core/hub.c", "line": 1859, "status": "safe"}
+  ]
+}

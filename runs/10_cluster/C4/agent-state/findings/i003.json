@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "uninit-parse-outparam",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/realtek/rtw88/debug.c",
+      "start": 277,
+      "end": 287,
+      "quote": "rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 2);",
+      "confidence": "low",
+      "reason": "UNTRUSTED SOURCE: bytes written to the rtw88 debugfs node rsvd_page (registered via rtw_debugfs_add_rw(rsvd_page), S_IFREG|0666 single_rw fops in rtw_debugfs_init) reach the write handler rtw_debugfs_set_rsvd_page, which passes the user buffer to the copy helper rtw_debugfs_copy_from_user() (debug.c:154-173). MISSING GUARANTEE: the helper's return code is ignored at line 277 (and at lines 186, 303, 327, 370, 395, 423, 804, 842 in the sibling handlers), and the helper's error convention is inverted: on copy_from_user failure it returns the positive byte count 'count' (line 168: 'return count;') instead of a negative errno, so even a return-checking caller would mistake failure for success; the count<num path returns -EFAULT (line 163) but is equally ignored. UNSAFE USE: sscanf(tmp, '%d %d', &offset, &page_num) at line 279 runs unconditionally on the possibly-unparsed buffer and the parsed values are committed to persistent per-device state debugfs_priv->rsvd_page.page_offset/.page_num (lines 286-287), which is later re-read by rtw_debugfs_get_rsvd_page (lines 229-235) to compute vzalloc size and read offset. COUNTEREVIDENCE CHECKED: the helper memsets tmp to zero before any failure return (line 160), so on a failed copy tmp is an empty string, sscanf returns 0/EOF, the num != 2 check at line 281 returns -EINVAL, and no uninitialized stack bytes actually flow into state; debugfs is also normally root-only. CONSEQUENCE if the memset were absent or reordered (the seed's exact shape): stack-byte-derived garbage sized/offset firmware-page dumps. Reported as a low-confidence structural variant of the ignored-parse-return mechanism on a non-sysctl write fops, not a proven stack leak."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/realtek/rtw88/debug.c",
+      "line": 186,
+      "status": "reported",
+      "reason": "Same ignored rtw_debugfs_copy_from_user return pattern in rtw_debugfs_set_read_reg (line 186); sscanf 'num != 2' path returns 'count' (success) instead of an error, and the len validation only runs after; covered by the primary finding, same memset counterevidence."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/realtek/rtw88/debug.c",
+      "line": 804,
+      "status": "reported",
+      "reason": "rtw_debugfs_set_coex_enable ignores the copy-helper return before kstrtobool and flips the security-relevant coex manual_control knob; kstrtobool on the memset-zeroed empty buffer fails and returns its error, so state is not committed on failure \u2014 same structural pattern, same counterevidence."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/staging/vc04_services/interface/vchiq_arm/vchiq_dev.c",
+      "line": 753,
+      "status": "safe",
+      "reason": "VCHIQ_IOC_QUEUE_MESSAGE: 'if (copy_from_user(elements, args.elements, args.count * sizeof(...)) == 0) ret = vchiq_ioc_queue_message(...); else ret = -EFAULT;' \u2014 the stack array elements is only passed to the queue helper on copy success; failure path returns -EFAULT without consuming elements."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/atm/zatm.c",
+      "line": 1487,
+      "status": "safe",
+      "reason": "ZATM_SETPOOL: 'if (copy_from_user(&info, ...)) return -EFAULT;' \u2014 copy failure aborts immediately; info is only consumed after a successful copy, pool index is range-checked and array_index_nospec'd before use, and low/high water values are re-validated before commit."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/platform/omap3isp/ispccdc.c",
+      "line": 684,
+      "status": "unresolved",
+      "reason": "Scan flagged 'if (copy_from_user(&ccdc->clamp, ccdc_struct->bclamp, ...))' whose next statement is 'ccdc->shadow_update = 0;' rather than an abort \u2014 possible fallthrough after a failed copy into partially-updated persistent device state; not deep-read within this intent's budget (more relevant to the error-path-commit branch)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/radeon/radeon_kms.c",
+      "line": 270,
+      "status": "unresolved",
+      "reason": "Five sites (270, 327, 339, 475, 598) show 'if (copy_from_user(value, value_ptr, sizeof(uint32_t)))' followed only by a DRM_ERROR print per the heuristic; whether an error return follows the print was not verified."
+    },
+    {
+      "snapshot": "s01",
+      "path": "sound/pci/asihpi/hpioctl.c",
+      "line": 257,
+      "status": "unresolved",
+      "reason": "Bare 'copy_from_user(pa->p_buffer, ptr, size);' with no if-guard and no assignment of a return value \u2014 result entirely ignored; sound/ was excluded from the filtered pass so the surrounding function was not read."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/scsi/mpt3sas/mpt3sas_ctl.c",
+      "line": 710,
+      "status": "unresolved",
+      "reason": "Many ioctl sites flagged by the heuristic (710, 765, 1212-2649); each shows a pr_err immediately after the copy, which usually precedes a return, but the returns were not individually verified."
+    }
+  ],
+  "limitations": [
+    "Detection was a line-based regex scan over copy_from_user / copy-helper call sites with an abort-pattern heuristic; copies assigned to a variable and checked later, multi-line macro bodies, and preprocessor-expanded sites can produce false negatives, and the ~420 unfiltered plus ~150 filtered flags were triaged by pattern, not by reading every function.",
+    "arch/ and sound/ subtrees were only covered by the first unfiltered pass; several flagged sites there (e.g. sound/pci/asihpi/hpioctl.c:257) remain unread.",
+    "Netlink nla_parse/nla_parse_nested out-param surfaces across ~120 net/ files were not exhaustively audited; standard netlink policies fully populate their destination arrays before the doit callback runs, but custom attribute walkers were not individually reviewed.",
+    "No kernel build or dynamic reproducer was run; all conclusions come from static reading of the quoted functions, so the reported rtw88 finding's actual reachability depends on debugfs mount policy (normally root-only).",
+    "The primary finding is structurally weaker than the seed: the helper's memset (debug.c:160) pre-zeroes the destination on every failure path, so no uninitialized stack bytes flow today; what remains is the ignored/inverted error return and the unconditional downstream sscanf+commit shape."
+  ]
+}

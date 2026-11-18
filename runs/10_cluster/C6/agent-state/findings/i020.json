@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "intent_id": "i020",
+  "branch": "gro-frag-stale-ptr",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/udp_offload.c",
+      "start": 178,
+      "end": 207,
+      "quote": "int tnl_hlen = skb_inner_mac_header(skb) - skb_transport_header(skb);\n\tbool remcsum, need_csum, offload_csum, gso_partial;\n\tstruct sk_buff *segs = ERR_PTR(-EINVAL);\n\tstruct udphdr *uh = udp_hdr(skb);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: UDP-tunnel GSO super-packets reaching skb_udp_tunnel_segment() (called from udp4_tunnel_gso_segment/udp6 paths in net/ipv4/udp_offload.c:644 and the fou/geneve/vxlan tunnel gso chains); the outer UDP header bytes at skb_transport_header (uh->len, uh->check) are packet-supplied, attacker-influenced for any tunneled traffic forwarded or terminated by the host (vxlan/geneve/fou egress through software GSO). VIOLATED INVARIANT: uh is captured at line 181 as struct udphdr *uh = udp_hdr(skb), a raw pointer into skb->head, and must be refetched after any call that can reallocate the head. pskb_may_pull(skb, tnl_hlen) at line 189, where tnl_hlen = skb_inner_mac_header(skb) - skb_transport_header(skb) spans the region that includes the outer UDP header itself, calls __pskb_pull_tail() (net/core/skbuff.c) which for a cloned/non-linear skb invokes pskb_expand_head() and frees/replaces skb->head, invalidating every pre-call pointer into the head - the exact head-relocation invariant broken in the seed's pep_get_sb(). No refetch occurs between the pull and the uses. UNSAFE USE: the stale pre-pull uh is dereferenced at line 199 (partial = (__force __wsum)uh->len) and line 202 (partial = csum_sub(csum_unfold(uh->check), partial)) to compute the 'partial' checksum delta; that value is later written into every segmented packet's UDP checksum at line 292 (uh->check = ~csum_fold(csum_add(partial, htonl(len)))) - transmitted packet bytes (kernel state) derived from reads through potentially freed slab memory, a KASAN-detectable slab use-after-free read on the GSO segmentation path. The next refetch is only at line 275 (uh = udp_hdr(skb)) inside the per-segment loop, after gso_inner_segment has already run, i.e. far too late for the reads at 199-202. COUNTEREVIDENCE: if the tunnel GSO skb is fully linear and uncloned (the common case for locally generated tunnel skbs), pskb_may_pull is a no-op and the pointer stays valid, so the UAF requires a non-linear or cloned UDP-tunnel GSO skb (e.g. forwarded tunneled traffic with frags or frag-list reaching software segmentation); no runtime KASAN reproducer was produced; the stale reads feed only the checksum constant, limiting impact to checksum corruption of transmitted segments and freed-memory information disclosure into them rather than arbitrary write. Note the parallel gro branch for s01 (fact f008) reported the identical unpatched pattern in that snapshot's copy of this function; the s04 copy retains it."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/udp_offload.c",
+      "line": 189,
+      "status": "reported",
+      "reason": "__skb_udp_tunnel_segment(): uh captured at 181 via udp_hdr(skb); pskb_may_pull(skb, tnl_hlen) at 189 may __pskb_pull_tail -> pskb_expand_head and free skb->head; stale uh->len read at 199 and uh->check read at 202 with no refetch (next refetch only at 275 after segmentation); stale-derived 'partial' written into every segment's uh->check at 292. Raised as the finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "include/net/gro.h",
+      "line": 596,
+      "status": "safe",
+      "reason": "tcp_gro_pull_header() captures th = skb_gro_header(skb, hlen, off) and, when the header needs more data (skb_gro_may_pull fails at off+thlen), explicitly refetches th = skb_gro_header_slow(skb, hlen, off) and returns the fresh pointer; both callers (net/ipv4/tcp_offload.c:429, net/ipv6/tcpv6_offload.c:56) use the returned post-pull pointer only. No stale dereference."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/core/gro.c",
+      "line": 752,
+      "status": "safe",
+      "reason": "napi_frags_skb(): after gro_pull_from_frag0(skb, hlen) (which memcpys frag0 data into the head tail and advances/adjusts NAPI_GRO_CB(skb)->frag0 and frag0_len), the frag0 cursor is explicitly advanced (frag0 += hlen; frag0_len -= hlen) before __skb_pull(skb, hlen); dev_gro_receive's gro_try_pull_from_frag0(skb) (lines 554, 573) runs after the protocol handlers return and before the skb is added to the gro list, so no frag0-derived header pointer held by a handler survives it. Frag-list bookkeeping is updated, not left stale."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/tcp_offload.c",
+      "line": 429,
+      "status": "safe",
+      "reason": "tcp4_gro_receive(): th comes from tcp_gro_pull_header(skb) which refetches through skb_gro_header_slow when needed; th2 = tcp_hdr(p) points into the held GRO packet p (not the pulled skb); the post-merge write tcp_flag_word(th2) at 348 also targets p. No pointer into skb->head of the incoming skb is used after a relocating call."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/tcpv6_offload.c",
+      "line": 56,
+      "status": "safe",
+      "reason": "tcp6_gro_receive(): identical tcp_gro_pull_header discipline; tcp6_check_fraglist_gro() re-derives hdr = skb_gro_network_header(skb) fresh (line 34) and th is the post-pull pointer passed in. No stale dereference."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/ip6_offload.c",
+      "line": 235,
+      "status": "safe",
+      "reason": "ipv6_gro_receive(): iph captured at 218 via skb_gro_header; when exthdrs must be walked, ipv6_gro_pull_exthdrs() (line 229) internally refetches opth via skb_gro_header(skb, off + len, off) after each length-driven pull (lines 40, 46), and the caller refetches iph = skb_gro_network_header(skb) at line 235 before the same-flow comparisons at 254-275; the GSO twin ipv6_gso_pull_exthdrs() refetches opth = (void *)skb->data after each pskb_may_pull (lines 77, 83). Correct refetch discipline."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/af_inet.c",
+      "line": 1532,
+      "status": "safe",
+      "reason": "inet_gro_receive(): iph captured at 1484 via skb_gro_header(skb, hlen, off) (which itself goes through skb_gro_header_slow when needed); all iph dereferences (protocol at 1488, 0x45 check 1494, fragment check 1497, csum 1500, flush computation 1504, same-flow compare 1518-1520) precede the offset-only skb_gro_pull(skb, sizeof(*iph)) at 1532, which does not touch the head buffer. No stale use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/gre_offload.c",
+      "line": 178,
+      "status": "safe",
+      "reason": "gre_gro_receive(): greh captured at 141 via skb_gro_header; when grehlen (key/csum options) requires more data, skb_gro_may_pull fails and greh is explicitly refetched via greh = skb_gro_header_slow(skb, hlen, off) at line 178 before the flag checks and the same-flow comparisons (206-219); grohlen-based skb_gro_pull at 222 happens after the last greh dereference. Correct pattern."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/fou_core.c",
+      "line": 376,
+      "status": "safe",
+      "reason": "gue_gro_receive(): guehdr captured at 349 via skb_gro_header; when optlen (guehdr->hlen << 2, attacker-controlled) requires more data, guehdr is refetched via guehdr = skb_gro_header_slow(skb, len, off) at 376; the remcsum path reassigns guehdr from skb_gro_remcsum_process() (gro.h:332) which internally re-fetches via skb_gro_header(skb, off + plen, off) after its pull and returns the fresh pointer; data is re-derived from &guehdr[1] after each reassignment (392, 408). The non-GRO twin gue_udp_recv documents 'guehdr may change after pull' (line 174) and refetches. Correct discipline."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/geneve.c",
+      "line": 907,
+      "status": "safe",
+      "reason": "geneve_gro_receive(): gh captured at 882; refetched at 893 via skb_gro_header_slow when the option-extended gh_len requires it; when a GRO hint is present the code pulls the hinted nested headers and refetches again gh = skb_gro_header(skb, off_gnv + gh_len, off_gnv) at 907 before geneve_opt_gro_hint()/geneve_hdr_match()/geneve_opt_gro_hint_validate_csum() dereference it; the RX decap twin geneve_post_decap_hint() also refetches *geneveh = geneve_hdr(skb) after its pskb_may_pull (lines 588-592). Correct refetch discipline on both paths."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/udp_offload.c",
+      "line": 749,
+      "status": "safe",
+      "reason": "udp_gro_receive_segment(): uh = udp_gro_udphdr(skb) at 697 is read (check 706, len 712, port compare 727, gro_receive_network_flush 737) before the only pskb_may_pull at 749, which sits in the is_flist branch; after that pull the code never dereferences uh again on that branch (the skb_gro_postpull_rcsum(skb, uh, ...) at 761 is in the non-flist else-branch where no pull ran), and uh2 = udp_hdr(p) points into the held GRO packet p whose head is not relocated by pulling skb. No stale dereference."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/vxlan/vxlan_core.c",
+      "line": 705,
+      "status": "safe",
+      "reason": "vxlan_gro_receive()/vxlan_gpe_gro_receive() are thin wrappers that immediately delegate to eth_gro_receive/ptype->callbacks.gro_receive without capturing or holding any header pointer across a relocating call; vxlan_gro_prepare-style remcsum handling refetches through skb_gro_remcsum_process which returns the fresh pointer. No stale pointer surface."
+    }
+  ],
+  "limitations": [
+    "All conclusions are static source-analysis results on snapshots/s04: no runtime reproducer, KASAN trace, or build was produced; the reported __skb_udp_tunnel_segment finding requires the UDP-tunnel GSO skb to actually be cloned or non-linear at the transport-to-inner-MAC region so pskb_may_pull -> __pskb_pull_tail -> pskb_expand_head really frees the old head, which is driver/GRO/forwarding-path dependent and was not dynamically demonstrated.",
+    "The audit deeply read the GRO/GSO core and the main protocol/tunnel handlers (net/core/gro.c, include/net/gro.h, net/ipv4/{tcp,udp,gre,fou}_offload.c, net/ipv4/af_inet.c, net/ipv6/{ip6,tcpv6,udp}_offload.c, drivers/net/{geneve.c,vxlan/vxlan_core.c}); other *_gro_receive/_gso_segment files matched by grep (net/sctp/offload.c, net/ipv4/esp4_offload.c, net/ipv6/esp6_offload.c, net/mpls/mpls_gso.c, net/nsh/nsh.c, net/xfrm/xfrm_iptfs.c, and ~30 drivers/ files such as stmmac, sunvnet_common, niu, ipoib, t7xx, netvsc) were only pattern-screened, not line-by-line audited, within the twelve-candidate triage bound.",
+    "GRO implementations living inside individual NIC drivers (drivers/net/ethernet/*/ gro callbacks beyond vxlan/geneve) were listed via grep but not deep-read; a driver-internal gro handler that caches a header pointer across its own pskb_may_pull/skb_gro_pull would be missed by this pass.",
+    "Whether upstream Linux has since fixed __skb_udp_tunnel_segment() could not be checked (no network or Git access); the finding reflects the source as present in snapshots/s04, and the parallel s01 gro branch (fact f008) independently reported the same unpatched shape in its snapshot, which supports but does not prove the s04 copy is also unfixed upstream.",
+    "The stale reads in the reported finding feed only the 'partial' checksum constant written into each segment's uh->check at line 292; the exact information-disclosure potential of freed-head bytes propagating into transmitted checksums was not quantified, and exploitation impact (checksum corruption vs info leak) remains a hypothesis."
+  ]
+}

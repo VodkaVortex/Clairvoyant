@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "intent_id": "i041",
+  "branch": "error-unwind-poisoned-count",
+  "snapshot": "s10",
+  "status": "complete",
+  "progress": [
+    "checkpoint written before first search",
+    "verified s10 qaic_control.c chain: line 979 device-reply hdr.count stored unclamped into shared manage_msg; decode_message failure returns (985/991/1007/1010/1015) and helper errors (decode_status -ECANCELED 957/-EPIPE 959, decode_passthrough -ENOSPC 845/867) leave count set; qaic_manage_ioctl 1349-1352 exports msg->count on -ECANCELED; request sibling qaic_manage 1259-1261 clamps count -> asymmetric validation -> REPORTED (medium)",
+    "verified s10 usbip seed family patched: usbip_common.c 482-485 ret_submit count clamp, 685 np clamp, 689 zeroing comment, kcalloc -> SAFE",
+    "other prior-lead files (dm-era, dm-zoned, ubi fastmap, bnxt, gve_adminq, ixgbe_e610) not audited in s10 - finalize directive stopped broad sweep; recorded as limitation",
+    "final artifact written to findings/i041.json"
+  ],
+  "candidates": [
+    {
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 979,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 685,
+      "status": "safe"
+    }
+  ]
+}

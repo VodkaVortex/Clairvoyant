@@ -1,0 +1,248 @@
+{
+ "version": 1,
+ "intent_id": "i040",
+ "branch": "fixed-epidx-rest",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s10"
+ ],
+ "findings": [
+  {
+   "snapshot": "s10",
+   "path": "drivers/isdn/gigaset/usb-gigaset.c",
+   "start": 706,
+   "end": 741,
+   "quote": "endpoint = &hostif->endpoint[0].desc;\n\n\tbuffer_size = le16_to_cpu(endpoint->wMaxPacketSize);",
+   "confidence": "high",
+   "reason": "Untrusted source: gigaset_probe (drivers/isdn/gigaset/usb-gigaset.c:653) reads interface->cur_altsetting of a device that only has to match USB M105 VID/PID (0x0584:0x000D style check at lines 672-677), interfaceNumber==0, altsetting 0, and class 255; a malicious gadget with those IDs can declare bNumEndpoints=0 or 1. Missing guarantee: the file contains zero occurrences of bNumEndpoints (verified by grep), so endpoint[0] at line 708 and endpoint[1] at line 727 are indexed with no validation of the descriptor-declared count. Unsafe use: endpoint[0].desc.wMaxPacketSize sizes kmalloc bulk_out_buffer and programs the bulk-out pipe; endpoint[1].desc.wMaxPacketSize sizes kmalloc rcvbuf, and .bEndpointAddress/.bInterval program a submitted interrupt URB (usb_fill_int_urb at 737-741). With 0 endpoints the flex-array indexing reads past the allocated usb_host_interface (NULL/OOB read at plug-in, kernel crash at probe); with 1 endpoint the endpoint[1] read is an OOB descriptor read whose wMaxPacketSize/bInterval values propagate into URB buffer size and scheduling. Counterevidence checked: no bNumEndpoints or num_altsetting guard anywhere in usb-gigaset.c; the sibling bas-gigaset.c driver does check (line 2320), showing the missing check is not systemic.",
+   "conclusion": "gigaset_probe indexes endpoint[0]/endpoint[1] of an unvalidated descriptor array (no bNumEndpoints check in the file) to size buffers and program URBs; a 0/1-endpoint M105-spoofing gadget crashes probe or feeds OOB-read values into URB setup at plug-in."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/atm/ueagle-atm.c",
+   "start": 2205,
+   "end": 2213,
+   "quote": "usb_fill_int_urb(sc->urb_int, sc->usb_dev,\n\t\t\t usb_rcvintpipe(sc->usb_dev, UEA_INTR_PIPE),\n\t\t\t intr, size, uea_intr, sc,\n\t\t\t sc->usb_dev->actconfig->interface[0]->altsetting[0].\n\t\t\t endpoint[0].desc.bInterval);",
+   "confidence": "high",
+   "reason": "Untrusted source: uea_bind (line 2529) runs at USB probe for devices matching the Analog Devices/Devolo Eagle ADSL VID/PID table; only interfaceNumber==0 (UEA_INTR_IFACE_NO) and the presence of interfaces 1/2 are checked, never the endpoint count. uea_bind calls uea_boot(sc) at line 2600, and uea_boot reads actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval and submits the interrupt URB with it. Missing guarantee: no bNumEndpoints check anywhere in ueagle-atm.c (grep: only this one endpoint[ use); the descriptor count of interface 0 altsetting 0 is attacker-controlled. Unsafe use: with bNumEndpoints==0 the endpoint flex-array is empty and &endpoint[0].desc reads past the allocated descriptor array (OOB read at plug-in whose value becomes the interrupt URB interval); usb_maxpacket-style validation exists only for the bulk pipes in usbatm.c get_pipes-equivalent code, not for this endpoint[0] read. This is the same interrupt-URB endpoint[0].desc.bInterval pattern fact f009 proved for this file in s04, now confirmed present in s10 at lines 2209-2210. Counterevidence checked: usbatm.c core validates the bulk endpoints' maxpacket (lines 1104-1112) but nothing validates interface[0] altsetting[0] endpoint[0] before uea_boot.",
+   "conclusion": "uea_boot reads actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval with no bNumEndpoints validation and submits an interrupt URB with it; a zero-endpoint interface-0 Eagle-spoofing gadget OOB-reads descriptor memory at modem bind (plug-in)."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/watchdog/pcwd_usb.c",
+   "start": 632,
+   "end": 648,
+   "quote": "/* check out the endpoint: it has to be Interrupt & IN */\n\tendpoint = &iface_desc->endpoint[0].desc;",
+   "confidence": "high",
+   "reason": "Untrusted source: usb_pcwd_probe (drivers/watchdog/pcwd_usb.c:606) reads interface->cur_altsetting of any device presenting the Berkshire PC watchdog product IDs whose interface class is USB_CLASS_HID (line 626); the endpoint array content is fully device-supplied. Missing guarantee: the file contains no bNumEndpoints check (grep verified: only this one endpoint[ occurrence), so endpoint[0] is indexed without validating the descriptor-declared count. Unsafe use: endpoint[0].desc is immediately dereferenced by usb_endpoint_is_int_in (line 636), then bEndpointAddress programs the interrupt pipe, wMaxPacketSize sets intr_size (min 8) for usb_alloc_coherent buffers and URBs. With bNumEndpoints==0 the indexing reads past the allocated usb_host_interface into unmapped/adjacent memory (OOB read or crash at plug-in), and any OOB-read bEndpointAddress/wMaxPacketSize flows into pipe setup and buffer sizing. Counterevidence checked: the only guard between probe and the read is the interface-class check; no usb_ifnum/num_altsetting/bNumEndpoints validation exists in the file.",
+   "conclusion": "usb_pcwd_probe indexes endpoint[0].desc with no bNumEndpoints check (only a HID-class check precedes) and feeds the read into usb_endpoint_is_int_in, pipe setup and URB buffer sizing; a zero-endpoint gadget OOB-reads descriptor memory at plug-in."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/wusbcore/wa-nep.c",
+   "line": 272,
+   "status": "safe",
+   "reason": "wa_nep_create reads iface->cur_altsetting->endpoint[0].desc with no local check, but its only caller wa_create (drivers/usb/wusbcore/wa-hc.c:39) first enforces 'if (iface->cur_altsetting->desc.bNumEndpoints < 3) return -ENODEV' at line 42, so endpoint[0] (and endpoint[1]/[2] at lines 50-51) are all validated.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/storage/alauda.c",
+   "line": 1126,
+   "status": "safe",
+   "reason": "init_alauda reads cur_altsetting->endpoint[0].desc.bEndpointAddress with no local check, but it is invoked only as the initFunction of unusual_alauda.h entries during usb_stor_acquire_resources (drivers/usb/storage/usb.c:807), which is reached from usb_stor_probe2 only after get_pipes (usb.c:1059) has looped 'for (i = 0; i < altsetting->desc.bNumEndpoints; i++)' (usb.c:754) and failed unless both a bulk-in and a bulk-out endpoint were found (usb.c:776). Therefore bNumEndpoints >= 2 with at least one OUT endpoint is guaranteed before the endpoint[0] read; the generic usb-storage endpoint discovery that fact f032 could not trace is now traced end-to-end in this snapshot.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/misc/ua101.c",
+   "line": 1034,
+   "status": "safe",
+   "reason": "detect_usb_format reads intf->altsetting[1].endpoint[0].desc (lines 1034, 1042), but find_format_descriptor (lines 919-942), called first at lines 978-979 for both the capture and playback interfaces, requires num_altsetting==2, altsetting[0].bNumEndpoints==0 and altsetting[1].bNumEndpoints==1, returning NULL (and detect_usb_format -ENXIO) otherwise.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/midi.c",
+   "line": 2148,
+   "status": "safe",
+   "reason": "snd_usbmidi_create_endpoints_midiman reads get_endpoint(hostif, 0/2/4) at lines 2148-2192 but first enforces 'if (intfd->bNumEndpoints < (endpoint->out_cables > 0x0001 ? 5 : 3)) return -ENOENT' at line 2143; likewise snd_usbmidi_detect_endpoints loops 'for (i = 0; i < intfd->bNumEndpoints; ++i)' (line 1995), get_ms_info loops over bNumEndpoints, detect_yamaha requires bNumEndpoints >= 1 (line 1883 region), and the Roland altsetting switch requires bNumEndpoints == 2 (line 1953).",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/pcm.c",
+   "line": 455,
+   "status": "safe",
+   "reason": "set_sync_endpoint reads get_endpoint(alts, 1) at lines 442-468 but first enforces 'if (altsd->bNumEndpoints < 2) return 0' at line 423, and set_sync_ep_implicit_fb_quirk (line 421) requires bNumEndpoints >= 1 before its get_endpoint(alts, 0) at line 307.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/endpoint.c",
+   "line": 495,
+   "status": "safe",
+   "reason": "The get_endpoint(alts, 1) reads in the SND_USB_ENDPOINT_TYPE_SYNC branch (lines 495-507) are only reached for sync endpoints created from set_sync_endpoint, which guarantees altsd->bNumEndpoints >= 2 (sound/usb/pcm.c:423) before any sync endpoint using alts index 1 is added.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/quirks.c",
+   "line": 314,
+   "status": "safe",
+   "reason": "create_std_midi_quirk reads alts->endpoint[0].extra/extralen at lines 314-315, but its only caller create_auto_midi_quirk (line 326) sets alts = &iface->altsetting[0] and first enforces 'if (altsd->bNumEndpoints < 1) return -ENODEV' at line 339 before calling it at line 359.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/stream.c",
+   "line": 669,
+   "status": "safe",
+   "reason": "The get_endpoint(alts, 0) reads at lines 656-673 sit inside the per-altsetting loop guarded by 'altsd->bNumEndpoints < 1 || le16_to_cpu(get_endpoint(alts, 0)->wMaxPacketSize) == 0 -> continue' at lines 516-517, so every altsetting used has at least one endpoint; the endpoint[0]/[1] extra reads at 407/411 are likewise behind the bNumEndpoints >= 2 test at line 410.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/helper.c",
+   "line": 124,
+   "status": "safe",
+   "reason": "snd_usb_parse_datainterval reads get_endpoint(alts, 0)->bInterval; its two callers both guarantee bNumEndpoints >= 1 first: sound/usb/stream.c:516 (loop guard) and sound/usb/quirks.c:180 (create_fixed_stream_quirk 'if (altsd->bNumEndpoints < 1) return -EINVAL').",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/clock.c",
+   "line": 290,
+   "status": "safe",
+   "reason": "set_sample_rate_v1 reads get_endpoint(alts, 0)->bEndpointAddress at line 290 but first enforces 'if (get_iface_desc(alts)->bNumEndpoints < 1) return -EINVAL' at line 289.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/mixer.c",
+   "line": 2498,
+   "status": "safe",
+   "reason": "snd_usb_mixer_status_create reads get_endpoint(mixer->hostif, 0) at line 2498 but first enforces 'if (get_iface_desc(mixer->hostif)->bNumEndpoints < 1) return 0' at line 2495.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "sound/usb/mixer_quirks.c",
+   "line": 1528,
+   "status": "safe",
+   "reason": "snd_emu0204_ctl_get reads get_endpoint(alts, 0)->bEndpointAddress at line 1528 but first checks num_altsetting >= 2 (line 1525) and 'if (get_iface_desc(alts)->bNumEndpoints < 1) return -EINVAL' at line 1527.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/hid/usbhid/usbkbd.c",
+   "line": 289,
+   "status": "safe",
+   "reason": "usb_kbd_probe enforces 'if (interface->desc.bNumEndpoints != 1) return -ENODEV' at line 286 before reading endpoint[0].desc at line 289; the previously unresolved (fact f032) boot-protocol gap is closed: the read is validated.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/hid/usbhid/usbmouse.c",
+   "line": 133,
+   "status": "safe",
+   "reason": "usb_mouse_probe enforces 'if (interface->desc.bNumEndpoints != 1) return -ENODEV' at line 130 before reading endpoint[0].desc at line 133, closing the fact f032 open question for this snapshot.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/isdn/hisax/st5481_usb.c",
+   "line": 270,
+   "status": "safe",
+   "reason": "setup_iso writes endpoint[3]/[4] wMaxPacketSize at lines 270-271 and reads endpoint[EP_INT-1] at line 306, but first enforces 'if (altsetting->desc.bNumEndpoints != 7) return -EINVAL' at lines 264-265 after selecting altsetting 3, so all indices 0-6 are in range.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/class/cdc-acm.c",
+   "line": 1326,
+   "status": "safe",
+   "reason": "acm_probe's endpoint[0..2] reads at lines 1326-1328 are inside the union-descriptor path guarded by 'if (intf->desc.bNumEndpoints == 0)' handling at line 1322 and the control/endpoints checks at lines 1240/1272; the dual-interface path loops over bNumEndpoints.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/input/misc/ims-pcu.c",
+   "line": 1674,
+   "status": "safe",
+   "reason": "ims_pcu_parse_cdc_data requires 'alt->desc.bNumEndpoints < 1 -> -ENODEV' (line 1671) before ep_ctrl = endpoint[0] (1674) and 'alt->desc.bNumEndpoints != 2 -> -EINVAL' (line 1683) before ep_out/ep_in = endpoint[0]/[1] (1690/1705).",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/image/mdc800.c",
+   "line": 523,
+   "status": "safe",
+   "reason": "mdc800_usb_probe checks bNumEndpoints (line 464, 'if (intf->altsetting->desc.bNumEndpoints != 1 ...' family) before its endpoint reads at line 523.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/misc/uss720.c",
+   "line": 748,
+   "status": "safe",
+   "reason": "uss720_probe enforces 'if (interface->altsetting->desc.bNumEndpoints < 2)' at line 712 before reading endpoint[0]/[1] at line 748.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/misc/idmouse.c",
+   "line": 363,
+   "status": "safe",
+   "reason": "idmouse_probe enforces 'if (iface_desc->desc.bNumEndpoints < 1)' at line 350 before reading endpoint[0].desc at line 363.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/isdn/gigaset/bas-gigaset.c",
+   "line": 2368,
+   "status": "safe",
+   "reason": "gigaset_probe enforces 'if (hostif->desc.bNumEndpoints < 1)' at line 2320 before endpoint = &hostif->endpoint[0].desc at line 2368.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/serial/usb-serial.c",
+   "line": 778,
+   "status": "safe",
+   "reason": "The serial core discovers endpoints by looping 'for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i)' (lines 775-838) and fills per-type pointer tables, so drivers' later endpoint uses are count-bounded; the PL2303 hack also loops over the other interface's bNumEndpoints (line 832).",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/misc/usbtest.c",
+   "line": 155,
+   "status": "safe",
+   "reason": "usbtest's 'e = alt->endpoint + ep' at line 155 is inside a loop bounded by 'for (ep = 0; ep < alt->desc.bNumEndpoints; ep++)' (checked context), so the index is descriptor-count bounded.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/usb/image/microtek.c",
+   "line": 696,
+   "status": "safe",
+   "reason": "mts_usb_probe contains three bNumEndpoints checks (lines 696, 698, 702) validating the interrupt/bulk endpoints before use.",
+   "conclusion": ""
+  }
+ ],
+ "coverage_gaps": [
+  "drivers/usb/core/{config,devio,driver,hcd,hub,message,devices}.c and drivers/usb/host/xhci.c accesses were only spot-checked for loop-boundedness, not exhaustively re-audited, since they are the descriptor parser itself or internal userspace-API paths.",
+  "Files that access endpoint descriptors through cached usb_endpoint_descriptor pointers, usb_pipe_endpoint(), or wrapper macros other than sound/usb get_endpoint were enumerated only via the ->endpoint[ / ->endpoint + / get_endpoint greps; other wrapper names could hide further fixed-index reads.",
+  "The ~100 endpoint[]-accessing files with a local bNumEndpoints occurrence were classified by check-position proximity (check line vs use line) rather than by a full data-flow proof for every one; only the highest-risk ones (no check in file, sound/usb, staging, isdn, storage, watchdog, wusbcore, hid, class, serial, image, misc) were read deeply.",
+  "drivers/staging trees beyond comedi (dt9812/ni_usb6501/vmk80xx, each with local bNumEndpoints checks), greybus/es2.c, most/hdm-usb, rtl8188eu and drivers/net/can, nfc, irda, bluetooth, media/rc, media/radio, mfd, mmc, i2c, input, w1, uwb consumers were classified from their local bNumEndpoints checks without line-by-line reading.",
+  "Whether the OOB-read values (bInterval, wMaxPacketSize, bEndpointAddress) in the three findings can be turned into more than a probe-time crash/DoS (e.g. mis-sized buffers later overflowed) was not traced beyond the immediate sizing/pipe-programming uses named in the reasons."
+ ],
+ "limitations": [
+  "No compilation or runtime reproducer was possible (read-only snapshot, no kernel build environment in this run); findings rest on static evidence: grep for bNumEndpoints per file plus complete reading of each probe/bind function named in a finding.",
+  "The ueagle-atm finding's OOB-read reachability assumes a gadget can present the Eagle ADSL VID/PIDs with a zero-endpoint interface 0 altsetting 0 while still passing the usbatm bind; this was not verified against the USB core's minimum-endpoint enforcement (none exists for generic interfaces), so it is expressed at high rather than proven-exploitable confidence.",
+  "The gigaset finding assumes the M105 USB ID check (VID/PID match) is the only gate; the interface class 255 and altsetting-0 checks were verified in the function, but no device-firmware signing or core-level constraint prevents a malicious gadget from matching them.",
+  "sound/usb 6fire, caiaq, hiface, line6, bcd2000, usx2y subdirectories use their own endpoint discovery (e.g. ua101-style or snd_usbmidi paths); they were grepped for endpoint[ patterns and get_endpoint and showed no fixed-index hits, but a wrapper-macro-based access could have been missed."
+ ]
+}

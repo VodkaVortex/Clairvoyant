@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "intent_id": "i042",
+  "branch": "peer-trusted-transport",
+  "snapshot": "s10",
+  "status": "complete",
+  "progress": [
+    "initial checkpoint written before first search",
+    "enumerated peer/virtual transport families present in s10: greybus, hv, rpmsg, 9p, nbd, vhost, virtio_net, ntb",
+    "grep of greybus peer-size handling: gb-beagleplay.c:208 gb_msg_len = le16_to_cpu(gb_frame->hdr.size) exists in s10; operation.c:1049-1050 msg_size re-read and size < msg_size check; operation.c:652 memcpy(operation->request->header, data, size)",
+    "grep of completion-metadata consumers (urb->actual_length) across drivers/usb, drivers/net/usb - candidates opticon.c:76 and kl5kusb105.c:360 noted (subtraction from actual_length)",
+    "deep-read gb-beagleplay.c:204-214 (hdlc_rx_greybus_frame passes peer gb_msg_len to greybus_data_rcvd, local len at :439 ignored, rx buffer MAX_RX_HDLC at :481) and operation.c:1040-1062, 630-665, 355-385 (vacuous peer-vs-peer size check; memcpy sized from peer value; alloc capped only by hd->buffer_size_max)",
+    "classified reported: gb-beagleplay.c:213 / operation.c:1050 / operation.c:652 peer-trust chain (finding)",
+    "classified safe: es2.c:834 actual_length (HCI-set, prior-round consistent)",
+    "classified unresolved: opticon.c:76, kl5kusb105.c:360, hv_balloon.c:1354, qcom_glink_native.c:808",
+    "final artifact written to agent-state/findings/i042.json; 9p/nbd/vhost/virtio/HID deep reads not completed (finalized on instruction)"
+  ]
+}

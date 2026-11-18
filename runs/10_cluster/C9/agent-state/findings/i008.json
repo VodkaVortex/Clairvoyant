@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "fs/dlm/member.c",
+      "start": 118,
+      "end": 128,
+      "quote": "num_slots = le16_to_cpu(rf->rf_num_slots);\n\tif (!num_slots)\n\t\treturn -1;\n\n\tro0 = (struct rcom_slot *)(rc->rc_buf + sizeof(struct rcom_config));\n\n\tfor (i = 0, ro = ro0; i < num_slots; i++, ro++) {\n\t\tro->ro_nodeid = le32_to_cpu(ro->ro_nodeid);\n\t\tro->ro_slot = le16_to_cpu(ro->ro_slot);\n\t}",
+      "confidence": "medium",
+      "reason": "Untrusted source: rf_num_slots is a 16-bit field of struct rcom_config sent by a remote DLM cluster node over the DLM recovery protocol (the peer endpoint of a network cluster protocol, the analogue of the seed's remote usbip peer). The peer message is copied verbatim into the shared, persistent lockspace object ls->ls_recover_buf by receive_sync_reply() (fs/dlm/rcom.c:266 'memcpy(ls->ls_recover_buf, rc_in, rc_in->rc_header.h_length);'), allocated kmalloc(dlm_config.ci_buffer_size) at fs/dlm/lockspace.c:586; upstream length validation in midcomms.c:78-101 checks only h_length (msglen <= ci_buffer_size and msglen <= actually received len) and never bounds the number of embedded rcom_slot records against it. dlm_recover_members() (fs/dlm/recover.c:207) calls dlm_slots_copy_in() after wait_status_low(), consuming the shared peer-populated buffer. Poisoning store: member.c:118 copies num_slots = le16_to_cpu(rf->rf_num_slots) with the only validation being 'if (!num_slots) return -1' - no maximum check, no cross-check against the peer-supplied h_length or the locally known ci_buffer_size. Missing guarantee / asymmetric validation: the sibling path of the same protocol, dlm_slots_assign() (member.c:166), enforces a local maximum before sending slots out - 'max_slots = (dlm_config.ci_buffer_size - sizeof(struct dlm_rcom) - sizeof(struct rcom_config)) / sizeof(struct rcom_slot); if (num > max_slots) ... kfree(array); return -1;' (member.c:276-281) - but the copy_in/receive mirror path applies no such clamp, exactly the seed's submit-vs-return asymmetry. Unsafe use: the loop at member.c:124-127 walks ro0 for num_slots iterations (each struct rcom_slot is 16 bytes, dlm_internal.h:487-492) and performs an in-place read-modify-write 'ro->ro_nodeid = le32_to_cpu(ro->ro_nodeid); ro->ro_slot = le16_to_cpu(ro->ro_slot);' - with num_slots up to 65535 this runs up to ~1MB past the ls_recover_buf heap allocation, an OOB read+write of peer-supplied-adjacent heap; log_slots() (member.c:63-95) is called at member.c:129 with the same unclamped num_slots and dereferences the same ro0 walk, and the second matching loop at member.c:132-134 reads every slot again. Error-unwind facet: the early returns at member.c:141-144 ('our slot changed') and member.c:152-155 ('no slot') leave ls->ls_generation already updated from the peer value (member.c:117 'ls->ls_generation = gen;') and member slots partially populated from the OOB walk, so the failed iteration poisons lockspace recovery state that later recovery stages consume. Counterevidence checked: h_length itself is bounds-checked (midcomms.c:91-94), so the OOB requires the peer to send rf_num_slots larger than the slot records its h_length actually carried (the message-length check validates the declared length, not the embedded count) - a malicious or buggy cluster peer can do this at any time recovery is awaited, making this the error/reply-direction consumption of a peer-controlled count with no local maximum."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 392,
+      "status": "unresolved",
+      "reason": "Seed mechanism present verbatim and unpatched in s02: usbip_pack_pdu(RET_SUBMIT, unpack) stores 'urb->number_of_packets = rpdu->number_of_packets;' (line 392) with no clamp, USBIP_MAX_ISO_PACKETS does not appear anywhere in drivers/usb/usbip of this snapshot (enforced only implicitly by stub_rx submit-side checks), usbip_recv_xbuff/usbip_recv_iso consume it, and vhci_rx.c:80-88 returns to usb_hcd_giveback_urb (line 99) with the poisoned count. Excluded from reporting per the seed-never-reportable rule; recorded so a later worker can decide snapshot-local seed presence (consistent with the treatment in facts f004/f005/f008/f015)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/dlm/member.c",
+      "line": 276,
+      "status": "safe",
+      "reason": "dlm_slots_assign (TX side) enforces the local maximum before the slots array is serialized: 'max_slots = (dlm_config.ci_buffer_size - sizeof(struct dlm_rcom) - sizeof(struct rcom_config)) / sizeof(struct rcom_slot); if (num > max_slots) ... return -1;' (member.c:276-281). This is the enforcing sibling path proving the asymmetric validation, not itself vulnerable."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/dlm/rcom.c",
+      "line": 266,
+      "status": "reported",
+      "reason": "receive_sync_reply memcpy(ls->ls_recover_buf, rc_in, rc_in->rc_header.h_length) copies the peer recovery message into shared persistent lockspace state; h_length is validated (midcomms.c:81-101) but the embedded rf_num_slots/rcom_slot payload it announces is never cross-checked against it, so the unclamped count is what dlm_slots_copy_in later iterates. Part of the reported finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/dlm/midcomms.c",
+      "line": 81,
+      "status": "safe",
+      "reason": "midcomms_process_incoming_buffer validates msglen = le16_to_cpu(p->header.h_length) against sizeof(struct dlm_rcom), dlm_config.ci_buffer_size (line 91-94) and the actually received len (line 100) before dlm_receive_buffer; header-length validation present, but it validates only the declared total length and never the embedded slot count - the gap exploited by the reported finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/dlm/recover.c",
+      "line": 208,
+      "status": "reported",
+      "reason": "dlm_recover_members() non-low-nodeid branch calls dlm_slots_copy_in(ls) right after wait_status_low(), consuming the peer-populated ls_recover_buf; part of the reported finding's consumption chain."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/xfs/xfs_log_recover.c",
+      "line": 4616,
+      "status": "unresolved",
+      "reason": "num_logops = be32_to_cpu(rhead->h_num_logops) from the on-disk log header; located by the wire/disk count-store sweep but its error paths and consuming loops were not deep-read before the finalize directive."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/cifs/misc.c",
+      "line": 676,
+      "status": "unresolved",
+      "reason": "*num_of_nodes = le16_to_cpu(rsp->NumberOfReferrals) from the DFS server reply with no maximum clamp observed at the store; downstream kcalloc/consumers and error unwinds not deep-read before finalize."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/scsi/bfa/bfa_core.c",
+      "line": 1298,
+      "status": "unresolved",
+      "reason": "fwcfg->num_uf_bufs = be16_to_cpu(fwcfg->num_uf_bufs) from firmware config reply feeds bfa_uf_res_recfg and bfa_svc.c:5456 memory sizing; error/teardown iteration paths not deep-read before finalize."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/qlogic/qede/qede_fp.c",
+      "line": 998,
+      "status": "safe",
+      "reason": "NAPI_GRO_CB(skb)->count = le16_to_cpu(cqe->num_of_coalesced_segs) is the standard GRO metadata byte count consumed by GRO stack min_t clamps; not an error-unwind iteration of an unvalidated count, and the value crosses into standard skb bookkeeping whose consumers bound by skb length."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/isdn/hisax/st5481_usb.c",
+      "line": 591,
+      "status": "safe",
+      "reason": "pend = &urb->iso_frame_desc[urb->number_of_packets] walk uses number_of_packets assigned by the same driver from locally computed num_packets (allocation-matched); not peer-controlled, no poisoned count (all non-usbip number_of_packets consumers in s02 assign the field locally before allocation - btusb.c:929, bas-gigaset.c:900/985/1017, hfcsusb.c:958, media drivers - spot-checked)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/afs/volume.c",
+      "line": 32,
+      "status": "unresolved",
+      "reason": "vldb->nr_servers loop bounds located by the object-count sweep (afs volume/vl_probe/vl_rotate iterate nr_servers set during VLDB reply decode); the decode-side clamp and error unwinds were not deep-read before finalize."
+    }
+  ],
+  "limitations": [
+    "The sweep was bounded by the finalize directive: high-signal queries covered number_of_packets consumers across drivers/net/fs/block, wire/device count stores (le/be*_to_cpu, get_unaligned, nla_get) across the tree, and object-field iteration loops (->num/->nr/->count/->nents/->len); deep reads covered fs/dlm (member.c, rcom.c, midcomms.c, lockspace.c, recover.c) and drivers/usb/usbip (seed, excluded by rule). Error-unwind poisoning patterns in other naming conventions (iovec teardown, vring abort paths, scsi command teardown) were only enumerated, not exhaustively audited.",
+    "The reported DLM finding's OOB requires a malicious or buggy cluster peer to send rf_num_slots exceeding the rcom_slot records actually carried in the validated h_length; the header-length check (midcomms.c:91-101) bounds the message, not the embedded count, so the invariant violation (validated length, unvalidated count, no local maximum on the receive mirror while the transmit sibling enforces max_slots) holds, but no runtime reproducer was built (read-only snapshot; DLM recovery requires a multi-node cluster).",
+    "Unresolved candidates fs/xfs/xfs_log_recover.c:4616 (h_num_logops), fs/cifs/misc.c:676 (NumberOfReferrals), drivers/scsi/bfa/bfa_core.c:1298 (num_uf_bufs), fs/afs nr_servers decoders, and the seed-verbatim usbip stores (excluded by rule) were located but not fully walked to their consuming loops and error unwinds before the finalize budget.",
+    "All conclusions come from direct source reading (grep/sed) of the read-only snapshot; no compilation, static analyzer, or runtime harness was run, and line numbers for the dlm_slots_assign max_slots check (member.c:276-281) were counted from the sed window at member.c:135-300."
+  ]
+}

@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "intent_id": "i022",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": ["s06"],
+  "findings": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 237,
+      "quote": "num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;\n\n\t/* Allocate the buffers we need */\n\n\t/*\n\t * 'pages' is an array of struct page pointers that's initialized by\n\t * get_user_pages_fast().\n\t */\n\tpages = kcalloc(num_pages, sizeof(struct page *), GFP_KERNEL);",
+      "confidence": "medium",
+      "reason": "Exact seed-mechanism variant present unmodified in s06. UNTRUSTED SOURCE: fsl_hv_ioctl_memcpy() copies a fully userspace-controlled struct fsl_hv_ioctl_memcpy via copy_from_user (line 165); param.count is an unrestricted u64; the only checks are that exactly one of source/target is -1 (lines 181-182), count==0 (line 218 'param.count == 0 ||'), and count > U64_MAX - lb_offset - PAGE_SIZE + 1 (same line, a 64-bit wraparound guard on the u64 arithmetic only). MISSING GUARANTEE: num_pages is declared 'unsigned int num_pages' (line 150) and computed at line 218 as (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT - a 64-bit add whose result is TRUNCATED to 32 bits with no clamp against any maximum; the subsequent sizing at lines 236-237 'kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1, GFP_KERNEL)' is a plain 32-bit unsigned multiply-add with no kcalloc/array_size/struct_size/overflow check. UNSAFE USE: the fill loop at lines 273-287 'for (i = 1; i < num_pages; i++)' writes sg_list[i].source/.target/.size per iteration into the kmalloc'd buffer, and get_user_pages_fast at line 253 also pins num_pages entries into the kcalloc'd pages array sized by the same truncated count. For count chosen so the 64-bit (count+off)>>12 exceeds 2^32 (e.g. count near 2^44), the stored num_pages keeps only the low 32 bits, so kmalloc receives the wrapped product while the loop still runs the full 32-bit num_pages iterations - e.g. a count making true num_pages = 2^29 + small gives stored num_pages = small, kmalloc(small*32) succeeds, and the loop writes ~2^29*32 = 16GB-worth of entries past the heap buffer (heap buffer overflow), and get_user_pages_fast fills pages[num_pages] past the kcalloc'd page array. The seed's three-part invariant (range-check at parse time, overflow-checked sizing, no loop trusting the raw count) is violated on the multiply/truncation axis exactly as in usbip_recv_iso: unchecked 32-bit count*size into kmalloc followed by an element-indexed loop still trusting the count. COUNTEREVIDENCE CHECKED: the one-of--1 check, count==0 check and 64-bit overflow guard at lines 181-221 do not bound num_pages below 2^32; there is no hcall-side revalidation of num_pages before the loop; the sibling ioctl FSL_HV_IOCTL_DOORBELL (same file) takes no count at all, so no sibling path enforces a max-pages constant - asymmetric absence of any clamp. Device access requires /dev/fsl-hv (root-owned misc device), so the attacker is a local privileged-enough user rather than remote; impact is kernel heap overflow (OOB write) with attacker-controlled source/target/size words. Confidence medium because the chain is verified from source and arithmetic, but no runtime reproducer was built on this read-only snapshot."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 218,
+      "status": "reported",
+      "reason": "Unchecked 64->32-bit truncation of num_pages from u64 param.count, then kmalloc(num_pages * 32 + 31) (lines 236-237) and for(i=1;i<num_pages;i++) fill loop (lines 273-287): the seed's multiply-overflow->undersized-alloc->element-loop chain under a userspace-supplied count. Reported as the finding."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 237,
+      "status": "reported",
+      "reason": "kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1) - plain 32-bit multiply-add with no overflow-checked allocator; part of the reported finding."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 273,
+      "status": "reported",
+      "reason": "for (i = 1; i < num_pages; i++) writes sg_list[i].source/.target/.size into the undersized buffer; the element-indexed consuming loop of the reported finding (lines 273-287), plus get_user_pages_fast(..., num_pages, ..., pages) at line 253 filling the same-truncated pages kcalloc."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 665,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim present in s06 ('int size = np * sizeof(*iso);' followed by kzalloc(size) and a per-element recv loop). Excluded from reporting per the seed-never-reportable rule; recorded only to document snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/input/touchscreen/atmel_mxt_ts.c",
+      "line": 1880,
+      "status": "safe",
+      "reason": "size += (num_objects * sizeof(struct mxt_object)) + MXT_INFO_CHECKSUM_SIZE where num_objects is uint8_t read from the I2C device info block; the device-supplied u8 bounds the product to <= 255*6=1530, which cannot overflow 32-bit int; krealloc then __mxt_read_reg writes size-MXT_OBJECT_START bytes into the resized buffer and mxt_parse_object_table iterates data->info->object_num (same u8). Device-controlled count, but arithmetic cannot wrap; not the seed's overflow mechanism."
+    },
+    {
+      "snapshot": "s06",
+      "path": "net/bluetooth/mgmt.c",
+      "line": 5153,
+      "status": "safe",
+      "reason": "rp_size = sizeof(*rp) + (num_handles * sizeof(u16)) and memcpy(&rp->handles, &handles, num_handles * sizeof(u16)): num_handles is counted locally by idr_for_each_entry over the kernel's own adv_monitors_idr into a stack array capped at HCI_MAX_ADV_MONITOR_NUM_HANDLES; the count is kernel-derived, not attacker-supplied, and the copy is into a kmalloc sized by the same count."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/gpu/drm/imagination/pvr_ccb.c",
+      "line": 52,
+      "status": "safe",
+      "reason": "u32 ccb_size = num_cmds * cmd_size where num_cmds = 1 << num_cmds_log2 comes from compile-time constants at the pvr_ccb_init call sites (e.g. FW and KCCB init with fixed log2 values), not from user/device input; no untrusted multiplier."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/gpu/drm/imagination/pvr_queue.c",
+      "line": 338,
+      "status": "safe",
+      "reason": "u32 size = full_cmd_count * pvr_cccb_get_size_of_cmd_with_hdr(...) in ufo_cmds_size(): elem_count is the driver's own dma-fence dependency count; the helper is used to bound queue command-buffer capacity (a check), not to size an allocation followed by a trusting loop; counts are kernel-derived."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/infiniband/hw/mana/qp.c",
+      "line": 403,
+      "status": "safe",
+      "reason": "u32 wqe_size = sge * sizeof(struct gdma_sge) + sizeof(struct gdma_wqe) + oob_size with sge = attr->cap.max_send_sge/max_recv_sge supplied by the verbs caller (userspace via ib_uverbs). Verified the constants: sizeof(struct gdma_sge)=16... but callers clamp - mana_ib_queue_size is only reached after the create_qp attr checks in mana_ib_create_qp...; NOTE left partially unverified (see limitations) but the computed value feeds MANA_PAGE_ALIGN(roundup_pow_of_two(queue_size)) where roundup_pow_of_two of a wrapped value would not be caught; classified safe on the basis that max_send_sge/max_recv_sge pass through ib_check_qp_attr-style clamps in the callers (mana_ib_create_qp_rss/ud verify attr->cap fields against device maxima before use) - the deep clamp was located in the create path but not re-verified line-by-line in this session; residual uncertainty recorded in limitations."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ipa/gsi.c",
+      "line": 1536,
+      "status": "safe",
+      "reason": "u32 size = count * GSI_RING_ELEMENT_SIZE in gsi_ring_alloc: count comes from the platform device data/gsi config (channel->tre_count/event_count) validated at gsi_channel_config (tre_count >= 2*tlv_count-1, is_power_of_2) and capped at GSI_CHANNEL_COUNT_MAX; hardware-probed counts are also clamped at lines 2031-2059; no user/wire-controlled multiplier."
+    },
+    {
+      "snapshot": "s06",
+      "path": "net/sctp/sm_make_chunk.c",
+      "line": 3683,
+      "status": "safe",
+      "reason": "__u16 stream_len = stream_num * sizeof(__u16): stream_num is __u16 so the product <= 131070 cannot overflow __u16? - actually it can wrap (e.g. stream_num=0x8000..0xFFFF gives product 0x10000-0x1FFFE which truncates in __u16), BUT stream_num here is the locally-generated request count (sctp_make_strreset_req callers pass counts from the kernel's own stream state, bounded by the association's inc/open streams which are themselves bounded at socket layer); allocation is via sctp_make_reconf(SCTP_PAD4(outlen)+SCTP_PAD4(inlen)) skb allocation from the same stream_len, and sctp_addto_chunk copies the same stream_len - allocation and copy agree. Not attacker-controlled beyond the stream count the kernel itself negotiated; wrap requires 32768+ streams which the socket layer rejects. Bounded."
+    },
+    {
+      "snapshot": "s06",
+      "path": "net/sctp/ulpevent.c",
+      "line": 897,
+      "status": "safe",
+      "reason": "length = sizeof(struct sctp_stream_reset_event) + 2 * stream_num in sctp_ulpevent_make_stream_reset_event: stream_num derives from the kernel-parsed RE-CONFIG parameter whose num param len was already validated against the chunk length in sctp_verify_param (strreset req verification walks the parameter and rejects oversized stream counts); event skb allocated with 'length' and the copy loop iterates the same stream_num - allocation and consuming loop use one validated count."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/emulex/benet/be_cmds.c",
+      "line": 2925,
+      "status": "safe",
+      "reason": "int img_hdrs_size = num_of_images * sizeof(struct image_hdr) where num_of_images = le32_to_cpu(fhdr3->num_imgs) is read from the user-supplied firmware file (be_fw_download, line 3189). sizeof(struct image_hdr) is small (~32) and num_imgs a le32; the product CAN wrap 32-bit int (num_imgs ~ 2^26). However img_hdrs_size is used only as an offset added to fw->data for get_fsec_info (cookie search within fw->data+fw->size) and as hdr_size for CRC offset math - no allocation is sized by it, and the per-image loop for (i = 0; i < num_imgs; i++) computes its own offset i*sizeof(struct image_hdr) from the firmware blob pointer without writing into a sized heap buffer. OOB reads of the firmware blob are possible with a corrupt file, but there is no undersized-allocation-then-overflowing-loop chain (the seed's mechanism); device-flash path, local root-only ethtool ioctl."
+    },
+    {
+      "snapshot": "s06",
+      "path": "fs/xfs/libxfs/xfs_inode_fork.c",
+      "line": 117,
+      "status": "safe",
+      "reason": "int size = nex * sizeof(xfs_bmbt_rec_t) where nex = xfs_dfork_nextents(dip, ...) comes from the on-disk inode; the very next statement (lines 126-129) checks 'unlikely(size < 0 || size > XFS_DFORK_SIZE(dip, mp, whichfork))' and bails with -EFSCORRUPTED BEFORE any allocation or memcpy - the wrap case (size<0) and the over-large case are both rejected, so the downstream kmalloc/memcpy are bounded. The seed-equivalent missing check is present here."
+    },
+    {
+      "snapshot": "s06",
+      "path": "fs/xfs/xfs_log_recover.c",
+      "line": 2226,
+      "status": "safe",
+      "reason": "kzalloc(item->ri_total * sizeof(xfs_log_iovec_t)) is preceded by the clamp 'if (in_f->ilf_size == 0 || in_f->ilf_size > XLOG_MAX_REGIONS_IN_ITEM)' returning -EFSCORRUPTED (lines 2222-2233); ri_total is then fixed and every append checks 'item->ri_total <= item->ri_cnt' before indexing ri_buf - allocation and consuming writes use the same clamped count."
+    },
+    {
+      "snapshot": "s06",
+      "path": "fs/xfs/libxfs/xfs_da_btree.c",
+      "line": 2719,
+      "status": "safe",
+      "reason": "kzalloc(nirecs * sizeof(struct xfs_buf_map)): nirecs is set from xfs_bmapi_read's output count which cannot exceed the nfsb request count that sized the irecs kzalloc(sizeof(irec) * nfsb) just above; both allocations are GFP_KERNEL|__GFP_NOFAIL and the fill loop iterates i < nirecs with map[] written exactly nirecs times; count is kernel-derived from bmapi, not attacker-controlled arithmetic."
+    },
+    {
+      "snapshot": "s06",
+      "path": "fs/xfs/xfs_buf_item.c",
+      "line": 726,
+      "status": "safe",
+      "reason": "kzalloc(count * sizeof(struct xfs_buf_log_format)) in xfs_buf_item_get_format: count is bp->b_map_count set by the block-mapping layer (xfs_buf_allocate path) from the kernel-computed fsblock count of the buffer, not a wire/disk value; bli_format_count is set to the same count and all later consumers iterate that stored count against the allocated array."
+    },
+    {
+      "snapshot": "s06",
+      "path": "fs/xfs/xfs_qm.c",
+      "line": 1245,
+      "status": "safe",
+      "reason": "kmalloc(XFS_DQITER_MAP_SIZE * sizeof(*map)) - both operands compile-time constants; no untrusted count."
+    },
+    {
+      "snapshot": "s06",
+      "path": "fs/fat/dir.c",
+      "line": 1351,
+      "status": "safe",
+      "reason": "int size = free_slots * sizeof(*de) in fat_add_entries: free_slots counts free entries found on disk, bounded by the FAT_MAX_DIR_SIZE(2GB)/32 = ~64M max but practically by nr_slots (the caller's slot count, at most MSDOS_SLOTS for a long name, and the loop breaks at free_slots == nr_slots since bhs[] holds at most 3 buffers/672 bytes of slots) - sizeof(*de)=32 and free_slots <= nr_slots <= 20, no overflow, and the memcpy copy loop is bounded by the same free_slots/nr_bhs accounting. On-disk attacker controls directory contents, not the free_slots arithmetic bound."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/vfio/pci/pds/dirty.c",
+      "line": 38,
+      "status": "safe",
+      "reason": "int len = max_regions * sizeof(struct pds_lm_dirty_region_info) where max_regions is u8 (max 255 * 16 = 4080, no wrap); the array is allocated with kcalloc(max_regions, sizeof(...)) (line 46) and the consuming loop iterates num_regions, which pds_vfio_dirty_status_cmd receives from the device: num_regions > max_regions is not re-checked at line 63, but num_regions is also u8 and the dev_dbg only READS region_info[i] - a bounded device-controlled read over-iteration of at most 255 entries of a 255-entry kcalloc'd buffer... verified alloc uses max_regions and loop uses device num_regions; since both are u8 and the status command sets num_regions <= max_regions per the device ABI (the same u8 max_regions is passed in/out), the residual mismatch risk is a device bug; no 32-bit multiply overflow (u8 * const cannot wrap int). Not the seed's arithmetic-overflow mechanism."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/emulex/benet/be_cmds.c",
+      "line": 2754,
+      "status": "safe",
+      "reason": "int img_hdrs_size = (num_of_images * sizeof(struct image_hdr)) in be_flash_BEx: same num_imgs=le32 firmware-file count as the skyhawk twin; used only as an offset/size argument to get_fsec_info (bounded by fw->data+fw->size scanning) and CRC math - no allocation sized by the product, no trusting element loop into a sized buffer; firmware flashing is a privileged ethtool ioctl with a local file. No alloc-multiply-overflow chain."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/infiniband/hw/hfi1/user_exp_rcv.c",
+      "line": 603,
+      "status": "safe",
+      "reason": "u32 bufsize = pagecount * PAGE_SIZE inside find_phys_blocks: pagecount is the count of physically-contiguous pages in a user-pinned buffer, bounded by the tidbuf->pages array length which was sized by pinning the user's buffer length (npages = DIV of user length); PAGE_SIZE multiply can wrap only if pagecount >= 2^20, i.e. user pinned >= 4GB of physically contiguous pages in one set - the value is used only to round down to a power of two for HW programming (maxpages), and the pageset list is written per discovered set bounded by tidbuf->psets sized npages; no heap allocation sized by the wrapped product. Userspace-controlled count but no allocator on the wrapped value."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/scsi/sd.c",
+      "line": 1972,
+      "status": "safe",
+      "reason": "int data_len = num_keys * 8 + 8 in sd_get_stream_level... (key protection): num_keys derives from the device-mode-page/commands supported count that the driver clamps against the fixed array it allocated; examined the surrounding function - allocation and copy both use locally computed bounded values (max 8-ish keys). No untrusted 32-bit multiply into an allocator."
+    },
+    {
+      "snapshot": "s06",
+      "path": "security/lsm_syscalls.c",
+      "line": 99,
+      "status": "safe",
+      "reason": "u32 total_size = lsm_active_cnt * sizeof(*ids): lsm_active_cnt is the number of compiled-in LSMs (compile-time constant at boot), not attacker-controlled; no untrusted count."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/video/fbdev/core/fbcmap.c",
+      "line": 94,
+      "status": "unresolved",
+      "reason": "int size = len * sizeof(u16) in fb_set_cmap path where len is the cmap length from userspace/ioctl; verified the surrounding alloc uses kmalloc(size) and the copy loop iterates len elements. NOT fully deep-read before the finalize directive: whether len is clamped (e.g. to 1<<16 max_cmap or the fbdev device max) before this multiply was not re-verified line-by-line. Record for a later audit; strong suspicion of clamping in fb_set_cmap's callers (fb_copy_cmap paths check cmap->len against the framebuffer max), but unproven in this session."
+    }
+  ],
+  "limitations": [
+    "The fsl_hypervisor finding is a source-verified hypothesis, not a proven exploit: triggering requires /dev/fsl-hv access (root-owned misc device) and a param.count large enough (>= ~2^44 plus alignment) that (count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT exceeds 2^32, so the practical attacker is a local user with that device node; the OOB write loop would also fault once it walks past mapped memory (still a kernel crash/memory-corruption bug); no runtime reproducer or compilation was performed on the read-only snapshot.",
+    "The candidate sweep was bounded to six high-signal regex families over drivers/, fs/, net/, block/, sound/, crypto/, ipc/, security/: (1) 32-bit typed 'size/len = count * sizeof/CONST' assignments, (2) allocator calls with inline 'count * sizeof' arguments excluding kcalloc/array_size/struct_size users, (3) memcpy length expressions 'count * sizeof', (4) 'count << PAGE_SHIFT/shift' near allocations, (5) kmalloc(count*elem + const) forms, (6) netlink/ioctl count stores feeding allocs; arch/, tools/, mm/ internals, Documentation and non-C trees were not audited, and multiply sites in drivers/ staging (rtl8723bs, atomisp, vc04_services) were only enumerated, not deep-read.",
+    "drivers/video/fbdev/core/fbcmap.c:94 (int size = len * sizeof(u16) in the cmap path with a userspace-supplied cmap length) remains unresolved: whether the fbdev layer clamps cmap->len before this multiply was not re-verified before the finalize directive; it is the strongest unexamined arithmetic site.",
+    "drivers/infiniband/hw/mana/qp.c:403 wqe_size = sge * sizeof(struct gdma_sge) + ... was classified safe based on the create-QP attr clamps in the caller path, but the exact clamp lines were not re-verified in this session; a later audit should confirm max_send_sge/max_recv_sge are bounded before mana_ib_wqe_size is called.",
+    "The seed usbip code is present unpatched in s06 (drivers/usb/usbip/usbip_common.c:665 'int size = np * sizeof(*iso)' with kzalloc(size) and the per-element recv loop); per the seed-exclusion rule it is recorded as an excluded unresolved candidate, not a finding.",
+    "No compilation, static analyzer, or reproducer harness was run; all conclusions come from direct source reads (sed/rg) of the assigned read-only snapshot, with line numbers taken from the literal reads quoted above."
+  ]
+}

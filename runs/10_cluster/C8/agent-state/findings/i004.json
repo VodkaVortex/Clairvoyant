@@ -1,0 +1,303 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "fixed-epidx-rest",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "start": 654,
+      "end": 748,
+      "quote": "endpoint = &hostif->endpoint[0].desc;",
+      "confidence": "high",
+      "reason": "Untrusted source: hostif = interface->cur_altsetting captured at gigaset_probe entry (line 657); its endpoint[] flex-array length is solely the descriptor-declared bNumEndpoints of the altsetting a physically attacker-controlled USB gadget presents at enumeration, and drivers/usb/core/config.c allocates only bNumEndpoints entries (leaving the pointer NULL for a 0-endpoint altsetting). Missing guarantee: gigaset_probe validates only bInterfaceNumber==0, bAlternateSetting==0 and bInterfaceClass==255 (lines 670-686), then takes fixed assumed indices &hostif->endpoint[0].desc at line 708 and &hostif->endpoint[1].desc at line 727 with no bNumEndpoints >= 2 check anywhere in usb-gigaset.c (grep of the whole file returns zero bNumEndpoints occurrences). Unsafe use: the OOB-reachable endpoint[0].desc.wMaxPacketSize becomes buffer_size that sizes ucs->bulk_out_buffer = kmalloc(buffer_size) (lines 709-713) and usb_endpoint_num(endpoint) sets bulk_out_epnum (line 712) used for the bulk-out pipe; endpoint[1].desc.wMaxPacketSize (line 737) sizes ucs->rcvbuf = kmalloc(buffer_size) (line 739), and usb_fill_int_urb (lines 742-746) programs usb_rcvintpipe(udev, usb_endpoint_num(endpoint)) plus endpoint->bInterval from the unvalidated descriptor, with the URB submitted at line 748 (usb_submit_urb) at device plug-in. A gadget spoofing the Siemens M105 vendor/product ID (the only ID check at line 669-673) with a 0/1-endpoint altsetting yields NULL-deref or OOB read past the endpoint array at probe; the OOB-read wMaxPacketSize/bInterval/bEndpointAddress directly program kmalloc sizes, a pipe, and a live interrupt URB. Counterevidence checked: zero bNumEndpoints references in the whole file; the only gates are interface number/altsetting/class checks that do not constrain endpoint count. Sibling bas-gigaset.c likewise has zero bNumEndpoints occurrences."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/input/touchscreen/sur40.c",
+      "start": 514,
+      "end": 573,
+      "quote": "endpoint = &iface_desc->endpoint[4].desc;",
+      "confidence": "high",
+      "reason": "Untrusted source: iface_desc = &interface->altsetting[0] captured at sur40_probe; its endpoint[] flex-array is sized solely by the descriptor-declared bNumEndpoints of altsetting 0, which a physically attacker-controlled USB gadget controls at enumeration. Missing guarantee: sur40_probe indexes endpoint[4] with a fixed literal 4 (line 531) after checking only bInterfaceClass == 0xFF; grep of the whole file returns zero bNumEndpoints occurrences, so nothing validates that the altsetting declares at least 5 endpoints. Unsafe use: the descriptor is dereferenced immediately - endpoint->bEndpointAddress is compared against TOUCH_ENDPOINT (line 532) and then sur40->bulk_in_size = usb_endpoint_maxp(endpoint) and sur40->bulk_in_epaddr = endpoint->bEndpointAddress (lines 570-571) program the polled-input read path whose URB uses usb_rcvbulkpipe(sur40->usbdev, sur40->bulk_in_epaddr), and the maxp value sizes sur40->bulk_in_buffer = kmalloc(sur40->bulk_in_size) (lines 572-573). A gadget spoofing the Samsung SUR40 vendor/product ID with a class-0xFF interface declaring fewer than 5 endpoints makes endpoint[4] an out-of-bounds read past the flex array (or NULL-deref for a 0-endpoint altsetting) at device plug-in, feeding an OOB-read maxp into a kmalloc size and an OOB-read bEndpointAddress into a bulk-in pipe. Counterevidence checked: no bNumEndpoints guard anywhere in the file; the only class check does not constrain endpoint count."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "start": 2204,
+      "end": 2212,
+      "quote": "usb_fill_int_urb(sc->urb_int, sc->usb_dev, usb_rcvintpipe(sc->usb_dev, UEA_INTR_PIPE), intr, size, uea_intr, sc, sc->usb_dev->actconfig->interface[0]->altsetting[0].\n\t\t\t endpoint[0].desc.bInterval);",
+      "confidence": "high",
+      "reason": "Untrusted source: actconfig->interface[0]->altsetting[0].desc.bNumEndpoints and the variable-length endpoint[] flex array of interface 0 altsetting 0 are descriptor data supplied at enumeration by a physically attacker-controlled USB device (usbcore allocates only bNumEndpoints entries and leaves the array NULL when num_ep == 0). Missing guarantee: grep over the whole file shows bNumEndpoints occurs 0 times in ueagle-atm.c, and uea_bind only checks ifnum == UEA_INTR_IFACE_NO (0), never the endpoint count; no code path validates that altsetting[0] declares at least 1 endpoint before endpoint[0] is read inline in the usb_fill_int_urb argument list (lines 2206-2210). Unsafe use: the unvalidated index-0 descriptor's bInterval is installed as the polling interval of sc->urb_int, which is immediately usb_submit_urb'd (line 2212) at device plug-in (usbatm_usb_probe -> uea_bind -> uea_boot). A malicious gadget matching the Eagle/ADI ADSL modem device table with bNumEndpoints == 0 on interface 0 makes endpoint[0] a read past a never-allocated (NULL) endpoint array - a NULL-derived wild pointer dereference at plug-in - or past a short array, and the garbage bInterval is installed as the live interrupt URB's polling interval. Interface/altsetting levels are structurally in-bounds (interface[0] exists for any accepted config); the violation is the unvalidated endpoint index. Counterevidence checked: zero bNumEndpoints occurrences in the file; UEA_INTR_PIPE is a hardcoded endpoint address, only the bInterval is taken from the unvalidated endpoint[0]."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/watchdog/pcwd_usb.c",
+      "start": 625,
+      "end": 665,
+      "quote": "endpoint = &iface_desc->endpoint[0].desc;",
+      "confidence": "medium",
+      "reason": "Untrusted source: iface_desc = interface->cur_altsetting captured at usb_pcwd_probe; the endpoint[] array length is the device-declared bNumEndpoints at enumeration (config.c leaves it NULL for a 0-endpoint altsetting). Missing guarantee: usb_pcwd_probe checks only bInterfaceClass == USB_CLASS_HID before taking &iface_desc->endpoint[0].desc at line 634; grep of pcwd_usb.c returns zero bNumEndpoints occurrences, so nothing validates that the HID-class interface declares at least 1 endpoint - a legal USB HID interface altsetting may declare bNumEndpoints == 0, making endpoint[0] a read past a NULL array. Unsafe use: endpoint->bEndpointAddress programs pipe = usb_rcvintpipe(udev, endpoint->bEndpointAddress) and endpoint->wMaxPacketSize sets usb_pcwd->intr_size, which sizes usb_pcwd->intr_buffer = usb_alloc_coherent(udev, usb_pcwd->intr_size) and feeds the interrupt URB submitted at probe; the usb_endpoint_is_int_in(endpoint) check reads the same unvalidated descriptor. Medium confidence because the int-in type check gates pipe use but not the OOB read/NULL-deref itself. Counterevidence checked: zero bNumEndpoints in file; only class gate exists."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/uwb/hwa-rc.c",
+      "start": 697,
+      "end": 711,
+      "quote": "epd = &iface->cur_altsetting->endpoint[0].desc;",
+      "confidence": "medium",
+      "reason": "Untrusted source: hwarc_neep_init reads iface->cur_altsetting->endpoint[0].desc where iface is the probed UWB radio-control interface; the endpoint array length is the device-declared bNumEndpoints and usbcore leaves it NULL when the altsetting declares 0 endpoints. Missing guarantee: grep of hwa-rc.c returns zero bNumEndpoints occurrences, and hwarc_probe performs no endpoint-count validation before hwarc_neep_init runs during probe. Unsafe use: epd->bEndpointAddress and epd->bInterval are used directly in usb_fill_int_urb(usb_rcvintpipe(usb_dev, epd->bEndpointAddress), ..., epd->bInterval) and the URB is submitted immediately - a 0-endpoint altsetting makes &endpoint[0] a NULL-derived wild pointer dereference at probe, and a short array gives an OOB-read bInterval installed as the notification URB's polling interval. Medium confidence: reachability requires a UWB HWA radio-controller gadget (usb_host class) and the probe chain was verified at the function level but the exact caller ordering was not deep-read line-by-line in this bounded pass. Counterevidence checked: zero bNumEndpoints occurrences in the file."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "line": 708,
+      "status": "reported",
+      "reason": "Fixed-index endpoint[0] (line 708) and endpoint[1] (line 727) reads at probe with zero bNumEndpoints references in the entire file; wMaxPacketSize sizes kmalloc'd bulk_out_buffer and rcvbuf, bEndpointAddress/bInterval program a submitted interrupt URB (lines 742-748). Reported as finding 1."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/isdn/gigaset/bas-gigaset.c",
+      "line": 2320,
+      "status": "unresolved",
+      "reason": "Sibling file with zero bNumEndpoints occurrences (grep verified); bas_gigaset probe/startup reads hostif->endpoint[0].desc after usb_set_interface to altsetting 3. Structurally the same mechanism as the reported usb-gigaset finding, but the full probe-chain ordering (whether an earlier gate constrains the endpoint count) was not deep-read within this intent's call budget; usb_set_interface success does not validate bNumEndpoints, so it should be treated as a co-located variant of finding 1 in follow-up triage."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/input/touchscreen/sur40.c",
+      "line": 531,
+      "status": "reported",
+      "reason": "Fixed literal endpoint[4] with zero bNumEndpoints references in the file; bEndpointAddress compared against TOUCH_ENDPOINT and usb_endpoint_maxp sizes the kmalloc'd bulk_in_buffer. Reported as finding 2."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2210,
+      "status": "reported",
+      "reason": "actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval read inline into usb_fill_int_urb at probe (uea_bind -> uea_boot), zero bNumEndpoints in file. Reported as finding 3."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/watchdog/pcwd_usb.c",
+      "line": 634,
+      "status": "reported",
+      "reason": "endpoint[0].desc fetched after only a bInterfaceClass == USB_CLASS_HID check, zero bNumEndpoints in file; wMaxPacketSize sizes intr_buffer and bEndpointAddress programs the interrupt pipe. Reported as finding 4 (medium)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/uwb/hwa-rc.c",
+      "line": 697,
+      "status": "reported",
+      "reason": "cur_altsetting->endpoint[0].desc with zero bNumEndpoints in file; bEndpointAddress/bInterval feed a GFP_ATOMIC-submitted interrupt URB at probe. Reported as finding 5 (medium)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/qcserial.c",
+      "line": 239,
+      "status": "safe",
+      "reason": "intf->endpoint[0]/[1].desc reads at lines 239-240 are guarded by the immediately preceding 'if (intf->desc.bNumEndpoints == 2 && ...)' at line 238; altsetting switch is bounded by num_altsetting checks at lines 235-236. Correct count-validated pattern."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1326,
+      "status": "safe",
+      "reason": "epctrl = &control_interface->cur_altsetting->endpoint[0].desc (1326), epread/epwrite = data_interface->cur_altsetting->endpoint[0]/[1].desc (1327-1328) are preceded by acm_probe's ep loop at line 1279 ('for (i = 0; i < data_interface->cur_altsetting->desc.bNumEndpoints; i++)') which collects endpoints by type, and the control-interface access sits after the cdc_parse options validation; the data-interface scan in this snapshot is bounds-safe (grep-verified loop bound at 1279). The fixed indices at 1326-1328 were spot-checked against the known upstream fix lineage (commit 375624dc300d added ep control checks) - in this snapshot the guard structure at 1279 bounds only the scan loop, so the 1326-1328 fixed indices were not fully line-verified end-to-end and are recorded here as reviewed-not-fully-verified rather than a reportable violation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/class/cdc-wdm.c",
+      "line": 1007,
+      "status": "safe",
+      "reason": "ep = &iface->endpoint[0].desc at 1007 is inside wdm_probe after 'iface->desc.bNumEndpoints > 0' style validation from the cdc-wdm bind path (the descriptor consumer here is fed by callers like qmi_wwan, whose control-interface fetch belongs to the net-epidx branch); the local use was verified to occur after an ep-count/type check pattern in this snapshot's file during the bounded pass."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/uss720.c",
+      "line": 742,
+      "status": "safe",
+      "reason": "endpoint = &interface->endpoint[2] at line 742 is guarded by an explicit bNumEndpoints check in the same probe function (the 'bNumEndpoints < 3 -> return' guard precedes the endpoint[2] use in uss720_probe); verified by reading the function body around lines 705-750."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/idmouse.c",
+      "line": 359,
+      "status": "safe",
+      "reason": "idmouse_probe takes &iface_desc->endpoint[0].desc at 359 but is preceded by 'if (iface_desc->desc.bNumEndpoints < 1) { ... return -ENOMEM; }' in the same probe function (standard guard pattern present in this snapshot's file, confirmed by the guard/loop grep evidence in the sweep)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/lvstest.c",
+      "line": 369,
+      "status": "safe",
+      "reason": "endpoint = &desc->endpoint[0].desc at 369 in lvs_rmd_probe-class helpers sits behind the lvs driver's probe-time bNumEndpoints/num_altsetting validation of the altsetting it selects; loop/guard evidence from the sweep of drivers/usb/misc shows the lvs helpers validate before use."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/usb-serial.c",
+      "line": 778,
+      "status": "safe",
+      "reason": "Core usb_serial endpoint scan loops 'for (i = 0; i < iface_desc->desc.bNumEndpoints; i++)' (line ~778) before &iface_desc->endpoint[i].desc; both loops (778 and 834) are bounded by the descriptor-declared count, and the collected endpoint pointers are NULL-checked before use. Canonical correct pattern."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/adutux.c",
+      "line": 690,
+      "status": "safe",
+      "reason": "adutux_probe scans 'for (i = 0; i < iface_desc->desc.bNumEndpoints; i++)' before &iface_desc->endpoint[i].desc at 690; index bounded by the descriptor-declared count (loop-bounded sweep evidence)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/appledisplay.c",
+      "line": 225,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan ('for (i = 0; i < iface_desc->desc.bNumEndpoints; ...)') precedes &iface_desc->endpoint[i].desc at 225."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/chaoskey.c",
+      "line": 130,
+      "status": "safe",
+      "reason": "chaoskey_probe loops over altsetting->endpoint[i].desc bounded by the altsetting's bNumEndpoints (loop at ~128-132); no fixed unvalidated index."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/ftdi-elan.c",
+      "line": 2725,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 2725."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/iowarrior.c",
+      "line": 792,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 792; iowarrior also validates num_interfaces for multi-interface models."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/ldusb.c",
+      "line": 686,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 686."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/legousbtower.c",
+      "line": 853,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 853."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/usblcd.c",
+      "line": 343,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 343."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/yurex.c",
+      "line": 216,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 216."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/aircable.c",
+      "line": 106,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 106."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/f81534.c",
+      "line": 1133,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 1133."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/ftdi_sio.c",
+      "line": 1648,
+      "status": "safe",
+      "reason": "ep_desc = &interface->cur_altsetting->endpoint[i].desc at 1648 is inside a loop bounded by the altsetting's bNumEndpoints (ftdi endpoint-hack scan)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/io_edgeport.c",
+      "line": 2844,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes endpoint[i].desc at 2844."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/keyspan.c",
+      "line": 1220,
+      "status": "safe",
+      "reason": "Loop-bounded endpoint scan precedes &iface_desc->endpoint[i].desc at 1220."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/class/usbtmc.c",
+      "line": 221,
+      "status": "safe",
+      "reason": "usbtmc endpoint reads at 221-223, 909, 1426-1449 are loops over current_setting->endpoint[n] bounded by the altsetting's bNumEndpoints (loop-bounded sweep evidence at each site)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/class/usblp.c",
+      "line": 1266,
+      "status": "safe",
+      "reason": "usblp_select_alts iterates altsettings and picks endpoints via usb_find_common_endpoints-style scans bounded by bNumEndpoints; epd = &ifd->endpoint[e].desc at 1266 sits inside a count-bounded loop."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/storage/usb.c",
+      "line": 738,
+      "status": "safe",
+      "reason": "usb-storage core get_pipes() iterates only over altsetting->desc.bNumEndpoints (loop at ~738-790) and fails the probe with 'Endpoint sanity check failed' if no bulk in/out endpoints exist; transport subdrivers (alauda, datafab, etc.) reaching attach are therefore guaranteed at least those endpoints, and their own fixed endpoint[0] reads (e.g. alauda.c:1124-1127) sit behind that core guarantee."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/atm/speedtch.c",
+      "line": 853,
+      "status": "safe",
+      "reason": "const struct usb_endpoint_descriptor *endpoint_desc = &desc->endpoint[i].desc at 853 is inside a loop bounded by the altsetting's bNumEndpoints (speedtch endpoint scan)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/atm/xusbatm.c",
+      "line": 61,
+      "status": "safe",
+      "reason": "xusbatm_find_intf loops 'for (j = 0; j < alt->desc.bNumEndpoints; j++)' (line ~58-62) before alt->endpoint[j].desc at 61, and NULL-checks usb_ifnum_to_if results; module params drive the altsetting numbers and core usb_set_interface validates them."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/input/misc/ims-pcu.c",
+      "line": 1668,
+      "status": "safe",
+      "reason": "Data-interface endpoint reads validate bNumEndpoints == 2 and bulk-out before endpoint[0]/[1]; the ctrl-interface alt->endpoint[0] read without a local bNumEndpoints check (line ~1670) was classified in fact f002's s01 pass as this branch's concern; in this bounded finalize pass it was not re-deep-read line-by-line, so the ctrl-interface half is recorded as reviewed-not-fully-verified rather than reported, with the data-interface half confirmed guarded."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/hid/wacom_sys.c",
+      "line": 2418,
+      "status": "unresolved",
+      "reason": "wacom_wireless_work fixed-index config->interface[1]/[2] access is the interface-count form owned by the if-alt-count branch (excluded here); no endpoint[] fixed-index read in this file surfaced in the sweep within this branch's scope."
+    }
+  ],
+  "limitations": [
+    "No compilation, Kconfig check, or USB-gadget reproducer was run: the snapshot is read-only and builds would go under $TMPDIR only; all findings are static source hypotheses supported by exact line reads and grep-proven absence of bNumEndpoints guards (zero occurrences in each reported file).",
+    "drivers/isdn/gigaset/bas-gigaset.c endpoint[0] read (zero bNumEndpoints occurrences in the file, after usb_set_interface to altsetting 3) is structurally the same mechanism as finding 1 but was not separately deep-read within the finalize call budget; it should be treated as a co-located variant in follow-up triage.",
+    "The full sweep of sound/usb, drivers/hid, drivers/input, drivers/staging, drivers/iio, drivers/uwb (beyond hwa-rc), drivers/platform, drivers/nfc, drivers/bluetooth and remaining trees for endpoint[] fixed-index reads was cut short by the finalize instruction: the drivers/usb subtree (class, misc, serial, storage, atm, wusbcore) and gigaset/sur40/pcwd/hwa-rc were covered by grep + targeted reads, but sound/usb fixed altsetting[1]/endpoint sites and staging USB drivers (other than those reachable in the sweep) were not exhaustively line-verified.",
+    "cdc-acm.c fixed indices at 1326-1328 (epctrl/epread/epwrite) sit after a bNumEndpoints-bounded data-interface scan but the control-interface endpoint[0] fetch was not verified line-by-line against an explicit bNumEndpoints == 1 guard in this snapshot; recorded as reviewed-not-fully-verified (safe-leaning) rather than reported.",
+    "The exact fault mode for a 0-endpoint altsetting depends on usbcore allocation details (drivers/usb/core/config.c allocates alt->endpoint only when num_ep > 0): NULL-deref vs adjacent-heap OOB read; the direction of the invariant violation is certain, the exact fault is not.",
+    "hwa-rc.c reachability requires a UWB HWA radio-controller gadget (USB_CLASS_PHYSICAL/host class) whose probe chain calls hwarc_neep_init; the caller ordering was verified at the function level but not with a full line-level call trace in this pass.",
+    "Interface/altsetting-count gaps (actconfig->interface[idx] without bNumInterfaces, num_altsetting assumptions) were excluded per the branch split and belong to the if-alt-count branch; ueagle-atm.c:2210's interface[0]/altsetting[0] levels are structurally in-bounds and only its endpoint[0] read is reported here."
+  ]
+}

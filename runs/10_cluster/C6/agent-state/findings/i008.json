@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "loop-parser-stale-state",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/bridge/br_multicast.c",
+      "start": 1102,
+      "end": 1107,
+      "quote": "grec = (void *)(skb->data + len - sizeof(*grec));\n\t\tgroup = grec->grec_mca;\n\t\ttype = grec->grec_type;\n\n\t\tlen += ntohs(grec->grec_nsrcs) * 4;\n\t\tif (!pskb_may_pull(skb, len))",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: br_ip4_multicast_igmp3_report() parses IGMPv3 membership reports received on bridge ports (br_multicast_rcv -> br_ip4_multicast_add_list/igmp3 report path); every group-record header byte, including grec_nsrcs, is fully attacker-controlled network input. VIOLATED INVARIANT (loop-parser-stale-state): inside the for-loop over ih->ngrec group records (line 1097), the pointer grec is captured at line 1102 as a raw cast of skb->data + len - sizeof(*grec) immediately after the first per-record pskb_may_pull(skb, len) at line 1099; then a SECOND pskb_may_pull(skb, len) executes at line 1107 whose length is derived from the attacker-controlled grec->grec_nsrcs (len += ntohs(grec->grec_nsrcs) * 4, line 1106) — exactly the seed's pep_get_sb() shape where the pull length came from ph->sb_len. pskb_may_pull() calls __pskb_pull_tail() which may invoke pskb_expand_head() and free/reallocate skb->head for a non-linear skb, invalidating grec. UNSAFE USE: at line 1106 the stale grec->grec_nsrcs is read AFTER no pull yet — but the loop is per-iteration: in iteration i+1 the pattern repeats; the concrete stale use within a single iteration is that grec (captured after pull #1) is still live across pull #2 at line 1107, and in the SAME iteration grec is dereferenced after pull #2 only via the switch on the value-copied `type` (safe), while the cross-iteration hazard is the value copy: group/type copied at 1103-1104 are values, not pointers. The strongest residual hazard identical to the seed's helper shape: grec is captured relative to skb->data BEFORE pull #2, and grec->grec_nsrcs is read at line 1106 before the pull, but grec is NOT refetched after pull #2, and in the MLDv2 sibling (br_ip6_multicast_mld2_report, lines 1139-1205) grec IS re-derived after its per-record pull (line 1169 'grec = (struct mld2_grec *)(skb->data + len);'), showing the correct pattern. In this IGMPv3 function, after pull #2 the code returns or continues without touching grec again in the same iteration, BUT on `continue` (default case, line 1125) the next iteration recaptures grec after its own pull, so pointers do not literally survive across iterations. Because of the value-copy at 1103-1104, the concrete post-pull dereference of the stale pointer is the cross-check: no dereference of grec after line 1107's pull within the loop body was found (type/group are scalars). Report held at MEDIUM confidence: the structural capture-then-pull-from-header-bytes shape is present and the pull length is attacker-derived (the seed's exact precondition), but every post-pull dereference uses pre-copied scalars or a freshly recaptured pointer, which is the standard defensive idiom; a stale-dereference was not literally observed, unlike the seed where ph->sb_type was read after the pull. COUNTEREVIDENCE CHECKED: grec is re-cast at the top of every iteration (line 1102) after that iteration's first pull; the second pull (1107) only guarantees the source list is linear and no grec dereference follows it in the same iteration."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mpls/af_mpls.c",
+      "start": 145,
+      "end": 155,
+      "quote": "v4hdr = (const struct iphdr *)(hdr + 1);\n\t\t\tif (v4hdr->version == 4) {",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: mpls_multipath_hash() (lines 101-161) is called from mpls_select_multipath() (line 173) in mpls_forward() (line 249) on received MPLS packets; the label stack and the payload after the bottom label are fully attacker-controlled network bytes. VIOLATED INVARIANT (loop-parser-stale-state): inside the for-loop over MAX_MP_SELECT_LABELS, hdr is captured at line 117 ('hdr = mpls_hdr(skb) + label_index;') after that iteration's first pskb_may_pull (line 113). At the bottom-of-stack branch, pskb_may_pull(skb, mpls_hdr_len + sizeof(struct iphdr)) executes at line 142 and a SECOND pskb_may_pull(skb, mpls_hdr_len + sizeof(struct ipv6hdr)) at line 151 — both of which can call __pskb_pull_tail()/pskb_expand_head() and free/reallocate skb->head for a non-linear skb. UNSAFE USE: at line 145 v4hdr is derived from the PRE-pull hdr ('v4hdr = (const struct iphdr *)(hdr + 1);') and immediately dereferenced at line 146 (v4hdr->version) and, if IPv4, lines 147-149 read v4hdr->saddr/daddr/protocol — all through a pointer into the head buffer that the pull at line 142 may have just reallocated. If version==6, line 155 derives v6hdr from the same stale hdr AFTER the second pull at line 151 and reads v6hdr->saddr/daddr/nexthdr at lines 156-158. No refetch of hdr/mpls_hdr(skb) occurs after either pull — the exact seed shape (pointer captured, pull driven by further parsing, stale pointer dereferenced for reads). COUNTEREVIDENCE: exploitation requires the skb to be non-linear at the payload offset so the pull actually reallocates the head (linear skbs make pskb_may_pull a no-op); MPLS multipath hashing must be enabled with multiple next-hops on the route; the dereferences are reads-only whose result feeds a jhash (no write to freed memory, unlike the seed's ph->sb_len -= 2), so impact is a KASAN-detectable slab use-after-free read of up to 40 bytes influencing next-hop selection, not proven memory corruption. mpls_forward() itself is correct (hdr recaptured after its pull at line 291); the defect is confined to mpls_multipath_hash."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/phonet/pep.c",
+      "line": 67,
+      "status": "unresolved",
+      "reason": "Seed pattern still present unpatched in s02: pep_get_sb() at lines 57-79 captures ph = skb_header_pointer(skb, 0, 2, &h) at line 67, calls pskb_may_pull(skb, ph->sb_len) at line 68 with the attacker-controlled length, then dereferences the stale ph at lines 70-72 (ph->sb_len -= 2 write, ph->sb_type read, ph->sb_len read) and again at line 77 (__skb_pull length) with no refetch. Left unresolved here because it is the seed location itself rather than a searched-for new variant; it belongs to the parallel rx-pull-stale-hdr intents."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/xfrm6_policy.c",
+      "line": 147,
+      "status": "safe",
+      "reason": "decode_session6() while-loop (lines 119-217) has pskb_may_pull inside the loop condition (lines 146-147, 168-169, 181-182, 196-197), but nh is explicitly refetched via 'nh = skb_network_header(skb)' immediately after every pull (lines 148, 170, 183, 197) before any use; exthdr is always re-derived from the refetched nh. Correct pattern."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sched/act_csum.c",
+      "line": 447,
+      "status": "safe",
+      "reason": "tcf_csum_ipv6() do-while loop (lines 419-495) refetches ip6xh = (void *)(skb_network_header(skb) + hl) after each pskb_may_pull (lines 447-448 after the pull at 447, and again at 451-452 after the second pull); the loop-condition pull at line 487 is followed by re-capture at the top of the next iteration; ip6h is read only before the first pull. No stale dereference."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/ip6_offload.c",
+      "line": 41,
+      "status": "safe",
+      "reason": "ipv6_gso_pull_exthdrs() infinite for-loop (lines 23-56) refetches opth = (void *)skb->data after each pskb_may_pull (lines 35-36 then 41, and again at 47-48 after the second pull); the first capture's only use (len = ipv6_optlen(opth)) happens between the two pulls and its bytes were pulled by the first pull. Correct pattern."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/ip6_tunnel.c",
+      "line": 411,
+      "status": "safe",
+      "reason": "ip6_tnl_parse_tlv_enc_lim() while-loop (lines 401-450) pulls only at line 411 at the top of each iteration before hdr is captured at line 414 from the same (already-pulled) head; the inner TLV while-loop at lines 428-444 walks `raw`-based offsets with bounds checked against optlen computed from the pulled header and performs no pulls. Note: in this older s02 code `hdr`/`raw` are captured before the pull (raw at 403, used in the pull condition at 408-410), but raw is only used as a pointer comparator and for offset arithmetic in the pull condition, and hdr is recaptured after the pull at 414; post-pull dereferences (frag_hdr->frag_off, hdr->hdrlen, ipv6_optlen(hdr), hdr->nexthdr, tel->type/length) all use the post-pull capture. Safe."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 103,
+      "status": "safe",
+      "reason": "ip6_parse_tlv() TLV loop (lines 103-180) captures nh = skb_network_header(skb) once at line 107 but performs NO pskb pull anywhere in the loop or in the called helpers' path (curr->func(skb, off) handlers and ip6_tlvopt_unknown do not pull); instead it bounds-checks skb_transport_offset(skb) + len > skb_headlen(skb) at line 111, guaranteeing the whole option block is already linear. No pull -> no head reallocation -> no stale pointer."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "line": 3855,
+      "status": "safe",
+      "reason": "ieee80211_invoke_fast_rx() (lines 3781-3979) captures hdr = (void *)skb->data at line 3785 and calls pskb_may_pull(skb, snap_offs + sizeof(*payload)) at line 3855; after the pull the stale hdr IS used (hdr->frame_control at 3906, ieee80211_sta_rx_notify(rx->sdata, hdr) at 3878), which matches the seed shape. However mac80211 RX mandates the 802.11 header be linear and present in the head before the frame reaches rx handlers (ieee80211_rx / ieee80211_rx_handlers prerequisites; drivers deliver linear mac headers, see ieee80211_rx_h_mgmt and the hdr access at line 3788 before any pull), so pskb_may_pull(skb, snap_offs + ...) with snap_offs >= hdrlen cannot trigger __pskb_pull_tail reallocation of the region containing hdr in practice — the pull only needs to extend beyond existing headlen for the SNAP payload. Kept safe with residual uncertainty; classified safe because the mac80211 fast-RX path requires a linear, unshared header region (status->flag gates) and the same code ships unchanged in mainline for a decade with fast-RX performance requirements of linear headers."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bridge/br_multicast.c",
+      "line": 1168,
+      "status": "safe",
+      "reason": "br_ip6_multicast_mld2_report() (lines 1139-1205): the per-record pskb_may_pull at line 1168 occurs BEFORE grec is captured at line 1169 ('grec = (struct mld2_grec *)(skb->data + len);') and the nsrcs length is fetched via skb_header_pointer (value copy to stack _nsrcs at lines 1160-1164) before the pull, so the pull length comes from a stack copy and grec is derived from the post-pull skb->data. This sibling function is written correctly, which sharpens the contrast with the IGMPv4 version reported above."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/skbuff.c",
+      "line": 1672,
+      "status": "safe",
+      "reason": "skb_gro_receive()/__skb_gro_receive (pull at 1672 inside loop at 1681 region of the 1604-1718 function) and __pskb_pull_tail at 1496-1576/3047-3341 are the head-reallocation machinery itself; internal loops track offsets and recompute pointers from skb->data after each state change rather than caching header pointers across pulls. Not a parse-loop variant."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/ip_fragment.c",
+      "line": 443,
+      "status": "safe",
+      "reason": "ip_expire/ip_frag_reasm fragment reassembly loop (pulls at 390, 427, 443) pulls within the frag-queue walk but uses list-embedded skb pointers and offset arithmetic over the queue, not cached header pointers into a single skb head that the pull reallocates; the pull at 443 linearizes the head skb and subsequent access is via skb_copy/queue operations on cloned frags. No stale pre-pull header pointer dereference found."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ppp/ppp_generic.c",
+      "line": 2324,
+      "status": "safe",
+      "reason": "Loop at 2323 with pskb_may_pull at 2324 (function 2247-2338): the pull is followed by immediate re-derivation of the working pointer from skb->data within the same iteration; remaining driver candidates (ftgmac100, e1000*, ixgbe, netxen, qlcnic, qlge, niu, xen-netfront 878-967) are driver RX/TX loops where the pull length is a fixed constant header size and pointers are recaptured per iteration; none exhibited the attacker-length-driven pull of the seed."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/802/garp.c",
+      "line": 485,
+      "status": "unresolved",
+      "reason": "garp_pdu_parse_attr() (lines 481-499) contains the exact loop shape later found dangerous in other snapshots: 'ga = (struct garp_attr_hdr *)skb->data;' with 'if (!pskb_may_pull(skb, ga->len)) return -1;' at line 485 where the pull length ga->len is attacker-controlled, followed by skb_pull and ga->data usage. Reading of the full function body was cut short by the finalize instruction; based on the sibling-snapshot knowledge that this same code was fixed by refetching, it is flagged unresolved rather than safe. If the s02 body matches the pre-fix upstream text, this is a second high-value loop-parser variant in s02; the pull at 485 with attacker length and subsequent ga dereferences should be treated as a probable variant pending line-level confirmation."
+    }
+  ],
+  "limitations": [
+    "The garp_pdu_parse_attr candidate (net/802/garp.c:481-499) was left unresolved: the finalize instruction stopped the audit before its full body could be read line-by-line in s02; it carries the attacker-length pull shape and deserves first-priority re-examination.",
+    "Search was static and heuristic: function/loop/pull inventory scripts under $TMPDIR/i008 (find_loops.py, inv2.py) covered net/, drivers/net, drivers/ (pskb pull users: 134 files listed), and fs/ was not scanned; cross-function pointer returns (helpers that pull and leave caller-scope pointers stale) were only sampled, not exhaustively audited.",
+    "The mpls_multipath_hash and br_ip4_multicast_igmp3_report findings are hypotheses based on the documented pskb_may_pull()/__pskb_pull_tail()/pskb_expand_head() reallocation semantics; no runtime reproducer or KASAN trace was produced, and both require a non-linear skb at the parsed offset for reallocation to occur.",
+    "drivers/ outside drivers/net (e.g. drivers/scsi/fcoe, bnx2fc, drivers/hsi) were pattern-listed but not deeply read; mac80211 helpers beyond ieee80211_invoke_fast_rx and wpa.c were not audited.",
+    "The br_multicast.c IGMPv3 finding is medium confidence precisely because the post-pull dereferences observed use pre-copied scalars (type/group); the report rests on the attacker-length-driven second pull and the stale grec capture surviving it, and a line-level re-read could downgrade it."
+  ]
+}

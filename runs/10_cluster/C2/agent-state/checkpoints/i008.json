@@ -1,0 +1,14 @@
+{
+  "intent_id": "i008",
+  "branch": "l2-wireless-ie-tlv",
+  "snapshot": "s01",
+  "status": "complete",
+  "notes": "Finalized. Findings artifact written to agent-state/findings/i008.json. Reported: net/bluetooth/a2mp.c a2mp_chan_recv_cb TLV walk + shared error path (lines 611-691) re-dereferences hdr->code/hdr->ident from post-skb_pull skb->data which can be at/past buffer end; medium confidence. Safe: net/mac80211/util.c ieee802_11_parse_elems_crc (left>=2 + elen>left clamp, lines 785-796), net/wireless/radiotap.c iterator (bounds-checked bitmap/vns/arg advances), a2mp.c handler body loops (len>=sizeof guards + matching pulls). Limitations: cfg80211 scan.c/nl80211.c, mac80211 rx/mlme/tdls/mesh sub-parsers, hci_event.c ext-event TLVs, hci_request/mgmt EIR walks, l2cap info/conf parsing, vendor wireless drivers not line-audited.",
+  "candidates": [
+    {"path": "net/bluetooth/a2mp.c", "line": 611, "status": "reported"},
+    {"path": "net/mac80211/util.c", "line": 785, "status": "safe"},
+    {"path": "net/wireless/radiotap.c", "line": 96, "status": "safe"},
+    {"path": "net/bluetooth/a2mp.c", "line": 157, "status": "safe"}
+  ],
+  "timestamp": "2026-11-12 finalize"
+}

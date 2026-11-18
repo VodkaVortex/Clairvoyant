@@ -1,0 +1,29 @@
+{
+  "intent_id": "i017",
+  "branch": "timer-dwork-softirq-lock",
+  "snapshot": "s02",
+  "status": "complete",
+  "progress": "Finalized. Finding (medium): net/bridge/br_multicast.c:649-660 br_multicast_group_expired timer callback takes plain spin_lock(&br->multicast_lock) (timer_setup 1302); timer family at 654/865/1321/1656/1702/1735/1901/1942/3982 all plain. Process-side enable/disable/mdb sites in s02 already use spin_lock_bh (2048/2110/2140, br_mdb.c 1068/1350/1541) - sibling-snapshot bug shape fixed here, so confidence medium with br_multicast_add_group:1568 left unresolved (receive-context callers only). libiscsi frwd_lock checked safe in s02 (timer side plain 1903/2246; process side all _bh; 1139/1248 are back_lock-held RX context). Artifact written to findings/i017.json.",
+  "candidates": [
+    {
+      "path": "net/bridge/br_multicast.c",
+      "line": 654,
+      "status": "reported"
+    },
+    {
+      "path": "net/bridge/br_multicast.c",
+      "line": 1568,
+      "status": "unresolved"
+    },
+    {
+      "path": "net/bridge/br_multicast.c",
+      "line": 2110,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 2088,
+      "status": "safe"
+    }
+  ]
+}

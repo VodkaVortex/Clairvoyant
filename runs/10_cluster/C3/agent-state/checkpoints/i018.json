@@ -1,0 +1,15 @@
+{
+  "intent_id": "i018",
+  "branch": "kind-callback-tb-gaps",
+  "snapshot": "s02",
+  "status": "complete",
+  "phase": "finalized",
+  "result": "evidence-backed negative over the audited kind-callback surface; no credible finding; 12 candidates classified (10 safe, 1 unresolved, 1 unresolved-qos); 8 limitations",
+  "artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C3/agent-state/findings/i018.json",
+  "key_evidence": [
+    "nft_tunnel.c s02 lines 80-82 use corrected '||' guard; uses at 84/96/104 covered; policy 67-71 non-required",
+    "rmnet_newlink line 142 unguarded data[IFLA_RMNET_MUX_ID] deref, but rmnet_rtnl_validate 271-288 rejects !data||!MUX_ID and __rtnl_newlink calls ops->validate at rtnetlink.c:3330-3334 before newlink at 3451-3452 and changelink at 3363-3370",
+    "gtp/geneve/vxlan .validate all reject data==NULL; geneve_nl2info/vxlan_nl2conf per-attribute guard every slot; gtp_encap_enable guards FD0/FD1/ROLE individually",
+    "no-validate kinds (ipoib, caif_hsi, chnl_net, vxcan, bond, hsr) all check !data or per-attribute guards themselves"
+  ]
+}

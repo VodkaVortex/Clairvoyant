@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "intent_id": "i025",
+  "snapshot": "s04",
+  "status": "finalized",
+  "branch": "callee-pull-caller-stale",
+  "findings": [
+    "s04:drivers/net/wireless/marvell/mwl8k.c:1927-1990 medium: caller mwl8k_txq_xmit captures mgmt=(struct ieee80211_mgmt *)skb->data at 1927, callee mwl8k_encapsulate_tx_frame(1943)/mwl8k_add_dma_header(1945) runs pskb_expand_head at 867 freeing the old head, caller refetches only wh (1947) and then dereferences stale mgmt->u.action.category/action_code/capab at 1987/1988/1990 driving TX-queue selection (tid at 1991, mwl8k_tid_queue_mapping at 1992)."
+  ],
+  "candidates": [
+    "s04:net/netfilter/xt_TCPMSS.c:198 safe (iph refetched after callee expand)",
+    "s04:net/netfilter/xt_TCPMSS.c:221 safe (ipv6h refetched after callee expand)",
+    "s04:net/l2tp/l2tp_core.c:1096 safe (helper repairs ptr/optr)",
+    "s04:net/l2tp/l2tp_ip.c:166 safe (repair applies)",
+    "s04:net/l2tp/l2tp_ip6.c:176 safe (repair applies)",
+    "s04:drivers/net/wireless/marvell/mwl8k.c:867 reported-by-sibling i013 (callee-internal wh; new caller-side mgmt raised here)"
+  ]
+}

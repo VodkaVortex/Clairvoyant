@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "af-packet-tpacket-rings",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "start": 2810,
+      "end": 2820,
+      "quote": "\t\tif (po->has_vnet_hdr) {\n\t\t\tvnet_hdr = data;\n\t\t\tdata += sizeof(*vnet_hdr);\n\t\t\ttp_len -= sizeof(*vnet_hdr);\n\t\t\tif (tp_len < 0 ||\n\t\t\t    __packet_snd_vnet_parse(vnet_hdr, tp_len)) {\n\t\t\t\ttp_len = -EINVAL;\n\t\t\t\tgoto tpacket_error;\n\t\t\t}\n\t\t\tcopylen = __virtio16_to_cpu(vio_le(),\n\t\t\t\t\t\t    vnet_hdr->hdr_len);",
+      "confidence": "medium",
+      "reason": "Untrusted source: tpacket_snd() (net/packet/af_packet.c:2713) iterates the TX_RING, whose frames are mmap'd user-writable memory with no lock between the kernel's per-frame reads (only pg_vec_lock, which userspace never takes). After tpacket_parse_header() (line 2803) validates tp_len/tp_mac from the shared frame, line 2811 aliases vnet_hdr directly into the shared frame and line 2815 __packet_snd_vnet_parse() re-reads vnet_hdr->flags/csum_start/csum_offset/hdr_len from that same shared memory to validate and normalize hdr_len (af_packet.c:2536-2550). Without any READ_ONCE or local snapshot, line 2819-2820 then performs a SECOND independent fetch of vnet_hdr->hdr_len and stores it as copylen, and line 2858 passes the same shared vnet_hdr pointer to virtio_net_hdr_to_skb() (include/linux/virtio_net.h:48) which does a THIRD fetch of hdr->flags/csum_start/csum_offset feeding skb_partial_csum_set() offset/length state (virtio_net.h:81-97). Violated invariant: the value validated by __packet_snd_vnet_parse is not the value used as copylen at line 2819 or re-validated at line 2858; a concurrent userspace write to the mmap'd frame between these fetches makes them diverge. Unsafe use: copylen (from the unvalidated second fetch) is stored into skb state and used as a length in tpacket_fill_skb() at lines 2597-2601 (hdrlen = min(copylen, tp_len); skb_put(skb, copylen - dev->hard_header_len); skb_store_bits(skb, 0, data, hdrlen)) and in skb allocation size at lines 2823-2825, i.e. offset/length arithmetic for pointer formation and copy sizing, matching the seed's check-then-use pattern on shared ring memory (upstream fixed this class for vnet_hdr with a local copy in packet_snd_vnet_parse; the TX-ring path lacks one). Counterevidence checked: tpacket_parse_header itself caches tp_len/off into locals (single fetch, safe); tp_status is fetched twice (packet_current_frame line 2787 vs __packet_get_status line 2874) but the second read only checks an avail transition and is not consumed as offset/length; __packet_snd_vnet_parse's own reads happen before the copylen fetch but do not re-fetch after it, so the primary TOCTOU window is the hdr_len double fetch between validation and copylen use, with the flags/csum_start/csum_offset re-fetch at virtio_net.h:81-97 re-checked there (pskb_may_pull/skb_partial_csum_set bounds it), leaving the copylen consequence as the reportable race."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "line": 2803,
+      "status": "safe",
+      "reason": "tpacket_parse_header (af_packet.c:2645-2706) reads tp_len and tp_mac/tp_net from the shared frame exactly once each into locals tp_len/off and returns them; the bounds checks (tp_len > size_max at 2666; off_min/off_max at 2694) and the returned *data = frame + off all use the single fetched local copies, so no check-then-use divergence exists for these fields."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "line": 2811,
+      "status": "reported",
+      "reason": "vnet_hdr = data aliases the mmap'd TX_RING frame; validated by __packet_snd_vnet_parse at 2815 (hdr_len bounds check) then independently re-fetched at 2819 (vnet_hdr->hdr_len -> copylen) and again at 2858 (virtio_net_hdr_to_skb re-reads flags/csum_start/csum_offset), with no READ_ONCE/local copy/lock between fetches. Reported as the primary finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "line": 2874,
+      "status": "safe",
+      "reason": "Second tp_status fetch via __packet_get_status after xmit only tests TP_STATUS_AVAILABLE to decide whether the skb was already destructed; the value is never used as an offset or length, so even if userspace races the status word between line 2787 and 2874 the consequence is at most a benign error-path choice, not validation bypass."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "line": 2787,
+      "status": "safe",
+      "reason": "packet_current_frame -> packet_lookup_frame (af_packet.c:514-535) reads tp_status once for the SEND_REQUEST gate and returns the raw frame pointer; the frame pointer is computed from kernel-owned rb->head/frame_size, not from any user-writable field, so the status read cannot corrupt pointer formation."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "line": 2600,
+      "status": "reported",
+      "reason": "skb_put(skb, copylen - dev->hard_header_len) and skb_store_bits(skb, 0, data, hdrlen) in tpacket_fill_skb consume the unvalidated second-fetch copylen as skb length/offset state; this is the unsafe-use end of the line 2811 candidate and is covered by the same finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "line": 2552,
+      "status": "safe",
+      "reason": "packet_snd_vnet_parse (2552-2562) copy_from_iter_full's the virtio_net_hdr out of the iovec into a local stack struct before __packet_snd_vnet_parse validates it, so the sendmsg path takes a proper single-fetch snapshot; only the TX_RING path (tpacket_snd) dereferences shared ring memory directly."
+    }
+  ],
+  "limitations": [
+    "Exploitability of the copylen race is bounded: copylen is clamped by max_t(int, copylen, dev->hard_header_len) at line 2822 and hdrlen = min_t(int, copylen, tp_len) at line 2597, and tp_len itself is single-fetched and validated at 2803/2666, so the concrete memory-safety consequence (skb_put with copylen exceeding allocated linear room at line 2600 when copylen races upward after allocation sizing at 2823-2825) was not run under a reproducer; confidence is medium for that reason.",
+    "Only net/packet/af_packet.c (TPACKET v1/v2/v3 TX path, tpacket_snd/tpacket_fill_skb/tpacket_parse_header) and its include/linux/virtio_net.h consumer were read in depth; the TPACKET_V3 RX block setup path (prb_* functions) and packet_mmap ring setup were only surveyed, not audited field-by-field.",
+    "Static source analysis only; no compilation or racing reproducer was run against s04 (read-only tree), so the timing window between the line 2815 validation fetch and the line 2819 use fetch was not measured."
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "intent_id": "i018",
+  "branch": "media-epidx",
+  "status": "complete",
+  "snapshot": "s05",
+  "phase": "final",
+  "findings": [
+    "s05:drivers/media/usb/gspca/stv06xx/stv06xx.c:318-350 (high) isoc_init/isoc_nego write+read intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize, zero bNumEndpoints checks in file",
+    "s05:drivers/media/usb/gspca/xirlink_cit.c:2656-2694 (medium) identical sd_isoc_init/sd_isoc_nego pattern",
+    "s05:drivers/media/usb/usbvision/usbvision-video.c:1497-1515 (high) per-altsetting loop reads altsetting[i].endpoint[1].desc.wMaxPacketSize with only altsetting[0] validated; feeds alt_max_pkt_size[]",
+    "s05:drivers/media/usb/gspca/konica.c:206-215 (medium) sd_start reads endpoint[0] and endpoint[1] (i = n&1?0:1); packet_size sizes usb_alloc_coherent URB buffers",
+    "s05:drivers/media/usb/b2c2/flexcop-usb.c:427-432 (medium) probe-time cur_altsetting->endpoint[0].desc.wMaxPacketSize, no bNumEndpoints anywhere in driver; frame_size sizes bufsize",
+    "s05:drivers/media/usb/dvb-usb/dib0700_core.c:798-833 (medium) rc_setup reads altsetting[0].endpoint[1].desc with rc_ep=1, no check; gated by device-reported fw_version>=0x10200",
+    "s05:drivers/media/usb/siano/smsusb.c:420-425 (medium) udev->ep_in[1]->desc.wMaxPacketSize NULL-deref form at probe"
+  ],
+  "safe_negatives": [
+    "usbtv-core.c:77-82 (num_altsetting!=2, bNumEndpoints!=4 checks)",
+    "uvc_driver.c:1279-1281 (bNumEndpoints==1 check)",
+    "ov519.c:3475/3600, stv06xx.c:296, stv06xx_pb0100.c:201, xirlink_cit.c:1458, konica.c:191 (endpoint[0] after core alt_xfer >=1 isoc-IN guarantee)",
+    "loop-bounded: au0828, em28xx, hdpvr, pwc, s2255, stk1160, stkwebcam, tm6000, zr364xx, gspca.c:255/616, pvrusb2, smsusb loops"
+  ],
+  "notes": "Finalizing with 7 findings; cx231xx excluded as seed family."
+}

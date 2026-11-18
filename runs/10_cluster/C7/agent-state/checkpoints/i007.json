@@ -1,0 +1,23 @@
+{
+  "intent_id": "i007",
+  "branch": "xmit-softirq-lock",
+  "snapshot": "s06",
+  "status": "finalizing",
+  "candidates_classified": [
+    {"path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c", "line": 523, "status": "reported", "reason": "fep->tx_lock plain spin_lock in fs_enet_start_xmit (NET_TX softirq) and fs_enet_napi (NET_RX softirq, line 99); process context fs_enet_close line 765 takes plain spin_lock inside spin_lock_irqsave(&fep->lock) but without BH disable -> close-context holder can be interrupted by NET_TX/NET_RX softirq spinning on same tx_lock. napi_disable at line 761 narrows but fs_enet_start_xmit still reachable (queue stopped at 758 only stops new xmits, in-flight xmit and NAPI scheduling by IRQ remain)."},
+    {"path": "drivers/net/ethernet/sun/cassini.c", "line": 1862, "status": "unresolved", "reason": "cas_tx_ringN takes tx_lock[ring] with plain spin_lock; reachable from hardirq cas_interrupt (line 2562) and NAPI poll cas_poll under spin_lock_irqsave(&cp->lock) - BH not disabled but IRQs disabled via outer cp->lock only. Process contexts (cas_reset_task work at 4032, cas_open/close, cas_link_reset timer fn at 4103) take tx_lock via cas_lock_tx/cas_lock_all_save which use spin_lock_irq on cp->lock first -> hardirq excluded but BH NOT disabled. A NET_TX/NET_RX softirq on same CPU while worker holds tx_lock would spin forever (holder cannot resume: softirq blocks task by definition while running on that CPU). This is the exact seed shape at driver level. Not fully attributed per-function before finalize deadline."},
+    {"path": "drivers/staging/ks7010/ks7010_sdio.c", "line": 342, "status": "safe", "reason": "Seed demonstration present in s06 (spin_lock(&priv->tx_dev.tx_dev_lock) at 342); excluded from reporting per instructions."}
+  ],
+  "evidence": {
+    "fs_enet": {
+      "napi_lock": "fs_enet-main.c:99 spin_lock(&fep->tx_lock) in fs_enet_napi (NAPI poll, scheduled by fs_enet_interrupt via __napi_schedule at line 352, request_irq at 733)",
+      "xmit_lock": "fs_enet-main.c:523 spin_lock(&fep->tx_lock) in fs_enet_start_xmit (ndo_start_xmit at ops line 897)",
+      "process_side": "fs_enet-main.c:758-768 fs_enet_close: netif_stop_queue, napi_disable(&fep->napi), then spin_lock_irqsave(&fep->lock, flags); spin_lock(&fep->tx_lock) - no spin_lock_bh anywhere in file (rg spin_lock_bh = 0 hits)",
+      "hardirq_side": "fs_enet-main.c:344-352 napi_schedule_prep/__napi_schedule in fs_enet_interrupt"
+    },
+    "cassini": {
+      "softirq_side": "cassini.c:1862 spin_lock(&cp->tx_lock[ring]) in cas_tx_ringN, called from cas_tx (1927) <- cas_poll NAPI (2606-ish) and cas_interrupt hardirq (2562)",
+      "process_side": "cassini.c:4032 cas_reset_task workqueue uses cas_lock_all_save -> spin_lock_irq(&cp->lock) + cas_lock_tx (nested plain spin_lock on tx_lock, line 249); cas_open 4256, cas_close 4295, cas_link_reset 4103 (timer fn, process/softirq ctx) same helpers; no spin_lock_bh in file"
+    }
+  }
+}

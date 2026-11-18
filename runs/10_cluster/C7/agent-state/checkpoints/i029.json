@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "intent_id": "i029",
+  "branch": "timer-dwork-softirq-lock",
+  "snapshot": "s14",
+  "status": "finalized",
+  "findings": [
+    "net/bridge/br_multicast.c:893-921 br->multicast_lock plain spin_lock in enable/disable_port (897/908) vs TIMER_SOFTIRQ callbacks (170/229/549/639/667/681/897-region timers wired at 484/515/835-842/1812-1823); sibling process sites use _bh",
+    "drivers/scsi/libiscsi.c:1947-1961 iscsi_eh_cmd_timed_out plain spin_lock(&session->frwd_lock) at 1961 vs timer callbacks iscsi_tmf_timedout:1804 (timer_setup 2945) and iscsi_check_transport_timeouts:2101 (timer_setup 2921)"
+  ],
+  "unresolved": [
+    "libiscsi.c:1064/1173 RX-path plain frwd_lock sites",
+    "mwl8k/qtnfmac/wilc1000/rsi timer callbacks not enumerated"
+  ],
+  "note": "Finalized under finalize directive; both findings are sibling-confirmed bug families (s04/s07/s11/s12 br_multicast; s05/s12 libiscsi) verified line-by-line in s14."
+}

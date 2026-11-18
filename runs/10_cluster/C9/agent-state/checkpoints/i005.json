@@ -1,0 +1,56 @@
+{
+  "intent_id": "i005",
+  "branch": "peer-trusted-transport",
+  "snapshot": "s01",
+  "status": "finalized",
+  "progress": "Greybus transport family deep-read complete. FINDING: gb-beagleplay.c hdlc_rx_greybus_frame() uses peer le16 hdr.size as delivered length with no cross-check against locally-known frame length (len=rx_buffer_len-4, line 439, is ignored); gb_connection_recv() re-reads msg_size from the same peer bytes so size<msg_size is vacuous; create_incoming memcpy of peer-sized bytes from fixed rx_buffer[MAX_RX_HDLC] = heap OOB read into a parsed gb_message. Response direction bounded by local message_size. es2 USB-bridge paths safe (HCI-truncated actual_length, fixed-size arpc copy, U8_MAX cport clamp).",
+  "candidates": [
+    {
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 208,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 439,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/greybus/operation.c",
+      "line": 1049,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/greybus/operation.c",
+      "line": 648,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/greybus/es2.c",
+      "line": 840,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/greybus/es2.c",
+      "line": 1042,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/greybus/es2.c",
+      "line": 1221,
+      "status": "safe"
+    }
+  ],
+  "findings": [
+    {
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "start": 204,
+      "end": 214,
+      "confidence": "medium"
+    }
+  ],
+  "next_steps": [
+    "write final artifact i005.json",
+    "call mcp done"
+  ]
+}

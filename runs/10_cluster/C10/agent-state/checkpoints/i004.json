@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "proc-config-write-unterminated",
+  "status": "complete",
+  "snapshot": "s01",
+  "notes": "Final checkpoint. Three findings written to agent-state/findings/i004.json: (1) arch/um/kernel/exitcode.c:42-52 copy_from_user fills full 7-byte stack buf (min(count,sizeof(buf)) with no terminator slot) then simple_strtol OOB-scans, medium; (2) drivers/s390/cio/cio_inject.c:98-103 vmemdup_user(lbuf) + 7-field sscanf, high; (3) drivers/net/ethernet/brocade/bna/bnad_debugfs.c:315-319 (and 375 regwr sibling) memdup_user(nbytes)+sscanf, exact seed analogue, high. Safe rejections with evidence: proc_pid_attr_write (apparmor kmalloc(size+1), selinux kmemdup_nul, smack kstrndup), smackfs revoke-subj (bounded smk_parse_smack), acpi proc (strbuf[count]=0), rtas-proc (progress_led[count]=0), rtas_flash (strncmp fixed 1), srm_env (buf[count]=0), generic.c memdup_user_nul, dynamic_debug memdup_user_nul, configfs fill_write_buffer page[copied]=0, psi buf[buf_size-1]=0, xt_recent bounded strnchr/pton, cifs memset+count<=11, pktgen data[count-1]=0, pnpbios non-string. Unresolved: ntfs3 label downstream, snd_info per-entry write callbacks, debugfs-branch sites (ice x4, rvu 1002, qedf 173) deferred to i002.",
+  "candidates": [
+    {"path": "arch/um/kernel/exitcode.c", "line": 46, "status": "reported"},
+    {"path": "drivers/s390/cio/cio_inject.c", "line": 98, "status": "reported"},
+    {"path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c", "line": 315, "status": "reported"},
+    {"path": "fs/proc/base.c", "line": 2775, "status": "safe"},
+    {"path": "security/smack/smackfs.c", "line": 2548, "status": "safe"},
+    {"path": "fs/ntfs3/super.c", "line": 505, "status": "unresolved"},
+    {"path": "sound/core/info.c", "line": 326, "status": "unresolved"},
+    {"path": "drivers/net/ethernet/intel/ice/ice_debugfs.c", "line": 174, "status": "unresolved"}
+  ]
+}

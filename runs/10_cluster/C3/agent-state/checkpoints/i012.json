@@ -1,0 +1,30 @@
+{
+  "intent_id": "i012",
+  "snapshot": "s03",
+  "branch": "nested-parse-null-arg",
+  "status": "complete",
+  "areas_searched": [
+    "grep over snapshots/s03 for nla_parse_nested*/nla_validate_nested*/nla_parse_nested_compat/nla_for_each_nested in *.c/*.h (145 files)",
+    "filtered subset where helper argument is indexed from info->attrs[N]/tb[N]/attrs[N] (21 parse/validate sites, 42 for_each sites)",
+    "deep read: drivers/net/ieee802154/mac802154_hwsim.c (hwsim_new_edge_nl, hwsim_del_edge_nl, hwsim_set_edge_lqi + hwsim_genl_policy/genl_ops)",
+    "deep read: net/ieee802154/nl802154.c sec key/device/devkey handlers + helpers, drivers/net/macsec.c parse_sa_config/parse_rxsc_config, net/netfilter/ipvs/ip_vs_ctl.c, net/netlabel/netlabel_cipso_v4.c, net/sched/act_api.c, net/sched/cls_flower.c, net/tipc/udp_media.c, net/wireless/nl80211.c (mesh, TID_CONFIG), drivers/net/wireguard/netlink.c, drivers/block/nbd.c, drivers/net/team/team.c, drivers/net/wireless/ath/wil6210/cfg80211.c, net/nfc/netlink.c"
+  ],
+  "candidates": [
+    {"path": "drivers/net/ieee802154/mac802154_hwsim.c", "line": 535, "status": "reported", "reason": "hwsim_set_edge_lqi guard at 531-533 joins negated presence tests with && (inverted); policy has RADIO_EDGE as plain NLA_NESTED (not required), so a SET_EDGE message omitting RADIO_EDGE passes and info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE]==NULL is passed to nla_parse_nested_deprecated at 535; inner edge_attrs ENDPOINT_ID/LQI also dereferenced at 543-544 under an inverted && guard at 538-540"},
+    {"path": "drivers/net/ieee802154/mac802154_hwsim.c", "line": 425, "status": "reported", "reason": "hwsim_new_edge_nl has the identical inverted && guard at 421-423 and passes optional info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] to nla_parse_nested_deprecated at 425; then nla_get_u32(info->attrs[RADIO_ID]) at 431 also unguarded"},
+    {"path": "drivers/net/ieee802154/mac802154_hwsim.c", "line": 487, "status": "safe", "reason": "hwsim_del_edge_nl guard at 483-485 uses || (this is the seed instance, patched in this snapshot); not reportable"},
+    {"path": "net/ieee802154/nl802154.c", "line": 1565, "status": "safe", "reason": "guard 'if (!info->attrs[NL802154_ATTR_SEC_KEY] || nla_parse_nested_deprecated(...))' NULL-checks before parse; same for 1617/1794/1928/1962"},
+    {"path": "drivers/net/macsec.c", "line": 1670, "status": "safe", "reason": "parse_sa_config/parse_rxsc_config both NULL-check attrs[...] before nested parse"},
+    {"path": "net/netfilter/ipvs/ip_vs_ctl.c", "line": 3655, "status": "safe", "reason": "guarded by !info->attrs[IPVS_CMD_ATTR_DAEMON] || on same if"},
+    {"path": "net/netlabel/netlabel_cipso_v4.c", "line": 88, "status": "safe", "reason": "netlbl_cipsov4_add_common TAGLST validate: all callers (add_std 132-134, add_pass 332-333, add_local 371-372) NULL-check TAGLST first; DOI attr guarded in netlbl_cipsov4_add 409-411"},
+    {"path": "net/sched/act_api.c", "line": 1605, "status": "safe", "reason": "find_dump_kind checks tb1==NULL (1601) and tb[1]==NULL (1606) before nested parse"},
+    {"path": "net/sched/cls_flower.c", "line": 1269, "status": "safe", "reason": "fl_set_enc_opt only called at 1700 inside 'if (tb[TCA_FLOWER_KEY_ENC_OPTS])' at 1699; MASK path itself guarded by tb[...MASK]"},
+    {"path": "net/tipc/udp_media.c", "line": 684, "status": "safe", "reason": "guarded by 'if (!attrs[TIPC_NLA_BEARER_UDP_OPTS]) goto err;'"},
+    {"path": "net/wireless/nl80211.c", "line": 7452, "status": "safe", "reason": "'if (!info->attrs[NL80211_ATTR_MESH_CONFIG]) return -EINVAL;' immediately precedes parse; same for mesh setup 7586-7590 and TID_CONFIG 14753-14754"},
+    {"path": "drivers/net/wireguard/netlink.c", "line": 460, "status": "safe", "reason": "for_each_nested runs inside 'if (attrs[WGPEER_A_ALLOWEDIPS])'/'if (info->attrs[WGDEVICE_A_PEERS])' and parses iterator attrs (non-NULL by construction)"},
+    {"path": "drivers/block/nbd.c", "line": 1941, "status": "safe", "reason": "for_each_nested inside 'if (info->attrs[NBD_ATTR_SOCKETS])' (both 1929 and 2110 sites); parses iterator attr"},
+    {"path": "net/nfc/netlink.c", "line": 1167, "status": "safe", "reason": "for_each_nested over info->attrs[NFC_ATTR_LLC_SDP] with per-item NULL-guard 'if (!sdp_attrs[NFC_SDP_ATTR_URI]) continue'"},
+    {"path": "drivers/net/wireless/ath/wil6210/cfg80211.c", "line": 3047, "status": "safe", "reason": "tb[QCA_ATTR_DMG_RF_SECTOR_CFG] covered by || guard at 3027-3031 before for_each_nested"}
+  ],
+  "notes": "Direct nested-parse/validate call sites whose argument is an attrs[]/tb[] slot were all reviewed (no other NULL-reaching site). Bounded: sites where the nesting attribute flows through an intermediate local variable were not exhaustively traced; no compilation/reproducer run (snapshot tree lacks top-level Makefile)."
+}

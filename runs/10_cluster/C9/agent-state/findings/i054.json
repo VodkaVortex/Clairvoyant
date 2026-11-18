@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "intent_id": "i054",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": ["s13"],
+  "findings": [
+    {
+      "snapshot": "s13",
+      "path": "drivers/hv/hv_balloon.c",
+      "start": 1306,
+      "end": 1318,
+      "quote": "static void balloon_down(struct hv_dynmem_device *dm,\n\t\t\tstruct dm_unballoon_request *req)\n{\n\tunion dm_mem_page_range *range_array = req->range_array;\n\tint range_count = req->range_count;\n\tstruct dm_unballoon_response resp;\n\tint i;\n\tunsigned int prev_pages_ballooned = dm->num_pages_ballooned;\n\n\tfor (i = 0; i < range_count; i++) {\n\t\tfree_balloon_pages(dm, &range_array[i]);",
+      "confidence": "high",
+      "reason": "Untrusted source: the Hyper-V host peer sends a DM_UNBALLOON_REQUEST vmbus packet; balloon_onchannelcallback (drivers/hv/hv_balloon.c:1445-1477) reads it into the global PAGE_SIZE recv_buffer via vmbus_recvpacket(...,PAGE_SIZE,&recvlen,...) with the only gate 'if (recvlen > 0)' and dispatches DM_UNBALLOON_REQUEST straight to balloon_down. Missing guarantee: balloon_down copies the host-supplied req->range_count (u32, struct dm_unballoon_request at hv_balloon.c:327-332) into int range_count and loops that many times over req->range_array[] with no check that recvlen >= sizeof(dm_unballoon_request) + range_count*sizeof(union dm_mem_page_range) and no cap against the PAGE_SIZE buffer - asymmetric vs the same callback which does validate ha_msg->hdr.size == sizeof(struct dm_hot_add) for the hot-add mirror path (line 1483). Unsafe use: each loop iteration reads range_array[i] out of bounds past the global recv_buffer and passes it to free_balloon_pages (line 1150-1162), which loops page_cnt (peer 24-bit, up to 2^24-1) iterations calling __free_page(pfn_to_page(i + start_frame)) with the peer-chosen 40-bit start_page - host-controlled OOB read of kernel memory plus mass free of arbitrary PFNs (memory corruption / DoS). Consequence: remotely (host-to-guest) triggerable kernel heap/global-buffer OOB read and arbitrary page free. Counterevidence checked: no clamp of range_count anywhere between recv and loop; upstream fixed this by adding range-count validation against recvlen - absent here.",
+      "conclusion": "hv_balloon balloon_down loops on host-supplied dm_unballoon_request->range_count with only a recvlen>0 gate (no recvlen vs range_count*8 check, no PAGE_SIZE cap), OOB-reading the global PAGE_SIZE recv_buffer and freeing host-chosen arbitrary PFNs via free_balloon_pages."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/staging/greybus/audio_topology.c",
+      "start": 139,
+      "end": 157,
+      "quote": "static const char **gb_generate_enum_strings(struct gbaudio_module_info *gb,\n\t\t\t\t\t     struct gb_audio_enumerated *gbenum)\n{\n\tconst char **strings;\n\tint i;\n\tunsigned int items;\n\t__u8 *data;\n\n\titems = le32_to_cpu(gbenum->items);\n\tstrings = devm_kzalloc(gb->dev, sizeof(char *) * items, GFP_KERNEL);\n\tdata = gbenum->names;\n\n\tfor (i = 0; i < items; i++) {\n\t\tstrings[i] = (const char *)data;\n\t\twhile (*data != '\\0')\n\t\t\tdata++;\n\t\tdata++;\n\t}",
+      "confidence": "medium",
+      "reason": "Untrusted source: the greybus module (peer device on the Unipro/USB greybus link) supplies an audio topology blob; gbenum is a struct gb_audio_enumerated embedded in that peer-supplied topology data reached via gbaudio_tplg_process_kcontrols (line 1150-1210) and gbaudio_tplg_process_widgets (line 1000-1080), which themselves walk peer-supplied num_controls/num_widgets counts (copied verbatim at 1332-1334) and peer-supplied per-entry names_length sizes with no total-size validation of the response against GB_AUDIO_TOPOLOGY expected length. Missing guarantee: items (peer le32) is used directly as devm_kzalloc(sizeof(char*)*items) multiplier with no overflow check and no cross-check against the locally known names_length/response buffer length; the following loop both writes items pointers into the allocated array and advances data by walking NUL-terminated strings with 'while (*data)' - an unbounded OOB read past the topology buffer if the peer gives items larger than the names blob or omits NUL bytes. Unsafe use: strings[i] stores raw pointers derived from data; snd_soc layer later dereferences these texts. Note the sizeof(char*)*items product on 64-bit with items near 2^32 can overflow to a small allocation, then the items-length pointer-write loop overflows the heap buffer - same manual multiply pattern as the seed. Counterevidence checked: gbaudio_tplg_process_header (1325-1345) computes offsets from peer size_dais/size_controls/size_widgets with no bound checks either; no kmalloc_array/array_size usage.",
+      "conclusion": "greybus audio topology gb_generate_enum_strings allocates with unchecked peer-supplied le32 gbenum->items (sizeof(char*)*items into devm_kzalloc) then writes items pointers and walks unbounded NUL-scanning, giving heap overflow/OOB read of the peer-supplied topology blob."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s13",
+      "path": "drivers/staging/greybus/es2.c",
+      "line": 848,
+      "status": "safe",
+      "reason": "cport_in_callback passes urb->actual_length to greybus_data_rcvd; gb_connection_recv (operation.c:1026-1066) validates size >= sizeof(header) and size >= le16 header.size (msg_size) before dispatch; gb_operation_message_alloc rejects message_size > hd->buffer_size_max (2048 == ES2_GBUF_MSG_SIZE_MAX URB buffer); response memcpy capped at message_size or forced to header-only on errno; incoming request memcpy is of the same validated size into a buffer allocated for exactly that size. No missing local limit.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/hv/hv_fcopy.c",
+      "line": 276,
+      "status": "safe",
+      "reason": "hv_fcopy_onchannelcallback only stashes recv_len/pointer into serialized fcopy_transaction state for a userspace daemon; no kernel-side peer-count loop or allocation driven by the message body in this path (validation deferred to daemon protocol).",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/block/nbd.c",
+      "line": 566,
+      "status": "safe",
+      "reason": "nbd_read_stat uses peer reply.handle only as a blk_mq tag; hwq is checked against nr_hw_queues before indexing tags[]; data receive is bounded by the request's own bvecs (rq_for_each_segment), not by any peer length field.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "net/9p/trans_fd.c",
+      "line": 320,
+      "status": "safe",
+      "reason": "p9_read_work validates the peer r_size from p9_parse_header with 'm->rc.size >= m->client->msize -> error' before setting m->rc.capacity = m->rc.size and reading into the preallocated req->rc buffer (p9_tag_alloc sizes it with min(c->msize,max_size)); memcpy from tmp_buf bounded by 7-byte header capacity.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "net/9p/trans_rdma.c",
+      "line": 308,
+      "status": "safe",
+      "reason": "recv_done parses header from a buffer posted with sge.length = client->msize (locally fixed, not peer-supplied); req->rc buffer was allocated with the same msize; tag used only for lookup; no peer-driven allocation or loop beyond msize.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "net/9p/trans_virtio.c",
+      "line": 154,
+      "status": "safe",
+      "reason": "req_done calls p9_client_cb on the request whose rc buffer was locally allocated at msize; the virtqueue returned length is ignored, and later parsing is bounded by p9_read_work-equivalent msize checks in client.c p9_check_errors path.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/rpmsg/qcom_glink_rpm.c",
+      "line": 531,
+      "status": "safe",
+      "reason": "glink_rpm_rx_data validates 'avail < sizeof(hdr) + chunk_size' against the FIFO watermarks before the kmalloc(chunk_size+left_size) (u32+u32, no int truncation, kmalloc fails large); the copy is gated by 'channel->buf_size - channel->buf_offset < chunk_size' so the first-fragment sizing always covers subsequent fragments; peer-written SMEM head/tail are used only through the same avail checks.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/rpmsg/qcom_smd.c",
+      "line": 595,
+      "status": "safe",
+      "reason": "channel->pkt_size (peer le32 from SMEM) is consumed only when avail >= pkt_size (avail is masked to fifo_size), the bounce buffer is min(fifo_size,SZ_4K) and qcom_smd_channel_peek clamps each copy to fifo_size-tail and wraps; worst case a peer pkt_size > fifo_size makes the wrapped branch memcpy min(pkt_size,fifo_size-tail)+... bounded by the fifo/bounce allocation, an OOB only if pkt_size > bb_size with wrap, which peek's clamp prevents for the first leg but the second leg copies count-len up to pkt_size into a bb_size buffer - residual risk noted in coverage gap; classified safe for the primary non-wrapped path.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/virtio/virtio_input.c",
+      "line": 125,
+      "status": "safe",
+      "reason": "virtinput_cfg_bits uses peer u8 size (max 255) for kzalloc and virtio_cread_bytes with bitcount clamped to bytes*8; u8 range cannot overflow 255-byte kzalloc.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 616,
+      "status": "unresolved",
+      "reason": "Seed usbip_recv_iso chain (int np*sizeof iso -> kzalloc -> per-packet recv loop) is present and unpatched in s13 (confirmed by sibling facts f050/f049 for this same tree), but the seed path is demonstration-only and excluded-by-rule from this intent's findings.",
+      "conclusion": "Seed usbip_recv_iso integer-overflow/OOB-write confirmed unpatched in s13 at drivers/usb/usbip/usbip_common.c:611-696; excluded by rule - track via the dedicated seed CVE, do not re-report here."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/rpmsg/qcom_smd.c",
+      "line": 537,
+      "status": "unresolved",
+      "reason": "Wrapped-packet branch of qcom_smd_channel_recv_single: when peer pkt_size (le32, unconstrained beyond avail>=pkt_size with avail masked to fifo_size) exceeds bounce buffer bb_size=min(fifo_size,SZ_4K), the wrap branch peeks channel->pkt_size bytes into a bb_size buffer; qcom_smd_channel_peek clamps the first leg to fifo_size-tail but the wrap leg copies count-len which can reach pkt_size > bb_size - not fully proven within remaining budget.",
+      "conclusion": "Verify whether peer pkt_size can exceed bb_size=min(fifo_size,SZ_4K) given avail is masked to fifo_size: if pkt_size is capped by avail<=fifo_size and fifo_size<=SZ_4K then bb_size==fifo_size and the copy is in-bounds; else a remote-proc OOB write exists."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/ethernet/qlogic/netxen/netxen_nic_ctx.c",
+      "line": 380,
+      "status": "unresolved",
+      "reason": "Firmware-reply num_rds_rings/num_sds_rings (le16) consumed without checking against requested counts was reported by sibling fact f051 (unclamped-wire-count, s13) with medium confidence; it equally matches this branch (remote firmware peer response driving ring-array indexing) but was not independently re-read in this session to avoid duplicating the earlier report.",
+      "conclusion": "Cross-branch duplicate of i052's netxen finding: confirm independently whether firmware-reply num_rds/num_sds_rings index past the kcalloc'd ring arrays in this tree, and de-duplicate against f051."
+    }
+  ],
+  "coverage_gaps": [
+    "Greybus gb-beagleplay (hdlc_rx_greybus_frame hdr.size) named in the intent is absent from this tree (only staging es2/uart/audio greybus present), so that specific known chain could not be re-checked here.",
+    "qcom_glink_native (chunk_size/left_size SMEM validation) is absent from this tree; only qcom_glink_rpm.c and qcom_smd.c exist, both read; the intent's glink_native chain was checked in its rpm variant only.",
+    "Ceph/cifs and other remote-storage server-reply vectors (fs/ceph, fs/cifs) were not deep-read in this session for peer-count allocation/iteration; only the 9p and nbd transports plus greybus/hv/rpmsg/virtio paths were covered (cifs was covered by sibling fact f052 in this same tree).",
+    "vhost/vringh consumer-side ring processing, ath10k/ath12k WMI-TLV and other wireless firmware reply parsers were only presence-checked, not deep-read."
+  ],
+  "limitations": [
+    "hv_balloon finding impact (arbitrary __free_page of peer-chosen PFNs) is stated from code reading; no runtime reproduction was performed since the peer is the Hyper-V host, and exploitation requires a malicious/compromised host, which is the defined trust boundary for this branch.",
+    "greybus audio_topology finding assumes gbenum arrives inside the peer-supplied topology response; the upstream call chain (gb_audio_gb_get_topology -> gbaudio_tplg_parse_data) was traced structurally but the outer response size was not proven to be the only outer bound, so confidence is medium rather than high.",
+    "qcom_smd wrapped-packet bound analysis (pkt_size vs bb_size vs masked avail) was not completed; recorded as unresolved instead of classified safe.",
+    "Only drivers/hv, drivers/staging/greybus, net/9p, drivers/block/nbd.c, drivers/rpmsg, drivers/virtio and a targeted scan of drivers/net/ethernet, drivers/scsi allocation sites were read; a full sweep of every transport reply handler in the tree was out of scope."
+  ]
+}

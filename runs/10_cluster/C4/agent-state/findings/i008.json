@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "error-path-commit",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/tipc/bearer.c",
+      "start": 1311,
+      "end": 1350,
+      "quote": "err = nla_parse_nested_deprecated(attrs, TIPC_NLA_MEDIA_MAX,",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: generic netlink write message (TIPC_NL_MEDIA_SET via tipc_nl_media_set) whose nested TIPC_NLA_MEDIA attribute bytes are fully user-controlled; this is a control-write doit path. VIOLATED INVARIANT: __tipc_nl_media_set() assigns the return of nla_parse_nested_deprecated() into err at net/tipc/bearer.c:1321-1323 but the next statement is 'if (!attrs[TIPC_NLA_MEDIA_NAME])' with no 'if (err) return err;' gate, unlike the five sibling handlers in the same file (__tipc_nl_bearer_set at 1110+ and four others at lines 925/975/1022/1074 all do 'if (err) return err;'). __nla_validate_parse() in lib/nlattr.c only memsets tb[] and populates entries while walking; it returns -EINVAL mid-walk (e.g. policy violation via validate_nla, unknown maxtype with NL_VALIDATE_MAXTYPE, leftover bytes with NL_VALIDATE_TRAILING) AFTER the memset, but on early error return the caller can no longer trust the walk completed. UNSAFE USE: even after a failed parse the handler reads attrs[TIPC_NLA_MEDIA_NAME]/attrs[TIPC_NLA_MEDIA_PROP] and tipc_nl_parse_link_prop() results and unconditionally commits m->tolerance (line 1343), m->priority (1345), m->max_win (1347), m->mtu (1361) into the persistent global struct tipc_media for every media type. CONSEQUENCE: partially-validated or rejected attribute content still rewrites bearer/link negotiation parameters (tolerance, priority, window, and for UDP media MTU after only a lower-bound check) that are later re-read per link (b->tolerance = m->tolerance at bearer.c:340, prio = m->priority at :282), so a rejected write can still corrupt persistent protocol state and there is no rollback. COUNTEREVIDENCE CHECKED: __nla_validate_parse does memset(tb) before the walk, so on the specific early-error paths that return before any tb[] assignment the entries are NULL and !attrs[NAME] bails with -EINVAL - this is why confidence is medium, not high; the realistic failure window is a policy/validate_nla error on a later attribute after TIPC_NLA_MEDIA_NAME and TIPC_NLA_MEDIA_PROP were already stored in tb[], in which case the parse fails, the function continues past the unchecked err, and the commits at 1343-1361 still execute on values the kernel just declared invalid. This is the missing-error-abort-between-parse-and-unconditional-commit shape of the seed."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/can/bcm.c",
+      "line": 970,
+      "status": "safe",
+      "reason": "bcm_tx_setup update-path: err = memcpy_from_msg(...) at 967 is followed by cf->len checks that reassign err and then 'if (err < 0) return err;' before any op->flags/nframes commit; new-op path uses 'if (err < 0) goto free_op;'. Both paths abort on failure."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 3831,
+      "status": "safe",
+      "reason": "packet_setsockopt PACKET_RX_RING/TX_RING: copy_from_sockptr result is folded into ret via ternary (-EINVAL on failure) and packet_set_ring() is only invoked under 'if (!ret)'. All other setsockopt cases in the switch return -EFAULT immediately."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/orangefs/orangefs-sysfs.c",
+      "line": 276,
+      "status": "safe",
+      "reason": "sysfs_int_store assigns kstrtoint result into rc and jumps to 'out:' where 'if (rc) rc = -EINVAL; else rc = count;' - the error is propagated, no commit happens on failure."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/rtnetlink.c",
+      "line": 4836,
+      "status": "safe",
+      "reason": "rtnl_fdb_del checks 'if (err < 0) return err;' immediately after both nlmsg_parse_deprecated and nlmsg_parse before touching tb[]."
+    },
+    {
+      "snapshot": "s02",
+      "path": "block/error-injection.c",
+      "line": 185,
+      "status": "safe",
+      "reason": "blk_error_injection_parse_options: match_u64 results assigned to local 'error' that is accumulated ('ret |= error' style) and returned; store wrapper aborts on nonzero return before applying the fail-attr change."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/netdevsim/bus.c",
+      "line": 73,
+      "status": "safe",
+      "reason": "new_port_store checks the sscanf return count in a switch (case 7/case 1/default -EINVAL) before calling nsim_drv_port_add; ssanf return is explicitly validated."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c",
+      "line": 1411,
+      "status": "safe",
+      "reason": "mps_trc_write validates copy_from_user with -EFAULT goto out; the kstrtouint(end,10,&j) return is checked by pattern in the loop (verified in the +8-line window) before tp data is applied via t4_set_trace_filter."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/ath/ath11k/debugfs.c",
+      "line": 1551,
+      "status": "unresolved",
+      "reason": "ath11k_write_twt_add_dialog and the three sibling twt write handlers (del/pause/resume at 1627/1674/1713) assign sscanf return to ret; heuristic window showed no immediate check. Runtime impact limited to debugfs (root-only 0600), so not deeply read within the 12-candidate budget; left for future verification."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_debugfs.c",
+      "line": 711,
+      "status": "unresolved",
+      "reason": "i40e_dbg_command_write uses sscanf return values in multiple command branches without visible checks in the heuristic window; debugfs-only, root-writable surface, not deeply read within budget."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/kexec_core.c",
+      "line": 741,
+      "status": "unresolved",
+      "reason": "kimage_load_{cma,normal,crash}_segment treat copy_from_user short copies as 'ucopy' accounting rather than aborting (long-standing deliberate behavior of filling pages with what was copied); not a missing-abort commit of rejected data in the seed's sense, but not conclusively classified within budget."
+    }
+  ],
+  "limitations": [
+    "The error-path-commit scan was bounded to a one-pass extraction of 2327 functions in net/, kernel/, fs/, mm/, security/, block/, io_uring/, ipc/, and selected drivers/ subtrees that call kstrto*/sscanf/match_*/nla_parse*/nlmsg_parse/copy_from_user-family helpers, filtered by a +/-6-line unchecked-return heuristic; handlers whose check is more than ~6 lines after the parse call, use macros that hide the return, or validate via wrapper helpers would be missed.",
+    "drivers/ was only partially walked (net, tty, infiniband, md, misc); the full drivers/ tree, arch/, sound/, and virt/ were not scanned at all.",
+    "The reported net/tipc/bearer.c finding was verified against lib/nlattr.c __nla_validate_parse semantics by source reading, not by compiling or executing a reproducer against a live kernel; the exploitability of the post-error commit window (policy violation on an attribute stored in tb[] after TIPC_NLA_MEDIA_NAME/PROP were already stored) depends on the exact tipc_nl_media_policy entries, which were not enumerated line-by-line.",
+    "Three debugfs-root candidates (ath11k twt writes, i40e command write, kexec short-copy behavior) remain unresolved because their attack surface requires root/CAP_NET_ADMIN and they were deprioritized against unprivileged-surface candidates.",
+    "No coccinelle/Smatch/static-analyzer run was possible (spatch not available in the sandbox); all classification is from manual reading of the extracted function bodies."
+  ]
+}

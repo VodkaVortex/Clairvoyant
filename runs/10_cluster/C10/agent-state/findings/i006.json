@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "debugfs-write-memdup-sscanf",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 314,
+      "end": 320,
+      "quote": "kern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &len);",
+      "confidence": "high",
+      "reason": "Untrusted source: debugfs file 'regrd' (created via debugfs_create_file with bnad_debugfs_op_regrd, .write=bnad_debugfs_write_regrd, mode S_IFREG|0644 at lines 449-455/483/521) lets any user able to open the node control nbytes (write length) and the full buffer contents. Violated invariant: memdup_user(buf, nbytes) at line 315 allocates exactly nbytes and copies exactly nbytes bytes, so the validated size equals the used size but there is no NUL-terminator slot; no memdup_user_nul, strndup_user, or count+1 allocation exists anywhere in bnad_debugfs_write_regrd (verified by reading the complete function lines 301-357). Unsafe use: sscanf(kern_buf, \"%x:%x\", ...) at line 319 scans the allocation as a C string until NUL; writing e.g. a full buffer of non-NUL hex bytes with no terminator makes sscanf read past the end of the kmalloc'd object (slab out-of-bounds read; KASAN-detectable, info-leak/crash), the same root cause as seed commit 13d0cecb4626 ('Ensure the copied buf is NUL terminated') which fixed the identical bfa code by switching to memdup_user_nul. Counterevidence checked: no terminator enforcement (no buf[nbytes]=0, no memchr NUL check, no length cap that would bound the scan) anywhere between copy and sscanf; the rc<2/len bounds checks at line 320 occur only after the OOB-capable sscanf. Identical twin at lines 375/379 (write_regwr, mode 0200)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 374,
+      "end": 380,
+      "quote": "kern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &val);",
+      "confidence": "high",
+      "reason": "Second instance of the same mechanism in the same file: bnad_debugfs_write_regwr (debugfs 'regwr', file_operations bnad_debugfs_op_regwr, mode S_IFREG|0200, registered at lines 458-463/484/521) copies attacker-controlled nbytes+contents via memdup_user(buf, nbytes) at line 375 into an exactly nbytes-sized allocation with no terminator, then sscanf(kern_buf, \"%x:%x\", &addr, &val) at line 379 scans for NUL past the allocation end. Full function read (lines 362-401): the only checks are rc<2 after the sscanf and a register-offset mask/check, none of which guarantee in-bounds NUL. Exact structural clone of the seed bfa bfad_debugfs regrd/regwr pair, in the sibling Brocade bna driver, fixed upstream the same way (memdup_user -> memdup_user_nul)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "start": 98,
+      "end": 103,
+      "quote": "buffer = vmemdup_user(buf, lbuf);\n\tif (IS_ERR(buffer))\n\t\treturn -ENOMEM;\n\n\trc = sscanf(buffer, \"%x %x %x %x %x %x %x\", &slct, &oflw, &chn, &rsc, &anc,\n\t\t    &erc, &rsid);",
+      "confidence": "high",
+      "reason": "Untrusted source: crw_inject_write is the .write handler of debugfs file 'crw_inject' (debugfs_create_file(\"crw_inject\", 0200, cio_debugfs_dir, NULL, &crw_inject_fops) at line 166), gated only by a static_branch cio_inject_enabled warning, so with injection enabled the caller fully controls lbuf and buffer contents. Violated invariant: vmemdup_user(buf, lbuf) allocates exactly lbuf bytes (vmalloc-backed memdup_user analogue) with no NUL slot - no vmemdup_user_nul/memdup_user_nul or lbuf+1 allocation appears in the function (full function read lines 84-122). Unsafe use: sscanf(buffer, \"%x %x %x %x %x %x %x\", ...) at lines 102-103 treats the allocation as a C string and scans until NUL, reading past the end for a user buffer with no NUL byte (vmalloc OOB read; kvfree happens only after the sscanf so it cannot bound it). Counterevidence checked: no terminator, no memchr, no length clamp between copy and sscanf; the rc != 7 check occurs after the scan. Same mechanism as the seed, different copy primitive (vmemdup_user vs memdup_user)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/scsi/qedf/qedf_debugfs.c",
+      "start": 173,
+      "end": 178,
+      "quote": "kern_buf = memdup_user(buffer, count);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trval = kstrtouint(kern_buf, 10, &val);\n\tkfree(kern_buf);",
+      "confidence": "medium",
+      "reason": "Untrusted source: qedf_dbg_debug_cmd_write is the .write callback of the qedf 'debug' debugfs file (qedf_create_dbgfil_entry registers dops with mode 0600 via debugfs_create_file at lines 31-38), so the writer controls count and contents. Violated invariant: memdup_user(buffer, count) at line 173 allocates exactly count bytes with no terminator slot; no memdup_user_nul/strndup_user/count+1 in the function (full function read lines 160-186, and the only guard is !count || *ppos). Unsafe use: kstrtouint(kern_buf, 10, &val) at line 177 - the kstrto* family wraps simple_strtoul-style scanning that walks the buffer as a NUL-terminated string, so a non-NUL-terminated input reads past the allocation end (OOB heap read). Counterevidence checked: no explicit NUL is ever written before kstrtouint; the sibling handler qedf_dbg_stop_io_on_error_cmd_write (line 225) uses a fixed 6-byte memdup_user with fixed-length strncmp only, which is bounded. Medium confidence because kstrto* consumes via an internal bounded-ish scan on some formats, but with base-10 digits only and no terminator the scan still relies on a NUL that may not exist; treat as a hypothesis pending the same memdup_user_nul remediation as the seed."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 315,
+      "status": "reported",
+      "reason": "write_regrd: memdup_user(buf, nbytes) exact-size alloc, no terminator, sscanf(kern_buf, \"%x:%x\") immediately after; debugfs regrd mode 0644. Finding 1."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 375,
+      "status": "reported",
+      "reason": "write_regwr: identical memdup_user(buf, nbytes) + sscanf with no NUL guarantee; debugfs regwr mode 0200. Finding 2."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "line": 98,
+      "status": "reported",
+      "reason": "crw_inject_write: vmemdup_user(buf, lbuf) then sscanf(buffer, ...%x x7) with no terminator; kvfree after the scan. Finding 3."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/scsi/qedf/qedf_debugfs.c",
+      "line": 173,
+      "status": "reported",
+      "reason": "qedf_dbg_debug_cmd_write: memdup_user(buffer, count) then kstrtouint(kern_buf, 10, &val) with no NUL slot. Finding 4."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/scsi/scsi_debug.c",
+      "line": 1032,
+      "status": "safe",
+      "reason": "sdebug_error_write uses kzalloc(count + 1, GFP_KERNEL) so an explicit terminator slot exists before copy_from_user and the sscanf calls at 1045/1060/1066/1072."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_debugfs.c",
+      "line": 765,
+      "status": "safe",
+      "reason": "i40e_dbg_command_write: kzalloc(count + 1) plus cmd_buf[count] = '\\0' before strchr/strncmp/sscanf; netdev_ops variant at 1696 same pattern."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 1002,
+      "status": "safe",
+      "reason": "rvu_dbg_qsize_write: memdup_user(buffer, count + 1) with cmd_buf[count] = '\\0' before strsep/kstrtoint; the 1303 copy_from_user path also newline-terminates."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/infiniband/hw/hfi1/debugfs.c",
+      "line": 566,
+      "status": "safe",
+      "reason": "asic_flags_write uses memdup_user_nul(buf, count) before kstrtoull; kmalloc(count) sites at 799/901 are i2c/qsfp binary reads/writes with explicit byte counts, no string consumers."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/btrfs/ioctl.c",
+      "line": 1157,
+      "reason": "btrfs ioctl resize: memdup_user of fixed-size struct, and btrfs_check_ioctl_vol_args_path (line 230) does memchr(vol_args->name, 0, sizeof(vol_args->name)) ensuring an in-bounds NUL before strcmp/strchr/kstrtoull. Also ioctl, not debugfs. Out of this branch's scope but terminated.",
+      "status": "safe"
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/realtek/rtw89/debug.c",
+      "line": 3233,
+      "status": "safe",
+      "reason": "rtw89_hex2bin_user: memdup_user result passed to hex2bin(bin, buf, num) with explicit num bound - bounded conversion, not a NUL-seeking string scanner; all other rtw89 write handlers use copy_from_user with buf[buf_size] = '\\0' (e.g. line 145-149)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/cmd.c",
+      "line": 1513,
+      "status": "safe",
+      "reason": "outlen_write rejects count > 6 and sscanf reads zero-initialized char outlen_str[8]; data_write (1451) stores the memdup_user buffer as binary in_msg with stored inlen, no string parsing."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/ath/wil6210/debugfs.c",
+      "line": 981,
+      "status": "safe",
+      "reason": "txmgmt/wmi write handlers pass memdup_user buffers as binary frames with explicit length (params.len = len; wmi_send(..., cmdlen)); no C-string consumer."
+    }
+  ],
+  "limitations": [
+    "Scan bounded to debugfs (and debug-control) .write handlers found via 202 memdup_user/vmemdup_user grep hits cross-filtered with string consumers, plus a copy_from_user-then-string-op window scan over all debugfs-creating files (70 files, 312 site hits); handlers using helpers like kstrto*_from_user or simple_write_to_buffer directly were not individually audited and could hide further variants.",
+    "Candidates outside the debugfs branch (sysfs ->store, /proc/configfs, ioctl/sockopt) were only incidentally observed and are assigned to intents i007-i009; this artifact intentionally does not cover them.",
+    "The qedf kstrtouint finding is medium confidence: kstrto* internals were not compiled/executed to demonstrate the exact over-read; confirmation would need a KASAN harness or comparison with an upstream memdup_user_nul fix for qedf_debugfs.c.",
+    "Runtime exploitability of the bnad/cio_inject findings depends on the respective drivers being loaded and their debugfs nodes being reachable (bnad requires a BNA NIC with debugfs mounted; cio_inject requires the cio_inject_enabled static key); no live kernel was available in the workspace to test.",
+    "bfa bfad_debugfs.c (the seed subsystem itself) is present in s02 with the same unfixed pattern at lines 253/257 and 320/324; it is excluded from findings because the seed subsystem is the demonstration, not a reportable location."
+  ]
+}

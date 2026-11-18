@@ -1,0 +1,38 @@
+{
+  "intent_id": "i023",
+  "branch": "net-epidx",
+  "snapshot": "s06",
+  "status": "finalized",
+  "updated_at": "final",
+  "candidates": [
+    {"file": "drivers/net/usb/lan78xx.c", "line": 3582, "status": "reported", "reason": "probe assigns endpoint +0/+1/+2 fixed indexes, dereferences ep_intr->desc.bEndpointAddress (3589-3591) and bInterval (3592) with no bNumEndpoints check"},
+    {"file": "drivers/net/wireless/ath/ath9k/hif_usb.c", "line": 1224, "status": "reported", "reason": "send_eject_command called at probe (1272-1273) reads endpoint[1].desc before endpoint[0] with no bNumEndpoints check; iface_desc = &interface->altsetting[0]"},
+    {"file": "drivers/net/wireless/zydas/zd1211rw/zd_usb.c", "line": 1283, "status": "reported", "reason": "eject_installer (original of the ath9k copy) reads altsetting[0].endpoint[1].desc first with no bNumEndpoints check; called at probe 1365-1366"},
+    {"file": "drivers/net/usb/r8152.c", "line": 1355, "status": "reported", "reason": "alloc_all_mem takes alt->endpoint + 2 and reads ep_intr->desc.bInterval at 1430 to fill the interrupt URB at 1431-1434; no bNumEndpoints anywhere in file"},
+    {"file": "drivers/net/usb/qmi_wwan.c", "line": 304, "status": "unresolved", "reason": "dev->status = &info->control->cur_altsetting->endpoint[0] when control != data; core config.c only allocates endpoint array when num_ep > 0 (else stays NULL), so &endpoint[0] on a 0-endpoint control interface is NULL-adjacent; passed to usb_cdc_wdm_register as &dev->status->desc. Not fully traced to a guaranteed deref because dev->status NULL check at 307 only proves non-NULL, not bounds"}
+  ],
+  "safe_candidates": [
+    "drivers/net/usb/usbnet.c:116 usbnet_get_endpoints loops ep < bNumEndpoints",
+    "drivers/net/usb/cdc_ether.c:293-296 guarded by bNumEndpoints == 1",
+    "drivers/net/usb/cdc-phonet.c:352-357 num_altsetting and bNumEndpoints == 2 validated before endpoint[0]/[1] at 377-386",
+    "drivers/net/usb/sierra_net.c:696-699 rejects numendpoints != 3",
+    "drivers/net/usb/hso.c:3138,3159 loops bounded by bNumEndpoints; endpoints NULL-checked (2524,2530,2659)",
+    "drivers/net/usb/cdc_ncm.c:681 loop bounded by bNumEndpoints",
+    "drivers/net/usb/ipheth.c:503 loop bounded by bNumEndpoints",
+    "drivers/net/wireless/carl9170/usb.c:1066 loop bounded",
+    "drivers/net/wireless/atmel/at76c50x-usb.c:2249 loop bounded",
+    "drivers/net/wireless/broadcom/brcm80211/brcmfmac/usb.c:1340-1341 loop bounded by desc->bNumEndpoints",
+    "drivers/net/wireless/intersil/orinoco/orinoco_usb.c:1603 loop bounded",
+    "drivers/net/wireless/intersil/p54/p54usb.c:1018 loop bounded (i = bNumEndpoints; while (i--))",
+    "drivers/net/wireless/marvell/libertas/if_usb.c:226 loop bounded",
+    "drivers/net/wireless/marvell/libertas_tf/if_usb.c:172 loop bounded",
+    "drivers/net/wireless/marvell/mwifiex/usb.c:423 loop bounded",
+    "drivers/net/wireless/mediatek/mt7601u/usb.c:223 loop bounded",
+    "drivers/net/wireless/ralink/rt2x00/rt2x00usb.c:609 loop bounded",
+    "drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c:5922-5924 loop bounded",
+    "drivers/net/wireless/realtek/rtlwifi/usb.c:353-354 loop bounded",
+    "drivers/net/wireless/rsi/rsi_91x_usb.c:108 loop bounded",
+    "drivers/net/wireless ath10k/ath6kl htc->endpoint[] excluded: driver-internal HTC structures, not USB descriptor arrays"
+  ],
+  "notes": "drivers/net/wwan does not exist in s06. usb core config.c:494-497 allocates endpoint array only when num_ep > 0, so zero-endpoint altsettings leave alt->endpoint NULL and fixed index pointer arithmetic reads/NULL-derefs."
+}

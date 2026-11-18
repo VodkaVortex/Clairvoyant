@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "drm-userif-divisor",
+  "phase": "final",
+  "snapshot": "s04",
+  "status": "complete",
+  "notes": "REPORTED: drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c smu_v11_0_set_fan_speed_rpm (lines 1196-1217): guard at 1207 is only `if (speed == 0)`, divisor `8 * speed` computed in u32 at line 1217 wraps to 0 for speed >= 0x20000000 -> kernel divide by zero. Reachable from hwmon fan1_target store (amd/pm/amdgpu_pm.c amdgpu_hwmon_set_fan1_target -> amdgpu_dpm_set_fan_speed_rpm -> amd/pm/swsmu/amdgpu_smu.c smu_set_fan_speed_rpm which rejects only speed == U32_MAX). All sibling implementations (smu7_thermal.c:270, vega10_thermal.c:315, vega20_thermal.c:194, smu_v13_0.c:1229, arcturus_ppt.c:1270) carry `speed > UINT_MAX/8` guard; smu_v11_0.c lacks it. Legacy si_dpm.c bound by u8-derived fan_min/max_rpm (<=255) -> safe. nouveau therm fan.c do_div is timing-derived, not user numeric -> safe. sclk_od/mclk_od paths divide by constant 100, not by scaled input -> safe.",
+  "candidates": [
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "line": 1217,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 315,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "line": 270,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+      "line": 194,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0.c",
+      "line": 1229,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/arcturus_ppt.c",
+      "line": 1270,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "line": 6744,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/therm/fan.c",
+      "line": 162,
+      "status": "safe"
+    }
+  ],
+  "findings": [
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "start": 1196,
+      "end": 1217,
+      "confidence": "high"
+    }
+  ]
+}

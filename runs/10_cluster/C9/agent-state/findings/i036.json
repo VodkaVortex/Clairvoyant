@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "intent_id": "i036",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s09"],
+  "findings": [
+    {
+      "snapshot": "s09",
+      "path": "net/bluetooth/hci_event.c",
+      "start": 7211,
+      "end": 7238,
+      "quote": "u8 num_reports = *ptr;",
+      "confidence": "medium",
+      "reason": "Untrusted source: hci_store_wake_reason() (net/bluetooth/hci_event.c:7179) parses an HCI event skb whose payload is controller/virtual-controller supplied and crosses a trust boundary on any virtual or remote HCI transport (VHCI, HCI-over-UART, BT-USB controllers), the peer endpoint of the seed's protocol. Violated invariant (unclamped wire count with asymmetric validation, verified at exact s09 lines): the LE meta branch at 7211-7215 reads 'struct hci_ev_le_meta *le_ev = (void *)skb->data; u8 subevent = le_ev->subevent; u8 *ptr = &skb->data[sizeof(*le_ev)]; u8 num_reports = *ptr;' (line 7215) raw from the wire with NO hci_ev_skb_pull(), no skb->len check, and no min_len check of any kind, and its non-zero value (line 7220 'num_reports') is used as proof that at least one complete report structure follows: 'adv = (void *)(ptr + 1);' (line 7221, likewise direct_adv/ext_adv) is dereferenced by 'bacpy(&hdev->wake_addr, &adv->bdaddr); hdev->wake_addr_type = adv->bdaddr_type;' (lines 7227-7228) and the DIRECT_ADV/EXT_ADV variants (7231-7236), storing attacker-influenced OOB-read bytes into persistent hdev state (hdev->wake_addr/wake_addr_type). A 1-byte LE meta event (subevent only) makes the *ptr fetch at 7215 itself read past skb->data; a 2-byte event (subevent + num_reports>=1) makes the bacpy read struct hci_ev_le_advertising_info/hci_ev_le_ext_adv_info fields beyond the received buffer (ext_adv's bdaddr sits deep inside the variable struct). Asymmetric validation (the branch's key signal): the sibling handlers of the same HCI event family DO cross-check the count/length against the received skb first -- hci_le_adv_report_evt (s09 line 6200) pulls each report via 'hci_le_ev_skb_pull(hdev, skb, HCI_EV_LE_ADVERTISING_REPORT, ...)' (line 6221) and the hci_ev_table entries carry min_len/max_len enforced by the shared dispatcher -- while this wake-reason mirror path, invoked from hci_event_packet() at line 7491 BEFORE the min_len-validated dispatch, performs no validation at all: the submit-vs-return mirror asymmetry of the seed inside one protocol's event family. Reachability gate: only when suspended and first event seen (line 7193 'if (!hdev->suspended || hdev->wake_reason) goto unlock;'). Counterevidence checked: the dispatcher-level min_len gate exists for the normal handlers (HCI_EV/HCI_EV_VL table, lines 7248-7290+) but hci_store_wake_reason runs ahead of it at line 7491; no clamp of num_reports or of the report struct size exists anywhere in the function (full read of 7179-7246); impact is an OOB read into persistent hdev state, not the seed's heap-overflow write, and exposure of wake_addr to userspace was not traced to a conclusion."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/md/raid5-ppl.c",
+      "start": 976,
+      "end": 998,
+      "quote": "for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: ppl_header.entries_count is a raw __le32 field of the on-disk Partial Parity Log header (include/uapi/linux/raid/md_p.h), read from the member device into a single 4096-byte page by ppl_load_distributed() via sync_page_io(); a corrupted or malicious disk / tampered PPL area crosses the trust boundary into kernel state exactly like the seed's wire count. Violated invariant (validated-vs-used asymmetry, verified at exact s09 lines): the read/recovery path applies no clamp of the on-disk count against the known array capacity PPL_HDR_MAX_ENTRIES (=64, the entries[64] member that ends the 4KB header page) anywhere; ppl_recover() line 976 iterates 'for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++)' and line 977 takes '&pplhdr->entries[i]', then per-entry fields 'u32 pp_size = le32_to_cpu(e->pp_size); ... crc_stored = le32_to_cpu(e->checksum);' drive further reads past the end of the 4KB page for any i >= 64 (pp_size also feeds ppl_entry_sectors = pp_size >> 9 steering subsequent sync_page_io recovery reads). The second consumer ppl_load_distributed() at line 1151 runs the same unclamped loop ('for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++)') advancing pplhdr_offset by OOB-fetched pp_size values. Asymmetric validation (the seed's mirror-path signature): the WRITE/producing direction of the same PPL protocol enforces exactly the cap the read direction omits -- line 281 'io->entries_count == PPL_HDR_MAX_ENTRIES' blocks adding entries to a full header, and ppl_submit_iounit (line 444) loops only over the kernel-maintained io->entries_count before storing it at line 456; the only other entries_count guards in the file are the >0 test at 315-317. Unsafe use: OOB read past the single alloc_page buffer during array assembly/recovery (entries fetched OOB feed sector offsets, checksums and pp_size-based loop bounds), i.e., attacker-steered OOB reads and recovery-logic corruption from on-disk metadata. Counterevidence checked: the only validations on the loaded header (CRC/signature/generation checks in ppl_load_distributed) do not constrain entries_count; the write path cap at 281 confirms the array capacity and the asymmetry; impact beyond the bounded 4KB-page OOB read (what follows the page, whether recovered parity is exposed) was not proven, and the attacker is a tampered disk/PPL area (on-disk trust boundary), weaker than the seed's remote network peer."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 7215,
+      "status": "reported",
+      "reason": "Wire count num_reports = *ptr read with no length validation (no hci_ev_skb_pull/min_len, no skb->len check) and used to gate dereference of a report struct at ptr+1 whose fields are bacpy'd into persistent hdev->wake_addr/wake_addr_type; sibling LE adv-report handlers validate via hci_le_ev_skb_pull at line 6221."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 976,
+      "status": "reported",
+      "reason": "On-disk pplhdr->entries_count consumed by the read/recovery path (ppl_recover 976, ppl_load_distributed 1151) with no clamp against PPL_HDR_MAX_ENTRIES (64) while the write path enforces the cap at line 281."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 473,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim and unpatched in s09: usbip_pack_ret_submit unpack stores 'urb->number_of_packets = rpdu->number_of_packets;' (line 473) with no clamp, while the sibling CMD_SUBMIT direction clamps at stub_rx.c:379-381. EXCLUDED-BY-RULE per the seed-never-reportable instruction; recorded only to document snapshot-local seed presence, not deep-read further in this session."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 974,
+      "status": "unresolved",
+      "reason": "Device-supplied reply count store 'user_msg->count = le32_to_cpu(msg->hdr.count);' confirmed present at line 974 (same instance family reported for s01/s03/s06/s08 in facts f012/f014/f028/f031); the s09 request-direction clamp and error-unwind consumers were not deep-read before the finalize directive."
+    },
+    {
+      "snapshot": "s09",
+      "path": "fs/ceph/inode.c",
+      "line": 476,
+      "status": "unresolved",
+      "reason": "MDS-reply fragtree count 'nsplits = le32_to_cpu(fragtree->nsplits);' present at line 476 with consumers at 480/498/505 (get_random_u32_below, sort over nsplits elements, per-split loop); the same instance was reported for s05 (fact f009); s09's decode-time bound and sibling snap.c validation were not re-verified before the finalize directive."
+    },
+    {
+      "snapshot": "s09",
+      "path": "fs/dlm/member.c",
+      "line": 117,
+      "status": "unresolved",
+      "reason": "Peer recovery-message count 'num_slots = le16_to_cpu(rf->rf_num_slots);' present at line 117 (same instance reported for s02, fact f022); s09's slot-record loop and the midcomms header-length validation were not re-verified before the finalize directive."
+    },
+    {
+      "snapshot": "s09",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 6221,
+      "status": "safe",
+      "reason": "Enforcing sibling: hci_le_adv_report_evt pulls each report via hci_le_ev_skb_pull(hdev, skb, HCI_EV_LE_ADVERTISING_REPORT, ...) validating against the received skb length before dereferencing; demonstrates the LE family's normal validation that hci_store_wake_reason omits."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 281,
+      "status": "safe",
+      "reason": "Enforcing sibling direction: write path blocks adding entries when io->entries_count == PPL_HDR_MAX_ENTRIES and ppl_submit_iounit loops only over the kernel-maintained count; proves the read path's missing clamp is an asymmetric-validation gap, not itself vulnerable."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/usbip/stub_rx.c",
+      "line": 379,
+      "status": "safe",
+      "reason": "CMD_SUBMIT direction clamps the wire count ('pdu->u.cmd_submit.number_of_packets < 0 || > USBIP_MAX_ISO_PACKETS'-family check at 379-381) before usb_alloc_urb; the asymmetric-validation evidence for the excluded-by-rule seed store at usbip_common.c:473."
+    },
+    {
+      "snapshot": "s09",
+      "path": "block/partitions/ldm.c",
+      "line": 1247,
+      "status": "unresolved",
+      "reason": "On-disk-count allocation 'f = kmalloc (sizeof (*f) + size*num, GFP_KERNEL);' present at line 1247 with size derived from the on-disk vblk_size; allocated on the alloc-multiply-overflow branch for sibling snapshots (fact f020) and outside this branch's parse-store invariant; the s09 caller bound (perbuf = 512/size) was not re-verified before the finalize directive."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep halted by the finalize directive: the candidate probe covered the known unclamped-count sites carried over from sibling-snapshot audits (bluetooth HCI event family, md/raid5-ppl, qaic control, ceph fragtree, dlm member slots, usbip seed, block/partitions/ldm) and deep-read only hci_store_wake_reason (7179-7246 with call site 7491) and the raid5-ppl entries_count consumers (976, 1151, 281); a fresh tree-wide regex sweep of s09 deserialization entry points (netlink nla_parse handlers, ksmbd/cifs/9p reply parsers, io_uring, HID/NCI descriptors, netfilter/nft) was NOT performed, so an additional unclamped-wire-count variant elsewhere in s09 cannot be ruled out.",
+    "The hci_store_wake_reason finding's reachability is restricted to a suspended adapter receiving its first event while hdev->wake_reason is unset (line 7193); a real controller normally emits well-formed events, so the realistic attacker is a malicious/compromised controller or virtual HCI transport peer (VHCI/UART/USB), weaker than the seed's arbitrary remote network endpoint; impact is an OOB read into persistent hdev state and was not demonstrated at runtime (no reproducer built; read-only snapshot).",
+    "The raid5-ppl finding's attacker is a corrupted/tampered disk or PPL area (on-disk metadata trust boundary), weaker than the seed's remote network peer; forging the CRC/signature requires write access to the PPL area, and impact beyond the OOB 4KB-page read and attacker-steered recovery offsets was not proven.",
+    "Unresolved candidates qaic_control.c:974, fs/ceph/inode.c:476, fs/dlm/member.c:117, and block/partitions/ldm.c:1247 were confirmed present in s09 by exact-line grep but their s09-specific clamps, error paths and consuming loops were not deep-read before the finalize directive; each is the same instance family already reported for a sibling snapshot (facts f012/f009/f022/f020).",
+    "No compilation, static analysis, or runtime reproducer was performed (assigned snapshot is read-only; all generated artifacts belong under $TMPDIR and none were needed for the source-level analysis); all line numbers come from direct numbered reads of snapshots/s09 verified in this session."
+  ]
+}

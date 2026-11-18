@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "intent_id": "i028",
+  "branch": "timer-dwork-softirq-lock",
+  "snapshot": "s13",
+  "status": "complete",
+  "progress": [
+    "Verified in s13: br_multicast br->multicast_lock process sites 1112/1123 plain vs timer callbacks 248/311/854/882/896/1004 plain, sibling _bh sites present -> reported (medium).",
+    "Verified in s13: libiscsi frwd_lock timer callbacks 2120 (timer_setup 2940) and 1823 (timer_setup 2964) plain vs process iscsi_eh_cmd_timed_out 1980 plain, many sibling _bh sites -> reported (medium). RX sites 1088/1197 unresolved.",
+    "Verified in s13: cxgb4 ptp_lock timer callback sge_tx_timer_cb 3310 (timer_setup 4131) plain vs process xmit cxgb4_eth_xmit 1346 plain (called from t4_start_xmit 1915, .ndo_start_xmit cxgb4_main.c:3243) plus cxgb4_ptp.c:115, only _bh site teardown sge.c:3894 -> reported (medium).",
+    "Final artifact written to agent-state/findings/i028.json; iwlwifi stuck-timer and qdisc root_lock timers left unresolved; systematic whole-tree timer enumeration not run (halted by finalize directive)."
+  ],
+  "candidates": [
+    "br_multicast.c:1112/1123/248 reported",
+    "libiscsi.c:1980/2120/1823 reported",
+    "libiscsi.c:1088/1197 unresolved",
+    "cxgb4/sge.c:1346/3310 + cxgb4_ptp.c:115 reported",
+    "iwlwifi tx stuck-timer unresolved",
+    "sch_pie/qdisc root_lock unresolved",
+    "ks7010 seed safe/excluded"
+  ]
+}

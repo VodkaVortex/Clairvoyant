@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "tx-cow-head-realloc",
+  "phase": "final",
+  "snapshot": "s01",
+  "status": "complete",
+  "findings_reported": 4,
+  "summary": "Static audit of head-reallocating helpers (skb_cow_head/skb_cow/skb_unclone/pskb_expand_head/skb_linearize/pulls) in s01 net/ and drivers/ via capture->realloc->use chain scanner (171 chains, 56 no-refetch). Four findings: ip_tunnel_core.c iptunnel_pmtud_build_icmp (iph 197, cow 215, stale reads 238/240/241), iptunnel_pmtud_build_icmpv6 (ip6h 290, cow 309, stale reads 329-331), mac80211/tdls.c ieee80211_process_tdls_channel_switch (tf 2029, linearize 2039, tf->action_code 2045), mt7925/mcu.c mt7925_mcu_rx_event (rxd 494, linearize 496, rxd->option 499, low confidence). Safe: exthdrs.c 271/591/753 (refetch discipline), ovs/sch_frag percpu data, xfrm_input cow-before-capture, skbuff.c sk pointer, mac80211 rx control blocks.",
+  "artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i003.json"
+}

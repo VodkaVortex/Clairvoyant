@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "xmit-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": ["s09"],
+  "findings": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "start": 2001,
+      "end": 2040,
+      "quote": "spin_lock(&priv->stream_lock);",
+      "confidence": "medium",
+      "reason": "Lock mwl8k_priv.stream_lock is shared between softirq-context TX and process/workqueue context with the process side missing bottom-half disable (exact seed shape). UNTRUSTED TRIGGER: any data-QoS frame for a station with HT-capable AMPDU (ap_fw STA path) or any BA-watchdog interrupt — i.e. ordinary remote traffic plus one worker wakeup on the same CPU. SOFTIRQ SIDE: ieee80211 .tx callback mwl8k_tx (mwl8k.c:4762, mwl8k_ops .tx at 5689) -> mwl8k_txq_xmit (1907) -> spin_lock(&priv->stream_lock) at 2001/2065/2088/2138 with no BH disable; mac80211 drv_tx is called from __ieee80211_subif_start_xmit/ieee80211_tx (tx.c:1746, tx.c:4622) and from wake_tx_push_queue/ieee80211_handle_wake_tx_queue (util.c:297/302) which mac80211 invokes under NET_TX softirq when queues are woken from softirq context; the same function takes priv->tx_lock with spin_lock_bh at 2073/2130 proving this xmit path is expected to run with BH enabled. PROCESS/WORKQUEUE SIDE: mwl8k_watchdog_ba_events workqueue worker (INIT_WORK at 6203, queued from hardirq handler mwl8k_interrupt at 4691 via ieee80211_queue_work) takes the same stream_lock plainly at 3906/3919; mwl8k_cmd_set_new_stn_del (4236) reached from mwl8k_sta_remove (5396, cfg80211/mac80211 sta removal in process context) takes it plainly at 4236/4247; mwl8k_ampdu_action (5516) takes it plainly at 5533/5574/5595/5613/5624/5631 from cfg80211 process context (with msleep(1000) inside the TX_START path while re-acquiring). MISSING GUARANTEE: no spin_lock_bh/local_bh_disable on stream_lock anywhere in the file (only tx_lock uses _bh). UNSAFE USE: worker/user task holding stream_lock is preempted by a NET_TX softirq on the same CPU whose mwl8k_txq_xmit spins on stream_lock; the preempted holder can never resume -> soft lockup, RCU stall, TX stall DoS — same mechanism as the ks7010 tx_dev_lock seed. COUNTEREVIDENCE CHECKED: (a) the stream_lock block requires priv->ap_fw && sta && ht_cap.ht_supported && !eapol_frame && data-QoS, so the softirq side needs a QoS data frame to an HT station on AP firmware — normal station traffic satisfies this; (b) no irqsave variant or BH disable exists on stream_lock that would close the window; (c) mac80211 may call .tx directly in process context too (tx.c:4622 path), but the queue-wake path (ieee80211_handle_wake_tx_queue) runs from NET_TX softirq, so both contexts are reachable; (d) static analysis only — no runtime reproducer or lockdep run (snapshot lacks .config for a standalone build)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 3906,
+      "status": "reported",
+      "reason": "mwl8k_watchdog_ba_events workqueue worker (INIT_WORK 6203, queued from mwl8k_interrupt at 4691) takes stream_lock with plain spin_lock at 3906/3919 — the workqueue-holder side of the reported stream_lock finding."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 4236,
+      "status": "reported",
+      "reason": "mwl8k_cmd_set_new_stn_del takes stream_lock plainly at 4236/4247; reached from mwl8k_sta_remove (5396, ieee80211_ops .sta_remove) in process context — process-holder side of the same finding."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 5533,
+      "status": "reported",
+      "reason": "mwl8k_ampdu_action (5516) takes stream_lock plainly at 5533/5574/5595/5613/5624/5631 from cfg80211 process context, including re-acquire after msleep(1000) in TX_START — additional process-holder side of the same finding."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+      "line": 30,
+      "status": "unresolved",
+      "reason": "ctl_node->resp_lock taken with plain spin_lock at trans.c:30/47/87/136 (qtnf_trans_send_cmd_with_ack, qtnf_trans_signal_cmdresp from qtnf_trans_handle_rx_ctl_packet <- pcie.c, and qtnf_trans_init). qtnfmac bus locks (tx_lock/tx_reclaim_lock/irq_lock) use spin_lock_irqsave, but the process/softirq context of the pcie control-packet RX path that calls qtnf_trans_signal_cmdresp was not fully traced before the finalize deadline."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/wireless/st/cw1200/wsm.c",
+      "line": 1086,
+      "status": "unresolved",
+      "reason": "wsm_cmd.lock taken with plain spin_lock at wsm.c:1086-1766 in wsm_send (called from cw1200_tx/.tx and many cfg80211 process paths); the cw1200 bus is driven by a dedicated kthread (cw1200_bh), and whether any wsm_cmd.lock acquisition runs in NET_TX softirq rather than only in the bh kthread/process context was not concluded."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/staging/rtl8723bs/core/rtw_xmit.c",
+      "line": 1652,
+      "status": "safe",
+      "reason": "All queue/tx lock sites in rtw_xmit.c use spin_lock_bh or spin_lock_irqsave (1492-2356); no plain spin_lock( in rtl8723bs xmit path (grep confirmed zero plain sites in rtw_xmit.c and xmit_linux.c)."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "Highest plain-spin_lock density in drivers/net/ethernet (29 sites) but not examined before the finalize deadline; listed as a remaining lead."
+    }
+  ],
+  "limitations": [
+    "Bounded search: drivers were ranked by plain spin_lock density; deep reachability analysis was completed only for mwl8k, qtnfmac/trans.c and cw1200/wsm.c. iwlwifi pcie tx.c, ath9k main.c, mt76, cassini (29 plain sites), chelsio sge.c and altera_tse_main.c were ranked but not analyzed.",
+    "qtnfmac resp_lock and cw1200 wsm_cmd.lock softirq-vs-process reachability remain unresolved (context of the pcie control RX path and the cw1200 bh kthread not fully traced).",
+    "The mwl8k finding is a static hypothesis: no runtime reproducer, lockdep run or compile was performed because the snapshot tree has no .config; exploitability depends on a NET_TX softirq firing while a worker/process holds stream_lock on the same CPU.",
+    "The literal seed bug (ks7010 tx_dev_lock) is absent from s09 (no drivers/staging/ks7010 directory); even if present it would be excluded from findings per the never-report-the-seed rule."
+  ]
+}

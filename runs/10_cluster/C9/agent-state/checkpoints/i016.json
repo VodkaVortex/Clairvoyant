@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "error-unwind-poisoned-count",
+  "status": "finalized",
+  "snapshot": "s04",
+  "note": "Finalized early per dispatcher instruction. Evidence collected: (1) s04 contains the seed commit's own pre-patch usbip code (drivers/usb/usbip/usbip_common.c:583-584 'int size = np * sizeof(*iso)' + kzalloc; vhci_rx.c:80-85 early returns skip urb giveback after usbip_pack_pdu stored wire number_of_packets into urb->number_of_packets at usbip_common.c:392) - this is the seed demonstration itself and is excluded from findings per task rules. (2) Non-seed urb-count consumers examined and found safe: devio.c submit clamps number_of_packets 1..128 (1537-1538) before alloc_async, so processcompl iteration (1823-1825, 1851-1858) is bounded; usbatm.c sets number_of_packets from locally computed iso_packets at probe (1141-1145) and its error path (usbatm_complete) only throttles the tasklet, never mutates the count consumed by usbatm_rx_process loop (529); usbtest.c sets count from local 'packets' (1987); urb.c usb_submit_urb validates count>0 and per-descriptor lengths (448-457). Limitation: sweep bounded to drivers/usb; other subsystems (net/fs/scsi/vhost/virtio/staging) and per-HCD iso completion loops not individually audited.",
+  "candidates": [
+    {"path": "drivers/usb/usbip/vhci_rx.c", "line": 84, "status": "unresolved", "reason": "branch3 chain present but is the seed commit's own subject; excluded per seed rule"},
+    {"path": "drivers/usb/usbip/usbip_common.c", "line": 583, "status": "unresolved", "reason": "seed code present unpatched in this snapshot; not reportable"},
+    {"path": "drivers/usb/core/devio.c", "line": 1851, "status": "safe", "reason": "count clamped 1..128 at submit; consumer bounded"},
+    {"path": "drivers/usb/atm/usbatm.c", "line": 529, "status": "safe", "reason": "count locally computed at probe; error path does not poison it"},
+    {"path": "drivers/usb/misc/usbtest.c", "line": 1987, "status": "safe", "reason": "count from local variable matching allocation"},
+    {"path": "drivers/usb/core/urb.c", "line": 448, "status": "safe", "reason": "usb_submit_urb validates count and per-desc lengths"}
+  ]
+}

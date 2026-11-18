@@ -1,0 +1,285 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-4b8c3c0d17c0
+  status: active
+  created_at: 1794438808242
+  reason: null
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C1/public. Seed: drm/amd/pm: Prevent division by zero. The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'MECHANISM PROFILE (seed: drm/amd/pm vega10 fan RPM div-by-zero). Untrusted source: a numeric (u32) value supplied by a local unprivileged user through a kernel control interface (sysfs/hwmon fan RPM store -> power-management helper). Missing guarantee: input validation screens the literal raw value (==0, min/max fan RPM) but no bound ties the input to the representable range of the expression derived from it; i.e. the invariant ''every value used as a divisor must be proven nonzero at the exact integer width where the division executes'' is absent. Unsafe use: a constant scaling (8 * speed) is applied in fixed-width 32-bit arithmetic, wraps modulo 2^32 to 0 when speed > UINT_MAX/8, and the wrapped product is then used as the denominator of a division (tach period), so a nonzero user input becomes a zero divisor; representation-equivalents include subtraction/addition under/overflow to 0, right-shift truncation to 0, and narrowing casts of nonzero wider values. Consequence: integer division by zero -> kernel oops/DoS and stalled PM programming (reliability bug, not memory corruption). Transferable pattern: denominator = f(untrusted_value) where f applies unchecked fixed-width scaling before ''/'' or ''%'', while all checks validate f''s input instead of f''s output at division width. BRANCHES: branch1=hwmon-sysfs-scaled-divisor: sysfs/hwmon/thermal store handlers (fan RPM/pwm/target/limit attributes) where user input is multiplied, shifted, added, or subtracted in fixed width and then used as divisor in division/modulo during device programming - hunt for wrapped-zero or truncated-zero denominators; branch2=drm-userif-divisor: DRM/graphics driver user interfaces (sysfs, debugfs, ioctls for fan, clocks, power/OD settings across vendors/ASICs) where user-supplied numeric params are transformed into tach/divider/ratio values with unchecked arithmetic before a division; branch3=chardev-ioctl-divisor: non-DRM character-device ioctls (iio, media/DVB, HID, input, misc) accepting user numeric parameters (rates, periods, gains, timeouts, counts) that become divisors after unchecked fixed-width scaling or subtraction, including modulo-by-wrapped-zero; branch4=firmware-table-divisor: driver parsing of device/firmware-provided data (VBIOS/powerplay tables, ACPI, SMBIOS, EDID, DT properties, EEPROM) whose fields are used directly as divisors or scaled operands without range validation, reproducing the same zero/overflow-denominator from a non-user untrusted source.'
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794439056796
+  created_at: 1794438808327
+  concluded_at: 1794439056796
+- id: i002
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=hwmon-sysfs-scaled-divisor; Search only snapshots/s01 (inspect no other snapshot) for sysfs/hwmon/thermal store handlers (fan RPM, fan target, pwm, limit, and temperature attributes) where an unprivileged user's numeric input is multiplied (e.g. a constant scaling like 8 * speed), shifted, added, or subtracted in fixed-width integer arithmetic and the scaled result is then used as the denominator of '/' or '%' during device programming; flag handlers whose validation (==0, min/max range) checks only the raw input while the scaled value at the exact division width can wrap modulo 2^32 to 0, truncate via right-shift to 0, or narrow-cast to 0. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s01 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794439272625
+  created_at: 1794439272593
+  concluded_at: null
+- id: i003
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=hwmon-sysfs-scaled-divisor; Search only snapshots/s02 (inspect no other snapshot) for sysfs/hwmon/thermal store handlers (fan RPM, fan target, pwm, limit, and temperature attributes) where an unprivileged user's numeric input is multiplied (e.g. a constant scaling like 8 * speed), shifted, added, or subtracted in fixed-width integer arithmetic and the scaled result is then used as the denominator of '/' or '%' during device programming; flag handlers whose validation (==0, min/max range) checks only the raw input while the scaled value at the exact division width can wrap modulo 2^32 to 0, truncate via right-shift to 0, or narrow-cast to 0. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s02 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794439272629
+  created_at: 1794439272595
+  concluded_at: null
+- id: i004
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=hwmon-sysfs-scaled-divisor; Search only snapshots/s03 (inspect no other snapshot) for sysfs/hwmon/thermal store handlers (fan RPM, fan target, pwm, limit, and temperature attributes) where an unprivileged user's numeric input is multiplied (e.g. a constant scaling like 8 * speed), shifted, added, or subtracted in fixed-width integer arithmetic and the scaled result is then used as the denominator of '/' or '%' during device programming; flag handlers whose validation (==0, min/max range) checks only the raw input while the scaled value at the exact division width can wrap modulo 2^32 to 0, truncate via right-shift to 0, or narrow-cast to 0. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s03 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794439272624
+  created_at: 1794439272596
+  concluded_at: null
+- id: i005
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=hwmon-sysfs-scaled-divisor; Search only snapshots/s04 (inspect no other snapshot) for sysfs/hwmon/thermal store handlers (fan RPM, fan target, pwm, limit, and temperature attributes) where an unprivileged user's numeric input is multiplied (e.g. a constant scaling like 8 * speed), shifted, added, or subtracted in fixed-width integer arithmetic and the scaled result is then used as the denominator of '/' or '%' during device programming; flag handlers whose validation (==0, min/max range) checks only the raw input while the scaled value at the exact division width can wrap modulo 2^32 to 0, truncate via right-shift to 0, or narrow-cast to 0. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s04 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794439272626
+  created_at: 1794439272598
+  concluded_at: null
+- id: i006
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=drm-userif-divisor; Search only snapshots/s01 (inspect no other snapshot) for DRM/graphics driver user interfaces (sysfs, debugfs, and ioctls for fan speed, clocks, power, and overdrive settings across amdgpu/radeon/nouveau/i915 and other vendors/ASICs) where user-supplied numeric parameters are transformed into tach periods, dividers, or ratios via unchecked fixed-width arithmetic before a division or modulo; the seed is drm/amd/pm vega10 fan RPM where 8 * speed wraps to 0 in u32 and is then used as a tach-period divisor, so hunt for structurally analogous wrapped-zero or truncated-zero denominators reachable from unprivileged or semi-privileged user input. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s01 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794439272628
+  created_at: 1794439272599
+  concluded_at: null
+- id: i007
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=drm-userif-divisor; Search only snapshots/s02 (inspect no other snapshot) for DRM/graphics driver user interfaces (sysfs, debugfs, and ioctls for fan speed, clocks, power, and overdrive settings across amdgpu/radeon/nouveau/i915 and other vendors/ASICs) where user-supplied numeric parameters are transformed into tach periods, dividers, or ratios via unchecked fixed-width arithmetic before a division or modulo; the seed is drm/amd/pm vega10 fan RPM where 8 * speed wraps to 0 in u32 and is then used as a tach-period divisor, so hunt for structurally analogous wrapped-zero or truncated-zero denominators reachable from unprivileged or semi-privileged user input. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s02 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794439272629
+  created_at: 1794439272600
+  concluded_at: null
+- id: i008
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=drm-userif-divisor; Search only snapshots/s03 (inspect no other snapshot) for DRM/graphics driver user interfaces (sysfs, debugfs, and ioctls for fan speed, clocks, power, and overdrive settings across amdgpu/radeon/nouveau/i915 and other vendors/ASICs) where user-supplied numeric parameters are transformed into tach periods, dividers, or ratios via unchecked fixed-width arithmetic before a division or modulo; the seed is drm/amd/pm vega10 fan RPM where 8 * speed wraps to 0 in u32 and is then used as a tach-period divisor, so hunt for structurally analogous wrapped-zero or truncated-zero denominators reachable from unprivileged or semi-privileged user input. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s03 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794439272631
+  created_at: 1794439272601
+  concluded_at: null
+- id: i009
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=drm-userif-divisor; Search only snapshots/s04 (inspect no other snapshot) for DRM/graphics driver user interfaces (sysfs, debugfs, and ioctls for fan speed, clocks, power, and overdrive settings across amdgpu/radeon/nouveau/i915 and other vendors/ASICs) where user-supplied numeric parameters are transformed into tach periods, dividers, or ratios via unchecked fixed-width arithmetic before a division or modulo; the seed is drm/amd/pm vega10 fan RPM where 8 * speed wraps to 0 in u32 and is then used as a tach-period divisor, so hunt for structurally analogous wrapped-zero or truncated-zero denominators reachable from unprivileged or semi-privileged user input. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s04 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272602
+  concluded_at: null
+- id: i010
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=chardev-ioctl-divisor; Search only snapshots/s01 (inspect no other snapshot) for non-DRM character-device ioctls (iio, media/DVB, HID, input, misc, tty, and similar subsystems) that accept user numeric parameters (sample rates, periods, gains, timeouts, counts, divider/ratio values) and apply unchecked fixed-width scaling, offset, or subtraction before using the result as a divisor in '/' or '%', including modulo-by-wrapped-zero; the missing invariant from the seed is that every divisor must be proven nonzero at the exact integer width where the division executes, not merely at the raw-input width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s01 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272603
+  concluded_at: null
+- id: i011
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=chardev-ioctl-divisor; Search only snapshots/s02 (inspect no other snapshot) for non-DRM character-device ioctls (iio, media/DVB, HID, input, misc, tty, and similar subsystems) that accept user numeric parameters (sample rates, periods, gains, timeouts, counts, divider/ratio values) and apply unchecked fixed-width scaling, offset, or subtraction before using the result as a divisor in '/' or '%', including modulo-by-wrapped-zero; the missing invariant from the seed is that every divisor must be proven nonzero at the exact integer width where the division executes, not merely at the raw-input width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s02 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272604
+  concluded_at: null
+- id: i012
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=chardev-ioctl-divisor; Search only snapshots/s03 (inspect no other snapshot) for non-DRM character-device ioctls (iio, media/DVB, HID, input, misc, tty, and similar subsystems) that accept user numeric parameters (sample rates, periods, gains, timeouts, counts, divider/ratio values) and apply unchecked fixed-width scaling, offset, or subtraction before using the result as a divisor in '/' or '%', including modulo-by-wrapped-zero; the missing invariant from the seed is that every divisor must be proven nonzero at the exact integer width where the division executes, not merely at the raw-input width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s03 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272606
+  concluded_at: null
+- id: i013
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=chardev-ioctl-divisor; Search only snapshots/s04 (inspect no other snapshot) for non-DRM character-device ioctls (iio, media/DVB, HID, input, misc, tty, and similar subsystems) that accept user numeric parameters (sample rates, periods, gains, timeouts, counts, divider/ratio values) and apply unchecked fixed-width scaling, offset, or subtraction before using the result as a divisor in '/' or '%', including modulo-by-wrapped-zero; the missing invariant from the seed is that every divisor must be proven nonzero at the exact integer width where the division executes, not merely at the raw-input width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s04 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272607
+  concluded_at: null
+- id: i014
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=firmware-table-divisor; Search only snapshots/s01 (inspect no other snapshot) for driver parsing of device/firmware-provided data (VBIOS/powerplay tables, ACPI methods, SMBIOS, EDID, device-tree properties, EEPROM) whose numeric fields are used directly as divisors or as scaled operands feeding a division or modulo without range validation, reproducing the seed's zero or overflow-derived denominator from a non-user untrusted source; the transferable pattern is denominator = f(untrusted_value) where f applies unchecked fixed-width scaling before '/' or '%' while any checks validate f's input instead of f's output at division width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s01 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272608
+  concluded_at: null
+- id: i015
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=firmware-table-divisor; Search only snapshots/s02 (inspect no other snapshot) for driver parsing of device/firmware-provided data (VBIOS/powerplay tables, ACPI methods, SMBIOS, EDID, device-tree properties, EEPROM) whose numeric fields are used directly as divisors or as scaled operands feeding a division or modulo without range validation, reproducing the seed's zero or overflow-derived denominator from a non-user untrusted source; the transferable pattern is denominator = f(untrusted_value) where f applies unchecked fixed-width scaling before '/' or '%' while any checks validate f's input instead of f's output at division width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s02 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272609
+  concluded_at: null
+- id: i016
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=firmware-table-divisor; Search only snapshots/s03 (inspect no other snapshot) for driver parsing of device/firmware-provided data (VBIOS/powerplay tables, ACPI methods, SMBIOS, EDID, device-tree properties, EEPROM) whose numeric fields are used directly as divisors or as scaled operands feeding a division or modulo without range validation, reproducing the seed's zero or overflow-derived denominator from a non-user untrusted source; the transferable pattern is denominator = f(untrusted_value) where f applies unchecked fixed-width scaling before '/' or '%' while any checks validate f's input instead of f's output at division width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s03 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272611
+  concluded_at: null
+- id: i017
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=firmware-table-divisor; Search only snapshots/s04 (inspect no other snapshot) for driver parsing of device/firmware-provided data (VBIOS/powerplay tables, ACPI methods, SMBIOS, EDID, device-tree properties, EEPROM) whose numeric fields are used directly as divisors or as scaled operands feeding a division or modulo without range validation, reproducing the seed's zero or overflow-derived denominator from a non-user untrusted source; the transferable pattern is denominator = f(untrusted_value) where f applies unchecked fixed-width scaling before '/' or '%' while any checks validate f's input instead of f's output at division width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s04 only, with execution_status plus either candidate variants or concrete negative evidence.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794439272611
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794438808242
+
+```
+
+### Current Intent
+```
+i014
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s01; BRANCH=firmware-table-divisor; Search only snapshots/s01 (inspect no other snapshot) for driver parsing of device/firmware-provided data (VBIOS/powerplay tables, ACPI methods, SMBIOS, EDID, device-tree properties, EEPROM) whose numeric fields are used directly as divisors or as scaled operands feeding a division or modulo without range validation, reproducing the seed's zero or overflow-derived denominator from a non-user untrusted source; the transferable pattern is denominator = f(untrusted_value) where f applies unchecked fixed-width scaling before '/' or '%' while any checks validate f's input instead of f's output at division width. Record exact file paths, function names, and line-level evidence; save a structured artifact for snapshots/s01 only, with execution_status plus either candidate variants or concrete negative evidence.
+```
+

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "tpacket-ring-fetch",
+  "status": "complete",
+  "snapshot": "s03",
+  "note": "Read net/packet/af_packet.c tpacket_snd (2718-2918), tpacket_parse_header (2650-2716), tpacket_fill_skb (2570-2648), __packet_snd_vnet_parse (2531-2545), packet_snd_vnet_parse (2547-2568), tpacket_rcv (2229-2509), tpacket_destruct_skb (2511-2529), packet_lookup_frame/packet_current_frame (514-539), __packet_get_status (430-452), __packet_lookup_frame_in_block (1047-1106), prb helpers (900-1159). Result: bounded negative. The s02-reported vnet-header double fetch is FIXED in s03: line 2830 memcpy(&vnet_hdr, data - vnet_hdr_sz, sizeof(vnet_hdr)) makes a private stack copy BEFORE validation (__packet_snd_vnet_parse at 2831) and BEFORE use (virtio_net_hdr_to_skb at 2875, virtio_net_hdr_set_proto at 2879). All tpacket ring fields (tp_len, tp_mac/tp_net offset) are fetched exactly once into locals in tpacket_parse_header and validated+used from those locals; tpacket_rcv is a kernel-writer path with snaplen/macoff clamped against frame_size/max_frame_len before skb_copy_bits.",
+  "candidates": [
+    {"path": "net/packet/af_packet.c", "line": 2830, "status": "safe", "reason": "memcpy to private stack vnet_hdr before both validate (2831) and use (2875/2879)"},
+    {"path": "net/packet/af_packet.c", "line": 2650, "status": "safe", "reason": "tpacket_parse_header single-fetches tp_len and tp_mac/tp_net into locals, validates against size_max/off_min/off_max, uses same locals"},
+    {"path": "net/packet/af_packet.c", "line": 2570, "status": "safe", "reason": "tpacket_fill_skb consumes private tp_len/data params, no shared header re-read"},
+    {"path": "net/packet/af_packet.c", "line": 2795, "status": "safe", "reason": "packet_current_frame READ_ONCE status only selects the frame; later status accesses are kernel writes"},
+    {"path": "net/packet/af_packet.c", "line": 2229, "status": "safe", "reason": "tpacket_rcv kernel-writer path; snaplen/macoff clamped against frame_size (2315-2335) / max_frame_len (2336-2349) before skb_copy_bits at 2392; rx_owner_map serializes V1/V2"},
+    {"path": "net/packet/af_packet.c", "line": 1047, "status": "safe", "reason": "__packet_lookup_frame_in_block uses kernel-computed len and kernel-private block bounds; pbd status single read"}
+  ]
+}

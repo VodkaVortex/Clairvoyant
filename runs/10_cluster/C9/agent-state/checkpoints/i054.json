@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "intent_id": "i054",
+  "branch": "peer-trusted-transport",
+  "status": "in_progress",
+  "snapshot": "s13",
+  "notes": "Examined so far: (1) greybus es2.c cport_in_callback -> greybus_data_rcvd -> gb_connection_recv: peer le16 header.size is validated size<msg_size and payload_size==size-hdr, allocation through gb_operation_message_alloc clamps to hd->buffer_size_max (2048 for es2) == URB buffer size; memcpy(message->buffer,data,size) can only happen with errno set (size forced to header) or size==message_size <= msize. CLASSIFIED SAFE. arpc_in_callback memcpy sizeof(*resp) fixed - safe. gb-beagleplay absent from this tree. (2) hv_balloon balloon_down: host-supplied dm_unballoon_request->range_count (u32) looped with no check against recvlen or PAGE_SIZE in balloon_onchannelcallback (only gate recvlen>0) -> OOB read of global PAGE_SIZE recv_buffer driving free_balloon_pages on arbitrary PFNs. CONFIRMED CANDIDATE (finding). free_balloon_pages frees (i+start_frame) pages for up to 2^24-1 iterations with host-controlled 40-bit start_frame. (3) nbd_read_stat: reply tag used only for lookup, data recv bounded by bvec. Safe. (4) 9p trans_fd p9_read_work: m->rc.size from peer validated against client->msize before capacity set; req->rc allocated with min(c->msize,max_size). Safe on this tree. Next: hv_balloon hot-add path, qcom_glink (absent - only rpm/smd present, no glink_native), trans_rdma, vhost, virtio config, ceph/cifs reply, rpmsg virtio.",
+  "candidates": [
+    {"path": "drivers/hv/hv_balloon.c", "line": 1310, "status": "reported", "reason": "balloon_down consumes host-supplied dm_unballoon_request->range_count (u32) with only recvlen>0 gate; loops range_count times over req->range_array[] reading past PAGE_SIZE recv_buffer and freeing host-chosen PFNs."},
+    {"path": "drivers/staging/greybus/es2.c", "line": 848, "status": "safe", "reason": "greybus_data_rcvd chain validates peer header.size against local message size and allocation clamped to hd->buffer_size_max==URB buffer size (2048)."},
+    {"path": "drivers/block/nbd.c", "line": 566, "status": "safe", "reason": "nbd_read_stat uses peer reply.handle only as tag lookup; hwq bounded by nr_hw_queues; data copy bounded by request bvecs."},
+    {"path": "net/9p/trans_fd.c", "line": 320, "status": "safe", "reason": "p9_read_work validates m->rc.size < client->msize before setting capacity; req->rc buffer preallocated with min(msize,max_size)."},
+    {"path": "net/9p/trans_virtio.c", "line": 154, "status": "safe", "reason": "req_done ignores virtqueue len; buffer sizes fixed by client msize."}
+  ]
+}

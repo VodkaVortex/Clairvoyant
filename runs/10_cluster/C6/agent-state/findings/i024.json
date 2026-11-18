@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "intent_id": "i024",
+  "branch": "callee-pull-caller-stale",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/bridge/br_multicast.c",
+      "line": 2875,
+      "status": "safe",
+      "reason": "Interprocedural audit of the canonical thin-wrapper callee on the s03 receive path: ip_mc_may_pull() (include/linux/igmp.h:256-262) is a wrapper that calls pskb_may_pull(skb, len), which on a non-linear/cloned skb runs __pskb_pull_tail() -> pskb_expand_head() and frees/replaces skb->head, so every pre-call pointer into the head is stale unless reloaded. Its caller br_ip4_multicast_igmp3_report() (net/bridge/br_multicast.c:2845+) parses fully attacker-controlled IGMPv3 membership reports (ngrec, grec_type, grec_mca, grec_nsrcs from a bridge port) and calls the wrapper twice per loop iteration (lines 2866 and 2875) while two header pointers are live across the calls: ih (captured 2860 via igmpv3_report_hdr(skb)) and grec (captured 2869 as a raw cast of skb->data after pull #1). No stale dereference exists: (1) ih is last read at 2861 (num = ntohs(ih->ngrec)) before pull #1 and is not referenced again in lines 2862-2953; (2) group/type/nsrcs are copied to stack scalars at 2870-2872 before pull #2; (3) after pull #2 the code explicitly reloads grec from the current skb->data (comment '/* reload grec and host addr */' at 2920, grec = (void *)(skb->data + len - sizeof(*grec) - (nsrcs * 4)) at 2921) and takes h_addr = &ip_hdr(skb)->saddr (2922) as a fresh accessor fetch, so every post-pull dereference (grec->grec_src at 2926-2952 feeding br_multicast_isinc_allow/isexc/toin/toex/block bridge group-state transitions) goes through the reloaded pointer. s03 carries the fixed variant of the parser reported buggy in sibling snapshots s02/s05 (facts f009/f012, stale grec->grec_nsrcs read after the second attacker-length-driven pull); validated-equals-used discipline is upheld, so this callee->caller pair is not a variant."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bridge/br_multicast.c",
+      "line": 3882,
+      "status": "unresolved",
+      "reason": "ip_mc_check_igmp(skb) at line 3882 and ipv6_mc_check_mld(skb) at line 3951 are validator callees invoked on the bridge multicast receive path; the ip_mc_may_pull()-style wrapper idiom they share (include/linux/igmp.h:256-262, thin wrapper over pskb_may_pull) performs skb validation/pulls inside the callee, and the s02 sibling artifact (fact f007) demonstrated that callers in this exact family do capture raw header pointers (ipv6_hdr(skb)) that stay live across such pulls. Whether any s03 caller holds a pre-call pointer into skb->head across ip_mc_check_igmp()/ipv6_mc_check_mld() (or other validator/wrapper callees) and dereferences it after return was not audited before the bounded search was halted."
+    }
+  ],
+  "limitations": [
+    "The callee->caller enumeration was not completed: 371 files in s03's net/ and drivers/net/ contain head-relocating calls (pskb_may_pull/__pskb_pull_tail/pskb_pull/skb_linearize/skb_cow/skb_cow_head/pskb_expand_head), but only the ip_mc_may_pull() wrapper family (include/linux/igmp.h:256-262) and its bridge-multicast callers (net/bridge/br_multicast.c:2866/2875, deep-read lines 2845-2953) were audited at the interprocedural boundary before the search was halted by the finalize instruction; other wrapper helpers whose callers capture header pointers may be missed.",
+    "The principal unexamined surface of this branch is the callers of the validator callees ip_mc_check_igmp() (net/bridge/br_multicast.c:3882) and ipv6_mc_check_mld() (br_multicast.c:3951) and of any other callee that pulls/cows/linearizes internally across the 371-file surface; these remain unresolved.",
+    "drivers/ outside drivers/net, arch/, fs/, and header-only/macro-generated call sites were not audited for this branch, consistent with the prior s03 artifacts (f002/f011/f017).",
+    "The tail of br_ip4_multicast_igmp3_report() beyond line 2953 was not read: ih's last observed use is line 2861 (pre-pull) and no ih reference appeared in lines 2862-2953, but a post-2953 ih use cannot be fully excluded; such a use would be a same-function rx-pull case owned by the still-open intent i009, not by this interprocedural branch.",
+    "No dynamic reproduction was performed: the safe classification of the audited callee->caller pair rests on line-level source reading plus the documented pskb_may_pull() -> __pskb_pull_tail() -> pskb_expand_head() head-relocation semantics (all pointers into skb->head must be reloaded after a relocating call), not on a KASAN run.",
+    "Same-function pull/cow/linearize sites in s03 are owned by the concluded tx-cow (fact f002), loop-parser (fact f011), and GRO/GSO (fact f017) artifacts and the still-open rx-pull pass (intent i009); they were deliberately not re-audited here, so this negative result covers only the interprocedural caller/callee boundary."
+  ]
+}

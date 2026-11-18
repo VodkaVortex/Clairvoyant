@@ -1,0 +1,21 @@
+{
+  "intent_id": "i010",
+  "branch": "tx-cow-head-realloc",
+  "snapshot": "s03",
+  "status": "finalizing",
+  "progress": "Automated audit of all skb_cow_head/skb_cow/skb_unclone/skb_share_check/pskb_expand_head/skb_linearize call sites in net/ and drivers/ (audit.py, audit2.py) flagged 12 functions with pre-call captured header pointers used post-call. Manually classified: 9 safe (refetch after call), 1 weak (hdlc_fr skb_share_check - skb not modified in between, pointers remain valid), 2 credible stale-pointer findings: (1) net/mac80211/tdls.c ieee80211_process_tdls_channel_switch: tf captured at line 2010 from skb->data, skb_linearize at 2020 can reallocate head, tf->action_code dereferenced at 2026 without refetch — RX path via ieee80211_iface_process_skb worker (iface.c:1815), attacker-controlled TDLS frame. (2) drivers/net/wireless/mediatek/mt76/mt7925/mcu.c mt7925_mcu_rx_event: rxd captured at 642, skb_linearize at 644, rxd->option read at 647 without refetch. Writing final artifact now.",
+  "candidates": [
+    {"path": "net/mac80211/tdls.c", "line": 2026, "status": "reported"},
+    {"path": "drivers/net/wireless/mediatek/mt76/mt7925/mcu.c", "line": 647, "status": "reported"},
+    {"path": "drivers/net/wan/hdlc_fr.c", "line": 946, "status": "safe"},
+    {"path": "net/netfilter/nf_flow_table_ip.c", "line": 620, "status": "safe"},
+    {"path": "net/netfilter/nf_flow_table_ip.c", "line": 683, "status": "safe"},
+    {"path": "net/ipv6/exthdrs.c", "line": 277, "status": "safe"},
+    {"path": "net/ipv6/ip6_output.c", "line": 684, "status": "safe"},
+    {"path": "net/mac80211/wpa.c", "line": 156, "status": "safe"},
+    {"path": "net/mac80211/wpa.c", "line": 283, "status": "safe"},
+    {"path": "net/mac80211/wpa.c", "line": 548, "status": "safe"},
+    {"path": "net/mac80211/wpa.c", "line": 760, "status": "safe"},
+    {"path": "drivers/net/wireless/intel/iwlwifi/dvm/tx.c", "line": 304, "status": "safe"}
+  ]
+}

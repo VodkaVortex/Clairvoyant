@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "csum-partial-consumer-trust",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/freescale/fec_main.c",
+      "start": 452,
+      "end": 465,
+      "quote": "\t*(__sum16 *)(skb->head + skb->csum_start + skb->csum_offset) = 0;",
+      "confidence": "medium",
+      "reason": "fec_enet_clear_csum() is called from the TX path (fec_main.c:619 and :856, i.e. fec_enet_start_xmit/fec_enet_start_xmit_tso). It gates only on skb->ip_summed == CHECKSUM_PARTIAL, then computes the raw write address skb->head + skb->csum_start + skb->csum_offset and stores a __sum16 with no re-validation of csum_start/csum_offset against skb headroom/headlen/len. This is exactly the branch-4 sink profile: the seed mechanism (unvalidated/mis-validated skb->csum_start+csum_offset from a shared-memory producer such as the AF_XDP xsk_skb_metadata() TOCTOU present unpatched in this tree at net/xdp/xsk.c:762-781, or any dodgy-producer path) flows into a kernel write at a fully attacker-influenced offset into the skb data buffer, giving an out-of-bounds write of two zero bytes past the linear buffer. Counterevidence checked: the skb_cow_head() only unshares, and ip_hdr(skb)->check=0 touches a separately derived header; there is no skb_checksum_start_offset()/headlen check anywhere in the function, unlike skb_checksum_help() (net/core/dev.c:3597-3611) and pskb_trim_rcsum_slow() (net/core/skbuff.c:2806-2811) which both re-validate. Limitation: exploitability requires a producer that can get inconsistent csum values onto a TX skb destined for the fec driver; the primary reachable producer in-tree is the unpatched xsk_skb_metadata() TOCTOU plus tun/virtio_net SKB_GSO_DODGY paths whose segments normally get re-validated by skb_checksum_help before reaching here, so reachability is a hypothesis, not a demonstrated exploit."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/skbuff.c",
+      "start": 3902,
+      "end": 3925,
+      "quote": "\t\tlong csstuff = csstart + skb->csum_offset;\n\n\t\t*((__sum16 *)(to + csstuff)) = csum_fold(csum);",
+      "confidence": "medium",
+      "reason": "skb_copy_and_csum_dev() is the generic software TX-copy sink used by legacy drivers (8139too.c:1717, via-rhine.c:1806, sc92031.c:957, ep93xx_eth.c:349, ec_bhf.c:291, ksz884x.c:4497). It validates only csstart (BUG_ON(csstart > skb_headlen(skb)) at :3912) and then writes csum_fold at to + csstart + skb->csum_offset with csum_offset taken from the skb with no bounds check against headlen or the copy length. If a producer sets CHECKSUM_PARTIAL with an inconsistent csum_offset (e.g. the unpatched xsk_skb_metadata() TOCTOU in this tree at net/xdp/xsk.c:762-781, or any CHECKSUM_PARTIAL skb whose csum values were not validated at creation), the write goes out of bounds of the driver's TX bounce buffer (to is the driver buffer, sized from skb->len). Counterevidence checked: csstart itself is BUG_ON-checked; the seed-era invariant is that the stack validates csum_start+csum_offset at CHECKSUM_PARTIAL creation (skb_partial_csum_set), so this is a sink awaiting an inconsistently validated producer rather than an independently triggerable bug."
+    },
+    {
+      "snapshot": "s01",
+      "path": "include/linux/skbuff.h",
+      "start": 5377,
+      "end": 5390,
+      "quote": "\tpartial = ~csum_unfold(*(__force __sum16 *)(csum_start +\n\t\t\t\t\t    skb->csum_offset));",
+      "confidence": "low",
+      "reason": "lco_csum() dereferences skb_checksum_start(skb) + skb->csum_offset as a __sum16 read with no re-validation; its comment merely asks callers to 'ensure that inner checksum is in linear data area'. Callers are udp_set_csum (net/ipv4/udp.c:1073-1082), udp6_set_csum (net/ipv6/ip6_checksum.c:65-77) and gre_build_header (include/net/gre.h:136-141), all invoked on tunnel-encapsulated TX skbs that are CHECKSUM_PARTIAL; if an inconsistently validated producer (e.g. unpatched xsk_skb_metadata TOCTOU in net/xdp/xsk.c:762-781 of this tree) sets an out-of-range csum_start/csum_offset on an skb that is then encapsulated in UDP/GRE by one of these tunnel paths, this becomes an out-of-bounds read feeding checksum computation. Counterevidence checked: in the normal stack flow these skbs had their csum fields set by the stack itself (udp4_hwcsum etc. set csum_start from the transport header), so this is a trusted-value sink, not an independently triggerable read; confidence is low precisely because the untrusted-producer path is indirect."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/sun/sunvnet_common.c",
+      "line": 1169,
+      "status": "unresolved",
+      "reason": "vnet_skb_shape() slow path copies skb->csum_offset to nskb (line 1153), computes offset = start + nskb->csum_offset (line 1159) and writes *(__sum16 *)(skb->data + offset) = 0 (line 1169) and later nskb->data + offset (line 1200) with no bounds validation of csum_start/csum_offset against skb headlen; same sink profile as the reported findings, but reachability of an unvalidated producer on a sunvnet/LDOM vnet path was not established and the shared memory is guest-owned vnet descriptors, out of this branch's scope to fully trace."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/dev.c",
+      "line": 3597,
+      "status": "safe",
+      "reason": "skb_checksum_help() re-validates: offset = skb_checksum_start_offset(skb) checked offset >= skb_headlen with WARN_ONCE and reject, and offset + sizeof(__sum16) > skb_headlen checked again after adding skb->csum_offset before the write; this is the correct pattern and is the sink used by validate_xmit (via skb_csum_hwoffload_help), mac80211, ovs, xfrm, netem, dsa tags and iptfs paths."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/skbuff.c",
+      "line": 2806,
+      "status": "safe",
+      "reason": "pskb_trim_rcsum_slow() explicitly validates skb_checksum_start_offset(skb) + skb->csum_offset + sizeof(__sum16) <= hdlen and returns -EINVAL otherwise; not a variant."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/skbuff.c",
+      "line": 5770,
+      "status": "safe",
+      "reason": "skb_partial_csum_set() is the canonical validated producer: it checks csum_start >= U16_MAX and csum_end > skb_headlen before setting skb->csum_start/csum_offset/CHECKSUM_PARTIAL, and drops on failure; used by virtio_net_hdr_to_skb (include/linux/virtio_net.h:101-103) and tun paths."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/packet/af_packet.c",
+      "line": 2529,
+      "status": "safe",
+      "reason": "__packet_snd_vnet_parse() computes hdr_len = max(csum_start + csum_offset + 2, hdr_len) in local arithmetic and validates hdr_len > len, and packet_snd_vnet_parse copies the vnet header once into a stack struct before parsing; the skb conversion path goes through virtio_net_hdr_to_skb/pskb_may_pull/skb_partial_csum_set validation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/tun_vnet.h",
+      "line": 137,
+      "status": "safe",
+      "reason": "__tun_vnet_hdr_get() copies the header once with copy_from_iter_full into a stack hdr and computes hdr_len = max(csum_start + csum_offset + 2, hdr_len) from the single cached copy, then validates hdr_len > iov_iter_count; satisfies the single-fetch invariant."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/hsr/hsr_forward.c",
+      "line": 165,
+      "status": "safe",
+      "reason": "hsr path adjusts skb->csum_start by a constant HSR_HLEN when pushing/pulling the HSR header, keeping the CHECKSUM_PARTIAL offset consistent with the header move; no unvalidated value is introduced, and no memory access is performed using csum_start/offset."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/udp.c",
+      "line": 1039,
+      "status": "safe",
+      "reason": "udp4_hwcsum/udp_set_csum non-PARTIAL branches set csum_start = transport_header - head and csum_offset = offsetof(udphdr, check) from stack-derived pointers; the PARTIAL branch uses lco_csum which is reported separately as a low-confidence sink."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/ipvs/ip_vs_xmit.c",
+      "line": 1060,
+      "status": "safe",
+      "reason": "ip_vs GSO/IPIP remote-checksum path checks csum_start < hdrlen and subtracts, writing remcsum values into headers built in the same function; no unvalidated skb csum field is used for raw memory addressing."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/igc/igc_main.c",
+      "line": 1489,
+      "status": "safe",
+      "reason": "igc TSO csum path reads skb_checksum_start(skb) into csum_start and uses it only as csum_partial(trans_start, csum_start - trans_start, 0) length computation over headers already pulled by TSO setup; pointer arithmetic stays within already-validated linear headers for GSO skbs; no raw unchecked dereference of csum_offset."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/marvell/skge.c",
+      "line": 2783,
+      "status": "safe",
+      "reason": "skge/cassini/sunhme/sungem/bcmsysport/ice/gve/xilinx_axienet/fec-non-clear paths only translate skb->csum_start/csum_offset into hardware descriptor bitfields (device-side checksumming); no kernel memory access is performed at the unvalidated offset, so an inconsistent value cannot cause a kernel OOB access in these drivers."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/fou_core.c",
+      "line": 1007,
+      "status": "safe",
+      "reason": "fou remote checksum path validates csum_start < hdrlen and writes the (start, start+csum_offset) pair into the remote-csum option header in a locally built header; the values are consumed by the remote receiver, not used for local memory addressing."
+    }
+  ],
+  "limitations": [
+    "Reachability of each reported sink from a concrete unvalidated producer was not dynamically tested: no reproducer was built because the snapshot tree is read-only and the producer in-tree (unpatched xsk_skb_metadata at net/xdp/xsk.c:762-781) requires an AF_XDP socket bound to a fec/legacy 8139-class device, a combination not exercised here.",
+    "The sunvnet_common.c vnet_skb_shape() clone path (lines 1146-1200) shares the exact unvalidated csum_offset dereference/write profile of the reported findings but is classified unresolved: whether an LDoms vnet TX skb can carry an inconsistently validated csum pair was not traced to its producer.",
+    "Driver-directory coverage beyond drivers/net (e.g., staging, wifi firmware paths consuming CHECKSUM_PARTIAL via private helpers) was only surveyed via the skb_checksum_help/skb_csum_hwoffload_help caller list, not per-file; a driver-local unchecked write using csum_start/csum_offset outside that list could have been missed.",
+    "No GSO segmentation re-validation audit (SKB_GSO_DODGY segments carrying inconsistent csum values into skb_segment->SKB_GSO_CB csum_start propagation) was completed; the seg path copies headroom+doffset stack-derived values and looked stack-generated, but a full trace was out of scope."
+  ]
+}

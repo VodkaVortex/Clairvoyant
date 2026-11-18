@@ -1,0 +1,7 @@
+{
+  "intent_id": "i012",
+  "branch": "vm-shared-desc-rereads",
+  "snapshot": "s03",
+  "status": "complete",
+  "note": "Finalized. Searched drivers/vhost (vhost.c, net.c, scsi.c, vdpa.c, vringh.c, test.c), drivers/vdpa (vdpa.c, vdpa_user/vduse_dev.c, vdpa_sim, ifcvf, mlx5, virtio_pci), drivers/virtio (virtio_ring.c, virtio_pci_*), drivers/net/virtio_net.c. Core descriptor/config fetch paths all copy guest-shared memory once into stack locals before validation and use (vhost_get_desc->struct vring_desc local; __vringh_iov->local desc; vhost_vdpa_config copied once and validated on the local; vduse responses copied once). virtio_net.c receive_mergeable num_buffers is single-fetched into a local (unresolved only for unaudited fragment accounting). No credible shared-memory validate-then-refetch variant found; negative result with bounded limitations recorded in findings/i012.json."
+}

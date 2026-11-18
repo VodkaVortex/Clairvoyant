@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "xsk-umem-rereads",
+  "status": "complete",
+  "snapshot": "s04",
+  "summary": "Snapshot s04 is an older AF_XDP tree (pre-6.8): no xsk_tx_metadata struct, no XDP_TXMD_FLAGS, no tx_metadata_len anywhere in the tree; the seed path does not exist here. Core TX descriptor fetch uses single struct assignment into kernel memory followed by validation on the same copy (xskq_cons_read_desc line 199-200; batch variant line 224-225) and validated copies are what drivers consume (desc.addr/desc.len from stack/pool->tx_descs). Checked all 8 AF_XDP-capable driver TX paths (ixgbe, i40e, ice, igc, mlx5, nfp, dpaa2, stmmac) plus net/xdp generic xmit; all consume the locally snapshotted desc. Residual risk is compiler-mediated tearing of the 16-byte struct copy from shared memory (no READ_ONCE), a hardening gap but not the seed's double-fetch pattern. FQ fill-ring addr path uses *addr = ring->desc[idx] unchecked by design (addr re-validated later at xp_assign_dev / xp_raw_get_data). No reportable validate-then-reread on UMEM-resident fields found.",
+  "candidates": [
+    {"path": "net/xdp/xsk_queue.h", "line": 199, "status": "safe", "reason": "Single struct assignment *desc = ring->desc[idx] then validation on that same copy; no second fetch of shared memory."},
+    {"path": "net/xdp/xsk_queue.h", "line": 224, "status": "safe", "reason": "Batch copy descs[nb_entries] = ring->desc[idx] into kernel pool->tx_descs; validation and all later driver uses operate on the kernel copy."},
+    {"path": "net/xdp/xsk_queue.h", "line": 120, "status": "safe", "reason": "FQ addr read unchecked by design; address only becomes a kernel pointer later via xp_assign_dev/xp_raw_get_data after chunk-index validation, and RX side re-checks len against frame size."},
+    {"path": "drivers/net/ethernet/intel/ixgbe/ixgbe_xsk.c", "line": 415, "status": "safe", "reason": "ixgbe_xmit_zc consumes desc.addr/desc.len from the xsk_tx_peek_desc-returned stack copy."},
+    {"path": "drivers/net/ethernet/intel/i40e/i40e_xsk.c", "line": 542, "status": "safe", "reason": "Batch path consumes pool->tx_descs kernel copy."},
+    {"path": "drivers/net/ethernet/intel/ice/ice_xsk.c", "line": 975, "status": "safe", "reason": "Batch path consumes pool->tx_descs kernel copy."},
+    {"path": "drivers/net/ethernet/intel/igc/igc_main.c", "line": 2781, "status": "safe", "reason": "Consumes xdp_desc stack copy."},
+    {"path": "drivers/net/ethernet/mellanox/mlx5/core/en/xsk/tx.c", "line": 84, "status": "safe", "reason": "Consumes desc stack copy."},
+    {"path": "drivers/net/ethernet/netronome/nfp/nfd3/xsk.c", "line": 346, "status": "safe", "reason": "Consumes desc[] stack array copy."},
+    {"path": "drivers/net/ethernet/freescale/dpaa2/dpaa2-xsk.c", "line": 410, "status": "safe", "reason": "Consumes ch->xsk_pool->tx_descs kernel copy."},
+    {"path": "drivers/net/ethernet/stmicro/stmmac/stmmac_main.c", "line": 2435, "status": "safe", "reason": "Consumes xdp_desc stack copy."},
+    {"path": "net/xdp/xsk.c", "line": 536, "status": "safe", "reason": "__xsk_generic_xmit loop: single xskq_cons_peek_desc into stack desc; xsk_build_skb uses desc->len/desc->addr locals; no second UMEM read."}
+  ]
+}

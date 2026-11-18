@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/usbip/vhci_rx.c",
+      "line": 84,
+      "status": "unresolved",
+      "reason": "The full error-unwind-poisoned-count chain of the seed is present in s04 but it IS the seed's own code, excluded from reporting. Store that poisons the shared object: drivers/usb/usbip/usbip_common.c:392 'urb->number_of_packets = rpdu->number_of_packets;' inside usbip_pack_pdu(RET_SUBMIT,unpack), copying the remote peer's __s32 count into the URB. Early return that skips reset/giveback: drivers/usb/usbip/vhci_rx.c:80-85 - 'if (usbip_recv_xbuff(ud, urb) < 0) return; if (usbip_recv_iso(ud, urb) < 0) return;' - returns while urb->number_of_packets still holds the unchecked wire value, so usb_hcd_giveback_urb (line 76) is skipped and the URB leaks; and inside usbip_recv_iso (usbip_common.c:583-603, pre-patch: 'int np = urb->number_of_packets; int size = np * sizeof(*iso);' then kzalloc + recv/copy loop) the -EPROTO/-ENOMEM/-EPIPE paths return with the poisoned count intact, which the HCD completion path (processcompl, drivers/usb/core/devio.c:1851-1858 iso_frame_desc loop) would iterate. Because this is literally the seed demonstration (usbip_recv_iso), it is not reported as a finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/core/devio.c",
+      "line": 1851,
+      "status": "safe",
+      "reason": "processcompl iterates 'for (i = 0; i < urb->number_of_packets; i++)' (1851-1858) and compute_isochronous_actual_length (1821-1827) also iterates it, but the count is clamped at parse time in proc_urb_submit: 'if (uurb->number_of_packets < 1 || uurb->number_of_packets > 128) return -EINVAL;' (1537-1538) before alloc_async(number_of_packets) allocates matching iso_frame_desc storage (1578) and as->urb->number_of_packets is set from the clamped local (1689). No error path mutates or bypasses the clamp, so the completion loops are bounded by the allocation."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/atm/usbatm.c",
+      "line": 529,
+      "status": "safe",
+      "reason": "usbatm_rx_process iterates urb->number_of_packets (529-546) but the count is set only at probe time from a locally computed value: 'urb->number_of_packets = iso_packets' (1145) with iso_packets = channel->buf_size / channel->packet_size and usb_alloc_urb(iso_packets,...) allocating the matching descriptors (1139-1141). The completion handler usbatm_complete never touches number_of_packets; on error it only schedules/throttles the tasklet, so no error-unwind path poisons the count the consumer loop uses."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/misc/usbtest.c",
+      "line": 1987,
+      "status": "safe",
+      "reason": "urb->number_of_packets = packets (1987) is assigned from the module/test-parameter local used to allocate the URB and its iso descriptors in the same function, and the completion-side accounting (1924-1928) reads the same allocated value; no untrusted or error-path mutation found."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/core/urb.c",
+      "line": 448,
+      "status": "safe",
+      "reason": "usb_submit_urb re-validates isochronous URBs: 'if (urb->number_of_packets <= 0) return -EINVAL;' and the per-descriptor loop (448-457) rejects len<0/len>max, initializing status/actual_length on the way; every HCD-path consumer examined is downstream of this validation and no early-return in it leaves a count stored that a later loop uses beyond the allocated descriptors."
+    }
+  ],
+  "limitations": [
+    "Bounded to the drivers/usb tree and urb-centric count/length fields (number_of_packets, actual_length, iso_frame_desc); error-unwind patterns in other subsystems (net socket/gro handlers, fs io_uring/aio iovec, scsi/st sgl, vhost/virtio ring teardown, staging drivers, gadget/composite request fields) were not individually audited in this pass.",
+    "The only complete error-unwind-poisoned-count chain found in s04 is the seed's own usbip code present unpatched in this snapshot (usbip_common.c:583-603, vhci_rx.c:80-85, usbip_common.c:392); it is excluded from findings by the seed-never-reportable rule and is recorded as candidate 'unresolved' for that reason only.",
+    "Per-HCD iso completion loops (ehci-sched.c, uhci-q.c, xhci.c num_tds, fotg210, imx21, isp1362, r8a66597) were located via number_of_packets grep but only sampled, not each walked to its error path."
+  ]
+}

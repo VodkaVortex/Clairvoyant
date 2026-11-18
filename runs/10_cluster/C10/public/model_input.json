@@ -1,0 +1,16 @@
+{
+  "seed": {
+    "hexsha": "13d0cecb4626fae67c00c84d3c7851f6b62f7df3",
+    "one_line_summary": "scsi: bfa: Ensure the copied buf is NUL terminated",
+    "vulnerability_summary": "User-supplied buffer copied via memdup_user is parsed with sscanf without NUL termination guarantee, causing out-of-bounds read when sscanf scans past the allocated buffer boundary.",
+    "vulnerability_pattern": "Buffers copied from userspace with fixed-size allocation are passed to string-parsing functions without guaranteed NUL termination, violating C-string invariant required by parsers.",
+    "patch": "commit 13d0cecb4626fae67c00c84d3c7851f6b62f7df3\nAuthor: Bui Quang Minh <minhquangbui99@gmail.com>\nDate:   Wed Apr 24 21:44:20 2024 +0700\n\n    scsi: bfa: Ensure the copied buf is NUL terminated\n    \n    Currently, we allocate a nbytes-sized kernel buffer and copy nbytes from\n    userspace to that buffer. Later, we use sscanf on this buffer but we don't\n    ensure that the string is terminated inside the buffer, this can lead to\n    OOB read when using sscanf. Fix this issue by using memdup_user_nul instead\n    of memdup_user.\n    \n    Fixes: 9f30b674759b (\"bfa: replace 2 kzalloc/copy_from_user by memdup_user\")\n    Signed-off-by: Bui Quang Minh <minhquangbui99@gmail.com>\n    Link: https://lore.kernel.org/r/20240424-fix-oob-read-v2-3-f1f1b53a10f4@gmail.com\n    Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>\n\ndiff --git a/drivers/scsi/bfa/bfad_debugfs.c b/drivers/scsi/bfa/bfad_debugfs.c\nindex 52db147d9979..f6dd077d47c9 100644\n--- a/drivers/scsi/bfa/bfad_debugfs.c\n+++ b/drivers/scsi/bfa/bfad_debugfs.c\n@@ -250,7 +250,7 @@ bfad_debugfs_write_regrd(struct file *file, const char __user *buf,\n \tunsigned long flags;\n \tvoid *kern_buf;\n \n-\tkern_buf = memdup_user(buf, nbytes);\n+\tkern_buf = memdup_user_nul(buf, nbytes);\n \tif (IS_ERR(kern_buf))\n \t\treturn PTR_ERR(kern_buf);\n \n@@ -317,7 +317,7 @@ bfad_debugfs_write_regwr(struct file *file, const char __user *buf,\n \tunsigned long flags;\n \tvoid *kern_buf;\n \n-\tkern_buf = memdup_user(buf, nbytes);\n+\tkern_buf = memdup_user_nul(buf, nbytes);\n \tif (IS_ERR(kern_buf))\n \t\treturn PTR_ERR(kern_buf);\n \n"
+  },
+  "snapshots": [
+    "s01",
+    "s02",
+    "s03",
+    "s04"
+  ],
+  "task": "Find other instances of the seed mechanism in independent Linux source snapshots."
+}

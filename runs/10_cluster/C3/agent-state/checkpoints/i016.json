@@ -1,0 +1,13 @@
+{
+  "intent_id": "i016",
+  "branch": "helper-param-null-deref",
+  "snapshot": "s03",
+  "status": "finalized",
+  "execution_status": "complete",
+  "findings": [
+    "drivers/net/ethernet/intel/i40e/i40e_main.c:12774-12776",
+    "drivers/net/ethernet/intel/ice/ice_main.c:6651-6653"
+  ],
+  "summary": "Cross-function br_spec flow: rtnl_bridge_setlink forwards raw nlh on BRIDGE_FLAGS_SELF; i40e/ice callbacks re-fetch IFLA_AF_SPEC via nlmsg_find_attr and pass the unguarded (possibly NULL) local into nla_for_each_nested; dispatcher's own 'if (br_spec)' guard does not cover the driver's independent fetch; IFLA_AF_SPEC optional in ifla_policy (rtnetlink.c:1855). Static scan found 253 nlattr-parameter helper candidates in 99 files; remaining clusters unresolved (OVS 43, xfrm 8, netem 7, seg6_local 7, etc.).",
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C3/agent-state/findings/i016.json"
+}

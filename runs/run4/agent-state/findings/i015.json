@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "vhost-virtio-guestmem",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/net.c",
+      "line": 738,
+      "status": "safe",
+      "reason": "vhost_net_build_xdp() is the closest structural twin of the seed (virtio_net_hdr csum_start/csum_offset/hdr_len check-then-fixup, net.c:738-747), but gso points into a kernel page_frag snapshot: copy_page_from_iter(alloc_frag->page, ..., sock_hlen, from) at net.c:728-731 copies the guest-resident header into kernel memory BEFORE the csum bounds check and hdr_len assignment. Both the validating read (net.c:739-741) and the consuming read (net.c:743-744) operate on the same stable kernel-local copy, so a concurrent guest write cannot make the consumed value differ from the validated one. This is the post-fix pattern, not the bug."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2119,
+      "status": "safe",
+      "reason": "get_indirect(): 'u32 len = vhost32_to_cpu(vq, indirect->len)' reads from the caller's stack struct vring_desc, which vhost_get_vq_desc filled with a single vhost_get_desc()->vhost_copy_from_user() of the whole 16-byte descriptor (vhost.c:1042-1046). The sanity check 'len % sizeof desc' (vhost.c:2122-2127) and the consuming translate_desc(vq, vhost64_to_cpu(vq, indirect->addr), len, ...) at vhost.c:2132 both use that one kernel copy; per-iteration indirect descs are likewise pulled via copy_from_iter_full into a stack 'desc' (vhost.c:2159-2163) before flags/addr/len use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2255,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc() avail-ring fetch: vhost_get_avail_head() (vhost.c:1017-1021) does one __get_user of avail->ring[last_avail_idx % vq->num] into a local ring_head; the ring index is kernel-controlled (masked by vq->num), head is converted once (vhost.c:2262) and bounds-checked 'head >= vq->num' (vhost.c:2264-2268) before being used as the descriptor index. No second guest fetch of the same field."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2290,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc() main loop: each descriptor is fetched once into stack 'struct vring_desc desc' via vhost_get_desc(vq, &desc, i) (vhost.c:2290); the index i is re-validated 'i >= vq->num' at the top of every iteration (vhost.c:2276-2281) before the fetch; next_desc() (vhost.c:2098-2108) reads desc->next with READ_ONCE from the STACK copy, not guest memory; desc.addr/desc.len consumed by translate_desc (vhost.c:2320-2323) come from the same single copy. Loop-bound guards (found > vq->num) are kernel-side."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vringh.c",
+      "line": 322,
+      "status": "safe",
+      "reason": "__vringh_iov() (vringh.c:283-431), shared by vringh_getdesc_user/_kern/_iotlb (vringh.c:693, 966, 1361 - used by vdpa_sim, mlx5_vnet, caif_virtio): each descriptor is copied once into stack 'struct vring_desc desc' via copy()/slow_copy (vringh.c:321-325); rcheck() validates and clamps len against the memory range from the local copy (vringh.c:383-389) before iov entry formation (vringh.c:398-401); the chained index comes from the local copy (vringh.c:410-411) and is bounds-checked 'i >= desc_max' (vringh.c:423-426) before the next fetch; the re-loop at vringh.c:402-407 adjusts the local copy only. move_to_indirect() (vringh.c:163-200) likewise reads len/next from the local desc."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vsock.c",
+      "line": 359,
+      "status": "safe",
+      "reason": "vhost_vsock_alloc_skb() (vsock.c:325-390): the guest virtio_vsock_hdr is copied once into the skb via copy_from_iter(hdr, sizeof(*hdr), &iov_iter); 'payload_len = le32_to_cpu(hdr->len)' (vsock.c:359) reads the kernel-local copy into a scalar; the bounds check 'payload_len > VIRTIO_VSOCK_MAX_PKT_BUF_SIZE || payload_len + sizeof(*hdr) > len' (vsock.c:368-372) and the consuming copy_from_iter(skb->data, payload_len, &iov_iter) (vsock.c:375) both use that same local scalar. Descriptor-derived iov/len are kernel-local translations."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vdpa/vdpa_sim/vdpa_sim_blk.c",
+      "line": 124,
+      "status": "safe",
+      "reason": "vdpasim_blk_handle_req() (vdpa_sim_blk.c:79-260): the guest virtio_blk_outhdr is pulled once into stack 'struct virtio_blk_outhdr hdr' via vringh_iov_pull_iotlb (vdpa_sim_blk.c:110-113); 'type'/'sector' locals (124-125) feed both vdpasim_blk_check_range() validation (141-143 IN, 156-158 OUT, 246-248 discard/write_zeroes) and the consuming 'vdpasim->buffer + offset' accesses (146-147, 162-163) and memset (250-251). The discard/write_zeroes range struct is likewise pulled into local 'range' (221-224) before its sector/num_sectors/flags are validated and used. The vq->in_iov/out_iov used to compute to_pull/to_push are vringh kernel-local iov entries."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vdpa/vdpa_user/vduse_dev.c",
+      "line": 1096,
+      "status": "safe",
+      "reason": "VDUSE_DEV_SET_CONFIG (vduse_dev.c:1090-1112): the struct vduse_config_data header is copy_from_user'd once into a local (1096); the offset/length validation 'config.offset > dev->config_size || config.length == 0 || config.length > dev->config_size - config.offset' (1099-1102) and the consuming copy 'copy_from_user(dev->config + config.offset, argp + size, config.length)' (1106) both use that single local snapshot. The input is an ioctl argument buffer, not an mmap'd ring, so there is no persistent shared-memory window at all."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vdpa.c",
+      "line": 312,
+      "status": "safe",
+      "reason": "vhost_vdpa_get_config() (vdpa.c:304-328) and vhost_vdpa_set_config() (vdpa.c:331-360): the struct vhost_vdpa_config header is copy_from_user'd once into a local (vdpa.c:312, 339); vhost_vdpa_config_validate() checks the local copy, and config.off/config.len for kvzalloc/vdpa_get_config/vmemdup_user come from that same single copy. Other vhost_vdpa vring ioctls (SET_VRING_ENABLE, SET_GROUP_ASID, vdpa.c:548-568) also copy once and validate the local 's.num' before use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/scsi.c",
+      "line": 901,
+      "status": "safe",
+      "reason": "vhost_scsi_get_req() (scsi.c:888-922) copies the guest request header once into kernel vc->req via copy_from_iter_full (scsi.c:901-903); the lun byte-0 check (*vc->lunp != 1), the target index READ_ONCE(vs_tpg[*vc->target]) lookup and the later pi_bytesout/pi_bytesin/tag/task_attr/cdb reads all consume the copied buffer, not guest memory. The descriptor sizes vc->out_size/vc->in_size (scsi.c:852-853) come from kernel-local vq->iov produced by the single-fetch vhost_get_vq_desc path, and vhost_scsi_chk_size (scsi.c:867-881) validates those same locals."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/net.c",
+      "line": 613,
+      "status": "safe",
+      "reason": "handle_tx_copy/handle_tx_zerocopy/get_rx_bufs TX/RX plumbing consumes only kernel-local vq->iov translations: init_iov_iter (net.c:609-618) computes len = iov_length(vq->iov, out) from local iov entries and advances a kernel iov_iter; get_rx_bufs (net.c:1041-1105) sums iov_length over local entries; sendmsg/recvmsg lengths and vq->heads[] entries are all kernel-local scalars. No guest-writable field is re-read after validation anywhere in these paths."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/virtio/virtio_ring.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "Located but not deeply audited within this intent's bounds: virtio_ring.c (2919 lines) device-facing split/packed ring consumers. The untrusted writer there is the virtio device DMA'ing the rings (a device-trust threat model), not unprivileged userspace mapping shared memory, so it is adjacent to but not an exact instance of the seed's untrusted-source profile; a full pass was not completed before the finalize deadline."
+    }
+  ],
+  "limitations": [
+    "Deep audit covered drivers/vhost/{vhost.c,vringh.c,net.c,scsi.c,vsock.c,test.c,vdpa.c} and drivers/vdpa/vdpa_sim/* plus drivers/vdpa/vdpa_user/vduse_dev.c; drivers/virtio/virtio_ring.c and other drivers/virtio consumers, drivers/vdpa/{mlx5,ifcvf,alibaba,solidrun} control-vq handlers (e.g. mlx5_vnet.c:1911 vringh_getdesc_iotlb use), and drivers/net/caif/caif_virtio.c vringh user rings were located but not deeply read.",
+    "No compilation or runtime reproducer harness was built for this branch; the negative result rests on source-level single-fetch dataflow tracing (fetch sites, validation sites, and consuming sites read line-by-line), not dynamic confirmation.",
+    "The seed's own fixed function xsk_skb_metadata()/TX metadata offload is absent from s04's net/xdp/xsk.c (no tx_metadata/csum_start symbols), confirming s04 predates that feature and cannot yield a seed-replica report in branch 2 either.",
+    "Torn multi-byte copies (guest writes racing the single copy_from_user/copy_from_iter itself) were treated as out of scope because the seed invariant is validated-value == used-value, which kernel-local snapshots preserve even under tearing."
+  ]
+}

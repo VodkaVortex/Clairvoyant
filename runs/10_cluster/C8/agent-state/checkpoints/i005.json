@@ -1,0 +1,46 @@
+{
+  "intent_id": "i005",
+  "branch": "if-alt-count",
+  "status": "finalizing",
+  "snapshot": "s01",
+  "progress": "Classified candidates. Reported: gspca stv06xx.c:324-348 and xirlink_cit.c:2657-2694 - actconfig->intf_cache[0]->altsetting[1] literal index with no num_altsetting validation before endpoint[0] descriptor read/write; usb_set_interface(dev, iface, 1) then selects alt 1 whose real wMaxPacketSize may not match the value patched into the cache, so subsequent URB sizing uses stale attacker-declared data. gspca core only validates alt indexes it chooses itself (build_isoc_ep_tb / ep_tb); isoc_init/isoc_nego subdriver hooks run before/independent of that validation. Safe: usbvision (checks bNumInterfaces and bNumEndpoints), usbtv (num_altsetting!=2 rejected), ftdi_sio (NULL-safe pointer comparisons), ims-pcu (data intf checks bNumEndpoints, but ctrl intf alt->endpoint[0] unchecked - overlaps endpoint branch), cx231xx (seed family, excluded; its actconfig->interface[idx] is guarded by idx<max_iad_interface_count=bNumInterfaces).",
+  "candidates": [
+    {
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "line": 324,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "line": 2657,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "line": 1448,
+      "status": "safe",
+      "reason": "ifnum<bNumInterfaces checked at 1449; model-interface path assumes per-model fixed layout but has bNumEndpoints<2 check at 1455"
+    },
+    {
+      "path": "drivers/media/usb/usbtv/usbtv-core.c",
+      "line": 77,
+      "status": "safe",
+      "reason": "num_altsetting!=2 and altsetting[1].bNumEndpoints!=4 validated before endpoint[0] use"
+    },
+    {
+      "path": "drivers/usb/serial/ftdi_sio.c",
+      "line": 1885,
+      "status": "safe",
+      "reason": "actconfig->interface[1] pointer compared for equality, never dereferenced, NULL tolerated"
+    },
+    {
+      "path": "drivers/input/misc/ims-pcu.c",
+      "line": 1668,
+      "status": "safe",
+      "reason": "data interface validates bNumEndpoints==2 and bulk-out; ctrl interface alt->endpoint[0] lacks bNumEndpoints check but that is the probe-time endpoint-array form owned by fixed-epidx-rest branch, noted in limitations"
+    }
+  ],
+  "next_steps": [
+    "write final artifact and call done"
+  ]
+}

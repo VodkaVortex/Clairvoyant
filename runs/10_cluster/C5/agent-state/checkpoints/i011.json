@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "uapi-double-fetch",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "fs/fhandle.c",
+      "start": 349,
+      "end": 392,
+      "quote": "if (copy_from_user(&f_handle, ufh, sizeof(struct file_handle)))\n\t\treturn -EFAULT;\n\n\tif ((f_handle.handle_bytes > MAX_HANDLE_SZ) ||\n\t    (f_handle.handle_bytes == 0))\n\t\treturn -EINVAL;",
+      "confidence": "medium",
+      "reason": "Untrusted source: handle_to_path() (backing sys_open_by_handle_at / name_to_handle_at decode paths, fs/fhandle.c:349) copies the user-supplied struct file_handle header into the kernel-local f_handle via copy_from_user, so f_handle.handle_bytes is a validated kernel copy. Violated invariant: at line 375 the full flexible handle is allocated with kmalloc_flex(*handle, f_handle, f_handle.handle_bytes) sized by the VALIDATED local f_handle.handle_bytes, but at lines 379-382 the payload copy uses the re-read ufh->f_handle with length f_handle.handle_bytes while ufh still points into user memory; more importantly the scalar fields copied into the new handle come from the local snapshot, yet the kernel then consumes handle->f_handle[] bytes fetched from the same user buffer that userspace can concurrently rewrite (two fetches of *ufh: header fetch at 350 and payload fetch at 379-382). A racing userspace writer can change the bytes between the size validation of handle_bytes and the payload copy, so the copy that was size-validated is not bit-identical to the copy handed to do_handle_to_path(). Unsafe use: do_handle_to_path() passes the handle->f_handle bytes to filesystem export_operations->fh_to_dentry, which treats them as an opaque file identifier and can trigger filesystem-specific parsing/lookups on attacker-controlled bytes that bypassed the size-consistency window. Counterevidence: the size check itself (MAX_HANDLE_SZ, non-zero) is computed on the local snapshot and the kmalloc_flex uses the same local, so the classic heap-overflow double-fetch on handle_bytes (CVE-2015-1350 class) is NOT present here; the residual divergence is content-level (header type/size fetched at 350 vs payload bytes fetched at 379 and the later handle_type bit uses at 386-391, which do use the local f_handle), so impact is limited to inconsistent handle contents rather than an out-of-bounds write; hence medium confidence as a genuine same-user-buffer double fetch whose validated copy differs from the used copy."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/sg.c",
+      "start": 624,
+      "end": 640,
+      "quote": "if (copy_from_user(&old_hdr, buf, SZ_SG_HEADER))\n\t\treturn -EFAULT;\n\tblocking = !(filp->f_flags & O_NONBLOCK);\n\tif (old_hdr.reply_len < 0)\n\t\treturn sg_new_write(sfp, filp, buf, count,\n\t\t\t\t    blocking, 0, 0, NULL);\n\tif (count < (SZ_SG_HEADER + 6))\n\t\treturn -EIO;\t/* The minimum scsi command length is 6 bytes. */\n\n\tbuf += SZ_SG_HEADER;\n\tif (get_user(opcode, buf))\n\t\treturn -EFAULT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: sg_write() reads the user write() buffer twice: once for the sg_header (copy_from_user(&old_hdr, buf, SZ_SG_HEADER), line 624) and then again for the first CDB byte (get_user(opcode, buf) after buf += SZ_SG_HEADER, line 635), and a third time for the whole command (copy_from_user(cmnd, buf, cmd_size), line ~693). Violated invariant: cmd_size is derived from the SECOND fetch (opcode) via COMMAND_SIZE(opcode) (line 645) while old_hdr fields from the FIRST fetch (reply_len, twelve_byte) feed mxsize/input_size arithmetic (lines 648-652) and hp->dxferp/hp->dxfer_len (lines 664-671); there is no single snapshot of the user buffer, so a racing userspace writer can change opcode between the get_user at 635 and the copy_from_user of cmnd at 693, making COMMAND_SIZE(opcode) (validated implicitly: 6/10/12/16 bounded by SG_MAX_CDB_SIZE via opcode group) diverge from the bytes actually copied into scmd->cmnd. Unsafe use: cmnd[] is later dispatched to the SCSI device and inspected by scsi_cmd_allowed() (line 697); a divergence lets an opcode from a different command group than the size-validated one reach scsi_cmd_allowed, which authorizes commands on the copy fetched at 693 (a different copy than the one that determined cmdlen). Counterevidence: the copy length cmd_size is bounded by COMMAND_SIZE output (max 16) and cmnd is a 16-byte kernel array, so no kernel OOB results; old_hdr is copied wholesale once and its own fields are not re-fetched; the count >= SZ_SG_HEADER+6 check is against the syscall count, not user memory. So the memory-safety consequence is absent, but the validated-equals-used invariant on opcode is genuinely violated across three separate fetches of the same user buffer; reported as a low-impact (authorization-bypass-window) double fetch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/megaraid.c",
+      "start": 3521,
+      "end": 3548,
+      "quote": "if( copy_from_user(signature, arg, 7) )\n\t\treturn -EFAULT;\n\n\tif( memcmp(signature, \"MEGANIT\", 7) == 0 ) {\n\n\t\tuiocp = arg;\n\n\t\tif( put_user(mc->status, (u8 __user *)&MBOX_P(uiocp)->status) )\n\t\t\treturn (-EFAULT);\n\n\t\tif( mc->cmd == MEGA_MBOXCMD_PASSTHRU ) {\n\n\t\t\tumc = MBOX_P(uiocp);\n\n\t\t\tif (get_user(upthru, (mega_passthru __user * __user *)&umc->xferaddr))\n\t\t\t\treturn (-EFAULT);",
+      "confidende_note": "replaced_by_confidence_field",
+      "confidence": "low",
+      "reason": "Untrusted source: mega_n_to_m() reads the ioctl argument buffer twice: once as a 7-byte signature (copy_from_user(signature, arg, 7), line 3521) and later dereferences the SAME user pointer as a nitioctl_t / uioctl_t to fetch a pointer (get_user(upthru, &umc->xferaddr), lines 3535-3540 and 3543-3547) which is then written to (put_user to &upthru->scsistatus). Violated invariant: the signature fetch validates the buffer layout, but the later get_user of umc->xferaddr re-reads the same user memory after the wait for command completion (mc is a completed mailbox command), so the xferaddr used for the status write is not the value seen during command construction (mega_m_to_n earlier copies the mailbox out of the same arg), and a racing userspace writer can redirect upthru to an arbitrary user address for the status write. Unsafe use: put_user(mc->status, &upthru->scsistatus) writes a kernel-derived byte to a fully attacker-re-fetched user pointer; because upthru is fetched fresh from user memory at completion time with zero re-validation (no access_ok beyond put_user's own), this is a user-controlled-address write primitive in the completion path of the MEGARAID legacy ioctl. Counterevidence: put_user performs its own access_ok so the write stays in userspace address space (no kernel memory corruption), and this driver is legacy/PCI megaraid hardware with limited modern exposure; the validated-value-identity violation is on upthru (construction-time mailbox xferaddr vs completion-time get_user), hence low confidence on practical impact but a genuine second-fetch used for the write target."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/af_inet6.c",
+      "line": 595,
+      "status": "safe",
+      "reason": "inet6_compat_routing_ioctl() fetches each field of the compat rtmsg exactly once via a chain of get_user calls into distinct members of the kernel-local struct in6_rtmsg rt; every subsequent use (ipv6_route_ioctl) consumes only the local rt. Different user locations, single fetch each; no validated-vs-used divergence."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/af_inet.c",
+      "line": 1023,
+      "status": "safe",
+      "reason": "inet_compat_routing_ioctl() mirrors the inet6 version: get_user per field into kernel locals (ip_rtmsg rt), all later use from rt; each user location read once."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_ioctl.c",
+      "line": 523,
+      "status": "safe",
+      "reason": "sg_scsi_ioctl() fetches inlen/outlen via get_user into locals (lines ~530-534), validates them against PAGE_SIZE on the same locals, and later copy_from_user calls (sic->data, sic->data+cmdlen) fetch DIFFERENT user offsets for the command and data payload, using the local in_len/out_len sizes; the size that was validated is the size used."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/core/devio.c",
+      "line": 2150,
+      "status": "safe",
+      "reason": "proc_bulk_compat() get_user's each distinct member (p32->data, p32->timeout etc.) exactly once into distinct locals feeding the native path; no same-location second fetch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/char/ipmi/ipmi_devintf.c",
+      "line": 291,
+      "status": "safe",
+      "reason": "ipmi_ioctl() dispatches per command; each case performs a single get_user/copy_from_user of its own argument location into a kernel local before validation and use; the repeated fetches in the scanner are distinct case arms, not re-fetches of one validated location."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/io_uring.c",
+      "line": 2487,
+      "status": "safe",
+      "reason": "io_get_ext_arg() copies the struct io_uring_getevents_arg once via unsafe_get_user chain into the kernel-local arg (or copy_from_user on 32-bit) and uses only locals (arg.sigmask, arg.ts, arg.sigmask_sz) afterwards; the registered-wait branch READ_ONCEes each w-> field once. Single-fetch per location."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/net.c",
+      "line": 272,
+      "status": "safe",
+      "reason": "io_copy_msghdr_from_user() fetches each umsg member exactly once (msg_name, msg_namelen, msg_iov, msg_iovlen, msg_control, msg_controllen) into the kernel msg struct inside one user_access_begin/end block; all consumers use the local copy."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/net.c",
+      "line": 239,
+      "status": "safe",
+      "reason": "io_compat_msg_copy_hdr()/__get_compat_msghdr fetch each compat msghdr member once; the later copy_from_user of tmp_iov is a distinct location (the iovec array) with its own single fetch used immediately."
+    },
+    {
+      "snapshot": "s03",
+      "path": "kernel/events/core.c",
+      "line": 13583,
+      "status": "safe",
+      "reason": "perf_copy_attr() fetches size once via get_user(size, &uattr->size) and then uses copy_struct_from_user(attr, sizeof(*attr), uattr, size) which is the designed double-fetch-hardened helper: it re-reads user bytes but detects divergence (returns -E2BIG when user size != kernel size) and, critically, the validated size local is the length used for the copy; attr->size is then set to the same local. No same-location validate/use divergence."
+    },
+    {
+      "snapshot": "s03",
+      "path": "kernel/liveupdate/luo_session.c",
+      "line": 401,
+      "status": "safe",
+      "reason": "luo_session_ioctl() get_user's ucmd.user_size once, validates against op->min_size, and then copy_struct_from_user copies the command from the same user buffer; copy_struct_from_user is the divergence-detecting helper (it memcmps the extra tail and returns -E2BIG on user/kernel mismatch), so a racing writer changing bytes after the size fetch yields either the same bytes or an error, not silent divergence on the validated size."
+    },
+    {
+      "snapshot": "s03",
+      "path": "block/ioctl.c",
+      "line": 67,
+      "status": "safe",
+      "reason": "blkpg_ioctl()/compat_blkpg_ioctl() get_user op and data pointer once each into locals; blkpg_do_ioctl() then copy_from_user's the partition struct once into local p and validates/uses only p (p.pno, p.start, p.length all from the single snapshot with overflow checks)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "fs/select.c",
+      "line": 785,
+      "status": "safe",
+      "reason": "get_sigset_argpack() unsafe_get_user's from->p and from->size exactly once each into the caller's kernel struct; consumers (set_user_sigmask) use the local sigsetsize."
+    }
+  ],
+  "limitations": [
+    "The automated scans covered 407 candidate functions (multi-fetch + shared-token heuristic) and 16 same-operand double-fetch hits; deep line-by-line reading was completed only for the 15 candidates listed in findings/candidates plus the perf/fhandle/luo/io_uring/blkpg cores; large hit clusters never deeply read include arch/*/kernel/signal*.c sigreturn frame parsing, drivers/virt/acrn/hsm.c, drivers/android/binder.c binder_thread_write, drivers/video/fbdev/* and sound/core/* compat paths, net/core/pktgen.c write parsers, and drivers/misc/genwqe/card_dev.c; a short-window double fetch inside those could remain undetected.",
+    "Scan coverage was static pattern matching over fetch-call density and shared user-pointer tokens; functions whose double fetch is disguised (e.g. through inlined helpers, uaccess_begin blocks spanning helpers, or netlink/nla_parse of nlattr headers before payload copies) may not appear in the candidate list; netlink attribute parsing paths (nla_memcpy/nla_parse after a first nlmsghdr copy) were only spot-checked, not systematically audited.",
+    "The three reported findings are hypotheses from source reading only: no runtime race reproducer, KCSAN run, or compiler-based double-fetch detector (e.g. Jade/deadline-style checker) was executed because the snapshot is a read-only source tree without build artifacts; reachability (open_by_handle_at with CAP_DAC_READ_SEARCH for fhandle.c; an sg device node for sg.c; legacy megaraid PCI hardware for megaraid.c) was assumed, not demonstrated.",
+    "fs/fhandle.c handle_to_path: the size-validated handle_bytes local is used for both kmalloc_flex sizing and the payload copy length, so the CVE-2015-1350-style heap overflow is not present; the finding is a content-divergence double fetch (header snapshot vs payload re-fetch) whose worst outcome is inconsistent handle bytes reaching fh_to_dentry; impact on any specific filesystem's fh_to_dentry implementation was not audited.",
+    "drivers/scsi/sg.c sg_write: cmd_size stays bounded (6/10/12/16 bytes) by COMMAND_SIZE of the second-fetch opcode and cmnd is a 16-byte array, so no kernel OOB was identified; the residual risk window is an opcode/authorization mismatch (command bytes dispatched differ from the opcode whose size was used) and was not proven exploitable.",
+    "drivers/scsi/megaraid.c mega_n_to_m: the upthru pointer re-fetch at completion time controls a put_user destination; put_user revalidates access on the user address, so impact is confined to writing kernel status bytes to an attacker-chosen userspace address, and the driver targets obsolete MEGARAID controllers, limiting exposure.",
+    "Per the finalize directive, remaining unexamined candidates were not pursued; snapshots s01, s02, s04 are out of scope for this intent."
+  ]
+}

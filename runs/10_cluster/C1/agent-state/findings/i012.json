@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "chardev-ioctl-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/media/dvb-frontends/stv0367.c",
+      "start": 2316,
+      "end": 2370,
+      "quote": "TRLTimeOut = 100000000 / p->symbol_rate;",
+      "confidence": "medium",
+      "reason": "Untrusted source: p->symbol_rate is a u32 from struct dtv_frontend_properties that an unprivileged user sets via the DVB chardev ioctl path FE_SET_FRONTEND / DTV ioctl (dtv_property_process_set in drivers/media/dvb-core/dvb_frontend.c, symbol_rate assignment at line ~1929 c->symbol_rate = data; also legacy set_frontend copies p->u.qam.symbol_rate at line 1187). Validation gap: the core check dvb_frontend_check_parameters() (drivers/media/dvb-core/dvb_frontend.c:970-1001) only range-checks the RAW c->symbol_rate against fe->ops.info.symbol_rate_min/max for SYS_DVBC_ANNEX_A/C and SYS_DSS/DVBS/DVBS2/TURBO/ISDBS; nothing validates that the derived expressions are nonzero at the exact division width. In stv0367cab_algo() the divisor used is p->symbol_rate directly (line 2322, TRLTimeOut = 100000000 / p->symbol_rate) and, structurally like the seed, a scaled/sub-expression divisor p->symbol_rate / 1000 (line 2365, CRLTimeOut = (25 * CRLSymbols * (cab_state->search_range / 1000)) / (p->symbol_rate / 1000)) truncates to zero whenever the user supplies symbol_rate in [1,999]; the raw-input check at dvb_frontend.c:988-991 can be bypassed whenever fe->ops.info.symbol_rate_min == 0 or when set_frontend is invoked for a delivery system that falls into the 'default:' branch of the check_parameters switch (the cab path is reachable via stv0367_set_frontend -> stv0367cab_set_frontend -> stv0367cab_algo with no per-driver symbol_rate validation in stv0367cab_set_frontend, lines 2518-2566). Additionally line 2368 divides by the untruncated p->symbol_rate, so symbol_rate == 0 from a user property set (DTV_SYMBOL_RATE is not range-checked at set time) divides by zero at u32 width. Impact is a kernel divide-by-zero oops / DoS in the frontend tune worker, mirroring the seed's reliability bug class rather than memory corruption. Counterevidence checked: the driver's ops.info.symbol_rate_min = 870000 / max = 11700000 (stv0367.c:2840-2841) means the normal core check WOULD reject small raw symbol_rate for cable delivery systems where the frontend driver registered those limits, which is why confidence is medium rather than high; the remaining doubt is whether the delivery-system-dependent check in dvb_frontend_check_parameters (which skips the range check in its default branch) and paths that call set_frontend before/without the core check (dvb_frontend.c:2264 is inside dtv_set_frontend but legacy FE_SET_FRONTEND copies u.qam.symbol_rate at line 1187 into the same cache) leave an unvalidated-zero/truncated-zero divisor reachable."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/media/dvb-frontends/stv0367.c",
+      "line": 2322,
+      "status": "reported",
+      "reason": "TRLTimeOut = 100000000 / p->symbol_rate and line 2365 divisor (p->symbol_rate / 1000) plus line 2368 divisor p->symbol_rate: user-controlled u32 symbol_rate from DTV/FE_SET_FRONTEND ioctls; core validation checks only raw input and only for selected delivery systems; scaled divisor truncates to 0 for symbol_rate < 1000 exactly like the seed's scaled-input-not-output gap. Reported as primary finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/media/dvb-frontends/ds3000.c",
+      "line": 953,
+      "status": "safe",
+      "reason": "value = 29777 / (c->symbol_rate / 1000) etc. at lines 953/961/969/975 divides by the truncated c->symbol_rate/1000, but ds3000_set_frontend explicitly range-checks the raw c->symbol_rate against ds3000_ops.info.symbol_rate_min = 1000000 (ds3000.c:942-949, .symbol_rate_min at line 1095) before the divisions, so symbol_rate/1000 >= 1000 and can never be 0; the check is on the raw input but the raw minimum (1000000) is far above the truncation threshold, closing the gap."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/media/dvb-core/dvb_frontend.c",
+      "line": 1842,
+      "status": "safe",
+      "reason": "fepriv->step_size = c->symbol_rate / 16000 and max_drift = c->symbol_rate / 2000 are divisions by the CONSTANT 16000/2000, not by a derived value; symbol_rate is the numerator, so no zero-divisor risk regardless of user input."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/media/dvb-frontends/cx24113.c",
+      "line": 473,
+      "status": "safe",
+      "reason": "bw = ((c->symbol_rate/100) * roll_off) / 1000 divides by constant 1000; the symbol_rate/100 truncation affects the numerator only; no user-derived divisor."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/media/dvb-frontends/zl10036.c",
+      "line": 315,
+      "status": "safe",
+      "reason": "fbw = (27 * p->symbol_rate) / 32 divides by constant 32; scaled value is the numerator. No division-by-derived-divisor."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 302,
+      "status": "unresolved",
+      "reason": "Seed-mechanism instance still present in this snapshot (speed == 0 check but no speed > UINT_MAX/8 bound before tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed) at line 320); recorded for the hwmon/drm branches, not the chardev-ioctl branch of this intent, so left unresolved here."
+    }
+  ],
+  "limitations": [
+    "Bounded search: focused on DVB frontend/chardev ioctl paths (FE_SET_FRONTEND, DTV property ioctls) and IIO frequency/sampling drivers; IIO ioctls (industrialio-core.c/buffer) carry no numeric divisor parameters, and a full sweep of every media/iio/misc ioctl handler was not completed.",
+    "Reachability of the stv0367 zero divisor depends on whether the delivery-system switch in dvb_frontend_check_parameters() (default branch skips the symbol_rate range check) or a frontend whose ops.info.symbol_rate_min == 0 exposes the cab algo with symbol_rate < 1000 or 0; this was verified from source reading only, not by compiling or executing a reproducer against the snapshot.",
+    "Other frontend drivers beyond those whose symbol_rate appears as a divisor (ds3000, stv0367, cx24113, zl10036 reviewed) were not exhaustively audited for different divisor expressions (e.g. rolloff, pilot, bandwidth-derived denominators)."
+  ]
+}

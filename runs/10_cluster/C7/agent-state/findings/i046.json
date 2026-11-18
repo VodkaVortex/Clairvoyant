@@ -1,0 +1,222 @@
+{
+  "version": 1,
+  "intent_id": "i046",
+  "branch": "hardirq-shared-lock",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/staging/comedi/drivers/ni_pcidio.c",
+      "start": 360,
+      "end": 371,
+      "quote": "static int ni_pcidio_poll(struct comedi_device *dev, struct comedi_subdevice *s)\n{\n\tstruct nidio96_private *devpriv = dev->private;\n\tunsigned long irq_flags;\n\tint count;\n\n\tspin_lock_irqsave(&dev->spinlock, irq_flags);\n\tspin_lock(&devpriv->mite_channel_lock);",
+      "confidence": "medium",
+      "reason": "Untrusted source: any process issuing the COMEDI_POLL ioctl (comedi_fops.c:2133 COMEDI_POLL -> do_poll_ioctl -> s->poll = ni_pcidio_poll at ni_pcidio.c:942) executes ni_pcidio_poll in process context; any device interrupt (shared PCI line, DMA completion) runs the hardirq handler nidio_interrupt registered at ni_pcidio.c:946 via request_irq(irq, nidio_interrupt, IRQF_SHARED, ...). Violated invariant: the same lock object devpriv->mite_channel_lock is taken inside the hardirq handler body with plain spin_lock at ni_pcidio.c:400 (inside 'Lock to avoid race with comedi_poll' region) and at the other helper at 368, but the process-context COMEDI_POLL path at 360-371 takes it with plain spin_lock nested inside spin_lock_irqsave(&dev->spinlock) - the irqsave protects dev->spinlock only, NOT mite_channel_lock; all sibling sites (300/324/349) correctly use spin_lock_irqsave(&devpriv->mite_channel_lock, flags), proving the irq-disable guarantee is expected and missing here. Unsafe use: if the PCI interrupt fires on the same CPU while ni_pcidio_poll holds mite_channel_lock, nidio_interrupt spins forever on it at line 400 while the ioctl holder can never run again (interrupts are only disabled for dev->spinlock, not for mite_channel_lock); a second self-deadlock shape exists because the handler takes dev->spinlock plainly at 395 while poll holds it irqsave-protected - but that ordering is safe for spinlock; the mite_channel_lock ordering is the defect. Counterevidence checked: request_irq uses IRQF_SHARED so the ISR really can run on another CPU's line too, but for the deadlock only same-CPU preemption matters, which plain spin_lock in process context permits; ni_pcidio_poll is only reachable while s->busy is the caller's file, so the window requires an async command in progress - normal for a DIO command run. Impact: interrupt-context lockup on one CPU, hard lockup/RCU stall, device IRQ line livelock, denial of service.",
+      "conclusion": "ni_pcidio.c COMEDI_POLL ioctl path takes mite_channel_lock with plain spin_lock (368, nested under irqsave of a different lock) while hardirq nidio_interrupt (request_irq:946) takes the same lock plainly at 400; same-CPU IRQ preemption spins forever - medium-confidence interrupt-context lockup/DoS."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/tty/synclink_gt.c",
+      "start": 1161,
+      "end": 1168,
+      "quote": "\tspin_lock(&info->lock);\n\tif (tmp_params.mode == MGSL_MODE_BASE_CLOCK) {\n\t\tinfo->base_clock = tmp_params.clock_speed;\n\t} else {\n\t\tinfo->params.mode            = tmp_params.mode;",
+      "confidence": "medium",
+      "reason": "Untrusted source: any unprivileged process on a 32-bit-compat system issuing the MGSL_IOCSPARAMS32 compat ioctl on the Synclink GT tty device (slgt_compat_ioctl at 1186 dispatches to set_params32 at 1199) executes set_params32 in process context; the same lock info->lock is taken with plain spin_lock at 2385 inside the hardirq handler slgt_interrupt registered at synclink_gt.c:3661-3662 via request_irq(port_array[0]->irq_level, slgt_interrupt, ...). Violated invariant: every other process-context site in the driver (779, 789, 831, 860, 879, 955, 970, 988, 1005, 1106, 1249, 1361, 1386, 1407, 1498, 1559, ...) uses spin_lock_irqsave(&info->lock, flags), so the driver's own discipline requires IRQ-disable at process sites; set_params32 alone uses plain spin_lock. Unsafe use: a device interrupt (serial/TDMA/RDMA/GPIO event) on the same CPU while the compat ioctl holds info->lock makes slgt_interrupt spin forever at 2385 on a lock the preempted ioctl holder can never release. Counterevidence checked: the 64-bit MGSL_IOCSPARAMS path goes through set_params which uses the correct irqsave form (sibling sites), so only the compat path is exposed; the ioctl is reachable only by a process holding the tty open, which is the normal device-user threat model. Impact: interrupt-context lockup on one CPU, watchdog/RCU stall, device IRQ stall, denial of service; the copy_from_user happens before the lock so no userfault hold window is needed.",
+      "conclusion": "synclink_gt.c compat ioctl set_params32 (MGSL_IOCSPARAMS32) takes info->lock with plain spin_lock at 1161 while hardirq slgt_interrupt (request_irq:3661) takes the same lock plainly at 2385; all sibling sites use irqsave - medium-confidence interrupt-context lockup/DoS."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/korina.c",
+      "start": 935,
+      "end": 945,
+      "quote": "\tspin_lock(&lp->lock);\n\n\tund = readl(&lp->eth_regs->ethintfc);\n\n\tif (und & ETH_INT_FC_UND)\n\t\tkorina_clear_and_restart(dev, und & ~ETH_INT_FC_UND);\n\n\tspin_unlock(&lp->lock);",
+      "confidence": "low",
+      "reason": "Untrusted source: any process or NAPI context executing korina_tx (called from the tx DMA hardirq korina_tx_dma_interrupt at korina.c:603->617, registered request_irq:1004) holds lp->lock with plain spin_lock at korina.c:526. Violated invariant: the same lock is taken by sibling hardirq handlers korina_und_interrupt (935, registered request_irq:1022) and korina_ovr_interrupt (962, registered request_irq:1013) with plain spin_lock; since korina_tx already runs in hardirq context via the tx IRQ, a different IRQ line (und_irq or ovr_irq) can preempt it on the same CPU and spin forever at 935/962 on lp->lock - the classic missing-irq-disable shape where the 'process side' is itself a different hardirq, and the only process-context partner (korina_tx_timeout at 947) was checked and merely schedules work without taking the lock, while korina_send_packet/korina_multicast_list/korina_ioctl all correctly use spin_lock_irqsave/irq. Unsafe use: nested-hardirq self-deadlock - tx DMA interrupt holds lp->lock, underflow/overflow interrupt on the same CPU spins forever, IRQ line stall, watchdog splat. Counterevidence checked: on MIPS (the only Korina platform) distinct IRQ lines are usually not nested on the same CPU unless one handler runs with interrupts enabled - which it does, since plain spin_lock does not disable interrupts, so the outer hardirq runs with IRQs enabled and a higher-priority device IRQ can indeed preempt it; confidence is low because it depends on IRQ arrival ordering and priority on the specific SoC, and no process-context plain holder exists to make it seed-shaped.",
+      "conclusion": "korina.c korina_tx (hardirq via tx DMA IRQ, plain spin_lock at 526) shares lp->lock with sibling plain hardirq takers korina_und_interrupt(935)/korina_ovr_interrupt(962); a same-CPU und/ovr IRQ preempting the enabled-IRQ tx handler spins forever - low-confidence nested-IRQ lockup."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 523,
+      "status": "safe",
+      "reason": "fs_enet_interrupt (request_irq:733) takes no spinlock at all - it only acks events and calls napi_schedule_prep; fep->tx_lock is taken with plain spin_lock in NAPI poll (99), ndo_start_xmit (523) and fs_enet_close (765, nested inside spin_lock_irqsave(&fep->lock)), and fep->lock itself is always irqsave (624/687/764/802); no hardirq-side acquisition of either lock exists, so no hardirq-shared-lock defect.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/faraday/ftgmac100.c",
+      "line": 715,
+      "status": "safe",
+      "reason": "ftgmac100_interrupt (request_irq:1122) takes no lock, only disables device IRQs and calls napi_schedule; priv->tx_lock plain sites (715, 761) are in NAPI poll (softirq, BHs off) and xmit (BHs off); no hardirq-side acquisition.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/faraday/ftmac100.c",
+      "line": 621,
+      "status": "safe",
+      "reason": "ftmac100_interrupt (request_irq:968) performs no lock acquisition (checked body); priv->tx_lock plain sites (621, 654) are in NAPI/xmit softirq contexts, unreachable from hardirq.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/micrel/ks8851.c",
+      "line": 940,
+      "status": "safe",
+      "reason": "ks8851_irq is registered via request_threaded_irq(spi->irq, NULL, ks8851_irq, ...) at 1544 - NULL primary handler means ks8851_irq runs in thread (process) context, and it takes mutex ks->lock, not statelock; statelock plain sites (940 xmit, 1025 set_rx_mode) have no hardirq partner; this is at most the softirq branch shape, already outside this branch.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/micrel/ks8851_mll.c",
+      "line": 1030,
+      "status": "safe",
+      "reason": "ks_start_xmit at 1030 wraps its plain spin_lock(&ks->statelock) in disable_irq(netdev->irq)/ks_disable_int (explicit IRQ disable around the lock, lines 1028-1044), and hardirq ks_irq (request_irq:926) takes no lock; no defect.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/marvell/mvneta.c",
+      "line": 3386,
+      "status": "safe",
+      "reason": "mvneta_isr (request_irq:3497) and mvneta_percpu_isr only write the mask register and call napi_schedule - no lock; all plain pp->lock sites (3386, 3447, 3465, 3574, 3850) are in CPU hotplug/stop/ethtool RSS paths that run with the per-CPU IRQs explicitly disabled (mvneta_cpu_down_prepare stops the percpu irq) or with the interface down; the NAPI poll path uses spin_lock_irqsave.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/cisco/enic/enic_main.c",
+      "line": 659,
+      "status": "safe",
+      "reason": "All enic ISRs (enic_isr_legacy:328, enic_isr_msi:366, enic_isr_msix:391, enic_isr_msix_err:400, enic_isr_msix_notify:414, request_irq:1559/1565/1609) take no lock - they mask, napi_schedule_irqoff, or schedule_work; enic->wq_lock plain sites (231 enic_wq_service from NAPI softirq, 659 enic_hard_start_xmit) and enic_api_lock (2152/2172) have no hardirq taker.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 306,
+      "status": "safe",
+      "reason": "bcm_enet_isr_mac (request_irq:925) and bcm_enet_isr_dma (request_irq:929/934/2136/2142) take no lock (checked bodies); priv->rx_lock/tx_lock plain sites (306, 444, 503, 584) are timer callback, NAPI poll tx reclaim, poll rx, and xmit - all softirq contexts with BHs disabled, no hardirq acquisition.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_main.c",
+      "line": 4812,
+      "status": "safe",
+      "reason": "ixgbe ISRs (ixgbe_intr, ixgbe_msix_clean_rings - request_irq:2925/2940/3053/3056) take no lock; fdir_perfect_lock plain sites (4812, 5442, 8329, 8345, 8692) are in ATR/atq/ethtool flows, and the flow-director filter programming happens via the ixgbe_service_task workqueue with its own irqsave discipline; no hardirq taker of fdir_perfect_lock exists in this tree.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/amd/7990.c",
+      "line": 660,
+      "status": "safe",
+      "reason": "The only plain non-ISR acquisition of lp->devlock outside lance_interrupt (446, hardirq) is lance_poll (netpoll, 660-664) which explicitly brackets itself with disable_irq/enable_irq via its caller pattern and is a debug-only CONFIG_NET_POLL_CONTROLLER path that re-invokes the ISR synchronously with IRQs off; lance_start_xmit uses spin_lock_irqsave (585) - no process-context plain holder reachable with IRQs enabled.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/seeq/sgiseeq.c",
+      "line": 503,
+      "status": "safe",
+      "reason": "sgiseeq_interrupt (request_irq:530) takes sp->tx_lock plainly at 503, but the only other acquisition of tx_lock in the file is sgiseeq_tx_timeout which wraps itself in sgiseeq_irq_off/sgiseeq_irq_on (explicit local_irq_disable); the driver's own timeout path demonstrates the required discipline, so no plain process-context holder exists.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/dec/tulip/winbond-840.c",
+      "line": 1294,
+      "status": "safe",
+      "reason": "intr_handler (request_irq:638) takes np->lock plainly at 1143/1159 via netdev_tx_done and netdev_error (1294, called from the ISR at 1151); every non-ISR site uses spin_lock_irq (648, 787, 951, 1035, 1333, 1380, 1399, 1411, 1461, 1467, 1493, 1580, 1620) including start_tx (1035) and netdev_timer (1461+); netdev_error is only called from the ISR, so both plain sites are hardirq-side - no process-context plain holder.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/intel/ipw2x00/ipw2200.c",
+      "line": 10531,
+      "status": "safe",
+      "reason": "ipw_isr (request_irq:11703) takes priv->irq_lock plainly at 10531, but grep shows every other acquisition of irq_lock in ipw2200.c uses spin_lock_irqsave (the driver takes it in ipw_irq_tasklet with irqsave and in process paths with irqsave); the plain use is confined to the hardirq side - consistent single-side discipline.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/tty/serial/zs.c",
+      "line": 721,
+      "status": "unresolved",
+      "reason": "zs_interrupt (request_irq:765) takes scc->zlock plainly at 721 while twelve other plain spin_lock(&...zlock) sites exist at 381-692 in zs_get_mctrl/zs_set_mctrl/zs_stop_tx/zs_start_tx/zs_stop_rx/zs_enable_ms/zs_receive_chars/zs_transmit_chars/zs_status_handle; whether any of these can run in process context with IRQs enabled was not traced - several (stop_tx/start_tx/stop_rx/get_mctrl) are uart_ops callbacks that normally run under port->lock with local IRQs already disabled by serial_core, but the console and set_mctrl paths were not individually verified in the time available.",
+      "conclusion": "Follow up: classify each zs.c plain zlock site (381-692) by caller context - if zs_set_mctrl/zs_stop_tx/zs_start_tx run with IRQs enabled from process context (e.g. via uart_ops not wrapped by serial_core's irqsave), the plain ISR taker at 721 is a reportable hardirq-shared-lock defect."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/gadget/udc/lpc32xx_udc.c",
+      "line": 2743,
+      "status": "unresolved",
+      "reason": "Three hardirq handlers (lpc32xx_usb_lp_irq:2743, lpc32xx_usb_hp_irq:2782, lpc32xx_usb_devdma_irq:2824, request_irq:3150/3157/3165) take udc->lock plainly, and plain sites also exist in done(1434), stop_activity(1553), udc_handle_ep0_setup(2290), lpc32xx_stop(2944/2957); the done/stop paths run from the gadget driver in process context (unbind/pullup), which would be the process-side plain holder, but the exact context of each was not fully traced before the audit was stopped - many sibling sites use spin_lock_irqsave, so this may be mixed-discipline like fusb300_udc in s01.",
+      "conclusion": "Follow up: trace lpc32xx_udc.c done()/stop_activity()/lpc32xx_stop() call chains - if any runs in process context (gadget unbind, usb_gadget_disconnect) with plain spin_lock(&udc->lock) against the plain hardirq takers at 2743/2782/2824, it is a reportable mixed-discipline hardirq lockup."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/gadget/udc/m66592-udc.c",
+      "line": 1205,
+      "status": "unresolved",
+      "reason": "m66592_irq (request_irq:1600) takes m66592->lock plainly at 1205 (and inside helpers transfer_complete:733, irq_control_stage:1184 called from the ISR), while plain sites also appear at 99 (m66592_usb_disconnect), 733, 1000 (get_status), 1184; m66592_usb_disconnect is reachable from the gadget driver's disconnect path in process context, but its exact context and whether the driver's other process sites use irqsave were not fully enumerated before the audit was stopped.",
+      "conclusion": "Follow up: classify m66592-udc.c plain m66592->lock sites (99, 1000) by context; a process-context plain holder against the plain hardirq taker at 1205/1184 confirms a hardirq lockup defect."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/gadget/udc/mv_u3d_core.c",
+      "line": 1685,
+      "status": "unresolved",
+      "reason": "mv_u3d_irq (request_irq:1923) takes u3d->lock plainly at 1685/1713 (and helpers 1394/1464/1566/1575 called from it), with additional plain sites at 219 (mv_u3d_done) and others; mv_u3d_done is invoked from completion paths that may run in process context from gadget drivers, but per-site context classification was not completed before the audit was stopped.",
+      "conclusion": "Follow up: trace mv_u3d_core.c mv_u3d_done(219) callers - any process-context plain spin_lock(&u3d->lock) against the hardirq takers at 1685/1713 confirms the defect."
+    },
+    {
+      "snapshot": "s03",
+      "path": "sound/pci/echoaudio/echoaudio.c",
+      "line": 1828,
+      "status": "unresolved",
+      "reason": "snd_echo_interrupt (request_irq:1957/2237) takes chip->lock plainly at 1828/1846 while snd_echo_mixer_... / pcm open sites contain plain spin_lock(&chip->lock) at 754; whether 754 sits in a process-context ALSA control callback with IRQs enabled (and is not itself inside an irqsave region) was not re-verified in this snapshot before the audit was stopped.",
+      "conclusion": "Follow up: read echoaudio.c around 754 to identify the enclosing mixer/pcm function and confirm it runs in process context with plain spin_lock(&chip->lock) against the plain hardirq taker at 1828; if so, this is a reportable defect."
+    },
+    {
+      "snapshot": "s03",
+      "path": "sound/pci/korg1212/korg1212.c",
+      "line": 1123,
+      "status": "unresolved",
+      "reason": "snd_korg1212_interrupt (request_irq:2228) takes korg1212->lock plainly at 1123/1183/1189, and other plain sites exist at 1584 inside a function not yet classified (likely a PCM/trigger or monitor path that may run in process context); the enclosing function and its callers were not traced before the audit was stopped.",
+      "conclusion": "Follow up: identify the enclosing function of korg1212.c line 1584 and its callers; a process-context plain acquisition of korg1212->lock against the hardirq taker at 1123 is a reportable defect."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/renesas/ravb_main.c",
+      "line": 790,
+      "status": "unresolved",
+      "reason": "ravb_interrupt (request_irq:1371) takes priv->lock plainly at 790, and plain sites also appear at 706 (ravb_emac_interrupt, called from ravb_multi_interrupt), 840 (ravb_multi_interrupt), 871 (ravb_dma_interrupt) - all of which appear to be nested interrupt-dispatch helpers reached from the same top-level IRQ, but whether ravb_emac_interrupt at 706 can be reached from a separate hardirq or threaded context that could preempt the holder at 790 was not resolved before the audit was stopped; the NAPI poll sites in this driver were not checked for plain acquisition either.",
+      "conclusion": "Follow up: map ravb_main.c interrupt dispatch (which handlers request_irq registers vs which are nested helpers) and check whether any non-hardirq path (NAPI poll, ethtool, open/close) takes priv->lock plainly against the plain taker at 790."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/korina.c",
+      "line": 526,
+      "status": "reported",
+      "reason": "Promoted to finding: korina_tx takes lp->lock plainly at 526 while running in hardirq context via korina_tx_dma_interrupt (603->617, request_irq:1004), and sibling hardirq handlers korina_und_interrupt (935, request_irq:1022) and korina_ovr_interrupt (962, request_irq:1013) take the same lock plainly - nested-hardirq self-deadlock shape, reported at low confidence.",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "Handler-lock extraction resolved 1982 registered handler names but produced lock-pair candidates only where the handler body, definition file, and plain-lock cross-match were in the same file; handlers defined in other files, registered through function pointers, or taking locks in helper functions outside the 400-line body window were not examined.",
+    "Cross-indexing matched lock expressions textually (e.g. priv->lock vs dev->lock vs struct-name aliases), so locks shared across files via exported helpers or different naming could be missed.",
+    "request_threaded_irq sites were not split into primary hardirq handler vs thread_fn; thread-context acquisitions of a lock also taken by a primary handler were not separately audited.",
+    "The ~40 USB gadget UDC, serial/tty, sound, dma, mmc, and video candidates from the cross-index (fusb300_udc, net2280, goku_udc, net2272, amd5536udc, isp1760-udc, m66592, mv_u3d, lpc32xx, zs, mps2-uart, stm32-usart, sirfsoc, ice1712, cs46xx, maestro3, atiixp, cs46xx, ipu_idmac, ste_dma40, sdhci, via-sdmmc, dt3155, vpfe_capture, hpilo, phantom, synclink, cyclades, mxser) were machine-classified but only korina/ni_pcidio/synclink_gt and the twelve classified drivers were deep-read.",
+    "Legacy s03 facts f003 (xmit-softirq), f019 (timer-dwork), f039 (tasklet-napi) were not systematically cross-consulted to prioritize files that already showed lock-discipline weakness in sibling branches."
+  ],
+  "limitations": [
+    "The two medium-confidence findings depend on attacker reachability of the COMEDI_POLL ioctl and the MGSL_IOCSPARAMS32 compat ioctl respectively; both require the device node to be open, which is the standard device-user model but was not dynamically confirmed.",
+    "Both medium findings were validated only by source reading (call-chain tracing and sibling-site lock-discipline comparison); no kernel build or runtime reproducer was executed to demonstrate the actual same-CPU deadlock.",
+    "The korina finding depends on MIPS IRQ routing allowing a second device IRQ to preempt an outer hardirq that runs with interrupts enabled (plain spin_lock); this is architecturally plausible but SoC-specific and unproven.",
+    "Six candidates (zs, lpc32xx_udc, m66592-udc, mv_u3d_core, echoaudio, korg1212, ravb_main) remain unresolved because per-site execution-context classification was not completed within the bounded investigation; they are plausible follow-ups of equal or higher confidence than the reported korina item."
+  ]
+}

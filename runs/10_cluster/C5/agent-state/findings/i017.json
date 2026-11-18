@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "csum-partial-consumer-trust",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/core/skbuff.c",
+      "start": 3522,
+      "end": 3546,
+      "quote": "\tif (skb->ip_summed == CHECKSUM_PARTIAL) {\n\t\tlong csstuff = csstart + skb->csum_offset;\n\n\t\t*((__sum16 *)(to + csstuff)) = csum_fold(csum);\n\t}",
+      "confidence": "medium",
+      "reason": "skb_copy_and_csum_dev() is a CHECKSUM_PARTIAL consumer that writes the folded checksum to to + (csstart + skb->csum_offset) with no re-validation of skb->csum_start/skb->csum_offset against skb headroom/headlen or the destination buffer size; the only guard is BUG_ON(csstart > skb_headlen(skb)) for csum_start, and csum_offset is entirely unchecked. Invariant: any producer that sets CHECKSUM_PARTIAL without calling skb_partial_csum_set (e.g., a shared-memory TOCTOU producer like the seed's xsk_skb_metadata, or another buggy TX path) yields an skb whose csum_offset can be up to 65535 while headlen is small, so csstuff up to ~headlen+65535 is written past the end of 'to'. Callers (drivers/net/ethernet/realtek/8139too.c:1731, via/via-rhine.c:1800, cirrus/ep93xx_eth.c:350, silan/sc92031.c:957, micrel/ksz884x.c:4795, ec_bhf.c:291) pass fixed-size driver TX bounce buffers as 'to', so the OOB write lands in adjacent driver memory. Counterevidence checked: skb_checksum_help (net/core/dev.c) and pskb_trim_rcsum_slow (net/core/skbuff.c:2494) both re-validate; this function does not. Reachability requires an inconsistently-validated producer on the same skb, which this branch's premise supplies; no in-snapshot producer bug was proven, hence medium confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/core/skbuff.c",
+      "line": 2494,
+      "status": "safe",
+      "reason": "pskb_trim_rcsum_slow computes offset = skb_checksum_start_offset(skb) + skb->csum_offset and rejects offset + sizeof(__sum16) > hdlen before proceeding; re-validation present."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/core/dev.c",
+      "line": 3260,
+      "status": "safe",
+      "reason": "skb_checksum_help re-validates with WARN_ON_ONCE(offset >= skb_headlen) and WARN_ON_ONCE(offset + sizeof(__sum16) > skb_headlen) and uses skb_ensure_writable."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/core/dev.c",
+      "line": 3634,
+      "status": "safe",
+      "reason": "skb_csum_hwoffload_help only compares csum_offset against tcphdr/udphdr check offsets to pick feature fallback; no memory access on the value."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/core/skbuff.c",
+      "line": 5215,
+      "status": "safe",
+      "reason": "skb_partial_csum_set is the canonical validating producer: rejects csum_start > U16_MAX or start+off+2 > skb_headlen."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/core/filter.c",
+      "line": 3673,
+      "status": "safe",
+      "reason": "__bpf_skb_min_len uses csum_start+csum_offset+2 only as a minimum-length hint for BPF load/store clamping, never as a dereference offset."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/fou_core.c",
+      "line": 989,
+      "status": "safe",
+      "reason": "GUE remcsum encoding checks csum_start >= hdrlen and writes start/off into the tunnel option header; remote end re-derives offsets."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/netfilter/ipvs/ip_vs_xmit.c",
+      "line": 1055,
+      "status": "safe",
+      "reason": "IPVS GUE encap uses same guarded csum_start >= hdrlen pattern; values go into packet bytes, not kernel offsets."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/hsr/hsr_forward.c",
+      "line": 136,
+      "status": "safe",
+      "reason": "csum_start adjusted by +/- HSR_HLEN symmetric with skb_push/pull; no use as unchecked kernel memory offset."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/sun/sunvnet_common.c",
+      "line": 1158,
+      "status": "safe",
+      "reason": "vnet_skb_shape copies header region with skb_copy_bits (return checked) into a freshly sized nskb before writing at start + csum_offset; write stays inside the copied linear region bounded by skb->len."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/vmxnet3/vmxnet3_drv.c",
+      "line": 1128,
+      "status": "safe",
+      "reason": "ctx.l4_offset + skb->csum_offset checked against VMXNET3_MAX_CSUM_OFFSET with drop; header pullability enforced via pskb_may_pull(copy_size); value feeds hardware descriptor only."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/thunderbolt/main.c",
+      "line": 1056,
+      "status": "safe",
+      "reason": "tucso = dest + start + csum_offset writes into a DMA-mapped frame buffer assembled in the same function; dest/len derived from allocated frames, not unbounded offsets; IPv4 path uses header-derived offsets."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/vxlan/vxlan_core.c",
+      "line": 2216,
+      "status": "safe",
+      "reason": "vxlan remcsum uses csum_start only after bounds gates (<= VXLAN_MAX_REMCSUM_START, alignment mask, csum_offset == TCP/UDP check) and subtracts the pushed vxlan header; writes header bits only."
+    },
+    {
+      "snapshot": "s04",
+      "path": "include/linux/virtio_net.h",
+      "line": 93,
+      "status": "safe",
+      "reason": "virtio_net_hdr_to_skb validates via pskb_may_pull(needed) and skb_partial_csum_set before setting CHECKSUM_PARTIAL."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "line": 2536,
+      "status": "safe",
+      "reason": "__packet_snd_vnet_parse expands hdr_len to cover csum_start+csum_offset+2 and rejects hdr_len > len."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/google/gve/gve_tx.c",
+      "line": 384,
+      "status": "safe",
+      "reason": "csum_offset >> 1 written into descriptor field only; no kernel memory offset use. Same pattern for chelsio sge.c:1228, hns3_enet.c:1618, ionic_txrx.c:1148, ef100_tx.c:152, xilinx ll_temac/axienet."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "This snapshot's xsk.c contains no XDP_TXMD_FLAGS_CHECKSUM/tx_metadata/csum code at all (grep for 'csum|CSUM' in net/xdp/xsk.c returns nothing), so the seed producer is absent from s04; whether a different XDP TX metadata producer exists elsewhere was not exhaustively ruled out."
+    }
+  ],
+  "limitations": [
+    "No in-snapshot inconsistently-validated CHECKSUM_PARTIAL producer was proven; the skb_copy_and_csum_dev finding is conditional on such a producer reaching a legacy NIC TX path via one of its six callers, so exploitability is unproven (medium confidence hypothesis).",
+    "Driver descriptor-field consumers (gve, chelsio, hns3, ionic, ef100, xilinx, myri10ge, smsc95xx, enic, cassini, niu, sungem, sunhme, alx/atl1*, e1000*, igb*, ixgbe*, skge, sky2, bcmsysport, genet, macb, fec, funeth, ibmveth, ath6kl, iwlwifi) were triaged by reading the value flow but not every line of every driver; values there only populate hardware descriptors so no kernel-memory offset use is expected.",
+    "GRO/GSO segment copy paths (net/core/skbuff.c:4478/4570 SKB_GSO_CB csum_start, net/ipv4/tcp_offload.c, udp_offload.c, gre_offload.c, sctp offload/output, tls_device_fallback.c, nf_synproxy/nf_reject/ip_vs_core/nf_nat_proto producers) set csum fields from skb header pointers themselves, so they were treated as consistent-by-construction and not exhaustively re-audited for intermediate mutation.",
+    "mac80211 tx.c ofs = skb_checksum_start_offset(skb) path and fcoe/fnic/snic were not deeply read (counted in the file list but not triaged)."
+  ]
+}

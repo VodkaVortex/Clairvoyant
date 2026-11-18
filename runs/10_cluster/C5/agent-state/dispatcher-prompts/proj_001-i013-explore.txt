@@ -1,0 +1,269 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-22ba97ea9cc1
+  status: active
+  created_at: 1794453350498
+  reason: null
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/public. Seed: xsk: cache csum_start/csum_offset to fix TOCTOU in xsk_skb_metadata(). The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'MECHANISM PROFILE. Untrusted source: fields residing in memory shared with and concurrently writable by an untrusted party (in the seed, the AF_XDP TX metadata area inside the userspace-mapped UMEM buffer; generalized: userspace-mapped buffers, guest/device-shared rings, DMA-mapped descriptors writable by the peer). Missing guarantee: single-fetch/validated-value-identity — the kernel reads the shared field more than once, using one read for bounds/validation and a distinct read for the actual use, with no READ_ONCE-into-local snapshot, so the validated value and the consumed value can differ. Unsafe use/state transition: the second, unvalidated read flows into a security-sensitive sink (skb->csum_start/csum_offset + CHECKSUM_PARTIAL in the seed), whose value is later trusted by checksum/offload code as already validated. Consequence: out-of-bounds memory access (read or write) in the TX/checksum-computation path, i.e., kernel memory disclosure or corruption triggered by a racing userspace writer. Key transferable invariant: for any value fetched from shared/writable memory, the copy that passed validation must be bit-identical to the copy that is used. Seed is demonstration-only, never reportable. BRANCHES: branch1=xsk-umem-rereads — within net/xdp and drivers'' AF_XDP TX-completion/metadata paths, find any UMEM-resident field (descriptors addr/len/options, tx_metadata request fields, flags) that is read twice or consumed without a single cached read (validate-then-use on shared memory in the same subsystem but different fields/paths than the seed); branch2=uapi-double-fetch — syscall/ioctl/setsockopt/netlink handler paths where the same user memory location (length, count, pointer, union member) is fetched twice via get_user/copy_from_user/peek so validation and use can diverge under a racing writer; branch3=vm-shared-desc-rereads — virtio/vhost/vdpa/paravirt paths where guest- or device-writable descriptor tables, config space, or packet headers are read multiple times (once checked, once used) or trusted across re-reads without snapshotting; branch4=csum-partial-consumer-trust — sinks of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, turning any inconsistently-validated producer into an OOB access.'
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794453480455
+  created_at: 1794453350580
+  concluded_at: 1794453480455
+- id: i002
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=xsk-umem-rereads; Search only snapshots/s01. Within net/xdp and AF_XDP-capable driver TX-completion and metadata paths, find UMEM-resident fields (xsk descriptor addr/len/options, tx_metadata request fields, flags) that are fetched from the userspace-mapped shared memory more than once, or consumed without a single READ_ONCE-into-local snapshot, so the validated copy and the used copy can diverge under a racing userspace writer. Exclude the seed demonstration itself (xsk_skb_metadata csum_start/csum_offset caching). Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019802
+  created_at: 1794454019781
+  concluded_at: null
+- id: i003
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=uapi-double-fetch; Search only snapshots/s01. Find syscall/ioctl/setsockopt/netlink (including compat) handler paths where the same user-memory location (a length, count, pointer, or union member) is fetched twice via get_user/copy_from_user/peek-style double fetches so validation and use can diverge under a concurrent userspace writer, violating the seed's single-fetch/validated-value-identity invariant. Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019806
+  created_at: 1794454019782
+  concluded_at: null
+- id: i004
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=vm-shared-desc-rereads; Search only snapshots/s01. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019809
+  created_at: 1794454019783
+  concluded_at: null
+- id: i005
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=csum-partial-consumer-trust; Search only snapshots/s01. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019809
+  created_at: 1794454019784
+  concluded_at: null
+- id: i006
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=xsk-umem-rereads; Search only snapshots/s02. Within net/xdp and AF_XDP-capable driver TX-completion and metadata paths, find UMEM-resident fields (xsk descriptor addr/len/options, tx_metadata request fields, flags) that are fetched from the userspace-mapped shared memory more than once, or consumed without a single READ_ONCE-into-local snapshot, so the validated copy and the used copy can diverge under a racing userspace writer. Exclude the seed demonstration itself (xsk_skb_metadata csum_start/csum_offset caching). Save a structured artifact for s02 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019812
+  created_at: 1794454019785
+  concluded_at: null
+- id: i007
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=uapi-double-fetch; Search only snapshots/s02. Find syscall/ioctl/setsockopt/netlink (including compat) handler paths where the same user-memory location (a length, count, pointer, or union member) is fetched twice via get_user/copy_from_user/peek-style double fetches so validation and use can diverge under a concurrent userspace writer, violating the seed's single-fetch/validated-value-identity invariant. Save a structured artifact for s02 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019807
+  created_at: 1794454019786
+  concluded_at: null
+- id: i008
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=vm-shared-desc-rereads; Search only snapshots/s02. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s02 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019810
+  created_at: 1794454019787
+  concluded_at: null
+- id: i009
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=csum-partial-consumer-trust; Search only snapshots/s02. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s02 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019811
+  created_at: 1794454019788
+  concluded_at: null
+- id: i010
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=xsk-umem-rereads; Search only snapshots/s03. Within net/xdp and AF_XDP-capable driver TX-completion and metadata paths, find UMEM-resident fields (xsk descriptor addr/len/options, tx_metadata request fields, flags) that are fetched from the userspace-mapped shared memory more than once, or consumed without a single READ_ONCE-into-local snapshot, so the validated copy and the used copy can diverge under a racing userspace writer. Exclude the seed demonstration itself (xsk_skb_metadata csum_start/csum_offset caching). Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794454019813
+  created_at: 1794454019789
+  concluded_at: null
+- id: i011
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=uapi-double-fetch; Search only snapshots/s03. Find syscall/ioctl/setsockopt/netlink (including compat) handler paths where the same user-memory location (a length, count, pointer, or union member) is fetched twice via get_user/copy_from_user/peek-style double fetches so validation and use can diverge under a concurrent userspace writer, violating the seed's single-fetch/validated-value-identity invariant. Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794454019790
+  concluded_at: null
+- id: i012
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=vm-shared-desc-rereads; Search only snapshots/s03. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794454019791
+  concluded_at: null
+- id: i013
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=csum-partial-consumer-trust; Search only snapshots/s03. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794454019792
+  concluded_at: null
+- id: i014
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=xsk-umem-rereads; Search only snapshots/s04. Within net/xdp and AF_XDP-capable driver TX-completion and metadata paths, find UMEM-resident fields (xsk descriptor addr/len/options, tx_metadata request fields, flags) that are fetched from the userspace-mapped shared memory more than once, or consumed without a single READ_ONCE-into-local snapshot, so the validated copy and the used copy can diverge under a racing userspace writer. Exclude the seed demonstration itself (xsk_skb_metadata csum_start/csum_offset caching). Save a structured artifact for s04 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794454019793
+  concluded_at: null
+- id: i015
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=uapi-double-fetch; Search only snapshots/s04. Find syscall/ioctl/setsockopt/netlink (including compat) handler paths where the same user-memory location (a length, count, pointer, or union member) is fetched twice via get_user/copy_from_user/peek-style double fetches so validation and use can diverge under a concurrent userspace writer, violating the seed's single-fetch/validated-value-identity invariant. Save a structured artifact for s04 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794454019794
+  concluded_at: null
+- id: i016
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=vm-shared-desc-rereads; Search only snapshots/s04. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s04 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794454019795
+  concluded_at: null
+- id: i017
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=csum-partial-consumer-trust; Search only snapshots/s04. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s04 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794454019795
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794453350498
+
+```
+
+### Current Intent
+```
+i013
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s03; BRANCH=csum-partial-consumer-trust; Search only snapshots/s03. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+```
+

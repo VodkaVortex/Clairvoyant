@@ -1,0 +1,18 @@
+{
+  "intent_id": "i013",
+  "branch": "rtnl-doit-attr-gaps",
+  "status": "finalizing",
+  "snapshot": "s03",
+  "candidates_classified": [
+    "net/core/rtnetlink.c:4014 rtnl_fdb_add -> safe (NDA_LLADDR guarded at 4014 before nla_data at 4024; NDA_VLAN via NULL-safe fdb_vid_parse at 3964)",
+    "net/core/rtnetlink.c:4125 rtnl_fdb_del -> safe (same guard at 4125 before use at 4135)",
+    "net/core/rtnetlink.c:4452 rtnl_fdb_get/valid_fdb_get_strict -> safe (strict parse + 'if (!addr)' + per-attr length checks)",
+    "drivers/net/vxlan.c:1287 vxlan_fdb_add -> safe (correct && guard 'if (!tb || (!tb[NDA_DST] && !tb[NDA_NH_ID]))' and per-attr guards in vxlan_fdb_parse:1192)",
+    "drivers/net/vxlan.c:1343 vxlan_fdb_delete -> safe (delegates to per-attr-guarded vxlan_fdb_parse)",
+    "drivers/net/can/dev/netlink.c:57 can_changelink -> safe (every use guarded: lines 67,106,141,148,157,199; policy .len/NLA_U32 enforces sizes, lines 10-22)",
+    "net/bridge/br_mdb.c:921 br_mdb_parse -> safe ('if (!tb[MDBA_SET_ENTRY])' + len check at 925; nested attrs guarded at 935 with memset fallback)",
+    "drivers/net/vxlan.c:4246 vxlan_changelink -> unresolved (delegates to vxlan_nl2conf, not audited attr-by-attr)",
+    "net/core/rtnetlink.c:4886/4963 rtnl_bridge_getlink/setlink -> unresolved (nlmsg_find_attr IFLA_AF_SPEC paths not audited)"
+  ],
+  "note": "No credible rtnl-doit attribute-presence gap found in audited core handlers; writing bounded negative artifact."
+}

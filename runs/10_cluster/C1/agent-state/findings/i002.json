@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "intent_id": "i002",
+  "branch": "hwmon-sysfs-scaled-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "start": 1195,
+      "end": 1217,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "high",
+      "reason": "Untrusted source: hwmon sysfs fan1_target store handler amdgpu_hwmon_set_fan1_target (drivers/gpu/drm/amd/pm/amdgpu_pm.c:2836-2862, SENSOR_DEVICE_ATTR(fan1_target, S_IRUGO|S_IWUSR) at amdgpu_pm.c:3291) parses the local user's value with kstrtou32(buf, 10, &value) and no range validation, then calls amdgpu_dpm_set_fan_speed_rpm(adev, value) (amdgpu_dpm.c:1495-1507, pass-through under pm mutex). Violated invariant: the dispatch layer smu_set_fan_speed_rpm (amdgpu_smu.c:2714-2727) rejects only speed == U32_MAX, and the only check inside smu_v11_0_set_fan_speed_rpm is 'if (speed == 0) return -EINVAL;' (line 1207) on the raw input, while the value actually divided at line 1217 is the fixed-width u32 expression (8 * speed), which wraps modulo 2^32 to 0 for any speed > UINT_MAX/8 (e.g. speed = 0x20000000 gives 8*speed == 0; verified numerically, 8u*0x20000000u == 0). Unsafe use: the wrapped product is the denominator of the tach-period division that programs CG_TACH_CTRL TARGET_PERIOD (WREG32_SOC15), producing an integer division-by-zero kernel oops during PM programming (reliability/DoS bug, same class as the seed). Registered as .set_fan_speed_rpm = smu_v11_0_set_fan_speed_rpm for Navi10/Navi14 (navi10_ppt.c:3589) and Sienna Cichlid/Navi2x (sienna_cichlid_ppt.c:3199) dGPUs, so the APU fan-attribute hiding rule in amdgpu_pm.c hwmon_attributes_visible does not apply; the profile-restore path amdgpu_smu.c:521 re-enters the same function. Counterevidence checked: sibling implementations in the SAME snapshot carry the upstream bound -- arcturus_ppt.c:1270 'if (!speed || speed > UINT_MAX/8)' and smu_v13_0.c:1229 'if (!speed || speed > UINT_MAX/8)' -- proving the missing guard in smu_v11_0 is an oversight, not an unreachable path."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+      "start": 189,
+      "end": 204,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "high",
+      "reason": "Untrusted source: the same hwmon fan1_target store chain reaches the powerplay backend via pp_dpm_set_fan_speed_rpm (drivers/gpu/drm/amd/pm/powerplay/amd_powerplay.c:581-594, which rejects only rpm == U32_MAX), dispatched to .set_fan_speed_rpm = vega20_fan_ctrl_set_fan_speed_rpm (vega20_hwmgr.c:4433, hwmgr_func wired at vega20_hwmgr.c:4452). Violated invariant: the sole validation in vega20_fan_ctrl_set_fan_speed_rpm is 'if (!speed) return -EINVAL;' (line 194) -- the raw-input zero check -- while the actual divisor at line 204 is (8 * speed) evaluated in uint32_t; for speed = 0x20000000/0x40000000/0x60000000 (all pass the !speed and != U32_MAX gates) the product wraps to 0 and the u32 division faults. Unlike vega10/smu7, vega20 does not even consult ulMinRPM/ulMaxRPM, so no firmware table value can gate the wrap. Unsafe use: kernel divide-by-zero during CG_TACH_CTRL TARGET_PERIOD programming (WREG32_SOC15) -> oops/DoS, identical expression and consequence to the seed CVE. Counterevidence checked: no UINT_MAX/8 guard anywhere in vega20_thermal.c; the snapshot's arcturus_ppt.c:1270 and smu_v13_0.c:1229 carry the fix, and the vega10 sibling (vega10_thermal.c:307) still has the raw-check-only form, so both fixed and unfixed forms coexist in s01."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "start": 302,
+      "end": 320,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "medium",
+      "reason": "The seed mechanism itself, present unfixed in the assigned snapshot: vega10_fan_ctrl_set_fan_speed_rpm validates only the raw input ('speed == 0', speed < fanInfo.ulMinRPM, speed > fanInfo.ulMaxRPM at lines 307-310) and then divides by (8 * speed) in u32 at line 320 with no speed > UINT_MAX/8 bound; any accepted speed > UINT_MAX/8 wraps the divisor to 0. Untrusted source: hwmon fan1_target sysfs store (amdgpu_pm.c:2836) via pp_dpm_set_fan_speed_rpm (amd_powerplay.c:581-594, rejects only U32_MAX) -> .set_fan_speed_rpm = vega10_fan_ctrl_set_fan_speed_rpm (vega10_hwmgr.c:5782, wired at 5833). The min/max check is the exact pre-patch check set of commit 4b8c3c0d17c0, and its sufficiency depends on the ATOM PowerPlay fan table: the only writers of fanInfo.ulMinRPM/ulMaxRPM found in s01 are processpptables.c:1000-1003 and process_pptables_v1_0.c:933-936 (u8 ucFanMin/MaxRPM * 100UL, capping accepted speed at 25500 on populated tables, with ulMaxRPM==0 rejecting every nonzero speed), so the wrap on this ASIC is contingent on a board path that admits large speeds; upstream nevertheless shipped the UINT_MAX/8 fix for this function. Reported at medium confidence as the seed-site instance in s01 (baseline for the branch), with the unconditionally-reachable variants in smu_v11_0.c:1217 and vega20_thermal.c:204 reported separately."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "line": 1217,
+      "status": "reported",
+      "reason": "smu_v11_0_set_fan_speed_rpm: only 'if (speed == 0)' at line 1207 guards the raw input; divisor (8 * speed) at line 1217 wraps in u32 for speed > UINT_MAX/8; reached from hwmon fan1_target (amdgpu_pm.c:2862) via amdgpu_dpm_set_fan_speed_rpm and smu_set_fan_speed_rpm (amdgpu_smu.c:2725 rejects only U32_MAX); registered by navi10_ppt.c:3589 and sienna_cichlid_ppt.c:3199."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+      "line": 204,
+      "status": "reported",
+      "reason": "vega20_fan_ctrl_set_fan_speed_rpm: only 'if (!speed)' at line 194; no UINT_MAX/8 bound and no ulMin/ulMaxRPM gate before the (8 * speed) division at line 204; reached via amd_powerplay.c:581-594 pp_dpm_set_fan_speed_rpm (rejects only U32_MAX) and vega20_hwmgr.c:4433."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 320,
+      "status": "reported",
+      "reason": "Seed site present unfixed in s01: raw-input checks only (speed==0, ulMinRPM/ulMaxRPM at lines 307-310) before (8 * speed) at line 320; wrap contingent on firmware fan-table limits (u8*100 per processpptables.c:1000-1003), so medium confidence; identical to pre-patch 4b8c3c0d17c0."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c",
+      "line": 2725,
+      "status": "reported",
+      "reason": "smu_set_fan_speed_rpm guard 'if (speed == U32_MAX) return -EINVAL;' blocks only the single value U32_MAX; wrapped-divisor values such as 0x20000000 (8*speed == 0 mod 2^32) pass through to smu_v11_0_set_fan_speed_rpm; part of the reported finding's dispatch chain, not an independent defect."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "line": 280,
+      "status": "safe",
+      "reason": "smu7_fan_ctrl_set_fan_speed_rpm divides by (8 * speed) at line 280, but reaching it requires speed != 0 AND speed <= fanInfo.ulMaxRPM, and the only writers of ulMin/ulMaxRPM in s01 are processpptables.c:1000-1003 and process_pptables_v1_0.c:933-936 (u8 * 100UL, so ulMaxRPM <= 25500 whenever nonzero; ulMaxRPM==0 rejects every nonzero speed). Hence 8*speed <= 204000 at the division and cannot wrap; no u8-scaled min/max bypass exists in this snapshot."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/arcturus_ppt.c",
+      "line": 1270,
+      "status": "safe",
+      "reason": "arcturus_set_fan_speed_rpm checks 'if (!speed || speed > UINT_MAX/8) return -EINVAL;' at line 1270 before the identical tach_period division at line 1273; carries the upstream fix."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0.c",
+      "line": 1229,
+      "status": "safe",
+      "reason": "smu_v13_0_set_fan_speed_rpm checks 'if (!speed || speed > UINT_MAX/8) return -EINVAL;' at line 1229 before the division at line 1236; fixed form, used by smu_v13_0_0_ppt.c:3201 and smu_v13_0_7_ppt.c:2787."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/radeon/si_dpm.c",
+      "line": 6199,
+      "status": "safe",
+      "reason": "radeon si_fan_ctrl_set_fan_speed_rpm's (8 * speed) division sits inside a '#if 0' dead-code block (opened at si_dpm.c:6158, closed after the function), so it is not compiled and unreachable from any sysfs/hwmon store."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/radeon/ci_dpm.c",
+      "line": 1172,
+      "status": "safe",
+      "reason": "ci_fan_ctrl_set_fan_speed_rpm's (8 * speed) division is inside the '#if 0' block opened at ci_dpm.c:1131; not compiled, no user-reachable path."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "line": 6722,
+      "status": "safe",
+      "reason": "amdgpu legacy-dpm si_fan_ctrl_set_fan_speed_rpm's (8 * speed) division is inside the '#if 0' block opened at si_dpm.c:6680 containing both fan rpm functions; dead code, not compiled."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/hwmon/emc2103.c",
+      "line": 395,
+      "status": "safe",
+      "reason": "fan1_target_store clamps rpm_target to [0, 16384] (line 388), special-cases rpm_target == 0 to 0x1fff, and divides by the raw clamped value with a constant numerator (FAN_RPM_FACTOR * fan_multiplier, multiplier in {1,2,4,8}); no fixed-width scaling is applied to the divisor, so no wrap/truncation-to-zero denominator."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/hwmon/amc6821.c",
+      "line": 479,
+      "status": "safe",
+      "reason": "amc6821_fan_write rejects val < 0 and !val for fan_min/fan_target, then divides by clamp_val(val, 1, 6000000) itself (constant numerator 6000000); the divisor is never scaled, so the seed's scaled-divisor invariant cannot be violated."
+    }
+  ],
+  "limitations": [
+    "No runtime reproduction was performed (source-only snapshot, no SMU v11/Vega20 hardware or VM): the u32 wrap 8*speed == 0 for speed = 0x20000000/0x40000000/0x60000000 was verified by arithmetic reasoning against the exact types (uint32_t speed, uint32_t tach_period, crystal_clock_freq = 2500), and by comparison with the two sibling implementations in s01 that carry the '(!speed || speed > UINT_MAX/8)' fix.",
+    "Practical triggerability of the reported amdgpu sites requires the hwmon fan1_target node to be exposed and writable (dpm enabled, pwm_mode == AMD_FAN_CTRL_MANUAL per amdgpu_pm.c:2855-2859; the node is typically root-owned 0644, the same trust boundary as the seed CVE) and a dGPU part, since hwmon_attributes_visible (amdgpu_pm.c:3385-3421) hides fan attributes on APUs; this gating was verified from source, not exercised.",
+    "The vega10_thermal.c:320 and smu7_thermal.c:280 sites are additionally gated by firmware-table ulMinRPM/ulMaxRPM (u8*100 per processpptables.c:1000-1003 / process_pptables_v1_0.c:933-936); whether any board-specific pptable parser path in s01 populates these with larger values was not exhaustively excluded (only the two u8*100 writers were found), which is why vega10 is reported at medium and smu7 classified safe on the 8*speed <= 204000 cap.",
+    "The drivers/hwmon sweep covered fan RPM/target/min/div/pulses and pwm store paths of emc2103, g762, max6620, max31790, max6650, nct6775-core, nct7904, adm9240, sch5627, w83627ehf, it87, asb100, lm78, lm80, sis5595, via686a, vt8231, w83627hf, w83781d, w83791d, w83792d, w83l786ng, adt7475, adt7470, f71805f, pc87427, amc6821, corsair-cpro, gpio-fan, f71882fg, dell-smm-hwmon and aquacomputer_d5next (all clamp, zero-check, or divide by the raw checked value); non-fan attributes (in/temp/power/current limit stores) were only pattern-scanned via do_div/div_u64/'/ (val *' greps, and drivers/thermal governor internals (gov_power_allocator, devfreq_cooling) only spot-checked, so a non-fan scaled divisor outside those patterns could remain.",
+    "Drivers whose only numeric writes are pwm duty values or pass-through USB commands (corsair-cpro set_target clamps to 0..0xFFFF and sends no division; gpio-fan set_rpm performs a table lookup with no arithmetic) were classified at their write entry points only; their read paths were not audited."
+  ]
+}

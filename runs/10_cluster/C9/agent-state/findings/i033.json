@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "intent_id": "i033",
+  "branch": "hci-completed-length-trust",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "start": 204,
+      "end": 213,
+      "quote": "greybus_data_rcvd(bg->gb_hd, cport_id, (u8 *)&gb_frame->hdr, gb_msg_len);",
+      "confidence": "medium",
+      "reason": "Untrusted source: the remote peer of this virtual-bus transport is the CC1352 MCU firmware on the BeaglePlay; it fully controls every HDLC frame received on the serial device (hdlc_rx -> hdlc_rx_frame -> hdlc_rx_greybus_frame for ADDRESS_GREYBUS), and only requires a CRC-CCITT residue the peer itself computes. Missing guarantee: hdlc_rx_greybus_frame() reads gb_msg_len = le16_to_cpu(gb_frame->hdr.size) -- the peer-declared greybus message size, an analogue of completed transfer metadata -- and hands it straight to greybus_data_rcvd() without ever comparing it to the locally known received frame length len (buf=&rx_buffer[2], len=rx_buffer_len-4, at most MAX_RX_HDLC-4=255 valid payload bytes inside the 259-byte heap-allocated bg->rx_buffer). The only downstream check, gb_connection_recv()'s 'if (size < msg_size)' (drivers/greybus/operation.c:1050), is tautological for this caller because size IS hdr.size, so the incomplete-message guard can never fire. Unsafe use: on the request direction gb_connection_recv_request -> gb_operation_create_incoming (operation.c:630-656) computes request_size = size - sizeof(header) and gb_operation_message_alloc kzallocs exactly message_size bytes (capped only by hd->buffer_size_max from gb_hd_create, not by len), then memcpy(operation->request->header, data, size) copies size = gb_msg_len bytes from data = &bg->rx_buffer[2]; whenever gb_msg_len exceeds the bytes actually received (which the peer freely chooses), this reads past the received frame and, once gb_msg_len > ~257, past the 259-byte rx_buffer inside struct gb_beagleplay -- a peer-triggerable heap over-read whose contents become the incoming greybus operation message (kernel state later handed to protocol request handlers). Additionally, when len < 8 the earlier memcpy(&header, data, sizeof(header)) reads stale intra-buffer bytes. Asymmetric validation: the mirror response direction gb_connection_recv_response (operation.c:986-1008) DOES cross-check size against the locally known message_size = sizeof(*header)+message->payload_size and forces -EMSGSIZE/size=8 on mismatch, while the request direction trusts the peer-declared size for both allocation and copy -- the same paired-direction asymmetry as the seed. By contrast the flagged primary target drivers/greybus/es2.c:844 cport_in_callback is safe: its urb->actual_length is bounded by the HCD to transfer_buffer_length = ES2_GBUF_MSG_SIZE_MAX = hd->buffer_size_max and the bytes are genuinely present in the 2048-byte URB buffer, so every downstream copy is bounded. Counterevidence checked: the copy destination in the request path is always allocated >= size (exact-fit), so this is an OOB read, not a write; magnitude is capped by hd->buffer_size_max (value used at gb_hd_create in gb-beagleplay.c not re-read in this session) and the CRC residue requirement; a peer whose firmware is not malicious is unaffected. Consequence: malicious/compromised MCU firmware can over-read kernel heap into greybus message state (potential information exposure via echoing protocols) and can shape large GFP_ATOMIC allocations; crash/DoS and info-leak hypotheses, not a proven exploit.",
+      "conclusion": "gb-beagleplay.c:213 passes the peer-declared greybus hdr.size (gb_msg_len) to greybus_data_rcvd as copy length with no check against the received frame length (<=255), so a malicious MCU reply drives a heap OOB read past the 259-byte rx_buffer in gb_operation_create_incoming's memcpy; response direction is cross-checked, request direction is not (asymmetric)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/greybus/es2.c",
+      "line": 844,
+      "status": "safe",
+      "reason": "cport_in_callback passes urb->actual_length to greybus_data_rcvd; usb_fill_bulk_urb set transfer_buffer_length = ES2_GBUF_MSG_SIZE_MAX (2048) = the value passed to gb_hd_create as buffer_size_max, and the HCD guarantees actual_length <= transfer_buffer_length, so the bytes exist and gb_connection_recv's msg_size <= size check plus gb_operation_message_alloc's buffer_size_max cap bound every copy (request memcpy exact-fit; response memcpy bounded by local payload_size cross-check).",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/greybus/es2.c",
+      "line": 1062,
+      "status": "safe",
+      "reason": "arpc_in_callback copies a fixed sizeof(*resp) after checking actual_length >= sizeof(*resp); no length-derived copy.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/greybus/operation.c",
+      "line": 1012,
+      "status": "safe",
+      "reason": "gb_connection_recv_response cross-checks size against message_size = sizeof(*header)+message->payload_size from local request state, sets -EMSGSIZE on mismatch, forces size = sizeof(*header) on bad status, and message->buffer was allocated >= that size, so memcpy(message->buffer, data, size) is bounded on both sides.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/staging/vc04_services/interface/vchiq_arm/vchiq_core.c",
+      "line": 2120,
+      "status": "safe",
+      "reason": "Peer-supplied bulk->actual (*(int *)header->data) from BULK_RX_DONE/TX_DONE is consumed by free_pagelist fragment copies, but head_bytes is clamped to actual and both fragment copies stay within the pinned pages (write offset <= PAGE_SIZE-64, length < cache_line_size <= 64; sources are the 2*cache_line fragments buffer); num_pages comes from local bulk->size, so no OOB write, only in-page misplacement bounded by the peer -- retained as safe with residual semantic-trust note.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/rtl8150.c",
+      "line": 421,
+      "status": "safe",
+      "reason": "skb_put(pkt_len) with pkt_len = actual_length - 4; the rx URB was filled with transfer_buffer_length = RTL8150_MTU (1540) into rx_skb->data of a dev_alloc_skb(RTL8150_MTU+2) skb, so actual_length <= 1540 and pkt_len <= 1536 < 1542; no OOB.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/char/xillybus/xillyusb.c",
+      "line": 666,
+      "status": "safe",
+      "reason": "xb->len = urb->actual_length is bounded by the ep->buffer_size page allocation; process_bulk_in clamps bytes = min(count+1, dws<<2) against the actually present dwords and fifo_write clamps every copy to fifo free space (nmax = fifo->size - fill) and buffer rails.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/storage/uas.c",
+      "line": 428,
+      "status": "safe",
+      "reason": "scsi_set_resid(cmnd, sdb->length - urb->actual_length) relies on the HCD invariant actual_length <= transfer_buffer_length = sdb->length (uas_alloc_data_urb fills the URB with sdb->length), so no unsigned underflow; uas_sense (line 194) likewise clamps len via min(len+16, actual_length)-16 within the sizeof(*iu) sense buffer.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "sound/usb/caiaq/device.c",
+      "line": 169,
+      "status": "safe",
+      "reason": "Explicit clamp 'if (urb->actual_length > sizeof(cdev->control_state)) urb->actual_length = sizeof(...)' before memcpy -- a correct model of the missing bound the branch hunts for.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/can/usb/esd_usb.c",
+      "line": 503,
+      "status": "unresolved",
+      "reason": "Completion loop bounds pos by actual_length (HCD-bounded) but dereferences msg->hdr at transfer_buffer+pos without validating pos + sizeof(header) <= actual_length; the post-loop check fires only after processing, so a straddling header is parsed from stale bytes of the ESD_USB_RX_BUFFER_SIZE buffer -- belongs to the parse-time wire-count class rather than hci-completed-length, not fully traced into esd_usb_rx_can_msg.",
+      "conclusion": "Follow up: confirm whether the straddled-header read in esd_usb_read_bulk_callback can push stale buffer bytes (including msg->hdr.len up to 4x) into netdev state, and reclassify under the unclamped-wire-count branch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/can/usb/etas_es58x/es58x_core.c",
+      "line": 1320,
+      "status": "unresolved",
+      "reason": "es58x accumulates urb->actual_length into rx_cmd_buf_len via es58x_copy_to_cmd_buf with an error path printing tmp_cmd_buf_len + urb->actual_length, suggesting an overflow guard, but the guard itself was not read in this session.",
+      "conclusion": "Follow up: read es58x_copy_to_cmd_buf to verify the rx_cmd_buf_len + actual_length overflow/size check before its memcpy into the fixed rx_cmd_buf."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/hso.c",
+      "line": 1015,
+      "status": "unresolved",
+      "reason": "read_bulk_callback passes transfer_buffer and actual_length into packetizeRx, whose IP-header parsing loop (WAIT_IP/WAIT_DATA states) was not fully read; the URB length is the MUX_BULK_RX_BUF_SIZE buffer, so any over-read would be intra-buffer stale data.",
+      "conclusion": "Follow up: read packetizeRx in drivers/net/usb/hso.c to verify the parser never consumes more than actual_length bytes per callback and never lets rx_buf_missing drive an OOB copy."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/host/xhci-dbgtty.c",
+      "line": 123,
+      "status": "safe",
+      "reason": "dbc_rx_push_buffer uses size = req->actual where xhci-dbgcap.c:807 sets req->actual = req->length - remain_length with remain_length taken from the transfer event and req->length the local buffer size; tty_insert_flip_string additionally caps at tty buffer space; the write is into the tty flip buffer, not the request buffer.",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "The value of hd->buffer_size_max passed to gb_hd_create in drivers/greybus/gb-beagleplay.c was not re-read, so the exact over-read extent (intra-object vs past-struct heap OOB) of the gb-beagleplay.c:213 finding is not pinned down.",
+    "The grep sweep covered all ~293 drivers/ files referencing actual_length and analogous actual/resid fields, but only the twelve strongest completion handlers listed above were deep-read; the remaining ones are bounded by the same HCD actual_length <= transfer_buffer_length invariant that was assumed, not independently re-verified in this snapshot.",
+    "HCI-side (host-controller-driver) setters of urb->actual_length (ehci-q.c, ehci-sched.c, c67x00, isp116x/isp1362, max3421, dummy_hcd) were inspected only via grep hits, not per-site, so a controller double-count bug feeding actual_length > transfer_buffer_length cannot be excluded from this pass.",
+    "drivers/usb/storage/transport.c us->current_urb->actual_length consumers and drivers/staging/gpib bulk_urb->actual_length consumers were identified but not deep-read; they are sync-URB style paths where the same HCD bound applies."
+  ],
+  "limitations": [
+    "The gb-beagleplay.c finding is a mechanism hypothesis with medium confidence: the missing cross-check of gb_msg_len against the received frame length and the asymmetric response/request validation are verified from source, but the OOB read's reach depends on hd->buffer_size_max and exploitability (turning leaked heap bytes into observable data) was not demonstrated.",
+    "No compilation or runtime reproducer was built for the gb-beagleplay path because the mechanism is a serial-firmware peer interaction; the analysis is static, based on the complete call chain hdlc_rx -> hdlc_rx_frame -> hdlc_rx_greybus_frame -> greybus_data_rcvd -> gb_connection_recv -> gb_connection_recv_request -> gb_operation_create_incoming.",
+    "Safe classifications of es2.c and uas.c rest on the usbcore invariant that a host controller never reports actual_length greater than transfer_buffer_length; a hostile/virtual HCD violating that invariant was not analyzed.",
+    "The vchiq bulk->actual safe classification covers only the free_pagelist fragment-copy consumption; other consumers (service callbacks via make_service_callback) were not individually audited for use of bulk->actual as a copy length."
+  ]
+}

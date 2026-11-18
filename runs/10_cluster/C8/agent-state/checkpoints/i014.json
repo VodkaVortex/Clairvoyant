@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "media-epidx",
+  "snapshot": "s04",
+  "status": "complete",
+  "updated_at": "2026-11-14T20:28:57Z",
+  "findings": [
+    "s04:drivers/media/usb/gspca/stv06xx/stv06xx.c:314-349 isoc_init/isoc_nego intf_cache[0]->altsetting[1].endpoint[0] read+write, zero bNumEndpoints in file -> reported high",
+    "s04:drivers/media/usb/gspca/xirlink_cit.c:2635-2691 sd_isoc_init/sd_isoc_nego same pattern -> reported high",
+    "s04:drivers/media/usb/usbvision/usbvision-video.c:1491-1510 per-altsetting endpoint[1] loop feeding alt_max_pkt_size[] -> reported high",
+    "s04:drivers/media/usb/dvb-usb/dib0700_core.c:798-845 rc_ep=1 fixed index at probe -> reported medium",
+    "s04:drivers/media/usb/gspca/konica.c:180-214 sd_start endpoint[0]/[0|1] reads sizing URB buffers -> reported medium",
+    "s04:drivers/media/usb/b2c2/flexcop-usb.c:427-445 transfer_init cur_altsetting->endpoint[0] after uncheck alt switch -> reported medium",
+    "s04:drivers/media/usb/siano/smsusb.c:428-436 udev->ep_in[1] NULL-deref form -> reported medium"
+  ],
+  "safe_candidates": [
+    "usbtv-core.c:76-82 (num_altsetting!=2, bNumEndpoints!=4 guards)",
+    "uvc_driver.c:1279-1281 (bNumEndpoints==1 guard; 204/675-685 loops)",
+    "ov519.c:3471/3596, stv06xx.c:292, stv06xx_pb0100.c:197, xirlink_cit.c:1454 (index 0 after core alt_xfer >=1 isoc-IN guarantee)",
+    "usbvision-video.c:1453-1459 (bNumEndpoints<2 guard)",
+    "em28xx-audio.c:770, em28xx-cards.c:3485, stk1160-core.c:199, tm6000-cards.c:1251, au0828-video.c:1935, hdpvr-core.c:328, pwc-if.c:388, s2255drv.c:2273, stkwebcam.c:1345, zr364xx.c:1501, gspca.c:252/613, smsusb.c:438-443 (bNumEndpoints-bounded loops)"
+  ],
+  "limitations": [
+    "no build/reproducer run",
+    "stv06xx/xirlink_cit altsetting[1] half overlaps if-alt-count fact f013 (s04) - dedupe at merge",
+    "m920x.c:474 / friio.c:426 usb_altnum_to_altsetting downstream not deep-read",
+    "loop-bounded drivers verified at loop-bound level only"
+  ]
+}

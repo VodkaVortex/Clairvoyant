@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "phase": "candidates",
+  "snapshot": "s04",
+  "branch": "hwmon-sysfs-scaled-divisor",
+  "status": "triaged 11 hwmon/thermal sysfs store paths; none reproduce wrapped/truncated zero divisor; expanding to thermal subsystem and remaining store handlers",
+  "candidates": [
+    {"path": "drivers/hwmon/max6620.c", "fn": "max6620_fan_rpm_to_tach + max6620_write(hwmon_fan_target)", "status": "safe", "reason": "clamp_val(240..30000) before (60*div*8192)/(rpm*2); divisor in [480,60000], int width, no wrap to 0"},
+    {"path": "drivers/hwmon/max6650.c", "fn": "max6650_set_target", "status": "safe", "reason": "rpm==0 short-circuits to mode OFF; clamp to [240,30000]; divisor (256*rpm/60) >= 1024"},
+    {"path": "drivers/hwmon/g762.c", "fn": "cnt_from_rpm via fan1_target_store", "status": "safe", "reason": "!rpm returns 0xff; rpm clamped up to f1/(255*f2) so rpm*f2 cannot be 0; unsigned long width, p,clk_div,gear_mult from regs"},
+    {"path": "drivers/hwmon/max31790.c", "fn": "max31790_write_fan -> RPM_TO_REG", "status": "safe", "reason": "clamp_val(120..7864320); divisor rpm*2 in [240, 15728640] < INT_MAX; 60*sr*8192 fits int (sr<=8 -> 3.9M)"},
+    {"path": "drivers/hwmon/amc6821.c", "fn": "amc6821_fan_write", "status": "safe", "reason": "val<=0 rejected for min/target; clamp to [1,6000000] before 6000000/val; no scaled divisor"},
+    {"path": "drivers/hwmon/adt7475.c", "fn": "tach_store -> rpm2tach", "status": "safe", "reason": "rpm==0 returns 0; (90000*60)/rpm then clamp 1..0xFFFF; rpm unsigned long, quotient int->clamped; no zero divisor"},
+    {"path": "drivers/hwmon/adt7470.c", "fn": "adt7470_fan_write", "status": "safe", "reason": "val<=0 rejected; FAN_RPM_TO_PERIOD=(90000*60)/val then clamp(1,65534); user value is dividend not divisor; division divisor is the user value itself which is >0"},
+    {"path": "drivers/hwmon/w83781d.c,w83792d.c,w83627hf.c,w83791d.c", "fn": "FAN_TO_REG/fan_to_reg in fan_min_store", "status": "safe", "reason": "rpm==0 -> 255; clamp 1..1000000; divisor rpm*div with div in {1,2,4,8}; rpm*div <= 8e6 fits; cannot be 0"},
+    {"path": "drivers/hwmon/w83793.c", "fn": "fan_min_store -> FAN_TO_REG", "status": "safe", "reason": "rpm<=0 -> 0xfff; (1350000+(rpm>>1))/rpm with rpm>=1"},
+    {"path": "drivers/hwmon/nct7904.c", "fn": "write fan_min", "status": "safe", "reason": "val<=0 rejected; DIV_ROUND_CLOSEST(1350000,val) with val>=1"},
+    {"path": "drivers/hwmon/w83627ehf.c", "fn": "store_fan_min", "status": "safe", "reason": "val<0 rejected; !val special-cased; 1350000U/val with val>0; explicit reg==0 handled"},
+    {"path": "drivers/hwmon/axi-fan-control.c", "fn": "axi_fan_control_store", "status": "safe", "reason": "temp attrs only; DIV_ROUND_CLOSEST_ULL with constant divisor; pwm path divides by SYSFS_PWM_MAX constant"},
+    {"path": "drivers/hwmon/aspeed-pwm-tacho.c", "fn": "pwm_store", "status": "safe", "reason": "fan_ctrl range-checked 0..PWM_MAX; rpm path is show-only; divisor 2*raw_data*tach_div from hw regs guarded by raw_data==0 check"},
+    {"path": "drivers/hwmon/corsair-cpro.c", "fn": "set_target", "status": "safe", "reason": "clamp 0..0xFFFF, sent to device; no division"},
+    {"path": "drivers/hwmon/emc2305.c", "fn": "emc2305_show_fan", "status": "safe", "reason": "read-only fan_input; EMC2305_PWM_DUTY2STATE divides by EMC2305_FAN_MAX constant; pwm write range-checked"}
+  ],
+  "updated_at": "2026-11-12"
+}

@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "intent_id": "i040",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s10"
+  ],
+  "findings": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/md/raid5-ppl.c",
+      "start": 975,
+      "end": 981,
+      "quote": "for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: pplhdr is the Partial Parity Log header read verbatim from the md member device (raw on-disk __le32 entries_count, include/uapi/linux/raid/md_p.h:423) into a single 4096-byte page by ppl_load_distributed() via sync_page_io; a corrupted or maliciously crafted member disk / tampered PPL area crosses a trust boundary into kernel state exactly like the seed's wire count. Violated invariant (unclamped wire count, asymmetric validation): the recover/read path applies NO clamp of the on-disk count against the known header capacity - PPL_HDR_MAX_ENTRIES (= (4096 - 512 - 16 - 8) / sizeof(struct ppl_header_entry) = 64, the entries[64] array member, md_p.h:415-427) - at ppl_recover() line 976 'for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++)' and again at the offset-advance loop ppl_load_distributed() line 1151 'for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++)', while the sibling write path of the same on-disk format enforces exactly that limit at lines 280-281 'io->pp_size == log->entry_space || io->entries_count == PPL_HDR_MAX_ENTRIES' before a new entry is added (and ppl_write_empty_header/ppl_submit_iounit only ever write headers the writer bounded to 64). Unsafe use: for an entries_count of e.g. 0xFFFFFFFF (only signature and generation are checked before the loops), both loops index pplhdr->entries[i] far past the 4096-byte header page - an out-of-bounds read of adjacent memory whose contents are then consumed as real entries: ppl_recover reads e->pp_size (line 978) and e->checksum and issues sync_page_io reads/writes at sectors derived from them (lines 916-948), and the offset loop at 1151-1153 advances pplhdr_offset by garbage pp_size values steering subsequent header reads. Counterevidence checked: no min/max clamp on entries_count exists anywhere in raid5-ppl.c for the read path (grep shows the only PPL_HDR_MAX_ENTRIES comparisons are the write-path checks at 280-281); the same instance was verified as an unclamped-count finding in sibling snapshot s09 (fact f034), and s10 lines were re-verified this session. Trust boundary is the physical/virtual member disk rather than a remote peer; impact is OOB read plus attacker-steered disk I/O (DoS / potential memory disclosure), not a proven write primitive.",
+      "conclusion": "raid5-ppl read path iterates on-disk pplhdr->entries_count (u32) with no clamp while the write path enforces PPL_HDR_MAX_ENTRIES=64, so a crafted PPL header drives OOB reads past the 4096-byte header page into entry parsing and disk I/O."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/nvme/target/pci-epf.c",
+      "start": 1015,
+      "end": 1031,
+      "quote": "nr_descs = length / sizeof(struct nvme_sgl_desc);",
+      "confidence": "medium",
+      "reason": "Untrusted source: nvmet_pci_epf_get_sgl_segment() parses an SGL segment descriptor fetched from the root-complex host over the NVMe-over-PCI-Endpoint-Function link; desc->length is a raw peer-controlled __le32 (line 1000) with no range check before kmalloc(length) (1004) and nvmet_pci_epf_transfer of that many bytes (1008-1009). Violated invariant (unclamped wire count, asymmetric validation): the descriptor count is derived as 'nr_descs = length / sizeof(struct nvme_sgl_desc)' (line 1016) with no minimum check that the peer length covers even one 16-byte descriptor, and no clamp of the peer length against the locally-known limits - while the sibling PRP direction of the SAME data-pointer parser clamps its peer length to the memory page size (nvmet_pci_epf_get_prp_list line 782 'length = min(nvmet_pci_epf_prp_size(ctrl, prp), nr_prps << 3)' with prps buffer kzalloc(ctrl->mps) at 802) and the entry gate rejects iod->data_len > ctrl->mdts (line 1121). Unsafe use: with a peer seg.length in 1..15, nr_descs == 0 and line 1017 'sgls[nr_descs - 1].type' reads sgls[-1] - a 16-byte heap out-of-bounds read immediately before the fresh kmalloc buffer - and when that OOB-read garbage matches a segment-descriptor type, *desc = sgls[-1] (1024) copies the OOB data into loop state and nr_descs-- makes *nr_sgls = -1 (1031), which flows into nvmet_pci_epf_iod_parse_sgl_segments (1056) and nvmet_pci_epf_alloc_iod_data_segs(iod, -1) (1063) where nr_segs = iod->nr_data_segs + (-1) (706) drives a negative krealloc size (708-710) and corrupts iod->nr_data_segs bookkeeping iterated by the transfer/free loops (nvmet_pci_epf_free_iod 725, nvmet_pci_epf_transfer_iod_data 742). The while (seg.length) loop (1055) also lets the peer chain unbounded segments, each transferring an unclamped length. Counterevidence checked: the OOB type-gate at 1017 means the -1 branch is data-dependent; the huge-length case fails kmalloc and returns NULL cleanly; DMA direction is DMA_FROM_DEVICE so no host write is performed; but the minimum-length check and local cross-check of peer length against mps/mdts/data_len are genuinely absent only on this SGL path. Requires an endpoint-function platform facing a hostile RC host.",
+      "conclusion": "nvmet pci-epf SGL segment parser derives nr_descs from the peer le32 desc->length with no minimum/clamp (PRP sibling clamps via min(mps)), so length 1-15 gives nr_descs=0 -> sgls[-1] OOB read and nr_sgls=-1 into segment-table sizing."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 976,
+      "status": "reported",
+      "reason": "Unclamped on-disk entries_count loop in ppl_recover; write path clamps to PPL_HDR_MAX_ENTRIES at 280-281, read path does not; reported as finding 1.",
+      "conclusion": "Reported: recover-loop iterates raw disk count with no clamp while writer enforces 64-entry cap."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 1151,
+      "status": "reported",
+      "reason": "Second unclamped entries_count loop (offset advance in ppl_load_distributed) indexing the same entries[64] array; same missing clamp as the reported recover loop.",
+      "conclusion": "Reported with finding 1: same unclamped count also advances pplhdr_offset past the header page."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/nvme/target/pci-epf.c",
+      "line": 1016,
+      "status": "reported",
+      "reason": "nr_descs = length / sizeof(struct nvme_sgl_desc) from peer le32 length with no minimum check; sgls[nr_descs-1] at 1017 reads sgls[-1] when length < 16; reported as finding 2.",
+      "conclusion": "Reported: missing minimum-length clamp on peer SGL segment length yields OOB read and negative count."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/nvme/target/pci-epf.c",
+      "line": 782,
+      "status": "safe",
+      "reason": "Sibling PRP path is the enforcing control: length = min(nvmet_pci_epf_prp_size(ctrl, prp), nr_prps << 3) clamps the peer-derived transfer to one memory page, evidencing the asymmetry with the SGL path rather than being vulnerable itself.",
+      "conclusion": "Safe: PRP direction clamps peer length to mps, the check the SGL path lacks."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 685,
+      "status": "safe",
+      "reason": "Seed family present in s10 but PATCHED and excluded-by-rule: usbip_recv_iso clamps 'np <= 0 || np > USBIP_MAX_ISO_PACKETS' at 685-687, zeroes urb->number_of_packets before bailing, and uses kcalloc at 699; usbip_pack_ret_submit clamps rpdu->number_of_packets to [0, urb->number_of_packets] at 482-485 (verified in sibling artifacts f038/f041 and re-confirmed by grep this session).",
+      "conclusion": "Safe and excluded-by-rule: seed usbip store is clamped in s10; not reportable."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/gpu/drm/virtio/virtgpu_kms.c",
+      "line": 226,
+      "status": "safe",
+      "reason": "Device-supplied num_scanouts is clamped at store time: 'vgdev->num_scanouts = min_t(uint32_t, num_scanouts, VIRTIO_GPU_MAX_SCANOUTS)' (virtgpu_kms.c:226), and outputs[] is a fixed VIRTIO_GPU_MAX_SCANOUTS array (virtgpu_drv.h:233), so the reply-consumer loops in virtgpu_vq.c:827 and virtgpu_display.c:381/399 are bounded.",
+      "conclusion": "Safe: virtio-gpu peer scanout count clamped to VIRTIO_GPU_MAX_SCANOUTS at parse time."
+    },
+    {
+      "snapshot": "s10",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 7490,
+      "status": "safe",
+      "reason": "The unclamped num_reports pattern reported in sibling snapshots s08/s09 (hci_store_wake_reason LE-meta raw fetch) is absent in s10: hci_le_meta_evt (7490-7527) dispatches through hci_le_ev_table with per-subevent min_len enforced via skb->len < subev->min_len (7512) plus hci_le_ev_skb_pull/skb_pull_data length validation before any subevent handler runs.",
+      "conclusion": "Safe: s10 hci_event.c length-validates LE subevents through the min_len table the older trees lacked."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 979,
+      "status": "reported",
+      "reason": "Device-reply hdr.count stored into shared manage_msg with no clamp while the request path qaic_manage 1259-1261 enforces the count limit; this exact mechanism was already reported for s10 in intent i041 (fact f041), so it is not duplicated as a finding in this artifact.",
+      "conclusion": "Already reported under i041 for s10: unclamped QAIC device-reply count, asymmetric with request path."
+    }
+  ],
+  "coverage_gaps": [
+    "1237 le32/le16_to_cpu(num_*/count) conversion sites enumerated across drivers/, net/, fs/ were only spot-triaged (NFP SR-IOV, NVMe host/target, target configfs, UBI SG) before the finalize directive stopped the sweep; the rest remain unexamined in s10.",
+    "UBI fastmap/attach count stores, dm-era/dm-zoned metadata entry counts, and non-LE Bluetooth event parsers were named as leads from sibling facts but not read in s10's exact source state this session."
+  ],
+  "limitations": [
+    "No compilation, static analyzer, or reproducer was run (read-only snapshot; finalize directive limited source-line reads to four targeted calls), so both findings are source-reading hypotheses, not exploit claims.",
+    "The raid5-ppl trust boundary is a local/virtual member disk image (PPL area), weaker than the seed's remote peer; the OOB read past the 4096-byte header page and attacker-steered sync_page_io were not demonstrated at runtime, and no write primitive was identified.",
+    "The nvmet pci-epf finding requires a hostile root-complex host on a PCI endpoint-function platform; the sgls[-1] read and nr_sgls=-1 path are gated by OOB-read data matching NVME_SGL_FMT_SEG_DESC, and the observed consequence is a 16-byte heap OOB read plus a failed/undersized krealloc and corrupted iod->nr_data_segs bookkeeping, not a proven write.",
+    "pplhdr page_address()/sync_page_io details inside ppl_load_distributed were taken from the sibling-s09 audit (f034) plus this session's line verification of the two loops; the exact alloc-page lines were not re-printed in s10."
+  ]
+}

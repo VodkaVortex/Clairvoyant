@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "debugfs-write-memdup-sscanf",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 314,
+      "end": 320,
+      "quote": "kern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &len);",
+      "confidence": "high",
+      "reason": "Untrusted source: debugfs file 'regrd' (registered via debugfs_create_file with fops bnad_debugfs_op_regrd, .write = bnad_debugfs_write_regrd at line 454) is writable by root (mode 0644) and nbytes is the attacker-controlled write(2) length. Violated invariant: memdup_user (mm/util.c) does kmalloc(len)+copy_from_user with no NUL terminator and no in-bounds termination check, so kern_buf is not a valid C string; this is the exact same bfa/bnad Brocade code family as the seed commit 13d0cecb4626 ('scsi: bfa: Ensure the copied buf is NUL terminated'), and the seed's own file drivers/scsi/bfa/bfad_debugfs.c still uses memdup_user at lines 253/320 in this snapshot while the parallel net driver copy was never fixed. Unsafe use: sscanf(kern_buf, \"%x:%x\", ...) is a C-string parser that scans until NUL; with attacker data containing no NUL byte it reads past the end of the nbytes-sized kmalloc allocation (KASAN slab-out-of-bounds read, info leak/crash). Counterevidence checked: the whole file has no memdup_user_nul/strndup_user (grep confirmed), no cmd_buf[count]='\\0' fix-up, no length clamp before memdup_user; only post-parse checks (rc<2, len bound, bna_reg_offset_check) operate after sscanf already scanned OOB. Same defect duplicated at lines 375-379 (bnad_debugfs_write_regwr, file 'regwr' mode 0200)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "start": 98,
+      "end": 102,
+      "quote": "buffer = vmemdup_user(buf, lbuf);\n\tif (IS_ERR(buffer))\n\t\treturn -ENOMEM;\n\n\trc = sscanf(buffer, \"%x %x %x %x %x %x %x\", &slct, &oflw, &chn, &rsc, &anc,",
+      "confidence": "high",
+      "reason": "Untrusted source: crw_inject_write is the .write handler of a debugfs file ('crw_inject', enabled by the 'inject_enable' node) so lbuf and buffer contents are attacker-controlled (root). Violated invariant: vmemdup_user (mm/util.c:236) is kvmalloc(len)+copy_from_user with no terminator slot, so the lbuf-sized allocation is not NUL-terminated. Unsafe use: sscanf(buffer, \"%x %x %x %x %x %x %x\", ...) scans until NUL and reads past the allocation when the attacker supplies lbuf non-NUL bytes. Counterevidence checked: no memdup_user_nul/strndup_user anywhere in the file; no buffer[lbuf]='\\0'; kvfree happens only after sscanf already ran; no count clamp before vmemdup_user. The only gate is the cio_inject_enabled static key, which the attacker can enable first via enable_inject_write (kstrtoul_from_user, safe). Impact is slab/vmalloc OOB read (info leak/crash) on s390."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 375,
+      "status": "reported",
+      "reason": "bnad_debugfs_write_regwr (debugfs 'regwr', mode 0200): memdup_user(buf, nbytes) at line 375 then sscanf(kern_buf, \"%x:%x\", ...) at line 379 with no NUL terminator; identical mechanism to the regrd finding, listed as candidate because it is the same file/pattern (folded into finding 1)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 174,
+      "status": "safe",
+      "reason": "ice_debugfs_module_write: memdup_user(buf, count) then sscanf(cmd_buf, \"%s\", user_val) is technically unterminated (same pattern), BUT count is clamped to <=8 before the copy (line 168: 'if (*ppos != 0 || count > 8) return -EINVAL;') and kmalloc rounds small sizes to kmalloc-8/16 with redzones; sscanf %s stops at first whitespace, so overflowing requires 8 non-whitespace non-NUL bytes and reading past kmalloc-16 - practically bounded and low-impact; same clamps (count>4, >2, >5) at lines 256/331/427 for nr_messages/enable/log_size. Classified safe on size-clamp evidence, residual theoretical OOB noted in limitations."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/netdevsim/fib.c",
+      "line": 1384,
+      "status": "unresolved",
+      "reason": "nsim_nexthop_bucket_activity_write: stack buffer char buf[128] (line 1374), copy_from_user(buf, user_buf, size) at line 1382 with only 'if (size > sizeof(buf)) return -EINVAL;' (line 1380) - i.e. size == 128 is allowed and the copy fills all 128 bytes, leaving no terminator slot; sscanf(buf, \"%u %hu\", ...) at line 1384 then scans for NUL beyond the 128-byte stack array (stack OOB read, KASAN stack-out-of-bounds). Debugfs-only attacker (nsim devlink netdevsim), but the off-by-one missing 'size >= sizeof(buf)' is a real unterminated-parser defect; left unresolved rather than reported because impact is a bounded stack read and it is borderline to the seed's heap memdup_user pattern."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 994,
+      "status": "safe",
+      "reason": "rvu_dbg_qsize_write uses memdup_user(buffer, count + 1) and immediately sets cmd_buf[count] = '\\0' (lines 994-998), i.e. the count+1 terminator-slot fix primitive is present; strchr/strsep/kstrtoint operate on a terminated buffer."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/scsi/scsi_debug.c",
+      "line": 1031,
+      "status": "safe",
+      "reason": "sdebug_error_write allocates kzalloc(count + 1) before copy_from_user, so the kzalloc zeroing provides the terminator slot; sscanf reads a properly terminated buffer."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/crypto/hisilicon/debugfs.c",
+      "line": 530,
+      "status": "safe",
+      "reason": "Uses memdup_user_nul before strchr(cmd_buf, '\\n') - the fixed primitive is already applied."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/scsi/qla2xxx/qla_dfs.c",
+      "line": 594,
+      "status": "safe",
+      "reason": "Uses memdup_user_nul before simple_strtoul(buf, NULL, 0) - already fixed."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/wireless/marvell/libertas/debugfs.c",
+      "line": 464,
+      "status": "safe",
+      "reason": "Uses memdup_user_nul (lines 464/535/607/867) before simple_strtoul/strstr/strchr - already fixed."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/infiniband/hw/hfi1/debugfs.c",
+      "line": 564,
+      "status": "safe",
+      "reason": "Uses memdup_user_nul before kstrtoull - already fixed."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/wireless/ath/ath5k/debug.c",
+      "line": 336,
+      "status": "safe",
+      "reason": "write_file_debug clamps count to sizeof(buf)-1 and sets buf[count]='\\0' before strncmp - terminated."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/ntb/test/ntb_tool.c",
+      "line": 922,
+      "status": "safe",
+      "reason": "tool_peer_mw_trans_write clamps buf_size = min(size, sizeof(buf)-1) and sets buf[buf_size]='\\0' before sscanf - terminated."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/wireless/ralink/rt2x00/rt2x00debug.c",
+      "line": 466,
+      "status": "safe",
+      "reason": "RT2X00DEBUGFS_OPS_WRITE rejects length > sizeof(line) and forces line[16]=0 before strlen/simple_strtoul - terminated (line[16]=0 is within the 17-byte array)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/wireless/intel/iwlegacy/debug.c",
+      "line": 246,
+      "status": "safe",
+      "reason": "il_dbgfs_*_write handlers memset(buf,0,sizeof(buf)) and clamp buf_size=min(count,sizeof(buf)-1) before copy_from_user/sscanf - terminated (also 4965-rs.c:2556)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/amdgpu/amdgpu_debugfs.c",
+      "line": 2076,
+      "status": "safe",
+      "reason": "amdgpu_reset_dump_register_list_write memsets the 11-byte reg_offset to 0 before each <=10-byte copy_from_user chunk, so the last byte stays NUL; sscanf sees a terminated string."
+    }
+  ],
+  "limitations": [
+    "Attacker model is root-with-debugfs-mount for all reported candidates (debugfs write handlers); the seed class is likewise debugfs-root, so this matches the seed's trust boundary rather than an unprivileged primitive.",
+    "The ice_debugfs.c family (4 sites) and the broader wireless copy_from_user-into-fixed-stack-buffer families (iwlwifi, rtlwifi, rtw89, mt76, cxgb4, i915, habanalabs, tegra-bpmp, hisilicon, ntb, etc.) were triaged by size-clamp/terminator evidence in bulk; individual sites were not all deep-read, so a clamp-less outlier inside those families cannot be fully excluded.",
+    "Intent branch i014 covers debugfs/debug-control write handlers only; sysfs ->store, /proc, configfs, and ioctl/sockopt variants in s04 are assigned to intents i015-i017 and were not searched here.",
+    "drivers/scsi/bfa/bfad_debugfs.c in s04 still contains the seed bug itself (memdup_user at lines 253/320) but is excluded from reporting per task rules as the seed demonstration location.",
+    "drivers/net/netdevsim/fib.c:1384 (size==sizeof(buf) allowed, no terminator slot before sscanf) is recorded as unresolved; a count>=sizeof(buf) check exists only as 'size > sizeof(buf)', so a 128-byte non-NUL write yields an unterminated 128-byte stack buffer."
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "intent_id": "i018",
+  "branch": "timer-dwork-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/sunrpc/xprt.c",
+      "line": 702,
+      "status": "safe",
+      "reason": "TIMER-SIDE: xprt_init_autodisconnect (def net/sunrpc/xprt.c:697-714) is registered via setup_timer(&xprt->timer, xprt_init_autodisconnect, ...) at xprt.c:1375 and takes plain spin_lock(&xprt->transport_lock) at line 702 (unlock 709/713); plain acquisition is acceptable from TIMER_SOFTIRQ context. HOLDER-SIDE VERIFIED: every other acquisition of xprt->transport_lock in xprt.c uses spin_lock_bh/spin_unlock_bh (275/277, 381/383, 516/522, 599/601, 631/634, 646/652, 669/680, 722/731, 737/746, 900/906, 922/942, 970/976, 995/1020, 1289/1297), including the workqueue worker xprt_autoclose (INIT_WORK(&xprt->task_cleanup, xprt_autoclose) at 1373; body locks at 631/646/669) that the timer callback itself queues via queue_work(xprtiod_workqueue, &xprt->task_cleanup) at line 710. The process/workqueue holder side always disables bottom halves, so a TIMER softirq on the same CPU cannot spin against a plain holder that can never resume - the missing-BH invariant is satisfied for this lock within xprt.c. Residual gap: whether net/sunrpc/sock_xprt.c or net/sunrpc/xprtrdma add plain process-context transport_lock sites was not verified (the two grep attempts failed on cwd and rg permission before the search halt)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bridge/br_multicast.c",
+      "line": 248,
+      "status": "unresolved",
+      "reason": "br->multicast_lock is a confirmed vulnerable timer-branch shape in sibling snapshot s07 (fact f015: plain spin_lock in timer callbacks br_multicast_group_expired:248, port_group_expired:311, router_expired:854, local_router_expired:882, port_query_expired:1003, querier-expired:896 vs plain process sites br_multicast_enable_port:1110 / br_multicast_disable_port:1121 while sibling process sites 1073/2034 use spin_lock_bh). Line numbers are s07 numbering and are APPROXIMATE for s03: this snapshot's copy was NOT verified because the callback body-scan heuristic only matched definitions whose function name begins a line, and 'static void br_multicast_group_expired(struct timer_list *t) {' is a single-line definition that fell through. Highest-priority follow-up for this branch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 2088,
+      "status": "unresolved",
+      "reason": "session->frwd_lock is a confirmed vulnerable timer-branch shape in sibling snapshot s05 (fact f016: TIMER_SOFTIRQ callbacks iscsi_check_transport_timeouts:2088 and iscsi_tmf_timedout:1791 take plain spin_lock while process-context iscsi_eh_cmd_timed_out:1948 - scsi .eh_timed_out hook run from blk_mq_timeout_work kworker - takes the same lock plainly). Line numbers are s05 numbering and are APPROXIMATE for s03: this snapshot's copy was NOT verified for the same single-line-definition regex gap before the search halt."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/sched/sch_pie.c",
+      "line": 433,
+      "status": "unresolved",
+      "reason": "Qdisc root_lock perturbation/adaptation timers (sch_pie pie_timer, sch_sfq sfq_perturbation, sch_red red_adaptative_timer) take plain spin_lock in timer callbacks per the sibling s07 timer-branch pass, which left the process-context tc change/reset/dump sites unverified; s03's copies were not examined before the halt. Approximate location, sibling numbering."
+    }
+  ],
+  "limitations": [
+    "Bounded negative result: the scripted enumeration in this session scanned 16,667 .c files under drivers/, net/, kernel/, mm/, fs/, block/, ipc/, security/ and lib/, matched 741 distinct timer callback names registered via timer_setup/setup_timer/DEFINE_TIMER/init_timer, and body-scanned those callbacks for plain spin_lock - exactly one hit (net/sunrpc/xprt.c xprt_init_autodisconnect:702), which was triaged safe. No timer_list callback with a violated missing-BH invariant was confirmed in s03.",
+    "Enumeration gap: the function-body extraction only matched definitions whose function name begins a line (K&R split style, e.g. 'static void\\nfoo(unsigned long data)\\n{'); single-line definitions such as 'static void br_multicast_group_expired(struct timer_list *t) {' were not body-scanned, so an unknown fraction of timer callbacks (including the known br_multicast and libiscsi bug families) were never enumerated in s03.",
+    "hrtimer handlers (hrtimer_init + .function assignment), timers registered via indirect function pointers or struct initializers, and trees outside the scanned roots (arch/, sound/, crypto/, virt/, samples/, tools/) were not enumerated; delayed_work expiry was not separately covered (the dwork timer softirq only queues the work; the user callback itself runs in worker/process context).",
+    "net/bridge/br_multicast.c (br->multicast_lock) and drivers/scsi/libiscsi.c (session->frwd_lock) are confirmed vulnerable shapes in sibling snapshots s07 and s05 at the same paths; their s03 copies remain unverified and are the highest-priority follow-up for the timer-dwork-softirq-lock branch on this snapshot.",
+    "The xprt transport_lock analysis covered xprt.c only; possible plain process-context acquisitions in net/sunrpc/sock_xprt.c and net/sunrpc/xprtrdma/ sharing the same lock object were not checked (both grep attempts failed on cwd/rg-permission before the halt).",
+    "Static source analysis only: no build, lockdep run or runtime reproducer was performed (the snapshot tree lacks .config and generated headers).",
+    "The staging ks7010 seed bug present in s03 (drivers/staging/ks7010/ks7010_sdio.c:374 per the prior s03 xmit-branch pass) is xmit-shaped, not timer-shaped, and is excluded from reporting in any case per the never-report-the-seed rule."
+  ]
+}

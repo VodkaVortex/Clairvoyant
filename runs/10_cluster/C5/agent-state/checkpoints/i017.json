@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "role": "explore",
+  "branch": "csum-partial-consumer-trust",
+  "snapshot": "s04",
+  "status": "finalizing",
+  "updated_at": 1794455898.5524158,
+  "candidates_examined": [
+    {
+      "path": "net/core/skbuff.c",
+      "fn": "skb_copy_and_csum_dev",
+      "line": 3522,
+      "status": "reported",
+      "reason": "CHECKSUM_PARTIAL sink writes __sum16 at to+csstart+skb->csum_offset with no re-validation of csum_offset against headlen/buffer; only guard is BUG_ON(csstart > headlen). Callers are legacy NIC TX copy loops (8139too, via-rhine, ep93xx, sc92031, ec_bhf, ksz884x) where 'to' is a fixed-size driver TX buffer -> OOB write if csum_offset invalid."
+    },
+    {
+      "path": "net/core/skbuff.c",
+      "fn": "pskb_trim_rcsum_slow",
+      "line": 2494,
+      "status": "safe",
+      "reason": "Validates offset = csum_start_offset + csum_offset; requires offset + sizeof(__sum16) <= hdlen before trim."
+    },
+    {
+      "path": "net/core/dev.c",
+      "fn": "skb_checksum_help",
+      "line": 3260,
+      "status": "safe",
+      "reason": "WARN_ON_ONCE(offset >= headlen) and WARN_ON_ONCE(offset + 2 > headlen) with skb_ensure_writable."
+    },
+    {
+      "path": "net/core/dev.c",
+      "fn": "skb_csum_hwoffload_help",
+      "line": 3634,
+      "status": "safe",
+      "reason": "Only switches on csum_offset equality for feature decision; falls through to skb_checksum_help."
+    },
+    {
+      "path": "net/core/skbuff.c",
+      "fn": "skb_partial_csum_set",
+      "line": 5215,
+      "status": "safe",
+      "reason": "Canonical validated setter; rejects csum_start > U16_MAX or csum_end > headlen."
+    },
+    {
+      "path": "net/core/filter.c",
+      "fn": "__bpf_skb_min_len",
+      "line": 3673,
+      "status": "safe",
+      "reason": "Value only used as a min_len hint for BPF helper clamping, not as a memory offset dereference."
+    },
+    {
+      "path": "net/ipv4/fou_core.c",
+      "fn": "gue_build_skb / remcsum encoding",
+      "line": 989,
+      "status": "safe",
+      "reason": "csum_start >= hdrlen checked; result stored into GUE option header bytes, hardware re-checks."
+    },
+    {
+      "path": "net/netfilter/ipvs/ip_vs_xmit.c",
+      "fn": "ip_vs_gue_encap remcsum",
+      "line": 1055,
+      "status": "safe",
+      "reason": "Same guarded pattern as fou_core."
+    },
+    {
+      "path": "net/hsr/hsr_forward.c",
+      "fn": "create_stripped_skb_hsr / tag insert",
+      "lines": [
+        136,
+        306
+      ],
+      "status": "safe",
+      "reason": "Adjusts csum_start by +/- HSR_HLEN symmetric with skb head changes; no unvalidated dereference."
+    },
+    {
+      "path": "drivers/net/ethernet/sun/sunvnet_common.c",
+      "fn": "vnet_skb_shape",
+      "line": 1158,
+      "status": "safe",
+      "reason": "Copies headers via skb_copy_bits with return check before using start + csum_offset offset on the freshly copied linear nskb; offset bounded by copied region."
+    },
+    {
+      "path": "drivers/net/vmxnet3/vmxnet3_drv.c",
+      "fn": "vmxnet3_xmit",
+      "line": 1128,
+      "status": "safe",
+      "reason": "Bounds-checked against VMXNET3_MAX_CSUM_OFFSET and pskb_may_pull(copy_size); value only feeds hardware descriptor."
+    },
+    {
+      "path": "drivers/net/virtio_net.c + include/linux/virtio_net.h",
+      "fn": "virtio_net_hdr_to_skb/from_skb",
+      "status": "safe",
+      "reason": "Producer path uses pskb_may_pull(needed) + skb_partial_csum_set; consumer trusts skb."
+    },
+    {
+      "path": "net/packet/af_packet.c",
+      "fn": "__packet_snd_vnet_parse",
+      "line": 2536,
+      "status": "safe",
+      "reason": "Grows hdr_len to cover csum_start+csum_offset+2 and rejects hdr_len > len."
+    },
+    {
+      "path": "drivers/net/ethernet/chelsio|gve|hns3|ionic|ef100|xilinx",
+      "status": "safe",
+      "reason": "Values only written into hardware descriptor fields, not used as kernel memory offsets."
+    }
+  ],
+  "note": "s04 net/xdp/xsk.c has no XDP_TXMD_FLAGS_CHECKSUM/tx_metadata path at all (grep empty), so the seed producer itself is absent from this snapshot; consumers are the exposure surface."
+}

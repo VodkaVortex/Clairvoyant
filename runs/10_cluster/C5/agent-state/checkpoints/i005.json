@@ -1,0 +1,14 @@
+{
+  "intent_id": "i005",
+  "branch": "csum-partial-consumer-trust",
+  "status": "finalizing",
+  "snapshot": "s01",
+  "checkpoint_time": "2026-11-12",
+  "progress": [
+    {"step": "init", "detail": "Seed = xsk TOCTOU on UMEM-resident csum_start/csum_offset; s01 tree still contains the unpatched double-read in xsk_skb_metadata() (net/xdp/xsk.c:762-781), demonstrating the producer class exists in this tree."},
+    {"step": "survey", "detail": "Enumerated consumers of skb->csum_start/csum_offset/CHECKSUM_PARTIAL across net/core, net/ipv4, net/ipv6, net/{xfrm,openvswitch,dsa,mac80211,sched,netfilter,hsr,bridge,sctp,tls,packet}, drivers/net, include/linux/skbuff.h and include/linux/virtio_net.h."},
+    {"step": "validated-sinks", "detail": "Central software sink skb_checksum_help() (net/core/dev.c:3584-3611) re-validates offset vs skb_headlen with WARN_ONCE and rejects; pskb_trim_rcsum_slow (net/core/skbuff.c:2806-2811) validates; skb_partial_csum_set (net/core/skbuff.c:5770-5786) validates; virtio_net_hdr_to_skb validates via skb_partial_csum_set; mac80211/ovs/xfrm/dsa paths route through skb_checksum_help/skb_csum_hwoffload_help. These are safe."},
+    {"step": "candidates", "detail": "Non-validating sinks found: skb_copy_and_csum_dev (skbuff.c:3902-3925) writes __sum16 at to+csstart+csum_offset with only BUG_ON(csstart>headlen), no csum_offset check; fec_enet_clear_csum (fec_main.c:452-464) writes __sum16 at skb->head+csum_start+csum_offset with zero validation; sunvnet vnet_skb_shape() clone path zeroes/writes skb->data+start+csum_offset; lco_csum (skbuff.h:5377-5390) dereferences csum_start+csum_offset with no re-validation; drivers (cassini, sunhme, sungem, skge, igc TSO csum_partial path) only program HW descriptor fields from these values."}
+  ],
+  "next": "Final artifact: report fec_enet_clear_csum and skb_copy_and_csum_dev + lco_csum as the branch's sink findings (unvalidated consumers), with drivers and skb_checksum_help-classified as safe."
+}

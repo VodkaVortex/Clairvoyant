@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "intent_id": "i032",
+  "branch": "error-unwind-poisoned-count",
+  "status": "complete",
+  "snapshot": "s08",
+  "notes": "Finalized. Reported: qaic_control.c decode_message poisoned device count (store line 974; -ECANCELED/-EPIPE and -EINVAL early returns skip reset; ioctl error path exports msg->count to userspace; request sibling clamps, reply does not). Reported: raid5-ppl.c entries_count unclamped on read/recovery (976, 1151-1153) while write path caps at PPL_HDR_MAX_ENTRIES (280-281). Excluded-by-rule: seed usbip unpatched in s08. Unresolved: ubi fastmap counts. Final artifact at agent-state/findings/i032.json.",
+  "candidates": [
+    {
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 974,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 976,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 473,
+      "status": "unresolved (excluded-by-rule seed)"
+    },
+    {
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 637,
+      "status": "unresolved"
+    }
+  ],
+  "updated_at": "2026-11-14T17:57:09Z"
+}

@@ -1,0 +1,21 @@
+{
+  "intent_id": "i007",
+  "branch": "sysfs-store-attr-terminator",
+  "status": "complete",
+  "snapshot": "s02",
+  "notes": "Intersected 925 files with copy_from_user/memdup_user against 796 files with store callbacks (53 hits), deeply read the strongest; verified kernfs sysfs-store NUL guarantee (fs/kernfs/file.c:311-319, kmalloc(len+1)+buf[len]='\\0') making ordinary ->store() string use safe. Found identical off-by-one in two edac debugfs inject_ue write handlers: len=min_t(size_t,count,sizeof(buf)) into char buf[6] then buf[len]='\\0' -> writes buf[6] whenever count>=6 (1-byte NUL OOB stack write). ASAN harness in $TMPDIR/i007 confirmed the pattern semantics. Also observed unverified secondary issue: strsep may return NULL for token[1] when no comma present, then kstrtou8(NULL,...) - not verified, kept in limitations.",
+  "candidates": [
+    {"path": "drivers/edac/versal_edac.c", "line": 859, "status": "reported", "reason": "len=min_t(size_t,count,sizeof(buf)); copy_from_user(buf,data,len); buf[len]='\\0' with char buf[6]: count>=6 indexes buf[6], one past the stack array"},
+    {"path": "drivers/edac/zynqmp_edac.c", "line": 307, "status": "reported", "reason": "identical pattern: char buf[6], len=min_t(size_t,count,sizeof(buf)), buf[len]='\\0' at line 311 writes OOB when count>=6"},
+    {"path": "drivers/media/rc/imon.c", "line": 883, "status": "safe", "reason": "sscanf on sysfs store buf; kernfs_write_iter allocates len+1 and sets buf[len]='\\0' (fs/kernfs/file.c:311-319)"},
+    {"path": "drivers/scsi/scsi_sysfs.c", "line": 209, "status": "safe", "reason": "buf[len] after strncmp match reads the kernfs-guaranteed in-bounds trailing NUL (kmalloc(len+1))"},
+    {"path": "drivers/scsi/scsi_debug.c", "line": 1031, "status": "safe", "reason": "kzalloc(count+1) provides explicit terminator slot before sscanf"},
+    {"path": "mm/huge_memory.c", "line": 3606, "status": "safe", "reason": "memset whole MAX_INPUT_BUF_SZ buffer, count clamped, input_buf[MAX_INPUT_BUF_SZ-1]='\\0'"},
+    {"path": "mm/vmscan.c", "line": 5457, "status": "safe", "reason": "kvmalloc(len+1) then next[len]='\\0' in-bounds terminator slot"},
+    {"path": "drivers/platform/x86/intel/pmc/core.c", "line": 921, "status": "safe", "reason": "rejects count > sizeof(buf)-1 and writes buf[count]='\\0' in-bounds"},
+    {"path": "drivers/iio/industrialio-core.c", "line": 411, "status": "safe", "reason": "count=min(count,sizeof(buf)-1); buf[count]=0 in-bounds"},
+    {"path": "drivers/platform/x86/toshiba_acpi.c", "line": 1488, "status": "safe", "reason": "len=min(count,sizeof(cmd)-1); cmd[len]='\\0' in-bounds"},
+    {"path": "drivers/usb/gadget/udc/renesas_usb3.c", "line": 2617, "status": "safe", "reason": "copies min(sizeof(buf)-1,count) and only strncmp with fixed len 1; no termination needed"},
+    {"path": "drivers/scsi/hisi_sas/hisi_sas_v3_hw.c", "line": 3950, "status": "safe", "reason": "kbuf[16] zero-initialized and count>=sizeof(kbuf) rejected; strstrip/nstrncmp bounded"}
+  ]
+}

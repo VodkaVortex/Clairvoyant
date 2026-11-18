@@ -1,0 +1,17 @@
+{
+  "intent_id": "i009",
+  "branch": "io-uring-sq-ring",
+  "snapshot": "s02",
+  "status": "finalizing",
+  "note": "s02 is a pre-io_uring tree (no fs/io_uring.c, no include/uapi/linux/io_uring.h, zero io_uring symbols) - branch target structurally absent. Adjacent mmap'd-ring plumbing audited under the same single-fetch invariant. Strongest candidate: tpacket_snd() in net/packet/af_packet.c reading the TX-ring-resident virtio_net_hdr (hdr_len) once inside __packet_snd_vnet_parse() and then independently re-reading vnet_hdr->hdr_len at line 2680 to size the skb; all other ring consumers (aio ring, perf user_page, vhost) use single READ_ONCE/local copies or clamped locals.",
+  "candidates": [
+    {"path": "fs/aio.c", "line": 1032, "status": "safe", "reason": "lookup_ioctx: get_user(id,&ring->id) fetched once; same local id bounds-checked and used for table lookup."},
+    {"path": "fs/aio.c", "line": 1165, "status": "safe", "reason": "aio_read_events_ring: head/tail read once into locals, normalized with %= ctx->nr_events before offset math."},
+    {"path": "fs/aio.c", "line": 940, "status": "safe", "reason": "refill_reqs_available explicitly clamps head modulo ctx->nr_events ('Clamp head since userland can write to it')."},
+    {"path": "fs/aio.c", "line": 1783, "status": "safe", "reason": "io_submit_one copies the whole iocb once with copy_from_user into a stack struct; all later uses come from the snapshot."},
+    {"path": "kernel/events/ring_buffer.c", "line": 161, "status": "safe", "reason": "perf_output_begin: data_tail READ_ONCE into local tail used for the space check and never re-read."},
+    {"path": "kernel/events/ring_buffer.c", "line": 385, "status": "safe", "reason": "perf_aux_output_begin: aux_tail READ_ONCE into local, used once in CIRC_SPACE."},
+    {"path": "drivers/vhost/vhost.c", "line": 2035, "status": "safe", "reason": "vhost_get_vq_desc: ring_head fetched once into local, bounds-checked head >= vq->num, descriptor copy re-read via vhost_copy_from_user into local desc used consistently."},
+    {"path": "net/packet/af_packet.c", "line": 2680, "status": "reported", "reason": "tpacket_snd: virtio_net_hdr lives in user-mapped TX ring; __packet_snd_vnet_parse validates hdr_len <= tp_len but line 2680 re-reads vnet_hdr->hdr_len from shared memory to compute copylen sizing sock_alloc_send_skb; line 2719 passes the same shared pointer to virtio_net_hdr_to_skb for a third fetch. Check-then-use double fetch on mmap'd ring memory."}
+  ]
+}

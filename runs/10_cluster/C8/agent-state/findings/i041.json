@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "intent_id": "i041",
+  "branch": "if-alt-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s10"],
+  "findings": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "start": 1440,
+      "end": 1441,
+      "quote": "if (usbvision_device_data[model].interface >= 0)\n\t\tinterface = &dev->actconfig->interface[usbvision_device_data[model].interface]->altsetting[0];",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: actconfig->interface[] is sized by the device-supplied config->desc.bNumInterfaces at enumeration; a malicious USB gadget can declare a configuration with fewer interfaces (or zero) than the driver's per-model assumption. MISSING GUARANTEE: the model-driven branch indexes actconfig->interface[usbvision_device_data[model].interface] with a hardcoded per-model index and immediately dereferences ->altsetting[0] with no bNumInterfaces check, while the sibling ifnum branch on the very next line (1442: 'else if (ifnum < dev->actconfig->desc.bNumInterfaces)') proves the needed check exists and was omitted for the model-index path; this is the f003 lineage interface-index branch now living in drivers/media/usb/usbvision in s10. UNSAFE USE: the selected interface->desc.bNumEndpoints is then compared (1448) and &interface->endpoint[1].desc is taken, so a too-small interface array (NULL entry beyond parsed count) yields a NULL-pointer dereference at probe from mere plug-in of a device whose probed model has .interface >= 0; additionally usbvision->num_alt = actconfig->interface[0]->num_altsetting is trusted and the probe loop reads uif->altsetting[i].endpoint[1].wMaxPacketSize for all i (1493-1510, the epidx form already reported by f038) with only the altsetting[0] of the chosen interface pre-validated. Counterevidence checked: the bNumEndpoints<2 rejection and the ifnum<bNumInterfaces sibling branch show the driver knows how to validate; core usb_parse_configuration only warns on bNumInterfaces==0 configs, so the index-0 path with a zero-length array is reachable.",
+      "conclusion": "usbvision probe model-table branch indexes actconfig->interface[per-model fixed index] with no bNumInterfaces check (the sibling ifnum branch has it), NULL-deref/invalid-pointer at plug-in."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "start": 314,
+      "end": 322,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];\n\talt->endpoint[0].desc.wMaxPacketSize =",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: actconfig->intf_cache[0]->altsetting[] is the kernel-cached copy of device-supplied configuration descriptors; num_altsetting and each alt's bNumEndpoints are attacker-declared. MISSING GUARANTEE: stv06xx_isoc_init (line 320) and stv06xx_isoc_nego index intf_cache[0]->altsetting[1] with a literal 1 and never check num_altsetting >= 2 nor altsetting[1].desc.bNumEndpoints >= 1, and never re-validate after usb_set_interface switches the altsetting at runtime — exactly the altsetting-level count-validation form of this branch (the endpoint[k] half is owned by media-epidx/f038). UNSAFE USE: the code WRITES alt->endpoint[0].desc.wMaxPacketSize (patching the shared cached descriptor in kernel memory) then usb_set_interface(dev, iface, 1) selects alt 1; a gadget matching the stv06xx device_table with a single altsetting or endpointless alt 1 causes an OOB write/read past the cached descriptor array at VIDIOC_STREAMON. Counterevidence checked: gspca core build_isoc_ep_tb loops over num_altsetting and gspca.c:894 only guards the usb_set_interface call when num_altsetting>1, never the subdriver's direct altsetting[1] dereference; core usb_altnum_to_altsetting inside usb_set_interface would reject the switch but the cache write happens before/independently. Same pattern in xirlink_cit.c:2634-2690 (sd_isoc_init/sd_isoc_nego).",
+      "conclusion": "gspca stv06xx isoc_init/isoc_nego index intf_cache[0]->altsetting[1] with no num_altsetting/bNumEndpoints validation before patching endpoint[0].wMaxPacketSize and switching alt, OOB write at stream start."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "line": 1493,
+      "status": "reported",
+      "reason": "probe loop reads uif->altsetting[i].endpoint[1].wMaxPacketSize for i < num_alt of actconfig->interface[0] with only altsetting[0] of the (possibly different) chosen interface pre-validated; re-confirmed in s10 at lines 1493-1510; classified under finding 1 / already reported by f038 epidx branch.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "line": 2634,
+      "status": "reported",
+      "reason": "sd_isoc_init/sd_isoc_nego copy the intf_cache[0]->altsetting[1].endpoint[0].wMaxPacketSize patch-then-switch pattern with no num_altsetting/bNumEndpoints validation; covered by finding 2 and f038.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/usb",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "The intent asked to deep-read cdc_ncm/cdc-MBIM alt-switching consumers, but drivers/net/usb/cdc-ncm.c and cdc-mbim.c do not exist in snapshot s10 (ls confirms); the cdc_ncm bounded path and any alt-switch re-validation gap could not be checked in this tree.",
+      "conclusion": "Follow up in a snapshot that contains drivers/net/usb/cdc-ncm.c/cdc-mbim.c: verify whether cdc_ncm/cdc_mbim re-validate bNumEndpoints/alt counts after usb_set_interface alt 0->1 switches."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/usb/serial/qcserial.c",
+      "line": 234,
+      "status": "unresolved",
+      "reason": "qcserial.c and sierra.c exist in s10 but the num_altsetting==2 alt-switch paths were only located, not deep-read end-to-end in this pass (rg for num_altsetting in those files returned no matches in the truncated final-pass query, so the guard structure could not be confirmed here).",
+      "conclusion": "Follow up: deep-read qcserial.c/sierra.c alt-switch paths in s10 to confirm whether the num_altsetting guard precedes every altsetting[1] use."
+    },
+    {
+      "snapshot": "s10",
+      "path": "sound/usb",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "The set_alt handler and fixed altsetting[1] sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c) requested for deep reading were not completed in this session; the only targeted grep for altsetting[1]/usb_ifnum_to_if in sound/usb returned no matches in the final pass.",
+      "conclusion": "Follow up: line-by-line review of sound/usb set_alt handlers for altswitch-then-use of endpoint indexes validated only against the old altsetting."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 910,
+      "status": "unresolved",
+      "reason": "Inherited from f038: whether alt_xfer() can return NULL at the create_urbs call site (e.g. after isoc_nego patches wMaxPacketSize to 0 in cached vs live altsetting copies) making create_urbs NULL-deref ep->desc.wMaxPacketSize was not resolved; it is adjacent to this branch's altswitch re-validation question.",
+      "conclusion": "Follow up: data-flow check of isoc_nego wMaxPacketSize patching versus live vs cached altsetting arrays to decide alt_xfer NULL-deref at gspca.c create_urbs."
+    }
+  ],
+  "coverage_gaps": [
+    "sound/usb set_alt handlers and fixed altsetting[1] sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c) were not deep-read in this snapshot; the requested consumer deep-read is incomplete.",
+    "cdc_ncm/cdc MBIM alt-switching could not be checked: drivers/net/usb/cdc-ncm.c and cdc-mbim.c are absent from snapshot s10.",
+    "qcserial/sierra num_altsetting==2 switch paths and V4L2 VIDIOC_S_ALT handlers in this tree were located at best by pattern only and not deep-read end-to-end.",
+    "usbvision exists in s10 at drivers/media/usb/usbvision (non-staging), so the f003 lineage was re-checked; gspca intf_cache altsetting[1] pattern re-confirmed via stv06xx.c:314-322."
+  ],
+  "limitations": [
+    "Search was stopped by the finalize instruction; at most four targeted source reads were used to confirm exact lines, so candidate classification relies on prior session evidence plus the re-read excerpts.",
+    "No compilation or runtime reproducer was built; findings are static-analysis hypotheses about descriptor-driven OOB/NULL access, not demonstrated crashes.",
+    "Reported gspca findings overlap the media-epidx branch (f038) at the endpoint[0] level; only the altsetting-count half (num_altsetting>=2 missing before altsetting[1] plus runtime alt switch) is specific to this branch."
+  ]
+}

@@ -1,0 +1,931 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-0cd273bb5e4d
+  status: active
+  created_at: 1794417025384
+  reason:
+    worker: linux-variant-reason
+    trigger: facts=42 hints=1 open_intents=9 changes=facts:41->42
+    started_at: 1794988426631
+    last_heartbeat_at: 1794988542639
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/public. Seed: [media] cx231xx-cards: fix NULL-deref at probe. The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'Mechanism profile for seed (USB driver probe-time descriptor-array bounds). UNTRUSTED SOURCE: descriptor data supplied at enumeration by a physically attacker-controlled USB device — the contents of usb_host_interface.altsetting[i].desc.bNumEndpoints and the variable-length endpoint[] flex-array per altsetting (also sibling counts bNumInterfaces/num_altsetting); a malicious gadget can omit, reorder, or shrink endpoints/interfaces relative to what a driver assumes for its known device models. MISSING GUARANTEE: no bounds validation of the endpoint array before indexing — code assumes altsetting s has at least k+1 endpoints and never checks altsetting[i].desc.bNumEndpoints > k, neither for altsetting[0] nor re-checked per iteration when looping over num_altsetting; same class includes indexing actconfig->interface[idx] without checking bNumInterfaces. UNSAFE USE: direct fixed-index descriptor reads at probe/bind/init (endpoint[k].desc.bEndpointAddress / .wMaxPacketSize) used to program pipes, and wMaxPacketSize used to compute and store per-altsetting max packet sizes (alt_max_pkt_size[]) that later size/limit URB transfer buffers. CONSEQUENCE: NULL-pointer dereference or out-of-bounds read of kernel memory triggered by mere device plug-in (local DoS, crash at probe; OOB-read values can propagate into buffers/logic, and mis-sized wMaxPacketSize-derived state can enable OOB access later). Transferable invariant: kernel code must validate an untrusted descriptor-declared length before using a device-model-assumed index into a descriptor array. The seed file cx231xx is a demonstration and never reportable; workers must find the same mechanism elsewhere. BRANCHES: media-epidx=drivers/media/usb/** V4L/DVB USB drivers whose probe/bind/init indexes altsetting[..].endpoint[<literal or assumed k>] (incl. per-altsetting loops reading wMaxPacketSize/bEndpointAddress) without a preceding bNumEndpoints>k check; net-epidx=USB networking drivers (drivers/net/usb/**, drivers/net/wireless and wwan USB NICs) with the same missing endpoint-array bounds check in probe/usbnet bind paths; fixed-epidx-rest=whole-tree sweep outside media-usb and net-usb trees for the same fixed-index endpoint[] access without bNumEndpoints validation (drivers/usb serial/class/misc/storage/atm, sound/usb, hid/input/staging USB drivers); if-alt-count=interface/altsetting-level count validation: actconfig->interface[idx] indexed by assumed or device-derived ifnum without bNumInterfaces check, altsetting[bAlternateSetting]/num_altsetting==0 assumptions, and failure to re-validate endpoints after runtime usb_set_interface/S_ALT switches (excludes .endpoint[] accesses owned by branches 1-3).'
+- id: f002
+  description: |-
+    intent=i005 snapshot=s01 branch=if-alt-count status=legacy
+    legacy_fact=f002; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i005.json
+- id: f003
+  description: |-
+    intent=i009 snapshot=s02 branch=if-alt-count status=legacy
+    legacy_fact=f003; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i009.json
+- id: f004
+  description: |-
+    intent=i011 snapshot=s03 branch=net-epidx status=legacy
+    legacy_fact=f004; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i011.json
+- id: f005
+  description: |-
+    intent=i002 snapshot=s01 branch=media-epidx status=legacy
+    legacy_fact=f005; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i002.json
+- id: f006
+  description: |-
+    intent=i007 snapshot=s02 branch=net-epidx status=legacy
+    legacy_fact=f006; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i007.json
+- id: f007
+  description: |-
+    intent=i010 snapshot=s03 branch=media-epidx status=legacy
+    legacy_fact=f007; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i010.json
+- id: f008
+  description: |-
+    intent=i015 snapshot=s04 branch=net-epidx status=legacy
+    legacy_fact=f008; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i015.json
+- id: f009
+  description: |-
+    intent=i016 snapshot=s04 branch=fixed-epidx-rest status=legacy
+    legacy_fact=f009; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i016.json
+- id: f010
+  description: |-
+    intent=i019 snapshot=s05 branch=net-epidx status=legacy
+    legacy_fact=f010; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i019.json
+- id: f011
+  description: |-
+    intent=i022 snapshot=s06 branch=media-epidx status=legacy
+    legacy_fact=f011; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i022.json
+- id: f012
+  description: |-
+    intent=i013 snapshot=s03 branch=if-alt-count status=legacy
+    legacy_fact=f012; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i013.json
+- id: f013
+  description: |-
+    intent=i017 snapshot=s04 branch=if-alt-count status=legacy
+    legacy_fact=f013; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i017.json
+- id: f014
+  description: |-
+    intent=i018 snapshot=s05 branch=media-epidx status=legacy
+    legacy_fact=f014; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i018.json
+- id: f015
+  description: |-
+    intent=i023 snapshot=s06 branch=net-epidx status=legacy
+    legacy_fact=f015; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i023.json
+- id: f016
+  description: |-
+    intent=i006 snapshot=s02 branch=media-epidx status=legacy
+    legacy_fact=f016; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i006.json
+- id: f017
+  description: |-
+    intent=i026 snapshot=s07 branch=media-epidx status=legacy
+    legacy_fact=f017; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i026.json
+- id: f018
+  description: |-
+    intent=i029 snapshot=s07 branch=if-alt-count status=legacy
+    legacy_fact=f018; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i029.json
+- id: f019
+  description: |-
+    intent=i028 snapshot=s07 branch=fixed-epidx-rest status=legacy
+    legacy_fact=f019; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i028.json
+- id: f020
+  description: |-
+    intent=i027 snapshot=s07 branch=net-epidx status=legacy
+    legacy_fact=f020; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i027.json
+- id: f021
+  description: |-
+    intent=i024 snapshot=s06 branch=fixed-epidx-rest status=legacy
+    legacy_fact=f021; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i024.json
+- id: f022
+  description: |-
+    intent=i004 snapshot=s01 branch=fixed-epidx-rest status=legacy
+    legacy_fact=f022; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i004.json
+- id: f023
+  description: |-
+    intent=i008 snapshot=s02 branch=fixed-epidx-rest status=legacy
+    legacy_fact=f023; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i008.json
+- id: f024
+  description: |-
+    intent=i003 snapshot=s01 branch=net-epidx status=legacy
+    legacy_fact=f024; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i003.json
+- id: f025
+  description: |-
+    intent=i021 snapshot=s05 branch=if-alt-count status=legacy
+    legacy_fact=f025; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i021.json
+- id: f026
+  description: |-
+    intent=i014 snapshot=s04 branch=media-epidx status=legacy
+    legacy_fact=f026; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i014.json
+- id: f027
+  description: |-
+    intent=i036 snapshot=s09 branch=fixed-epidx-rest status=legacy
+    legacy_fact=f027; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i036.json
+- id: f028
+  description: |-
+    intent=i030 snapshot=s08 branch=media-epidx status=legacy
+    legacy_fact=f028; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i030.json
+- id: f029
+  description: |-
+    intent=i020 snapshot=s05 branch=fixed-epidx-rest status=legacy
+    legacy_fact=f029; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i020.json
+- id: f030
+  description: |-
+    intent=i025 snapshot=s06 branch=if-alt-count status=legacy
+    legacy_fact=f030; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i025.json
+- id: f031
+  description: |-
+    intent=i035 snapshot=s09 branch=net-epidx status=legacy
+    legacy_fact=f031; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i035.json
+- id: f032
+  description: |-
+    intent=i012 snapshot=s03 branch=fixed-epidx-rest status=legacy
+    legacy_fact=f032; short conclusion unavailable; inspect artifact
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i012.json
+- id: f033
+  description: |-
+    intent=i032 snapshot=s08 branch=fixed-epidx-rest status=complete
+    finding location=sound/usb/fcp.c:1078-1092 confidence=medium conclusion=fcp_find_fc_interface reads endpoint[0].desc of any vendor-class interface with no bNumEndpoints check; a gadget declaring 0 endpoints yields NULL-pointer deref at USB-audio probe, and attacker descriptor values flow into URB setup and buffer sizing.
+    unresolved location=drivers/usb/storage/alauda.c:1124 conclusion=Follow-up needed: trace drivers/usb/storage/usb.c probe-to-init_alauda path to confirm whether generic usb-storage endpoint discovery guarantees at least one endpoint and the desired OUT endpoint before init_alauda's unvalidated endpoint[0] read.
+    unresolved location=drivers/hid/usbhid/usbkbd.c:277 conclusion=Follow-up needed: read usbkbd.c and usbmouse.c probe functions to confirm whether a bNumEndpoints check precedes the unguarded endpoint[0].desc dereference at lines 277/121.
+    coverage_gap=drivers/hid/usbhid/usbkbd.c and usbmouse.c boot-protocol endpoint[0].desc reads were located but their probe functions were not fully re-read to confirm the presence or absence of a bNumEndpoints check before finalization.
+    coverage_gap=drivers/usb/storage/alauda.c init_alauda's unvalidated endpoint[0] read could not be conclusively cleared because the generic usb-storage probe path (drivers/usb/storage/usb.c get_pipes / associate_finish) was not traced end-to-end in this snapshot.
+    coverage_gap=USB core files (drivers/usb/core/{hub,config,devio,driver,message,usb}.c, drivers/usb/host/xhci.c) were spot-checked rather than exhaustively audited, since most accesses are parser-internal or loop-bounded; a dedicated core-focused pass was not performed.
+    coverage_gap=Other interface consumers outside the grep-visible endpoint[ pattern (e.g. accesses via usb_pipe_endpoint(), usb_endpoint_descriptor pointers cached in midlayers, or via #define wrappers other than sound/usb get_endpoint) were not separately enumerated.
+    coverage_gap=drivers/usb/misc and drivers/usb/misc/usbtest.c were only checked for bNumEndpoints presence (idmouse < 1, uss720 < 2, usbtest loop) and not audited line-by-line for other unvalidated indices.
+    artifact=findings/i032.json
+- id: f034
+  description: |-
+    intent=i031 snapshot=s08 branch=net-epidx status=complete
+    finding location=drivers/net/usb/qmi_wwan.c:686-712 confidence=medium conclusion=qmi_wwan_bind path reads control interface endpoint[0] with no bNumEndpoints check (qmi_wwan.c:699); a gadget with a zero-endpoint vendor-spec control interface makes endpoint[] NULL, dereferenced at usb_cdc_wdm_register (line 711), crashing probe on plug-in.
+    coverage_gap=Remaining drivers/net/wireless USB NIC loops (ath10k, ath6kl, at76c50x, ar5523, libertas, libertas_tf, mt76, mt7601u, mwifiex, p54usb, rt2x00, rtl8xxxu, rtlwifi, rtw88, rsi, zd1211rw) were confirmed bNumEndpoints-bounded by grep line evidence, not by full-function reads.
+    coverage_gap=drivers/net/usb drivers using hardcoded pipe numbers with usb_pipe_endpoint() (e.g. lan78xx BULK_IN_PIPE) other than lan78xx were not individually re-read; only their grep-visible patterns were checked.
+    coverage_gap=cdc_mbim.c, huawei_cdc_ncm.c, hso.c control-interface paths beyond the endpoint loops were only spot-checked for status-endpoint endpoint[0]-style reads.
+    coverage_gap=drivers/net/wwan (iosm, mhi, rpmsg, t7xx) contains no USB interface descriptor-array access (PCIe/MHI/rpmsg only), but this was established by a single directory-wide grep, not file-by-file review.
+    artifact=findings/i031.json
+- id: f035
+  description: |-
+    intent=i034 snapshot=s09 branch=media-epidx status=complete
+    coverage_gap=The usbvision driver (known to carry the per-altsetting endpoint[1].wMaxPacketSize -> alt_max_pkt_size[] pattern in other trees) does not exist anywhere in snapshots/s09, so that lineage could not be checked here.
+    coverage_gap=Downstream propagation of wMaxPacketSize-derived sizes into URB completion handlers' copy offsets (e.g., gspca isoc_irq, em28xx, stk1160 buffer writes) was not separately audited; this intent only covered the descriptor-array bounds at the fetch site.
+    coverage_gap=The sweep enumerated every 'endpoint[', 'wMaxPacketSize', 'bEndpointAddress', 'ep_in[', and 'endpoint+' occurrence under drivers/media/usb but did not build the tree or run a static analyzer to catch macro-obscured descriptor accesses.
+    artifact=findings/i034.json
+- id: f036
+  description: |-
+    intent=i033 snapshot=s08 branch=if-alt-count status=complete
+    finding location=sound/usb/usx2y/us122l.c:138-146 confidence=medium conclusion=us122l hwdep open/release pass unchecked usb_ifnum_to_if(0/1) results to usb_autopm_get/put_interface (config->interface[idx] with no bNumInterfaces check); probe-time usb_set_interface on the same ifnums backstops it, so latent, not a confirmed crash.
+    coverage_gap=sound/usb/qcom/qc_audio_offload.c disable path uses info_idx at line 1605 without a sign check, relying on info_idx_from_ifnum returning a valid index when enable==false; full QMI disable-request ordering vs uadev[] lifetime was not traced.
+    coverage_gap=drivers/net/usb/cdc-phonet.c (num_altsetting != 2 at 342) and hso.c (num_altsetting > 1 at 2896) alt-switch paths were located by grep but not deep-read end-to-end in this pass.
+    coverage_gap=sound/usb files outside those audited (6fire/control.c rates_altsetting[] table, hiface/chip.c, line6 alt handling) were only pattern-checked, not line-by-line reviewed.
+    coverage_gap=No VIDIOC_S_ALT / s_alt handler exists in this snapshot's drivers/media (pattern search), so the V4L2 alt-switch consumer class is empty here; absence was established by search pattern, not file-by-file review.
+    coverage_gap=drivers/usb/atm (speedtch.c four usb_set_interface sites) and drivers/usb/storage/uas.c alt-switch consumers were only spot-checked via earlier facts' grep evidence, not re-read in this intent.
+    artifact=findings/i033.json
+- id: f037
+  description: |-
+    intent=i037 snapshot=s09 branch=if-alt-count status=complete
+    finding location=drivers/hid/wacom_sys.c:2528-2541 confidence=medium conclusion=wacom_wireless_work indexes usbdev->config->interface[1]/[2] with no bNumInterfaces check anywhere in the wacom driver, so a spoofed Wacom wireless-receiver gadget with <3 interfaces triggers a NULL-pointer deref in usb_get_intfdata from a device-supplied wireless status report.
+    coverage_gap=usbvision (the f002/f003 lineage driver) does not exist anywhere in snapshots/s09 (find over the whole tree returns nothing), so that proven interface-index branch could not be re-checked in this snapshot.
+    coverage_gap=drivers/usb/gadget composite.c config->interface[] indexing was excluded as device-side code (host is the attacker direction), per the branch definition and prior facts; a host-controlled configfs scenario was not analyzed.
+    artifact=findings/i037.json
+- id: f038
+  description: |-
+    intent=i038 snapshot=s10 branch=media-epidx status=complete
+    finding location=drivers/media/usb/usbvision/usbvision-video.c:1493-1510 confidence=high conclusion=usbvision probe loops all altsettings of interface[0] reading endpoint[1].wMaxPacketSize into alt_max_pkt_size[] with only altsetting[0] of a possibly different interface validated, giving OOB read of descriptor memory at plug-in.
+    finding location=drivers/media/usb/b2c2/flexcop-usb.c:427-433 confidence=high conclusion=flexcop-usb transfer_init reads cur_altsetting->endpoint[0].desc.wMaxPacketSize at probe with no bNumEndpoints check anywhere in the driver; OOB descriptor read directly sizes the isoc URB buffer and frame lengths.
+    finding location=drivers/media/usb/gspca/stv06xx/stv06xx.c:314-345 confidence=high conclusion=gspca stv06xx isoc_init/isoc_nego index intf_cache[0]->altsetting[1].endpoint[0] with no num_altsetting or bNumEndpoints validation at stream start, enabling OOB write/read of the cached descriptor array.
+    finding location=drivers/media/usb/gspca/xirlink_cit.c:2634-2690 confidence=high conclusion=gspca xirlink_cit sd_isoc_init/sd_isoc_nego write and read intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize with no num_altsetting/bNumEndpoints check, OOB access into the device-supplied config cache at stream start.
+    finding location=drivers/media/usb/gspca/stv06xx/stv06xx.c:279-295 confidence=medium conclusion=gspca stv06xx_start reads usb_altnum_to_altsetting(...)->endpoint[0].desc.wMaxPacketSize at stream start without any bNumEndpoints check, OOB descriptor read whose value programs the STV_ISO_SIZE_L bridge register.
+    finding location=drivers/media/usb/gspca/stv06xx/stv06xx_pb0100.c:188-198 confidence=medium conclusion=gspca pb0100_start reads alt->endpoint[0].desc.wMaxPacketSize after only a NULL-altsetting check, no bNumEndpoints validation, OOB descriptor read feeding sensor configuration.
+    finding location=drivers/media/usb/gspca/ov519.c:3455-3473 confidence=medium conclusion=gspca ov511_mode_init_regs reads alt->endpoint[0].desc.wMaxPacketSize with no bNumEndpoints or endpoint-type validation at stream start and programs it into the bridge FIFO packet-size register.
+    finding location=drivers/media/usb/gspca/ov519.c:3581-3599 confidence=medium conclusion=gspca ov518_mode_init_regs reads alt->endpoint[0].desc.wMaxPacketSize with no bNumEndpoints check and feeds the OOB-read value into the OV518 FIFO packet-size bridge registers.
+    finding location=drivers/media/usb/gspca/xirlink_cit.c:1444-1455 confidence=medium conclusion=gspca xirlink_cit cit_get_packet_size returns alt->endpoint[0].desc.wMaxPacketSize with only a NULL-altsetting check, OOB descriptor read used in clock-divisor/bandwidth calculations.
+    finding location=drivers/media/usb/siano/smsusb.c:423-444 confidence=medium conclusion=smsusb_init_device dereferences udev->ep_in[1]->desc.wMaxPacketSize at probe without checking that the device declared an IN endpoint 1, NULL-deref on a descriptor-malformed Siano-spoofing gadget.
+    unresolved location=drivers/media/usb/gspca/gspca.c:910 conclusion=Follow up: determine whether alt_xfer() can return NULL at the create_urbs call site (e.g. after isoc_nego patches wMaxPacketSize to 0 in the cached vs live altsetting copies) making create_urbs NULL-deref ep->desc.wMaxPacketSize.
+    coverage_gap=Downstream propagation of the OOB-read wMaxPacketSize values (usbvision alt_max_pkt_size[], flexcop frame_size/bufsize, gspca create_urbs psize) into URB completion handlers' copy offsets and buffer-write bounds was not audited beyond the sizing sites named in the findings.
+    coverage_gap=The gspca core create_urbs/alt_xfer NULL-deref question (gspca.c:910) was left unresolved as no more targeted reads were permitted; it needs a data-flow check of isoc_nego's wMaxPacketSize patching versus the live vs cached altsetting arrays.
+    artifact=findings/i038.json
+- id: f039
+  description: |-
+    intent=i039 snapshot=s10 branch=net-epidx status=complete
+    finding location=drivers/net/usb/r8152.c:1352-1361 confidence=high conclusion=r8152 alloc_all_mem reads alt->endpoint + 2 .desc.bInterval (r8152.c:1357,1433) to program the interrupt URB interval with no bNumEndpoints >= 3 check anywhere in the driver; a gadget matching the Realtek/Lenovo/NVIDIA IDs with <= 2 endpoints makes ep_intr out of bounds at ifup (OOB read, OOB-sou.
+    finding location=drivers/net/usb/lan78xx.c:3582-3592 confidence=high conclusion=lan78xx_probe dereferences cur_altsetting->endpoint + 0/+1/+2 (lan78xx.c:3582-3592) to program pipe_intr, the kmalloc(maxp) interrupt buffer and URB period with no bNumEndpoints >= 3 check and with bind ignoring lan78xx_get_endpoints' return; a 0-2-endpoint gadget spoofing the Microchip LAN78xx I.
+    finding location=drivers/net/usb/qmi_wwan.c:291-318 confidence=medium conclusion=qmi_wwan_bind's subdriver setup reads control-interface endpoint[0] with no bNumEndpoints check (qmi_wwan.c:304) and passes &dev->status->desc to usb_cdc_wdm_register (316); a gadget with a zero-endpoint COMM control interface and union-pointed data interface NULL-derefs at probe.
+    finding location=drivers/net/wireless/ath/ath9k/hif_usb.c:1213-1230 confidence=high conclusion=ath9k_hif_usb send_eject_command reads altsetting[0].endpoint[1] then [0] with no bNumEndpoints check (hif_usb.c:1223-1224) directly from probe for the storage ID 0cf3:20ff; a 0-1-endpoint gadget crashes probe or feeds an OOB-read address into the eject bulk pipe.
+    finding location=drivers/net/wireless/zydas/zd1211rw/zd_usb.c:1272-1290 confidence=high conclusion=zd1211rw eject_installer reads altsetting[0].endpoint[1] then [0] with no bNumEndpoints check (zd_usb.c:1282-1283) directly from probe for installer IDs 0ace:2011/0ace:20ff; a 0-1-endpoint gadget crashes probe on plug-in or uses an OOB-read address for the eject pipe.
+    coverage_gap=drivers/net/wwan does not exist in snapshot s10 (no such directory), so wwan USB NIC paths could not be checked in this tree; only drivers/net/usb and drivers/net/wireless were in scope of the actual search.
+    coverage_gap=cdc_mbim.c and huawei_cdc_ncm.c were spot-checked only for status-endpoint consumption; their full control-interface handling beyond the cdc_ncm bounded path was not read end to end.
+    artifact=findings/i039.json
+- id: f040
+  description: |-
+    intent=i040 snapshot=s10 branch=fixed-epidx-rest status=complete
+    finding location=drivers/isdn/gigaset/usb-gigaset.c:706-741 confidence=high conclusion=gigaset_probe indexes endpoint[0]/endpoint[1] of an unvalidated descriptor array (no bNumEndpoints check in the file) to size buffers and program URBs; a 0/1-endpoint M105-spoofing gadget crashes probe or feeds OOB-read values into URB setup at plug-in.
+    finding location=drivers/usb/atm/ueagle-atm.c:2205-2213 confidence=high conclusion=uea_boot reads actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval with no bNumEndpoints validation and submits an interrupt URB with it; a zero-endpoint interface-0 Eagle-spoofing gadget OOB-reads descriptor memory at modem bind (plug-in).
+    finding location=drivers/watchdog/pcwd_usb.c:632-648 confidence=high conclusion=usb_pcwd_probe indexes endpoint[0].desc with no bNumEndpoints check (only a HID-class check precedes) and feeds the read into usb_endpoint_is_int_in, pipe setup and URB buffer sizing; a zero-endpoint gadget OOB-reads descriptor memory at plug-in.
+    coverage_gap=drivers/usb/core/{config,devio,driver,hcd,hub,message,devices}.c and drivers/usb/host/xhci.c accesses were only spot-checked for loop-boundedness, not exhaustively re-audited, since they are the descriptor parser itself or internal userspace-API paths.
+    coverage_gap=Files that access endpoint descriptors through cached usb_endpoint_descriptor pointers, usb_pipe_endpoint(), or wrapper macros other than sound/usb get_endpoint were enumerated only via the ->endpoint[ / ->endpoint + / get_endpoint greps; other wrapper names could hide further fixed-index reads.
+    coverage_gap=Whether the OOB-read values (bInterval, wMaxPacketSize, bEndpointAddress) in the three findings can be turned into more than a probe-time crash/DoS (e.g. mis-sized buffers later overflowed) was not traced beyond the immediate sizing/pipe-programming uses named in the reasons.
+    artifact=findings/i040.json
+- id: f041
+  description: |-
+    intent=i041 snapshot=s10 branch=if-alt-count status=complete
+    finding location=drivers/media/usb/usbvision/usbvision-video.c:1440-1441 confidence=high conclusion=usbvision probe model-table branch indexes actconfig->interface[per-model fixed index] with no bNumInterfaces check (the sibling ifnum branch has it), NULL-deref/invalid-pointer at plug-in.
+    finding location=drivers/media/usb/gspca/stv06xx/stv06xx.c:314-322 confidence=high conclusion=gspca stv06xx isoc_init/isoc_nego index intf_cache[0]->altsetting[1] with no num_altsetting/bNumEndpoints validation before patching endpoint[0].wMaxPacketSize and switching alt, OOB write at stream start.
+    unresolved location=drivers/usb/serial/qcserial.c:234 conclusion=Follow up: deep-read qcserial.c/sierra.c alt-switch paths in s10 to confirm whether the num_altsetting guard precedes every altsetting[1] use.
+    unresolved location=drivers/media/usb/gspca/gspca.c:910 conclusion=Follow up: data-flow check of isoc_nego wMaxPacketSize patching versus live vs cached altsetting arrays to decide alt_xfer NULL-deref at gspca.c create_urbs.
+    coverage_gap=sound/usb set_alt handlers and fixed altsetting[1] sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c) were not deep-read in this snapshot; the requested consumer deep-read is incomplete.
+    coverage_gap=cdc_ncm/cdc MBIM alt-switching could not be checked: drivers/net/usb/cdc-ncm.c and cdc-mbim.c are absent from snapshot s10.
+    coverage_gap=qcserial/sierra num_altsetting==2 switch paths and V4L2 VIDIOC_S_ALT handlers in this tree were located at best by pattern only and not deep-read end-to-end.
+    coverage_gap=usbvision exists in s10 at drivers/media/usb/usbvision (non-staging), so the f003 lineage was re-checked; gspca intf_cache altsetting[1] pattern re-confirmed via stv06xx.c:314-322.
+    artifact=findings/i041.json
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794418537836
+  created_at: 1794417025462
+  concluded_at: 1794418537836
+- id: i002
+  sources:
+  - origin
+  - f001
+  target_fact: f005
+  description: 'SNAPSHOT=s01; BRANCH=media-epidx; Search only snapshots/s01 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state (alt_max_pkt_size-like arrays) that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s01.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794423096130
+  created_at: 1794421104621
+  concluded_at: 1794423096130
+- id: i003
+  sources:
+  - origin
+  - f001
+  target_fact: f024
+  description: 'SNAPSHOT=s01; BRANCH=net-epidx; Search only snapshots/s01 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s01.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794678568987
+  created_at: 1794421104623
+  concluded_at: 1794678568987
+- id: i004
+  sources:
+  - origin
+  - f001
+  target_fact: f022
+  description: 'SNAPSHOT=s01; BRANCH=fixed-epidx-rest; Search only snapshots/s01 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, staging USB drivers, and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s01.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794670600550
+  created_at: 1794421104624
+  concluded_at: 1794670600550
+- id: i005
+  sources:
+  - origin
+  - f001
+  target_fact: f002
+  description: 'SNAPSHOT=s01; BRANCH=if-alt-count; Search only snapshots/s01 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s01.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794422750326
+  created_at: 1794421104626
+  concluded_at: 1794422750326
+- id: i006
+  sources:
+  - origin
+  - f001
+  target_fact: f016
+  description: 'SNAPSHOT=s02; BRANCH=media-epidx; Search only snapshots/s02 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state (alt_max_pkt_size-like arrays) that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s02.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794427623685
+  created_at: 1794421104627
+  concluded_at: 1794427623685
+- id: i007
+  sources:
+  - origin
+  - f001
+  target_fact: f006
+  description: 'SNAPSHOT=s02; BRANCH=net-epidx; Search only snapshots/s02 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s02.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794423232340
+  created_at: 1794421104628
+  concluded_at: 1794423232340
+- id: i008
+  sources:
+  - origin
+  - f001
+  target_fact: f023
+  description: 'SNAPSHOT=s02; BRANCH=fixed-epidx-rest; Search only snapshots/s02 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, staging USB drivers, and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s02.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794678131056
+  created_at: 1794421104629
+  concluded_at: 1794678131056
+- id: i009
+  sources:
+  - origin
+  - f001
+  target_fact: f003
+  description: 'SNAPSHOT=s02; BRANCH=if-alt-count; Search only snapshots/s02 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s02.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794422824751
+  created_at: 1794421104631
+  concluded_at: 1794422824751
+- id: i010
+  sources:
+  - origin
+  - f001
+  target_fact: f007
+  description: 'SNAPSHOT=s03; BRANCH=media-epidx; Search only snapshots/s03 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state (alt_max_pkt_size-like arrays) that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s03.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794423828985
+  created_at: 1794421104632
+  concluded_at: 1794423828985
+- id: i011
+  sources:
+  - origin
+  - f001
+  target_fact: f004
+  description: 'SNAPSHOT=s03; BRANCH=net-epidx; Search only snapshots/s03 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s03.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794422936430
+  created_at: 1794421104635
+  concluded_at: 1794422936430
+- id: i012
+  sources:
+  - origin
+  - f001
+  target_fact: f032
+  description: 'SNAPSHOT=s03; BRANCH=fixed-epidx-rest; Search only snapshots/s03 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, staging USB drivers, and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s03.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794757100470
+  created_at: 1794421104636
+  concluded_at: 1794757100470
+- id: i013
+  sources:
+  - origin
+  - f001
+  target_fact: f012
+  description: 'SNAPSHOT=s03; BRANCH=if-alt-count; Search only snapshots/s03 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s03.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794426288002
+  created_at: 1794421104637
+  concluded_at: 1794426288002
+- id: i014
+  sources:
+  - origin
+  - f001
+  target_fact: f026
+  description: 'SNAPSHOT=s04; BRANCH=media-epidx; Search only snapshots/s04 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state (alt_max_pkt_size-like arrays) that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s04.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794689191200
+  created_at: 1794421104638
+  concluded_at: 1794689191200
+- id: i015
+  sources:
+  - origin
+  - f001
+  target_fact: f008
+  description: 'SNAPSHOT=s04; BRANCH=net-epidx; Search only snapshots/s04 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s04.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794424146005
+  created_at: 1794421104639
+  concluded_at: 1794424146005
+- id: i016
+  sources:
+  - origin
+  - f001
+  target_fact: f009
+  description: 'SNAPSHOT=s04; BRANCH=fixed-epidx-rest; Search only snapshots/s04 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, staging USB drivers, and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s04.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794424464410
+  created_at: 1794421104639
+  concluded_at: 1794424464410
+- id: i017
+  sources:
+  - origin
+  - f001
+  target_fact: f013
+  description: 'SNAPSHOT=s04; BRANCH=if-alt-count; Search only snapshots/s04 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s04.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794426373034
+  created_at: 1794421104640
+  concluded_at: 1794426373034
+- id: i018
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f014
+  description: 'SNAPSHOT=s05; BRANCH=media-epidx; Search only snapshots/s05 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in. One pattern already proven live in this family (see fact f002): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize with no bNumEndpoints validation — check whether this snapshot''s gspca tree still has it. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state (alt_max_pkt_size-like arrays) that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s05.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794426389172
+  created_at: 1794423317169
+  concluded_at: 1794426389172
+- id: i019
+  sources:
+  - origin
+  - f001
+  target_fact: f010
+  description: 'SNAPSHOT=s05; BRANCH=net-epidx; Search only snapshots/s05 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s05.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794425897923
+  created_at: 1794423317170
+  concluded_at: 1794425897923
+- id: i020
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f029
+  description: 'SNAPSHOT=s05; BRANCH=fixed-epidx-rest; Search only snapshots/s05 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, staging USB drivers, and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Include interrupt-URB endpoint[0].desc.bInterval reads of the kind flagged unresolved at drivers/usb/atm/ueagle-atm.c in fact f002 and classify them in this snapshot. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s05.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794739397121
+  created_at: 1794423317172
+  concluded_at: 1794739397121
+- id: i021
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f025
+  description: 'SNAPSHOT=s05; BRANCH=if-alt-count; Search only snapshots/s05 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Deep-read rather than only grep-enumerate the runtime alt-switch consumers that fact f002 left unexamined: sound/usb set_alt handlers, cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, and V4L2 VIDIOC_S_ALT handlers. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s05.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794682109724
+  created_at: 1794423317173
+  concluded_at: 1794682109724
+- id: i022
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f011
+  description: 'SNAPSHOT=s06; BRANCH=media-epidx; Search only snapshots/s06 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in. One pattern already proven live in this family (see fact f002): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize with no bNumEndpoints validation — check whether this snapshot''s gspca tree still has it. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state (alt_max_pkt_size-like arrays) that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s06.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794426118120
+  created_at: 1794423317173
+  concluded_at: 1794426118120
+- id: i023
+  sources:
+  - origin
+  - f001
+  target_fact: f015
+  description: 'SNAPSHOT=s06; BRANCH=net-epidx; Search only snapshots/s06 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s06.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794427284438
+  created_at: 1794423317174
+  concluded_at: 1794427284438
+- id: i024
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f021
+  description: 'SNAPSHOT=s06; BRANCH=fixed-epidx-rest; Search only snapshots/s06 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, staging USB drivers, and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Include interrupt-URB endpoint[0].desc.bInterval reads of the kind flagged unresolved at drivers/usb/atm/ueagle-atm.c in fact f002 and classify them in this snapshot. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s06.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794430885308
+  created_at: 1794423317175
+  concluded_at: 1794430885308
+- id: i025
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f030
+  description: 'SNAPSHOT=s06; BRANCH=if-alt-count; Search only snapshots/s06 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Deep-read rather than only grep-enumerate the runtime alt-switch consumers that fact f002 left unexamined: sound/usb set_alt handlers, cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, and V4L2 VIDIOC_S_ALT handlers. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s06.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794742937746
+  created_at: 1794423317176
+  concluded_at: 1794742937746
+- id: i026
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f017
+  description: 'SNAPSHOT=s07; BRANCH=media-epidx; Search only snapshots/s07 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in. One pattern already proven live in this family (see fact f002): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize with no bNumEndpoints validation — check whether this snapshot''s gspca tree still has it. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state (alt_max_pkt_size-like arrays) that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s07.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794428955325
+  created_at: 1794423317177
+  concluded_at: 1794428955325
+- id: i027
+  sources:
+  - origin
+  - f001
+  target_fact: f020
+  description: 'SNAPSHOT=s07; BRANCH=net-epidx; Search only snapshots/s07 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s07.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794429173626
+  created_at: 1794423317178
+  concluded_at: 1794429173626
+- id: i028
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f019
+  description: 'SNAPSHOT=s07; BRANCH=fixed-epidx-rest; Search only snapshots/s07 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, staging USB drivers, and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Include interrupt-URB endpoint[0].desc.bInterval reads of the kind flagged unresolved at drivers/usb/atm/ueagle-atm.c in fact f002 and classify them in this snapshot. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s07.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794429080951
+  created_at: 1794423317179
+  concluded_at: 1794429080951
+- id: i029
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f018
+  description: 'SNAPSHOT=s07; BRANCH=if-alt-count; Search only snapshots/s07 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Deep-read rather than only grep-enumerate the runtime alt-switch consumers that fact f002 left unexamined: sound/usb set_alt handlers, cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, and V4L2 VIDIOC_S_ALT handlers. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s07.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794429012886
+  created_at: 1794423317180
+  concluded_at: 1794429012886
+- id: i030
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f028
+  description: 'SNAPSHOT=s08; BRANCH=media-epidx; Search only snapshots/s08 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in. One pattern already proven live in this family (see fact f002): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize with no bNumEndpoints validation — check whether this snapshot''s gspca tree still has it. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state (alt_max_pkt_size-like arrays) that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s08.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794735856572
+  created_at: 1794423317180
+  concluded_at: 1794735856572
+- id: i031
+  sources:
+  - origin
+  - f001
+  target_fact: f034
+  description: 'SNAPSHOT=s08; BRANCH=net-epidx; Search only snapshots/s08 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s08.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794959577197
+  created_at: 1794423317181
+  concluded_at: 1794959577197
+- id: i032
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f033
+  description: 'SNAPSHOT=s08; BRANCH=fixed-epidx-rest; Search only snapshots/s08 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, staging USB drivers, and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Include interrupt-URB endpoint[0].desc.bInterval reads of the kind flagged unresolved at drivers/usb/atm/ueagle-atm.c in fact f002 and classify them in this snapshot. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s08.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794955918043
+  created_at: 1794423317182
+  concluded_at: 1794955918043
+- id: i033
+  sources:
+  - origin
+  - f001
+  - f002
+  target_fact: f036
+  description: 'SNAPSHOT=s08; BRANCH=if-alt-count; Search only snapshots/s08 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Deep-read rather than only grep-enumerate the runtime alt-switch consumers that fact f002 left unexamined: sound/usb set_alt handlers, cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, and V4L2 VIDIOC_S_ALT handlers. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s08.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794979319792
+  created_at: 1794423317184
+  concluded_at: 1794979319792
+- id: i034
+  sources:
+  - origin
+  - f001
+  - f002
+  - f011
+  target_fact: f035
+  description: 'SNAPSHOT=s09; BRANCH=media-epidx; Search only snapshots/s09 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in or first stream-on. Patterns already proven live in this family (facts f002, f011): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize; usbvision''s per-altsetting endpoint[1].wMaxPacketSize loop feeding alt_max_pkt_size[]; dib0700_rc_setup fixed rc_ep index; konica and flexcop-usb unvalidated wMaxPacketSize reads that size URB buffers — check whether this snapshot''s tree still carries them or has fixed them. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s09.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794976677407
+  created_at: 1794428294083
+  concluded_at: 1794976677407
+- id: i035
+  sources:
+  - origin
+  - f001
+  - f008
+  - f010
+  target_fact: f031
+  description: 'SNAPSHOT=s09; BRANCH=net-epidx; Search only snapshots/s09 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Patterns already proven live in this family (facts f008, f010): lan78xx_probe fixed endpoint + 0/+1/+2 pointers dereferenced to program pipe_intr; r8152 alloc_all_mem endpoint + 2 read feeding the interrupt-URB interval; qmi_wwan control-interface endpoint[0] passed to usb_cdc_wdm_register; ath9k/zd1211rw eject loops reading endpoint[1] first — check whether this snapshot''s tree still carries them or has fixed them. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s09.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794754192463
+  created_at: 1794428294084
+  concluded_at: 1794754192463
+- id: i036
+  sources:
+  - origin
+  - f001
+  - f009
+  target_fact: f027
+  description: 'SNAPSHOT=s09; BRANCH=fixed-epidx-rest; Search only snapshots/s09 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, isdn/gigaset, staging USB drivers (including drivers/staging/media/usbvision and other staging USB media drivers if present in this snapshot), and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Include and classify the interrupt-URB endpoint[0].desc.bInterval pattern proven at drivers/usb/atm/ueagle-atm.c in fact f009 and the drivers/isdn/gigaset/usb-gigaset.c endpoint[0]/endpoint[1] reads left unresolved there. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s09.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794731434055
+  created_at: 1794428294085
+  concluded_at: 1794731434055
+- id: i037
+  sources:
+  - origin
+  - f001
+  - f002
+  - f003
+  target_fact: f037
+  description: 'SNAPSHOT=s09; BRANCH=if-alt-count; Search only snapshots/s09 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Deep-read rather than only grep-enumerate the consumers facts f002 and f003 left unexamined: sound/usb set_alt handlers and fixed altsetting[1] sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c), cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, and V4L2 VIDIOC_S_ALT handlers; also re-check the gspca intf_cache[0]->altsetting[1] pattern proven in fact f002 and the usbvision model-table interface-index branch proven in fact f003 wherever those drivers live in this snapshot. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s09.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794979884949
+  created_at: 1794428294086
+  concluded_at: 1794979884949
+- id: i038
+  sources:
+  - origin
+  - f001
+  - f002
+  - f011
+  target_fact: f038
+  description: 'SNAPSHOT=s10; BRANCH=media-epidx; Search only snapshots/s10 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in or first stream-on. Patterns already proven live in this family (facts f002, f011): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize; usbvision''s per-altsetting endpoint[1].wMaxPacketSize loop feeding alt_max_pkt_size[]; dib0700_rc_setup fixed rc_ep index; konica and flexcop-usb unvalidated wMaxPacketSize reads that size URB buffers — check whether this snapshot''s tree still carries them or has fixed them. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s10.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794982269236
+  created_at: 1794428294086
+  concluded_at: 1794982269236
+- id: i039
+  sources:
+  - origin
+  - f001
+  - f008
+  - f010
+  target_fact: f039
+  description: 'SNAPSHOT=s10; BRANCH=net-epidx; Search only snapshots/s10 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Patterns already proven live in this family (facts f008, f010): lan78xx_probe fixed endpoint + 0/+1/+2 pointers dereferenced to program pipe_intr; r8152 alloc_all_mem endpoint + 2 read feeding the interrupt-URB interval; qmi_wwan control-interface endpoint[0] passed to usb_cdc_wdm_register; ath9k/zd1211rw eject loops reading endpoint[1] first — check whether this snapshot''s tree still carries them or has fixed them. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s10.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794983934465
+  created_at: 1794428294087
+  concluded_at: 1794983934465
+- id: i040
+  sources:
+  - origin
+  - f001
+  - f009
+  target_fact: f040
+  description: 'SNAPSHOT=s10; BRANCH=fixed-epidx-rest; Search only snapshots/s10 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, isdn/gigaset, staging USB drivers (including drivers/staging/media/usbvision and other staging USB media drivers if present in this snapshot), and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Include and classify the interrupt-URB endpoint[0].desc.bInterval pattern proven at drivers/usb/atm/ueagle-atm.c in fact f009 and the drivers/isdn/gigaset/usb-gigaset.c endpoint[0]/endpoint[1] reads left unresolved there. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s10.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794988411385
+  created_at: 1794428294088
+  concluded_at: 1794988411385
+- id: i041
+  sources:
+  - origin
+  - f001
+  - f002
+  - f003
+  target_fact: f041
+  description: 'SNAPSHOT=s10; BRANCH=if-alt-count; Search only snapshots/s10 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Deep-read rather than only grep-enumerate the consumers facts f002 and f003 left unexamined: sound/usb set_alt handlers and fixed altsetting[1] sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c), cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, and V4L2 VIDIOC_S_ALT handlers; also re-check the gspca intf_cache[0]->altsetting[1] pattern proven in fact f002 and the usbvision model-table interface-index branch proven in fact f003 wherever those drivers live in this snapshot. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s10.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794988542829
+  created_at: 1794428294089
+  concluded_at: 1794988542829
+- id: i042
+  sources:
+  - origin
+  - f001
+  - f002
+  - f011
+  target_fact: null
+  description: 'SNAPSHOT=s11; BRANCH=media-epidx; Search only snapshots/s11 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in or first stream-on. Patterns already proven live in this family (facts f002, f011): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize; usbvision''s per-altsetting endpoint[1].wMaxPacketSize loop feeding alt_max_pkt_size[]; dib0700_rc_setup fixed rc_ep index; konica and flexcop-usb unvalidated wMaxPacketSize reads that size URB buffers — check whether this snapshot''s tree still carries them or has fixed them. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s11.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794428294090
+  concluded_at: null
+- id: i043
+  sources:
+  - origin
+  - f001
+  - f008
+  - f010
+  target_fact: null
+  description: 'SNAPSHOT=s11; BRANCH=net-epidx; Search only snapshots/s11 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Patterns already proven live in this family (facts f008, f010): lan78xx_probe fixed endpoint + 0/+1/+2 pointers dereferenced to program pipe_intr; r8152 alloc_all_mem endpoint + 2 read feeding the interrupt-URB interval; qmi_wwan control-interface endpoint[0] passed to usb_cdc_wdm_register; ath9k/zd1211rw eject loops reading endpoint[1] first — check whether this snapshot''s tree still carries them or has fixed them. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s11.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794428294090
+  concluded_at: null
+- id: i044
+  sources:
+  - origin
+  - f001
+  - f009
+  target_fact: null
+  description: 'SNAPSHOT=s11; BRANCH=fixed-epidx-rest; Search only snapshots/s11 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, isdn/gigaset, staging USB drivers (including drivers/staging/media/usbvision and other staging USB media drivers if present in this snapshot), and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Include and classify the interrupt-URB endpoint[0].desc.bInterval pattern proven at drivers/usb/atm/ueagle-atm.c in fact f009 and the drivers/isdn/gigaset/usb-gigaset.c endpoint[0]/endpoint[1] reads left unresolved there. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s11.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794428294091
+  concluded_at: null
+- id: i045
+  sources:
+  - origin
+  - f001
+  - f002
+  - f003
+  target_fact: null
+  description: 'SNAPSHOT=s11; BRANCH=if-alt-count; Search only snapshots/s11 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Deep-read rather than only grep-enumerate the consumers facts f002 and f003 left unexamined: sound/usb set_alt handlers and fixed altsetting[1] sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c), cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, and V4L2 VIDIOC_S_ALT handlers; also re-check the gspca intf_cache[0]->altsetting[1] pattern proven in fact f002 and the usbvision model-table interface-index branch proven in fact f003 wherever those drivers live in this snapshot. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s11.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794428294092
+  concluded_at: null
+- id: i046
+  sources:
+  - origin
+  - f001
+  - f002
+  - f011
+  target_fact: null
+  description: 'SNAPSHOT=s12; BRANCH=media-epidx; Search only snapshots/s12 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in or first stream-on. Patterns already proven live in this family (facts f002, f011): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize; usbvision''s per-altsetting endpoint[1].wMaxPacketSize loop feeding alt_max_pkt_size[]; dib0700_rc_setup fixed rc_ep index; konica and flexcop-usb unvalidated wMaxPacketSize reads that size URB buffers — check whether this snapshot''s tree still carries them or has fixed them. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s12.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794428294094
+  concluded_at: null
+- id: i047
+  sources:
+  - origin
+  - f001
+  - f008
+  - f010
+  target_fact: null
+  description: 'SNAPSHOT=s12; BRANCH=net-epidx; Search only snapshots/s12 (public workspace, no Git metadata) for the seed mechanism in USB networking drivers — drivers/net/usb/** plus USB NICs under drivers/net/wireless and drivers/net/wwan — whose probe or usbnet bind path reads altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize (fixed in/out endpoint index or loop index) without a preceding bNumEndpoints > k check for that altsetting: the same untrusted descriptor-count vs assumed-index invariant as the seed cx231xx NULL-deref. Patterns already proven live in this family (facts f008, f010): lan78xx_probe fixed endpoint + 0/+1/+2 pointers dereferenced to program pipe_intr; r8152 alloc_all_mem endpoint + 2 read feeding the interrupt-URB interval; qmi_wwan control-interface endpoint[0] passed to usb_cdc_wdm_register; ath9k/zd1211rw eject loops reading endpoint[1] first — check whether this snapshot''s tree still carries them or has fixed them. Record exact file:line evidence per candidate, including how the read value programs pipes or sizes rx/tx buffers, and record evidence-backed negatives per driver. Exclude drivers/media/usb (media-epidx branch), trees outside media/net USB (fixed-epidx-rest branch), and interface-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s12.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794428294095
+  concluded_at: null
+- id: i048
+  sources:
+  - origin
+  - f001
+  - f009
+  target_fact: null
+  description: 'SNAPSHOT=s12; BRANCH=fixed-epidx-rest; Search only snapshots/s12 (public workspace, no Git metadata) for the seed mechanism in every USB consumer tree except drivers/media/usb and drivers/net: fixed-index or loop-index reads of altsetting[i].endpoint[k].desc.* at probe/bind/init — USB serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, drivers/usb/atm, sound/usb, HID and input USB drivers, isdn/gigaset, staging USB drivers (including drivers/staging/media/usbvision and other staging USB media drivers if present in this snapshot), and any other USB interface consumer — without a preceding altsetting[i].desc.bNumEndpoints > k validation, i.e. trusting an attacker-controlled descriptor-declared endpoint count. Include and classify the interrupt-URB endpoint[0].desc.bInterval pattern proven at drivers/usb/atm/ueagle-atm.c in fact f009 and the drivers/isdn/gigaset/usb-gigaset.c endpoint[0]/endpoint[1] reads left unresolved there. Sweep the remaining tree and document each candidate with exact file:line evidence of the unvalidated index, the descriptor read, and its downstream use; a subsystem swept clean is an evidence-backed negative worth recording. Exclude media-usb and net-usb trees (other branches) and interface/altsetting-count gaps (if-alt-count branch). Save a structured artifact covering only this assigned snapshot s12.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794428294095
+  concluded_at: null
+- id: i049
+  sources:
+  - origin
+  - f001
+  - f002
+  - f003
+  target_fact: null
+  description: 'SNAPSHOT=s12; BRANCH=if-alt-count; Search only snapshots/s12 (public workspace, no Git metadata) for the interface/altsetting-level form of the seed invariant: actconfig->interface[idx] indexed by an assumed or device-derived ifnum without checking config->desc.bNumInterfaces; altsetting[bAlternateSetting] indexing and num_altsetting==0 or ==1 assumptions used without validation; and code that switches altsettings at runtime (usb_set_interface, S_ALT, set_alt) and then uses endpoint indexes or counts validated only against the old altsetting — all cases of trusting an untrusted descriptor-declared length before an assumed index, the same trust-boundary flaw as the seed cx231xx bug. Deep-read rather than only grep-enumerate the consumers facts f002 and f003 left unexamined: sound/usb set_alt handlers and fixed altsetting[1] sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c), cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, and V4L2 VIDIOC_S_ALT handlers; also re-check the gspca intf_cache[0]->altsetting[1] pattern proven in fact f002 and the usbvision model-table interface-index branch proven in fact f003 wherever those drivers live in this snapshot. Record exact file:line evidence per candidate and evidence-backed negatives. Exclude probe-time .endpoint[k] accesses owned by the media-epidx, net-epidx, and fixed-epidx-rest branches. Save a structured artifact covering only this assigned snapshot s12.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794428294096
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794417025384
+
+```
+
+### Current Intent
+```
+i042
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s11; BRANCH=media-epidx; Search only snapshots/s11 (public workspace, no Git metadata) for the seed mechanism in V4L/DVB USB media drivers under drivers/media/usb/**: probe/bind/init or stream-start code that indexes altsetting[i].endpoint[k].desc.bEndpointAddress or .wMaxPacketSize with a literal or driver-assumed k — including loops over num_altsetting — without first checking altsetting[i].desc.bNumEndpoints > k, i.e. trusting an attacker-controlled descriptor-declared endpoint count to justify an assumed index, which yields NULL-deref or OOB read at device plug-in or first stream-on. Patterns already proven live in this family (facts f002, f011): gspca subdriver isoc_init/isoc_nego hooks reading and patching intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize; usbvision's per-altsetting endpoint[1].wMaxPacketSize loop feeding alt_max_pkt_size[]; dib0700_rc_setup fixed rc_ep index; konica and flexcop-usb unvalidated wMaxPacketSize reads that size URB buffers — check whether this snapshot's tree still carries them or has fixed them. Report each candidate with exact file:line evidence of the missing check, the unsafe read, and any wMaxPacketSize-derived state that later sizes URB buffers; evidence-backed negatives are useful facts. Exclude the seed cx231xx files (demonstration only, never reportable) and interface/altsetting-count gaps owned by if-alt-count. Save a structured artifact covering only this assigned snapshot s11.
+```
+

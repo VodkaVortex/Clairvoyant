@@ -1,0 +1,21 @@
+{
+  "intent_id": "i009",
+  "branch": "ioctl-sock-usercopy-string",
+  "status": "complete",
+  "snapshot": "s02",
+  "candidates": [
+    {"path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c", "line": 315, "status": "reported", "reason": "memdup_user(buf, nbytes) exactly nbytes-sized alloc, then sscanf(kern_buf, \"%x:%x\") with no NUL terminator; exact seed mechanism (bna sibling of scsi bfa)"},
+    {"path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c", "line": 375, "status": "reported", "reason": "same pattern in bnad_debugfs_write_regwr"},
+    {"path": "fs/btrfs/ioctl.c", "line": 2761, "status": "safe", "reason": "strcmp on vol_args->name preceded by btrfs_check_ioctl_vol_args_path memchr NUL check (lines 230-235)"},
+    {"path": "net/netfilter/ipvs/ip_vs_ctl.c", "line": 3804, "status": "safe", "reason": "NLA_NUL_STRING policy (line 3199) + bounded strscpy"},
+    {"path": "net/devlink/param.c", "line": 478, "status": "safe", "reason": "strnlen(nla_data, nla_len) bound check before strcpy"},
+    {"path": "net/netfilter/nfnetlink_cttimeout.c", "line": 169, "status": "safe", "reason": "NLA_NUL_STRING policy len<=31 into name[32]"},
+    {"path": "net/tipc/netlink_compat.c", "line": 587, "status": "safe", "reason": "string_is_terminated() checks on both sides before strcmp"},
+    {"path": "net/ethtool/netlink.c", "line": 128, "status": "safe", "reason": "ETHTOOL_A_HEADER_DEV_NAME policy is NLA_NUL_STRING len ALTIFNAMSIZ-1"},
+    {"path": "drivers/block/rbd.c", "line": 7257, "status": "safe", "reason": "buf from kernfs (NUL-terminated page); %5s into 6-byte opt_buf pre-set to '\\0'"},
+    {"path": "drivers/gpu/drm/amd/amdgpu/amdgpu_ras.c", "line": 283, "status": "safe", "reason": "65-byte str memset to 0 then copy of min(64, size) bytes; NUL guaranteed"},
+    {"path": "drivers/infiniband/core/ucma.c", "line": 1396, "status": "safe", "reason": "memdup_user optval consumed only by optlen-typed checks; no string ops"},
+    {"path": "block/sed-opal.c", "line": 3220, "status": "safe", "reason": "memdup_user of _IOC_SIZE bytes passed to structured parsers, no string ops"}
+  ],
+  "notes": "Investigation complete. Strongest finding: bnad_debugfs.c regrd/regwr write handlers - exact structural twin of seed (scsi bfa bfad_debugfs.c), unfixed in s02 (still memdup_user, not memdup_user_nul). ioctl/sockopt/netlink-focused audit found no analogous site: all netlink string consumers use NLA_NUL_STRING policies or bounded strnlen."
+}

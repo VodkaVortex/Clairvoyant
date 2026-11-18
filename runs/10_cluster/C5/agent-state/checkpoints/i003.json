@@ -1,0 +1,90 @@
+{
+ "intent_id": "i003",
+ "branch": "uapi-double-fetch",
+ "snapshot": "s01",
+ "status": "complete",
+ "progress": [
+  {
+   "step": "init",
+   "detail": "Checkpoint created before first search."
+  },
+  {
+   "step": "scan",
+   "detail": "Structural scanner over 26,608 .c files in s01 attack-surface dirs (kernel, fs, net, ipc, security, mm, block, io_uring, drivers, virt, lib, crypto); 129 candidate functions with >=2 user-fetches of the same pointer token; results persisted to agent-state/tmp/proj_001-i003-explore/doublefetch_scan.json."
+  },
+  {
+   "step": "triage",
+   "detail": "Deeply read top ~20 clusters: usb devio, binder, io_uring, iov_iter, ipmi, sg, ext4, quota, nfsd cld pipe, pktgen, dvb_frontend, scc, ppp_generic, sbusfb, splice, utimes, ax25, sctp, n_gsm, genwqe, comedi, wwan."
+  },
+  {
+   "step": "finding",
+   "detail": "drivers/usb/core/devio.c proc_submiturb() (and proc_submiturb_compat()): copy_from_user(&uurb, arg, sizeof(uurb)) fetches the whole struct incl. iso_frame_desc; proc_do_submiturb validates number_of_packets (1..128) on the kernel copy, but the iso_frame_desc pointer consumed by memdup_user(iso_frame_desc, isofrmlen) is RE-FETCHED from user memory via ((struct usbdevfs_urb __user *)arg)->iso_frame_desc. Same-location double fetch; validated copy != used pointer. Downstream memdup_user is access_ok-bounded so kernel OOB not demonstrated -> confidence low."
+  },
+  {
+   "step": "finalized",
+   "detail": "Final artifact written; done tool to be called."
+  }
+ ],
+ "candidates": [
+  {
+   "path": "drivers/usb/core/devio.c",
+   "line": 2003,
+   "status": "reported"
+  },
+  {
+   "path": "drivers/usb/core/devio.c",
+   "line": 2209,
+   "status": "reported"
+  },
+  {
+   "path": "io_uring/io_uring.c",
+   "line": 1727,
+   "status": "safe"
+  },
+  {
+   "path": "lib/iov_iter.c",
+   "line": 1342,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/android/binder.c",
+   "line": 1780,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/scsi/sg.c",
+   "line": 405,
+   "status": "safe"
+  },
+  {
+   "path": "fs/ext4/ioctl.c",
+   "line": 1599,
+   "status": "safe"
+  },
+  {
+   "path": "fs/nfsd/nfs4recover.c",
+   "line": 710,
+   "status": "safe"
+  },
+  {
+   "path": "net/core/pktgen.c",
+   "line": 984,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/media/dvb-core/dvb_frontend.c",
+   "line": 2442,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/video/fbdev/sbuslib.c",
+   "line": 102,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/usb/core/devio.c",
+   "line": 962,
+   "status": "safe"
+  }
+ ]
+}

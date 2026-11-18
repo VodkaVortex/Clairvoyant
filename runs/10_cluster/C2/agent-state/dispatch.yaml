@@ -1,0 +1,84 @@
+db_path: "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C2/agent-state/clairvoyant.db"
+runtime:
+  interval: 1
+  max_workers: 1
+  max_running_projects: 1
+  max_project_workers: 1
+  healthcheck_timeout: 30
+  prompt_group: default
+tasks:
+  bootstrap:
+    timeout: 3600
+    conclude_timeout: 120
+  reason:
+    timeout: 3600
+    max_intents: 16
+  explore:
+    timeout: 3600
+    conclude_timeout: 120
+worker_name: linux-variant
+bootstrap_intent: derive a transferable Linux-kernel vulnerability mechanism profile
+workers:
+  - name: linux-variant-bootstrap
+    type: command
+    task_types: [bootstrap]
+    max_running: 1
+    program: /usr/bin/python3
+    args:
+      - "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/worker.py"
+      - --role
+      - bootstrap
+    env:
+      GLM_API_KEY: "${GLM_API_KEY}"
+      GLM_MODEL: "${GLM_MODEL}"
+      GLM_EFFORT: "${GLM_EFFORT}"
+      GLM_ANTHROPIC_BASE_URL: "${GLM_ANTHROPIC_BASE_URL}"
+      CLAUDE_BIN: "${CLAUDE_BIN}"
+      LANDLOCK_BIN: "${LANDLOCK_BIN}"
+      VARIANT_PUBLIC_ROOT: "${VARIANT_PUBLIC_ROOT}"
+      VARIANT_STATE_ROOT: "${VARIANT_STATE_ROOT}"
+      VARIANT_WORKER_TIMEOUT: "${VARIANT_CLAUDE_TIMEOUT}"
+      VARIANT_EXPLORE_TIMEOUT: "${VARIANT_EXPLORE_TIMEOUT}"
+      CLAUDE_MAX_TURNS: "${CLAUDE_MAX_TURNS}"
+  - name: linux-variant-reason
+    type: command
+    task_types: [reason]
+    max_running: 1
+    program: /usr/bin/python3
+    args:
+      - "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/worker.py"
+      - --role
+      - reason
+    env:
+      GLM_API_KEY: "${GLM_API_KEY}"
+      GLM_MODEL: "${GLM_MODEL}"
+      GLM_EFFORT: "${GLM_EFFORT}"
+      GLM_ANTHROPIC_BASE_URL: "${GLM_ANTHROPIC_BASE_URL}"
+      CLAUDE_BIN: "${CLAUDE_BIN}"
+      LANDLOCK_BIN: "${LANDLOCK_BIN}"
+      VARIANT_PUBLIC_ROOT: "${VARIANT_PUBLIC_ROOT}"
+      VARIANT_STATE_ROOT: "${VARIANT_STATE_ROOT}"
+      VARIANT_WORKER_TIMEOUT: "${VARIANT_CLAUDE_TIMEOUT}"
+      VARIANT_EXPLORE_TIMEOUT: "${VARIANT_EXPLORE_TIMEOUT}"
+      CLAUDE_MAX_TURNS: "${CLAUDE_MAX_TURNS}"
+  - name: linux-variant-explore
+    type: command
+    task_types: [explore]
+    max_running: 1
+    program: /usr/bin/python3
+    args:
+      - "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/worker.py"
+      - --role
+      - explore
+    env:
+      GLM_API_KEY: "${GLM_API_KEY}"
+      GLM_MODEL: "${GLM_MODEL}"
+      GLM_EFFORT: "${GLM_EFFORT}"
+      GLM_ANTHROPIC_BASE_URL: "${GLM_ANTHROPIC_BASE_URL}"
+      CLAUDE_BIN: "${CLAUDE_BIN}"
+      LANDLOCK_BIN: "${LANDLOCK_BIN}"
+      VARIANT_PUBLIC_ROOT: "${VARIANT_PUBLIC_ROOT}"
+      VARIANT_STATE_ROOT: "${VARIANT_STATE_ROOT}"
+      VARIANT_WORKER_TIMEOUT: "${VARIANT_CLAUDE_TIMEOUT}"
+      VARIANT_EXPLORE_TIMEOUT: "${VARIANT_EXPLORE_TIMEOUT}"
+      CLAUDE_MAX_TURNS: "${CLAUDE_MAX_TURNS}"

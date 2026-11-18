@@ -1,0 +1,232 @@
+{
+  "version": 1,
+  "intent_id": "i027",
+  "branch": "net-epidx",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s07"
+  ],
+  "findings": [
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/lan78xx.c",
+      "start": 3582,
+      "end": 3605,
+      "quote": "dev->ep_blkin = (intf->cur_altsetting)->endpoint + 0;\n\tdev->ep_blkout = (intf->cur_altsetting)->endpoint + 1;\n\tdev->ep_intr = (intf->cur_altsetting)->endpoint + 2;",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: the endpoint[] flex array of the probed interface's cur_altsetting is sized solely by the descriptor-declared bNumEndpoints a physically attacker-controlled USB gadget presents at enumeration; drivers/usb/core/config.c:494-498 in this same snapshot allocates the array only when num_ep > 0 and with exactly num_ep entries, so an altsetting declaring 0/1/2 endpoints yields a NULL or short array. MISSING GUARANTEE: lan78xx_probe (line 3518) takes fixed assumed indexes endpoint + 0/+1/+2 at lines 3582-3584 with no bNumEndpoints >= 3 validation anywhere in the probe path. The only bNumEndpoints reference in the whole file is the scan-loop bound in lan78xx_get_endpoints (line 2770) called from lan78xx_bind (line 2819): it discovers bulk-in/bulk-out/status endpoints by TYPE scan across altsettings and records dev->ep_intr = status (line 2808), but those results are immediately overwritten in probe by the fixed-index assignments, and it never calls usb_set_interface, so the altsetting whose endpoints were scanned need not be intf->cur_altsetting at all - validated fetch and used fetch are different accesses, exactly the seed's validated-vs-used shape. UNSAFE USE: dev->ep_intr->desc.bEndpointAddress is dereferenced at lines 3589-3591 to program dev->pipe_intr via usb_rcvintpipe, period = dev->ep_intr->desc.bInterval (line 3592) sets the interrupt-URB interval passed to usb_fill_int_urb (line 3603-3605), and maxp = usb_maxpacket(..., dev->pipe_intr, 0) (line 3594) sizes the kmalloc'd interrupt buffer (3595). A malicious gadget matching the LAN78XX USB_DEVICE IDs with cur_altsetting declaring fewer than 3 endpoints causes an OOB read past the endpoint flex array (or NULL-pointer dereference via &((struct usb_host_endpoint*)NULL)[2] when num_ep==0 leaves the pointer NULL) at mere device plug-in; the leaked bEndpointAddress programs a pipe and the leaked bInterval/bMaxPacketSize propagate into the submitted interrupt URB. Counterevidence checked: grep over lan78xx.c shows no other bNumEndpoints/num_altsetting guard; usbnet.c:112 usbnet_get_endpoints (not used by this driver) is the safe type-scan pattern; sibling r8152 in other snapshots at least validates elsewhere, here nothing does."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/r8152.c",
+      "start": 1355,
+      "end": 1433,
+      "quote": "struct usb_host_endpoint *ep_intr = alt->endpoint + 2;",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: alt = intf->cur_altsetting (line 1354); its endpoint[] array length is the device-declared bNumEndpoints at enumeration (config.c:494-498 allocates exactly num_ep entries, NULL when num_ep == 0). MISSING GUARANTEE: alloc_all_mem() takes endpoint + 2 with a fixed assumed index 2 and there is no bNumEndpoints >= 3 validation anywhere in r8152.c - grep for bNumEndpoints over the whole file returns zero hits. rtl8152_probe (line 4329) only checks udev->actconfig->desc.bConfigurationValue == 1 (line 4337) and never validates the altsetting's endpoint count, and the driver never switches altsetting between probe and rtl8152_open. UNSAFE USE: ep_intr->desc.bInterval is read at line 1430 to set tp->intr_interval, which parameterizes usb_fill_int_urb(tp->intr_urb, ..., usb_rcvintpipe(tp->udev, 3), tp->intr_buff, INTBUFSIZE, intr_callback, tp, tp->intr_interval) at lines 1431-1433, submitted from rtl8152_open (line 3266-3271 -> 3280). A gadget presenting the Realtek/Samsung/Lenovo RTL8152/8153 USB IDs with fewer than 3 endpoints in the data interface's cur_altsetting makes endpoint + 2 an out-of-bounds read past the flex array at first ifup (OOB-read bInterval installed as the interrupt URB polling interval); with bNumEndpoints == 0 the array pointer is NULL and ep_intr becomes a wild small offset from NULL, giving a fault. Counterevidence checked: zero bNumEndpoints/num_altsetting references in the file; trigger requires rtl8152_open (interface up) rather than mere plug-in, so consequence is delayed but the invariant violation is identical to the seed. Sibling drivers cdc_ether.c:293 ('if (info->control->cur_altsetting->desc.bNumEndpoints == 1)') and sierra_net.c:698 ('if (numendpoints != 3)') demonstrate the correct guard that is absent here."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/qmi_wwan.c",
+      "start": 302,
+      "end": 317,
+      "quote": "if (info->control != info->data)\n\t\tdev->status = &info->control->cur_altsetting->endpoint[0];",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: the control interface's cur_altsetting endpoint[] array length is the device-declared bNumEndpoints; config.c:494-498 in this snapshot skips allocation (NULL pointer) when num_ep == 0 and allocates exactly num_ep entries otherwise. MISSING GUARANTEE: qmi_wwan_register_subdriver(), called from qmi_wwan_bind (line 402, via usbnet_probe for any of the matched QMI interface IDs) whenever a CDC Union descriptor names a separate data interface (info->control != info->data, line 303), takes &info->control->cur_altsetting->endpoint[0] at line 304 with no bNumEndpoints > 0 check on the control altsetting; grep shows the only endpoint reference in the file is line 316's use of dev->status->desc and there is no count validation anywhere on this path. UNSAFE USE: dev->status->desc is passed to usb_cdc_wdm_register (line 316); wdm_create (drivers/usb/class/cdc-wdm.c, read in this session at lines 805-869) immediately reads usb_endpoint_is_int_in(ep) (line 827) and usb_endpoint_maxp(ep) (line 830) to size desc->sbuf = kmalloc(desc->wMaxPacketSize) (line 855), then uses ep->bEndpointAddress (line 866) to program usb_rcvintpipe for the validity interrupt URB. A gadget presenting a CDC Union whose control interface declares bNumEndpoints >= 1 with a non-interrupt or garbage endpoint descriptor feeds unvalidated descriptor contents into WDM buffer sizing and pipe programming; the zero-endpoint case degrades to dev->status == NULL (&NULL[0] is NULL) which the !dev->status check at 307-310 rejects, so the memory-safety impact is an unvalidated-descriptor-feed rather than a guaranteed OOB, hence medium confidence. Counterevidence checked: cdc_ether.c:293-304 is the canonical correct pattern (bNumEndpoints == 1 guard plus int-in/wMaxPacketSize/bInterval validation) applied to the identical control->cur_altsetting->endpoint[0] fetch, proving the required check is known and was omitted on this path."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/lan78xx.c",
+      "line": 3584,
+      "status": "reported",
+      "reason": "Fixed-index endpoint + 0/1/2 at probe (3582-3584) with no bNumEndpoints >= 3 check in the file's probe path; ep_intr->desc.bEndpointAddress (3589-3591) and .bInterval (3592) program pipe_intr and usb_fill_int_urb; usb_maxpacket sizes the kmalloc'd intr buffer (3594-3595)."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/r8152.c",
+      "line": 1355,
+      "status": "reported",
+      "reason": "alloc_all_mem takes alt->endpoint + 2 and reads ep_intr->desc.bInterval at 1430 into usb_fill_int_urb at 1431-1433; zero bNumEndpoints occurrences in the entire file; rtl8152_probe (4329) never validates endpoint count."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/qmi_wwan.c",
+      "line": 304,
+      "status": "reported",
+      "reason": "control-interface endpoint[0] taken unconditionally when control != data and fed to usb_cdc_wdm_register/wdm_create which reads descriptor fields to size sbuf and program the int pipe; no bNumEndpoints check (zero count references in file)."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/ath/ath9k/hif_usb.c",
+      "line": 1224,
+      "status": "reported",
+      "reason": "send_eject_command (1213-1263), called directly from ath9k_hif_usb_probe when id->driver_info == STORAGE_DEVICE (1272-1273, matching USB_DEVICE(0x0cf3,0x20ff) at line 61-62), loops 'for (r = 1; r >= 0; r--) endpoint = &iface_desc->endpoint[r].desc;' over interface->altsetting[0] - the very first access assumes at least 2 endpoints with no bNumEndpoints check anywhere in the function or before the STORAGE_DEVICE dispatch; OOB-read bEndpointAddress then programs usb_sndbulkpipe(udev, bulk_out_ep) for the eject bulk URB (1252)."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/zydas/zd1211rw/zd_usb.c",
+      "line": 1283,
+      "status": "reported",
+      "reason": "eject_installer (1272-1314) is the original of which ath9k's send_eject_command is 'an exact copy' (hif_usb.c:1211 comment); called from probe when id->driver_info & DEVICE_INSTALLER (1365-1366, matching 0x0ace:0x2011/0x20ff at lines 99-100); reads intf->altsetting[0].endpoint[r].desc for r = 1 then 0 with no bNumEndpoints validation, and the OOB-read bEndpointAddress programs usb_sndbulkpipe for the eject URB (1311)."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/cdc_ether.c",
+      "line": 296,
+      "status": "safe",
+      "reason": "usbnet_generic_cdc_bind takes dev->status = &info->control->cur_altsetting->endpoint[0] only inside 'if (info->control->cur_altsetting->desc.bNumEndpoints == 1)' (line 293) and further validates usb_endpoint_is_int_in, wMaxPacketSize >= sizeof(usb_cdc_notification) and bInterval (298-304), else sets dev->status = NULL - the canonical correct pattern for the exact fetch qmi_wwan performs unguarded."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/cdc-phonet.c",
+      "line": 377,
+      "status": "safe",
+      "reason": "usbpn_probe requires data_intf->num_altsetting == 2 (350-351) and a bNumEndpoints == 0/2 or 2/0 pattern across both altsettings (352-360) before the data_desc->endpoint[0]/[1].desc.bEndpointAddress reads (377-387) that program rx_pipe/tx_pipe; the chosen altsetting is exactly the one validated to have 2 endpoints."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/sierra_net.c",
+      "line": 696,
+      "status": "safe",
+      "reason": "sierra_net_bind reads numendpoints = intf->cur_altsetting->desc.bNumEndpoints and returns -ENODEV on != 3 (696-702) before delegating endpoint discovery to usbnet_get_endpoints; no fixed-index endpoint[] access in the driver."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/usbnet.c",
+      "line": 112,
+      "status": "safe",
+      "reason": "usbnet_get_endpoints, the shared bind path for asix/dm9601/mcs7830/sr9700/sr9800/ch9200/aqc111/ax88179_178a/ax88172a/cx82310_eth/int51x1/net1080/plusb/zaurus/rndis_host/cdc_subset consumers, scans 'for (ep = 0; ep < alt->desc.bNumEndpoints; ep++)' per altsetting (line 112) selecting in/out/status by type and direction, never by assumed index; the only set_interface call (144-150) selects the same altsetting that was scanned."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/cdc_ncm.c",
+      "line": 681,
+      "status": "safe",
+      "reason": "cdc_ncm_common endpoint discovery loops 'for (ep = 0; ep < intf->cur_altsetting->desc.bNumEndpoints; ep++)' (681) taking e = intf->cur_altsetting->endpoint + ep (683) and recording dev->status by type scan (688); cdc_mbim/huawei_cdc_ncm/cdc_ether all route through validated paths."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/hso.c",
+      "line": 3138,
+      "status": "safe",
+      "reason": "hso_get_ep (3131-3144) and hso_get_mux_ports (3148-3165) iterate i < iface->desc.bNumEndpoints; all endpoint pointers are NULL-checked before dereference (hso_net in/out at 2522-2533, shared-int intr_endp at 2767-2772 before the wMaxPacketSize-sized kzalloc at 2777-2779); this also resolves the hso intr_endp NULL-check question left unresolved in other snapshots - the check at 2769-2771 exists in s07."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/ipheth.c",
+      "line": 503,
+      "status": "safe",
+      "reason": "ipheth endpoint discovery loops 'for (i = 0; i < hintf->desc.bNumEndpoints; i++)' (503) before endp = &hintf->endpoint[i].desc (504); index bounded by the untrusted count itself."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/realtek/rtlwifi/usb.c",
+      "line": 349,
+      "status": "safe",
+      "reason": "_rtl_usb_init takes epnums = cur_altsetting->desc.bNumEndpoints (349) and loops epidx < epnums (352) before endpoint[epidx] (354); endpoint addresses are recorded from the scanned descriptors, not assumed indexes."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/broadcom/brcm80211/brcmfmac/usb.c",
+      "line": 1338,
+      "status": "safe",
+      "reason": "brcmf_usb_probe_phase takes num_of_eps = desc->bNumEndpoints (1338) and loops ep < num_of_eps (1339) before endpoint[ep] (1340), requiring rx and tx pipes to be found by type scan."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/marvell/mwifiex/usb.c",
+      "line": 423,
+      "status": "safe",
+      "reason": "mwifiex_usb_assign_endpoints loops i < iface_desc->desc.bNumEndpoints (423) before epd = &iface_desc->endpoint[i].desc (424); no fixed endpoint index anywhere in the driver's bind path."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/mediatek/mt7601u/usb.c",
+      "line": 223,
+      "status": "safe",
+      "reason": "mt7601u init loops i < intf_desc->desc.bNumEndpoints (223) before endpoint[i] (224); addresses recorded per type with checks for duplicate pipes."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/intersil/p54/p54usb.c",
+      "line": 1018,
+      "status": "safe",
+      "reason": "p54u_find_endpoints sets i = intf->altsetting->desc.bNumEndpoints (1018) and iterates while (i--) over endpoint[i] (1021) - index starts inside the array and decreases, so all accesses are within the descriptor-declared count."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/ath/ath6kl/usb.c",
+      "line": 307,
+      "status": "safe",
+      "reason": "ath6kl_usb_probe loops i < iface_desc->desc.bNumEndpoints (307) before endpoint[i] (308) and maps endpoints to pipes by type scan; the htc->endpoint[] arrays flagged in other snapshots are driver-internal HTC structures keyed by firmware-supplied eids, not USB descriptor arrays, and are out of this branch's invariant."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/ath/carl9170/usb.c",
+      "line": 1066,
+      "status": "safe",
+      "reason": "carl9170_usb_probe loops i < intf->cur_altsetting->desc.bNumEndpoints (1066) before endpoint[i] (1067) and requires both bulk-in and bulk-out to be found by type scan."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/intersil/orinoco/orinoco_usb.c",
+      "line": 1603,
+      "status": "safe",
+      "reason": "ezusb_probe loops i < iface_desc->bNumEndpoints (1603) before altsetting[0].endpoint[i] (1604); index bounded by the altsetting's own descriptor count."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/marvell/libertas/if_usb.c",
+      "line": 226,
+      "status": "safe",
+      "reason": "if_usb_probe loops i < iface_desc->desc.bNumEndpoints (226) before endpoint[i] (227); bulk-in/bulk-out discovered by type scan with error if not found."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/marvell/libertas_tf/if_usb.c",
+      "line": 172,
+      "status": "safe",
+      "reason": "if_usb_probe loops i < iface_desc->desc.bNumEndpoints (172) before endpoint[i] (173); same bounded type-scan pattern as libertas."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/rsi/rsi_91x_usb.c",
+      "line": 108,
+      "status": "safe",
+      "reason": "rsi_usb_probe loops ii < iface_desc->desc.bNumEndpoints (108) before endpoint[ii] (109); bulk in/out and interrupt endpoints recorded by type scan."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/atmel/at76c50x-usb.c",
+      "line": 2249,
+      "status": "safe",
+      "reason": "at76_probe loops i < iface_desc->desc.bNumEndpoints (2249) before endpoint[i] (2250) and rejects probe when the expected bulk-in/bulk-out/interrupt endpoints are not found; it even logs the descriptor-declared count at 2244."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c",
+      "line": 5923,
+      "status": "safe",
+      "reason": "rtl8xxxu_parse_usb reads endpoints = interface_desc->bNumEndpoints (5921) and loops i < endpoints (5923) before endpoint[i] (5924); pipes are built from the scanned descriptors' own addresses (5946, 5962) and duplicate-pipe cases are rejected with -EINVAL."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/usb/kaweth.c",
+      "line": 559,
+      "status": "safe",
+      "reason": "Legacy drivers (kaweth.c, pegasus.c, catc.c, rtl8150.c, cx82310_eth.c, gl620a.c driver_info .in/.out) program pipes from hardcoded endpoint numbers (kaweth usb_rcvbulkpipe(dev,1) at 559, usb_rcvintpipe(dev,3) at 693, usb_sndbulkpipe(dev,2) at 826) without ever indexing the descriptor array; no descriptor-array index exists to validate, so this is out of the invariant's scope (device-behavior mismatch only)."
+    }
+  ],
+  "limitations": [
+    "No compilation or dynamic USB-gadget reproducer was run: the snapshot is read-only and any build/test would live under $TMPDIR only; all findings rest on structural source evidence (fixed-index endpoint[] fetch with no bNumEndpoints validation, verified against this snapshot's own drivers/usb/core/config.c:494-498 allocation semantics), expressed as hypotheses.",
+    "The r8152 finding's OOB read affects only the interrupt-URB polling interval (pipe uses hardcoded endpoint number 3) and requires bringing the netdev up via rtl8152_open rather than mere plug-in, so its trigger is delayed relative to the seed's probe-time crash.",
+    "qmi_wwan.c:304's zero-endpoint control-interface case degrades to a caught NULL (&endpoint[0] of a never-allocated array is NULL, rejected at 307-310), so its memory-safety impact is limited to the unvalidated >=1-endpoint non-interrupt descriptor feed into wdm_create's buffer sizing and pipe programming; reported at medium confidence for the violated invariant.",
+    "The ath9k/zd1211rw eject paths are reachable only via the STORAGE_DEVICE (0x0cf3:0x20ff) / DEVICE_INSTALLER (0x0ace:0x2011, 0x0ace:0x20ff) driver_info quirks, i.e. a gadget presenting those specific IDs; impact is an OOB descriptor read whose value programs a bulk-out pipe, with no write primitive demonstrated.",
+    "Legacy hardcoded-pipe drivers (kaweth, pegasus, catc, rtl8150, cx82310_eth, gl620a) were classified out of the invariant because they never index the descriptor array; their device-behavior consequences were not analyzed further.",
+    "The sweep covered all drivers/net/usb/*.c (fixed-index endpoint[] grep plus bNumEndpoints cross-check) and all USB drivers under drivers/net/wireless (ath9k, ath6kl, ath10k USB attach, carl9170, at76c50x, p54usb, orinoco, rsi, mt7601u, rtlwifi, rtl8xxxu, mwifiex, libertas, libertas_tf, zd1211rw, brcmfmac); drivers/net/wwan does not exist in s07, so that portion of the branch scope is vacuously clean; ath6kl/ath9k HTC endpoint[] arrays are driver-internal firmware-keyed structures and were excluded.",
+    "Interface/altsetting-count gaps (actconfig->interface[idx], num_altsetting assumptions, runtime set_alt re-validation) are owned by the if-alt-count branch and were intentionally not audited here; drivers/media/usb and non-net trees are owned by sibling branches.",
+    "No Git history or external CVE databases were consulted (not permitted); 'same fix lineage' judgments rely on source content only."
+  ]
+}

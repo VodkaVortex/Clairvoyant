@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "repo": "/mnt/raid/home/yangshuangning/linux",
+  "seed": {
+    "hexsha": "13d0cecb4626fae67c00c84d3c7851f6b62f7df3",
+    "one_line_summary": "scsi: bfa: Ensure the copied buf is NUL terminated",
+    "vulnerability_summary": "User-supplied buffer copied via memdup_user is parsed with sscanf without NUL termination guarantee, causing out-of-bounds read when sscanf scans past the allocated buffer boundary.",
+    "vulnerability_pattern": "Buffers copied from userspace with fixed-size allocation are passed to string-parsing functions without guaranteed NUL termination, violating C-string invariant required by parsers.",
+    "patch": "commit 13d0cecb4626fae67c00c84d3c7851f6b62f7df3\nAuthor: Bui Quang Minh <minhquangbui99@gmail.com>\nDate:   Wed Apr 24 21:44:20 2024 +0700\n\n    scsi: bfa: Ensure the copied buf is NUL terminated\n    \n    Currently, we allocate a nbytes-sized kernel buffer and copy nbytes from\n    userspace to that buffer. Later, we use sscanf on this buffer but we don't\n    ensure that the string is terminated inside the buffer, this can lead to\n    OOB read when using sscanf. Fix this issue by using memdup_user_nul instead\n    of memdup_user.\n    \n    Fixes: 9f30b674759b (\"bfa: replace 2 kzalloc/copy_from_user by memdup_user\")\n    Signed-off-by: Bui Quang Minh <minhquangbui99@gmail.com>\n    Link: https://lore.kernel.org/r/20240424-fix-oob-read-v2-3-f1f1b53a10f4@gmail.com\n    Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>\n\ndiff --git a/drivers/scsi/bfa/bfad_debugfs.c b/drivers/scsi/bfa/bfad_debugfs.c\nindex 52db147d9979..f6dd077d47c9 100644\n--- a/drivers/scsi/bfa/bfad_debugfs.c\n+++ b/drivers/scsi/bfa/bfad_debugfs.c\n@@ -250,7 +250,7 @@ bfad_debugfs_write_regrd(struct file *file, const char __user *buf,\n \tunsigned long flags;\n \tvoid *kern_buf;\n \n-\tkern_buf = memdup_user(buf, nbytes);\n+\tkern_buf = memdup_user_nul(buf, nbytes);\n \tif (IS_ERR(kern_buf))\n \t\treturn PTR_ERR(kern_buf);\n \n@@ -317,7 +317,7 @@ bfad_debugfs_write_regwr(struct file *file, const char __user *buf,\n \tunsigned long flags;\n \tvoid *kern_buf;\n \n-\tkern_buf = memdup_user(buf, nbytes);\n+\tkern_buf = memdup_user_nul(buf, nbytes);\n \tif (IS_ERR(kern_buf))\n \t\treturn PTR_ERR(kern_buf);\n \n"
+  },
+  "scope": "cluster",
+  "mode": "historical",
+  "reference": "8d3ae59288f1e7d58d76558a6ee96d533bc5019f",
+  "dataset_sha256": "1b4f36dbf771d65ae28712499836373df5d39f0ab54ba487bfedece7df4fb92b",
+  "snapshots": {
+    "s01": "52afb15e9d9a021ab6eec923a087ec9f518cb713",
+    "s02": "666854ea9cad844f75a068f32812a2d78004914a",
+    "s03": "13d0cecb4626fae67c00c84d3c7851f6b62f7df3",
+    "s04": "b961ec10b9f9719987470236feb50c967db5a652"
+  },
+  "targets": [
+    {
+      "hexsha": "666854ea9cad844f75a068f32812a2d78004914a",
+      "title": "ice: ensure the copied buf is NUL terminated",
+      "cluster": "rootcause-curated-c10",
+      "origin": "root_cause_cluster",
+      "snapshot": "s01",
+      "parent": "52afb15e9d9a021ab6eec923a087ec9f518cb713",
+      "units": [
+        {
+          "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+          "ranges": [
+            [
+              174,
+              174
+            ],
+            [
+              260,
+              260
+            ],
+            [
+              335,
+              335
+            ],
+            [
+              431,
+              431
+            ]
+          ],
+          "functions": [
+            {
+              "name": "ice_debugfs_module_write",
+              "start": 160,
+              "end": 207
+            },
+            {
+              "name": "ice_debugfs_nr_messages_write",
+              "start": 245,
+              "end": 283
+            },
+            {
+              "name": "ice_debugfs_enable_write",
+              "start": 321,
+              "end": 378
+            },
+            {
+              "name": "ice_debugfs_log_size_write",
+              "start": 416,
+              "end": 468
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "8c34096c7fdf272fd4c0c37fe411cd2e3ed0ee9f",
+      "title": "bna: ensure the copied buf is NUL terminated",
+      "cluster": "rootcause-curated-c10",
+      "origin": "root_cause_cluster",
+      "snapshot": "s02",
+      "parent": "666854ea9cad844f75a068f32812a2d78004914a",
+      "units": [
+        {
+          "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+          "ranges": [
+            [
+              315,
+              315
+            ],
+            [
+              375,
+              375
+            ]
+          ],
+          "functions": [
+            {
+              "name": "bnad_debugfs_write_regrd",
+              "start": 300,
+              "end": 359
+            },
+            {
+              "name": "bnad_debugfs_write_regwr",
+              "start": 361,
+              "end": 402
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "d0184a375ee797eb657d74861ba0935b6e405c62",
+      "title": "scsi: qedf: Ensure the copied buf is NUL terminated",
+      "cluster": "rootcause-curated-c10",
+      "origin": "root_cause_cluster",
+      "snapshot": "s03",
+      "parent": "13d0cecb4626fae67c00c84d3c7851f6b62f7df3",
+      "units": [
+        {
+          "path": "drivers/scsi/qedf/qedf_debugfs.c",
+          "ranges": [
+            [
+              173,
+              173
+            ]
+          ],
+          "functions": [
+            {
+              "name": "qedf_dbg_debug_cmd_write",
+              "start": 160,
+              "end": 189
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "da7c622cddd4fe36be69ca61e8c42e43cde94784",
+      "title": "s390/cio: Ensure the copied buf is NUL terminated",
+      "cluster": "rootcause-curated-c10",
+      "origin": "root_cause_cluster",
+      "snapshot": "s04",
+      "parent": "b961ec10b9f9719987470236feb50c967db5a652",
+      "units": [
+        {
+          "path": "drivers/s390/cio/cio_inject.c",
+          "ranges": [
+            [
+              98,
+              98
+            ]
+          ],
+          "functions": [
+            {
+              "name": "crw_inject_write",
+              "start": 85,
+              "end": 125
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "evaluation_note": "Historical location recovery, not exploit confirmation. Snapshot mode does not measure historical recall."
+}

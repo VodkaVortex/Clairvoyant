@@ -1,0 +1,228 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "tx-cow-head-realloc",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/network-coding.c",
+      "start": 1150,
+      "end": 1174,
+      "quote": "if (skb_linearize(skb_dest) < 0 || skb_linearize(skb_src) < 0)",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: batadv_nc_code_packets() is reached from the batman-adv RX forward path (batadv_recv_unicast_packet -> batadv_route_unicast_packet -> batadv_send_skb_to_orig -> batadv_nc_skb_forward -> batadv_nc_skb_dst_search, net/batman-adv/send.c:200) and merges two network-received unicast packets, at least one of which is a stored skb_clone from an earlier sniffed/forwarded remote packet (batadv_nc_skb_store_for_decoding() clones the RX skb, network-coding.c:1596). VIOLATED INVARIANT: packet1 and packet2 are captured as casts of nc_packet->skb->data and skb->data at lines 1118-1132 and must be reloaded after any call that may reallocate skb->head; skb_linearize() on a cloned/non-linear skb calls pskb_expand_head() which frees the old head (documented at net/core/skbuff.c:1191-1192: 'All the pointers pointing into skb header may change and must be reloaded after call'). UNSAFE USE: skb_linearize(skb_dest) and skb_linearize(skb_src) at line 1150 run while both packet1 and packet2 stay live; the stale pointers are then dereferenced at lines 1160 (packet1->ttl), 1164 (packet1->dest), 1166 (packet1->ttvn), 1171 (packet2->dest), 1173 (packet2->ttl), 1174 (packet2->ttvn) with no refetch. Because the sniffed nc_packet->skb is a clone whose head is shared, skb_linearize on it is guaranteed to unshare via pskb_expand_head, freeing the old head that packet1/packet2 still point into -- same structural and lifetime bug as the seed's pep_get_sb() (pointer captured, head reallocated, stale pointer dereferenced). Consequence: KASAN-detectable slab use-after-free read of batadv unicast header fields (ttl/dest/ttvn) whose values are then written into the transmitted coded_packet header, i.e. read of freed slab memory that influences forwarded packet state. COUNTEREVIDENCE: no runtime reproducer was built; whether skb (the freshly forwarded skb) is non-linear at this point is path-dependent (its callers cow but the cow only reallocates when cloned); the strongest guaranteed path is the nc_packet->skb clone, and if skb_dest happens to be the already-unshared skb the reads of packet1 still come from the freed nc_packet->skb old head only when linearize reallocated it."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "start": 230,
+      "end": 240,
+      "quote": "icmph = (struct batadv_icmp_header *)skb->data;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: batadv_recv_my_icmp_packet() processes network-received batman-adv ICMP packets (registered handler for BATADV_ICMP, net/batman-adv/main.c:530) whose header bytes at skb->data are fully attacker-controlled by a mesh peer. VIOLATED INVARIANT: icmph is captured at line 230 as a cast of skb->data and must be refetched after any call that may reallocate the head. UNSAFE USE: skb_linearize(skb) at line 237 can pskb_expand_head()/free skb->head when the skb is cloned or non-linear; the stale pre-linearize icmph is then passed to batadv_socket_receive_packet(icmph, skb->len) at line 240, which copies sizeof(struct batadv_icmp_packet) from the potentially freed old head into the userspace-visible ping socket queue -- a read through freed slab memory (and a potential info-leak of adjacent slab contents if the old head is shorter than the struct). Same single-function capture->linearize->stale-use shape as the seed's pep_get_sb(). COUNTEREVIDENCE: reachability of a cloned/non-linear ICMP skb here is path-dependent; the only linearization guarantee would come from the RR branch in the caller batadv_recv_icmp_packet (skb_cow at 389), but that branch executes only for msg_type ECHO_REPLY/ECHO_REQUEST, whereas this code path is taken for ECHO_REPLY/DESTINATION_UNREACHABLE/TTL_EXCEEDED after the caller forwarded without the RR block, so a non-linear skb can survive to line 237; no KASAN trace was produced."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/tdls.c",
+      "start": 1933,
+      "end": 1939,
+      "quote": "if (skb_linearize(skb))\n\t\treturn;\n\t/*\n\t * The packet/size was already validated by mac80211 Rx path, only look\n\t * at the action type.\n\t */\n\tswitch (tf->action_code) {",
+      "confidence": "low",
+      "reason": "UNTRUSTED SOURCE: ieee80211_process_tdls_channel_switch() parses remote 802.11 TDLS data frames (ETH_P_TDLS) dequeued from the mac80211 skb_queue_tdls_chsw worker (ieee80211_tdls_chsw_work, tdls.c:1976-1994, matching on tf->da); the frame bytes at skb->data are fully attacker-controlled by any peer able to send a TDLS frame. VIOLATED INVARIANT: tf is captured at line 1923 as a cast of skb->data and must be refetched after any call that can reallocate skb->head. UNSAFE USE: skb_linearize(skb) at line 1933 (comment 'we want to access the entire packet') can call pskb_expand_head and free skb->head for a cloned or non-linear skb; line 1939 then reads tf->action_code through the stale pre-linearize pointer with no refetch -- exact structural duplicate of the seed's pep_get_sb() (ph captured, pskb_may_pull, ph->sb_type read). Consequence: KASAN-detectable slab use-after-free read of a single attacker-relevant byte that selects the REQUEST vs RESPONSE handler. COUNTEREVIDENCE: exploitation requires a cloned or non-linear TDLS skb surviving to this worker (driver RX path dependent); the stale read's result only selects between two handlers that themselves re-parse the skb, so impact is a UAF read rather than proven memory corruption; no runtime reproducer was built. Also note the worker loop at tdls.c:1976-1994 dereferences its own tf->da while iterating interfaces before ieee80211_process_tdls_channel_switch() linearizes -- that use precedes the realloc and is fine."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/network-coding.c",
+      "line": 1160,
+      "status": "reported",
+      "reason": "packet1/packet2 captured from skb->data at 1118-1132; skb_linearize of both skbs at 1150 (cloned nc_packet->skb guarantees pskb_expand_head frees the shared head); stale packet1->ttl/dest/ttvn and packet2->dest/ttl/ttvn read at 1160-1174 without refetch. Raised as finding (medium)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 240,
+      "status": "reported",
+      "reason": "icmph captured at 230; skb_linearize at 237; stale icmph handed to batadv_socket_receive_packet at 240 which copies header bytes from possibly-freed old head. Raised as finding (medium)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/tdls.c",
+      "line": 1939,
+      "status": "reported",
+      "reason": "tf captured at 1923; skb_linearize at 1933; tf->action_code read at 1939 without refetch. Raised as finding (low)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 385,
+      "status": "safe",
+      "reason": "batadv_recv_icmp_packet(): icmph captured at 379, skb_linearize at 385 and skb_cow at 389 both inside the RR block; icmph is explicitly refetched at 393 and ethhdr at 392 before any post-cow use. Correctly written analogue."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 322,
+      "status": "safe",
+      "reason": "batadv_recv_icmp_ttl_exceeded(): icmp_packet captured at 420-area and refetched after skb_cow at 322-323 ('icmp_packet = (struct batadv_icmp_packet *)skb->data') before all writes; no stale use."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 816,
+      "status": "safe",
+      "reason": "batadv_check_unicast_ttvn(): pskb_may_pull at 812 and skb_cow at 816 both execute before unicast_packet/ethhdr are captured at 818-820; batadv_reroute_unicast_packet() contains no reallocating calls; no capture-before-realloc in this function."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 697,
+      "status": "safe",
+      "reason": "batadv_route_unicast_packet(): skb_cow at 697 precedes the ttl decrement at 701 which recaptures unicast_packet from skb->data; unicast_packet captured at 687 is only read (ttl/dest) before the cow."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 1042,
+      "status": "safe",
+      "reason": "batadv_recv_unicast_tvlv(): skb_cow at 1042 and skb_linearize at 1046 both precede the capture of unicast_tvlv_packet/tvlv_buff from skb->data at 1048-1050; correct order."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/network-coding.c",
+      "line": 1850,
+      "status": "safe",
+      "reason": "batadv_nc_recv_coded_packet(): coded_packet captured at 1827 after pskb_may_pull at 1823; skb_linearize calls at 1848/1851 precede batadv_nc_skb_decode_packet() which re-reads everything via memcpy from skb->data; no capture-before-realloc dereference (batadv_nc_skb_decode_packet itself memcpy's headers to stack before its skb_cow at 1666-1668)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/dsa/tag_dsa.c",
+      "line": 29,
+      "status": "safe",
+      "reason": "dsa_xmit(): skb_cow_head calls at 29/48-49 execute before dsa_header is captured at 36/50; all writes use the post-cow pointer; scan hit was a function-scope false positive (p captured before cow is netdev_priv data, not skb data)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/dsa/tag_edsa.c",
+      "line": 31,
+      "status": "safe",
+      "reason": "edsa_xmit(): skb_cow_head at 31/56 before edsa_header capture at 45/66; same safe ordering as tag_dsa.c."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/dsa/tag_qca.c",
+      "line": 46,
+      "status": "safe",
+      "reason": "qca_tag_xmit(): skb_cow_head at 46 precedes skb_push and the phdr capture; safe ordering (pattern-screened)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/dsa/tag_brcm.c",
+      "line": 66,
+      "status": "safe",
+      "reason": "brcm_tag_xmit(): skb_cow_head before header construction; capture-after-cow pattern (pattern-screened)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/l2tp/l2tp_core.c",
+      "line": 1121,
+      "status": "safe",
+      "reason": "l2tp_xmit_skb(): skb_cow_head(skb, headroom) at 1121 runs before any header pointer is captured; uh = udp_hdr(skb) at 1148 is fetched after all pushes; tunnel/sk are tunnel-socket objects, not skb-head pointers. Capture-after-cow."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wimax/i2400m/netdev.c",
+      "line": 377,
+      "status": "safe",
+      "reason": "i2400m_hard_start_xmit(): skb_cow_head(skb, 0) at 377 is the first statement; no skb-head pointer is live across it (i2400m/dev are device objects)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/openvswitch/actions.c",
+      "line": 699,
+      "status": "safe",
+      "reason": "ovs_vport_output(): skb_cow_head at 699 executes before the MAC-header reconstruction that follows; data is a per-CPU ovs_frag_data pointer, not an skb-head pointer; nothing stale is reused."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/mediatek/mtk_eth_soc.c",
+      "line": 822,
+      "status": "safe",
+      "reason": "mtk_start_xmit(): skb_cow_head(skb, 0) at 822 inside the GSO branch precedes tcp_hdr(skb)->check write (tcp_hdr re-fetches from skb each call); eth/ring/stats captures are device objects, not skb-head pointers."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/broadcom/tg3.c",
+      "line": 7933,
+      "status": "safe",
+      "reason": "tg3_start_xmit(): skb_cow_head(skb, 0) at 7933 executes before iph = ip_hdr(skb) at 7934 and tcph = tcp_hdr(skb) at 7956; both header pointers are captured after the cow; scan hits for iph/tcph at 7898/7899 are uninitialized declarations, not captures."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/tipc/link.c",
+      "line": 1449,
+      "status": "safe",
+      "reason": "tipc_link_proto_rcv(): hdr captured at 1429, skb_linearize(skb) at 1449, but hdr is immediately refetched via 'hdr = buf_msg(skb)' at 1450 before any post-linearize use; the fields read at 1431-1437 were copied to locals before the linearize. Correctly written."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/tipc/msg.c",
+      "line": 486,
+      "status": "safe",
+      "reason": "tipc_msg_reverse(): hdr captured at 482, skb_linearize(_skb) at 486, hdr refetched at 487 ('hdr = buf_msg(_skb)') before all subsequent uses; ohdr is a stack copy taken after the refetch. Correctly written."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/tipc/msg.c",
+      "line": 551,
+      "status": "safe",
+      "reason": "tipc_msg_lookup_dest(): msg captured at 540, skb_linearize at 551, msg refetched at 552 before all post-linearize uses. Correctly written."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/wpa.c",
+      "line": 275,
+      "status": "safe",
+      "reason": "ieee80211_crypto_tkip_decrypt(): hdr captured at 260, skb_linearize(rx->skb) at 275, hdr explicitly refetched 'hdr = (void *)skb->data' at 277 before post-pull uses; same correct pattern in the other wpa.c decrypt handlers (148/151, 511, 739, 865) and wep.c 286."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "line": 1932,
+      "status": "safe",
+      "reason": "ieee80211_rx_handlers (rx.c:1932-1936): skb_linearize followed immediately by refetch of the header pointer; the code even carries the comment 'skb_linearize() might change the skb->data' -- correctly written analogue demonstrating awareness of the invariant."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/ipvs/ip_vs_pe_sip.c",
+      "line": 85,
+      "status": "unresolved",
+      "reason": "skb_linearize at 85 before parsing SIP payload; not deep-read line-by-line within the 12-candidate triage budget after the stronger batman-adv/TDLS candidates were found; flagged for follow-up."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_conntrack_sip.c",
+      "line": 1513,
+      "status": "unresolved",
+      "reason": "Two skb_linearize sites (1513, 1584) in SIP conntrack helpers that then parse/patch the SIP body; not deep-read line-by-line; flagged for follow-up."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/xfrm/xfrm_ipcomp.c",
+      "line": 116,
+      "status": "unresolved",
+      "reason": "skb_linearize_cow() at 116 and 182 on the ipcomp input/output paths with subsequent header accesses; not deep-read line-by-line; flagged for follow-up."
+    }
+  ],
+  "limitations": [
+    "The automated scan (TMPDIR/i007/scan.py) only recognized same-function pointer captures of the form 'type *var = <expr>'; pointers captured in outer loops, passed into helpers, or derived via skb_network_header()/skb_transport_header() accessor calls rather than direct casts may have been missed, and functions whose reallocation happens in a callee were not interprocedurally analyzed.",
+    "Only net/ and drivers/ were scanned (323 raw reallocation matches across 200 files); arch/, fs/, and include/-only macros generating call sites were not audited.",
+    "The three findings are hypotheses with no runtime reproducer: the reallocation precondition (cloned or non-linear skb at the specific call site, or a cloned nc_packet->skb) is established from code structure and pskb_expand_head() semantics (net/core/skbuff.c:1191-1192 frees and replaces the head) but was not dynamically confirmed with KASAN.",
+    "batadv_nc_code_packets reachability additionally requires batman-adv network coding to be enabled (BATADV_TVLV_NC) and a coding opportunity between two forwarded unicast packets, which limits the attack surface to mesh deployments with network coding enabled.",
+    "Remaining unexamined linearize/cow sites from the dump (bluetooth bnep/cmtp/hidp/rfcomm session loops, caif cfpkt_skbuff, decnet dn_nsp_in/dn_route, ipv6 ndisc, iucv, ovs flow.c:444, sctp input.c:127, tipc name_distr.c:359, qrtr smd, ~40 driver TX linearize fallbacks in ena/xgene/fs_enet/ibmveth/i40e/fm10k/ena etc.) were pattern-screened but not all deep-read line-by-line; they are TX fallback linearize-before-DMA patterns where captures typically follow the linearize, but this is sampling evidence, not proof.",
+    "Drivers not under drivers/net (scsi bnx2fc/fnic, infiniband, s390 qeth) had linearize sites pattern-screened only; the scan output rows for them were false positives (device-object captures) but were not individually re-verified."
+  ]
+}

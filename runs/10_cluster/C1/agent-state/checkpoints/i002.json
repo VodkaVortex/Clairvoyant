@@ -1,0 +1,116 @@
+{
+ "version": 1,
+ "intent_id": "i002",
+ "branch": "hwmon-sysfs-scaled-divisor",
+ "status": "complete",
+ "snapshot": "s01",
+ "progress": [
+  {
+   "step": "init",
+   "state": "checkpoint written before first search",
+   "note": "intent: sysfs/hwmon/thermal store handlers in snapshots/s01 where user numeric input is scaled in fixed-width arithmetic and the scaled value becomes a '/' or '%' divisor with only raw-input validation"
+  },
+  {
+   "step": "amdgpu fan rpm entry sweep",
+   "state": "found 9 '8 * speed' tach_period sites; guards: arcturus/smu13 carry UINT_MAX/8 fix; vega10 seed site unfixed (seed itself); vega20/smu11/smu7 unfixed; radeon si/ci and amd legacy-dpm si inside #if 0 dead code",
+   "note": "smu11 dispatch: amdgpu_pm.c:2836 kstrtou32 -> amdgpu_dpm_set_fan_speed_rpm -> amdgpu_smu.c:2714 smu_set_fan_speed_rpm (only U32_MAX rejected) -> navi10_ppt.c:3589 / sienna_cichlid_ppt.c:3199 = smu_v11_0_set_fan_speed_rpm"
+  },
+  {
+   "step": "hwmon/thermal sweep",
+   "state": "audited ~20 hwmon fan write paths (emc2103,g762,max6620,max31790,max6650,nct6775,nct7904,adm9240,sch5627,w83627ehf,it87,asb100,lm78,lm80,sis5595,via686a,vt8231,w83627hf,w83781d,w83791d,w83792d,w83l786ng,adt7475,adt7470,f71805f,pc87427,amc6821,corsair-cpro,gpio-fan,f71882fg,dell-smm,aquacomputer) + thermal cur_state_store: all either reject 0/min, clamp before division, or apply no kernel-side division; no wrap-to-zero divisor found outside amd/pm",
+   "note": "amdgpu path confirmed end-to-end: amdgpu_pm.c:2836-2862 kstrtou32 (no range check) -> amdgpu_dpm.c:1495 -> smu_set_fan_speed_rpm (only U32_MAX rejected, amdgpu_smu.c:2714-2727) / pp_dpm_set_fan_speed_rpm (only U32_MAX rejected, amd_powerplay.c:581-594) -> per-ASIC set_fan_speed_rpm"
+  },
+  {
+   "step": "finalized",
+   "state": "3 findings reported (smu_v11_0.c:1217 high, vega20_thermal.c:204 high, vega10_thermal.c:320 medium seed-site); 12 candidates classified (4 reported-chain, 8 safe incl. #if 0 dead radeon/legacy-dpm sites and fixed arcturus/smu13); artifact written to findings/i002.json",
+   "note": "negative evidence: all ~32 non-AMD hwmon fan write paths clamp or zero-check the raw divisor; smu7 capped by u8*100 ulMaxRPM"
+  }
+ ],
+ "candidates": [
+  {
+   "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+   "line": 1217,
+   "status": "pending",
+   "note": "only speed==0 checked at 1207; 8*speed wraps in u32; reachable via navi10_ppt.c:3589 / sienna_cichlid_ppt.c:3199"
+  },
+  {
+   "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+   "line": 204,
+   "status": "pending",
+   "note": "only !speed checked at 194; no UINT_MAX/8"
+  },
+  {
+   "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+   "line": 280,
+   "status": "pending",
+   "note": "raw-input checks only (speed==0, ulMin/ulMaxRPM from u8*100 pptables, max 25500)"
+  },
+  {
+   "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+   "line": 320,
+   "status": "pending",
+   "note": "seed site unfixed in s01 (pre-patch baseline snapshot)"
+  },
+  {
+   "path": "drivers/hwmon/emc2103.c",
+   "line": 395,
+   "status": "safe",
+   "note": "rpm_target clamped 0..16384 and ==0 handled before /(rpm_target) division; no scaling of divisor"
+  },
+  {
+   "path": "drivers/hwmon/max6620.c",
+   "line": 372,
+   "status": "safe",
+   "note": "clamp_val(val,FAN_RPM_MIN=240,FAN_RPM_MAX=30000) before rpm*2 divisor"
+  },
+  {
+   "path": "drivers/hwmon/max31790.c",
+   "line": 229,
+   "status": "safe",
+   "note": "clamp to 120..7864320 before RPM_TO_REG (rpm*2 divisor); result also clamped"
+  },
+  {
+   "path": "drivers/hwmon/g762.c",
+   "line": 193,
+   "status": "safe",
+   "note": "cnt_from_rpm: !rpm early-out + clamp to ULONG_MAX/f2 before DIV_ROUND_CLOSEST(f1, rpm*f2)"
+  },
+  {
+   "path": "drivers/hwmon/it87.c",
+   "line": 668,
+   "status": "safe",
+   "note": "FAN_TO_REG: rpm==0 early-out; clamp 1..1000000; rpm*div max 8e6 fits int"
+  },
+  {
+   "path": "drivers/hwmon/nct6775-core.c",
+   "line": 968,
+   "status": "safe",
+   "note": "fan_to_reg: !fan early-out; caller clamps val 0..1350000; divisor is raw fan"
+  },
+  {
+   "path": "drivers/hwmon/w83627ehf.c",
+   "line": 733,
+   "status": "safe",
+   "note": "store_fan_min: val<0 rejected, !val special-cased; 1350000U/val constant numerator"
+  },
+  {
+   "path": "drivers/hwmon/adt7475.c",
+   "line": 273,
+   "status": "safe",
+   "note": "rpm2tach: rpm==0 -> 0; clamp of quotient; divisor is raw rpm"
+  },
+  {
+   "path": "drivers/hwmon/adt7470.c",
+   "line": 668,
+   "status": "safe",
+   "note": "val<=0 rejected; FAN_RPM_TO_PERIOD = (90000*60)/val, raw divisor"
+  },
+  {
+   "path": "drivers/thermal/thermal_sysfs.c",
+   "line": 530,
+   "status": "safe",
+   "note": "cur_state_store bounds state to [0, max_state] before set_cur_state dispatch"
+  }
+ ],
+ "findings": []
+}

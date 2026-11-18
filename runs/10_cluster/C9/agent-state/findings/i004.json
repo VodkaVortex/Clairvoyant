@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "start": 964,
+      "end": 1010,
+      "quote": "user_msg->count = le32_to_cpu(msg->hdr.count);",
+      "confidence": "low",
+      "reason": "Untrusted source: decode_message() (drivers/accel/qaic/qaic_control.c:964-1010) parses the QAIC control-channel response rsp (struct wire_msg received over MHI from the device/QSM firmware - the peer endpoint of the device protocol, the analogue of the seed's remote usbip peer); msg->hdr.count is a device-supplied __le32. Poisoning store: line 979 copies it verbatim into the shared kernel object user_msg (struct manage_msg 'msg', allocated in qaic_manage_ioctl at line 1322 kzalloc(QAIC_MANAGE_MAX_MSG_LENGTH + sizeof(*msg))) with no range check. Asymmetric validation: the sibling request direction enforces a bound - qaic_manage() lines 1259-1261 rejects 'user_msg->len > QAIC_MANAGE_MAX_MSG_LENGTH || user_msg->count > QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr)' before encode/transfer - but this reply direction stores the device count unclamped. Early returns without reset: every failure exit inside the loop (line 987 'if (msg_len > msg_hdr_len - sizeof(*trans_hdr)) return -EINVAL;', line 996 hdr_len/size_add check, decode_passthrough -EINVAL/-ENOSPC, decode_status -ECANCELED/-EPIPE, default -EINVAL) leaves user_msg->count set to the unvalidated device value, and qaic_manage() unwinds through dma_cont_failed (free_dbc_buf; kfree(rsp); return ret) with the poisoned count still in msg. Later consuming use: the count drives the iteration bound at line 981 'for (i = 0; i < user_msg->count; ++i)' and, on the -ECANCELED error-unwind path, is written back out of the kernel in qaic_manage_ioctl (~1346-1351 'user_msg->count = msg->count') after copy_to_user(user_data, msg->data, msg->len). Counterevidence checked (why confidence is low): each loop iteration re-validates position and length against msg_hdr_len, itself checked at entry (line 975 'msg_hdr_len < sizeof(*trans_hdr) || msg_hdr_len > QAIC_MANAGE_MAX_MSG_LENGTH') while the rsp buffer is kmalloc(QAIC_MANAGE_MAX_MSG_LENGTH) (msg_xfer ~1063), so the poisoned count alone cannot drive an OOB read - the loop terminates via -EINVAL once msg_len is exhausted - and msg->len stays <= QAIC_MANAGE_MAX_MSG_LENGTH via the per-decoder ENOSPC checks, keeping the copy_to_user in-bounds. The verified defect is therefore the seed's state-poisoning/asymmetric-validation pattern (unclamped peer count persisted in shared kernel state across error unwind and exported to userspace on the -ECANCELED path), not a demonstrated kernel OOB."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 979,
+      "status": "reported",
+      "reason": "The reported finding: device-supplied reply count stored unclamped into shared struct manage_msg; all decode_* and loop failure exits return without resetting it; qaic_manage unwinds with the poisoned count, and qaic_manage_ioctl's -ECANCELED path exports msg->count to userspace."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 944,
+      "status": "unresolved",
+      "reason": "decode_status() (function at 934-961) validates only 'user_msg->len + len > QAIC_MANAGE_MAX_MSG_LENGTH' (ENOSPC) but never 'len >= sizeof(*in_trans)': a device-declared 8-byte STATUS transaction (hdr.len == sizeof(wire_trans_hdr), allowed by decode_message's hdr_len >= sizeof(*trans_hdr) check) makes the reads of in_trans->major/minor/status/status_flags (transaction offsets 8..24) run up to 16 bytes past the declared transaction end; when msg_hdr_len == QAIC_MANAGE_MAX_MSG_LENGTH these reads reach past the end of the kmalloc(QAIC_MANAGE_MAX_MSG_LENGTH) rsp buffer, and the values are stored into out_trans (msg->data) and exported via copy_to_user on the -ECANCELED/!ret path. Not fully traced: msg_xfer's validation of the actual MHI received length against rsp->hdr.len was not read, and this is a device-length issue adjacent to (not the core of) the assigned poisoned-count branch."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 1259,
+      "status": "safe",
+      "reason": "Enforcing sibling path: qaic_manage() clamps the userspace request-direction count and length ('user_msg->len > QAIC_MANAGE_MAX_MSG_LENGTH || user_msg->count > QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr)' -> -EINVAL) before encode_message's count-driven loop (line 783) and the MHI transfer; this is the asymmetric-validation evidence for the reported decode_message finding, not itself vulnerable."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 482,
+      "status": "safe",
+      "reason": "s01's usbip tree carries the upstream fix for the seed's error-unwind poisoning: usbip_pack_pdu(RET_SUBMIT, unpack) clamps the peer count ('if (rpdu->number_of_packets < 0 || rpdu->number_of_packets > urb->number_of_packets) rpdu->number_of_packets = 0;' at 482-485) before storing into the urb, and usbip_recv_iso() re-validates 'np <= 0 || np > USBIP_MAX_ISO_PACKETS' (line 685) and on the error return explicitly resets 'urb->number_of_packets = 0' (lines 689-693, comment 'usbip_pack_ret_submit() already set urb->number_of_packets'). The seed path is patched in this snapshot and is seed-excluded from reporting regardless."
+    }
+  ],
+  "limitations": [
+    "The audit was bounded by the finalize directive: only the usbip seed family (verified patched in s01) and the qaic control path were deep-read; a broad sweep of s01 early-return/teardown paths over other shared objects (urb completion handlers, scatterlist teardown, vhost/virtio ring cleanup, 9p/fuse request unwind, netlink/ioctl abort paths) was NOT performed, so an on-branch error-unwind poisoned-count variant elsewhere in s01 cannot be ruled out.",
+    "The reported qaic finding is low confidence: the poisoned device count is stored and survives every error unwind and is exported to userspace on the -ECANCELED path, but the consuming decode loop re-validates each iteration against msg_hdr_len <= QAIC_MANAGE_MAX_MSG_LENGTH with the rsp buffer sized identically, so no kernel OOB from the count alone was demonstrated; impact is state poisoning / protocol confusion / propagation of a device-controlled count to userspace.",
+    "msg_xfer (qaic_control.c:1050-1180) was only partially read: whether the actual MHI-received length of the response is cross-checked against rsp->hdr.len (a short response with a large claimed hdr.len would make decode_message parse uninitialized heap inside the 64K rsp buffer, leaking it to userspace via the -ECANCELED/!ret copy_to_user) remains unresolved.",
+    "decode_status's missing exact-length check (candidate at line 944) and the sibling decode_activate/decode_deactivate length checks were only spot-verified, not exhaustively traced to every field read.",
+    "No compilation, static analysis, or runtime reproducer was run; all conclusions come from direct source reading of the read-only snapshot, and qaic_manage_ioctl line numbers in the copy-back block (~1346-1351) were counted from a sed window."
+  ]
+}

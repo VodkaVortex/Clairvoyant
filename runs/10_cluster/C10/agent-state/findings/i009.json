@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "ioctl-sock-usercopy-string",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 300,
+      "end": 324,
+      "quote": "kern_buf = memdup_user(buf, nbytes);",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace write() to debugfs file /sys/kernel/debug/bna/pci_dev:*/regrd (registered via bnad_debugfs_op_regrd at line 449-455, file table entry line 483, S_IFREG|0644) fully controls nbytes and buffer contents. Violated invariant: line 315 memdup_user(buf, nbytes) allocates exactly nbytes bytes and copies nbytes bytes with no NUL terminator; nothing checks for an in-bounds NUL. Unsafe use: line 319 sscanf(kern_buf, \"%x:%x\", &addr, &len) is a C-string parser that scans past the allocation end when the user supplies nbytes non-NUL bytes, giving a slab out-of-bounds read (KASAN, info leak/crash), identical mechanism to the scsi bfa seed (same Brocade code lineage). Fix primitive present in-tree is memdup_user_nul, unused here. Counterevidence checked: no len+1 allocation, no strndup_user, no memchr/strnlen termination check anywhere in the function (lines 300-359 verified); regwr sibling below has the same defect. Permission is 0644 so any local user with debugfs read access can write if mounted rw; impact is OOB read only, register values returned via the regrd read path."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 361,
+      "end": 385,
+      "quote": "kern_buf = memdup_user(buf, nbytes);",
+      "confidence": "high",
+      "reason": "Same mechanism in bnad_debugfs_write_regwr: line 375 memdup_user(buf, nbytes) exact-size copy with no terminator, then line 379 sscanf(kern_buf, \"%x:%x\", &addr, &val) scans for NUL past the nbytes-sized heap buffer. Registered as debugfs 'regwr' with mode S_IFREG|0200 (line 484). Unfixed in s02; fix is memdup_user_nul. Counterevidence checked: full function lines 361-400 read, no termination guarantee anywhere."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "fs/btrfs/ioctl.c",
+      "line": 2761,
+      "status": "safe",
+      "reason": "strcmp(\"cancel\", vol_args->name) on memdup_user'd BTRFS_IOC_RM_DEV_V2 args, but btrfs_check_ioctl_vol_args_path/2_subvol_name (lines 230-242) enforce memchr(name, 0, sizeof(name)) != NULL before every strcmp/strchr/memparse use (checked at lines 1162, 1365, 1392, 2414, 2500, 2714, 2755, 2818); fixed-size struct member, not attacker-sized alloc."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/ipvs/ip_vs_ctl.c",
+      "line": 3804,
+      "status": "safe",
+      "reason": "strscpy from nla_data guarded by IPVS_DAEMON_ATTR_MCAST_IFN NLA_NUL_STRING policy (line 3199); destination is fixed sizeof(c.mcast_ifn)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/devlink/param.c",
+      "line": 478,
+      "status": "safe",
+      "reason": "strcpy(value->vstr, nla_data(param_data)) preceded by len = strnlen(nla_data, nla_len(param_data)) with rejection when len == nla_len (line 474-477), so NUL is guaranteed in-bounds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nfnetlink_cttimeout.c",
+      "line": 169,
+      "status": "safe",
+      "reason": "strcpy(timeout->name, ...) with CTA_TIMEOUT_NAME policy NLA_NUL_STRING, .len = CTNL_TIMEOUT_NAME_MAX - 1 = 31, into name[32]; netlink core guarantees trailing NUL for NLA_NUL_STRING."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/tipc/netlink_compat.c",
+      "line": 587,
+      "status": "safe",
+      "reason": "strcmp(name, nla_data(link[TIPC_NLA_LINK_NAME])) with left side checked by string_is_terminated(name, len) (line 584) and right side governed by tipc_nl_link_policy NLA_NUL_STRING (net/tipc/netlink.c:91)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ethtool/netlink.c",
+      "line": 128,
+      "status": "safe",
+      "reason": "strncmp on nla_data devname; ETHTOOL_A_HEADER_DEV_NAME policy is NLA_NUL_STRING with len ALTIFNAMSIZ-1 (lines 19-20, 27-28); bitset.c:402 same via bit_policy NLA_NUL_STRING (line 316)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/block/rbd.c",
+      "line": 7257,
+      "status": "safe",
+      "reason": "sscanf(buf, \"%d %5s\", ...) in do_rbd_remove, but buf comes from sysfs/kernfs store (NUL-terminated page buffer), opt_buf[6] is pre-set to '\\0' and %5s writes at most 5 chars + NUL; no usercopy in this path."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/amdgpu/amdgpu_ras.c",
+      "line": 283,
+      "status": "safe",
+      "reason": "copy_from_user(str, buf, s) with s = min_t(u64, 64, size) into char str[65] that was memset to 0 first; at least one NUL byte always in-bounds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/infiniband/core/ucma.c",
+      "line": 1396,
+      "status": "safe",
+      "reason": "ucma_set_option memdup_user(cmd.optval, cmd.optlen) with KMALLOC_MAX_SIZE check; optval consumed only by ucma_set_option_id/_ib with exact optlen-size checks and typed reads; no string helper touches optval."
+    },
+    {
+      "snapshot": "s02",
+      "path": "block/sed-opal.c",
+      "line": 3220,
+      "status": "safe",
+      "reason": "sed_ioctl memdup_user(arg, _IOC_SIZE(cmd)) passed to structured struct-based parsers (opal_save, opal_set_new_pw, ...); no sscanf/strcmp/strnlen on the copied buffer."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sctp/socket.c",
+      "line": 1417,
+      "status": "safe",
+      "reason": "memdup_user(param.addrs, param.addr_num) used only as sockaddr array in __sctp_setsockopt_connectx; binary parsing, no C-string consumption."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/gadget/function/f_fs.c",
+      "line": 4285,
+      "status": "safe",
+      "reason": "ffs_prepare_buffer memdup_user(buf, len); all string consumers (e.g. __ffs_data_do_strings line 3102) use strnlen(data, len) with explicit bounds and reject length == len."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/vhost/vdpa.c",
+      "line": 397,
+      "status": "safe",
+      "reason": "vmemdup_user of vhost_vdpa_config config.len bytes written to device config space; binary byte-wise, no string helper."
+    }
+  ],
+  "limitations": [
+    "The reported bnad_debugfs.c findings are debugfs .write file_operations handlers, the exact seed pattern in the bna sibling driver of scsi bfa; they surfaced from the tree-wide memdup_user-then-string-parser scan the intent permits, not from the ioctl/sockopt subset, whose targeted audit (btrfs ioctls, ucma set_option, sed-opal ioctl, sctp connectx, ethtool tunables, bluetooth/atm/ax25/can setsockopt, ipset/iptables netlink, devlink/tipc/ipvs/nfnetlink netlink attrs) found no site lacking a termination guarantee.",
+    "copy_from_user sites are numerous (~1112 files tree-wide; 198 in drivers/gpu/drm alone); only those co-located with C-string helpers in ioctl/sockopt/netlink/char-dev contexts were reviewed, so an unterminated-copy variant in an unexamined driver cannot be excluded.",
+    "compat_ioctl handlers, io_uring register paths, and most media/DVB ioctls were only pattern-scanned, not function-by-function read.",
+    "No compilation or dynamic testing was performed (snapshot is read-only); classification rests on source reading of the complete functions cited."
+  ]
+}

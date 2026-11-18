@@ -1,0 +1,15 @@
+{
+  "intent_id": "i033",
+  "branch": "tasklet-napi-softirq-lock",
+  "snapshot": "s04",
+  "status": "complete",
+  "progress": "Finalized. Two findings: fs_enet tx_lock (NAPI poll plain at 229 vs process close plain at 780, medium) and altera_tse tx_lock (NAPI poll tse_tx_complete plain at 459 vs tse_shutdown plain at 1239, low). mwl8k tasklet/tx_lock verified safe; mwl8k stream_lock xmit-shape excluded from this branch; fs_enet xmit site excluded from this branch.",
+  "candidates": [
+    "fs_enet-main.c:229 NAPI side - reported",
+    "fs_enet-main.c:780 process side - reported",
+    "fs_enet-main.c:535 xmit site - safe (out of branch scope)",
+    "altera_tse_main.c:459 NAPI side - reported",
+    "altera_tse_main.c:1239 process side - reported",
+    "mwl8k.c:6106 tasklet/tx_lock - safe"
+  ]
+}

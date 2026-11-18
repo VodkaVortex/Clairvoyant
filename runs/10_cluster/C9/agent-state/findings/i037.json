@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "intent_id": "i037",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s09"],
+  "findings": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "start": 974,
+      "end": 980,
+      "quote": "user_msg->count = le32_to_cpu(msg->hdr.count);",
+      "confidence": "low",
+      "reason": "Error-unwind poisoned-count chain verified from source in snapshots/s09 (same family as prior fact f014 but in this assigned tree, re-verified line-by-line). UNTRUSTED SOURCE: decode_message() (drivers/accel/qaic/qaic_control.c:964-1015) parses struct wire_msg msg, the device/QSM reply received over the MHI control channel (qaic_mhi_dl_xfer_cb at lines 1444-1463 only checks transaction_status and magic_number, then resp_worker at 1398-1425 matches hdr.sequence_number and hands elem->buf = msg to the waiting ioctl); the device is the remote peer endpoint of this virtual-bus protocol. POISONING STORE: line 974 'user_msg->count = le32_to_cpu(msg->hdr.count);' copies the device __le32 count verbatim into the shared ioctl object msg (struct manage_msg, kzalloc(QAIC_MANAGE_MAX_MSG_LENGTH + sizeof(*msg)) at line 1322) with no range check - user_msg->len is reset at line 973 but count is stored unclamped. ASYMMETRIC VALIDATION: the sibling request direction of the same protocol enforces a bound - qaic_manage() lines 1252-1253 'if (user_msg->len > QAIC_MANAGE_MAX_MSG_LENGTH || user_msg->count > QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr)) return -EINVAL;' - while this reply-direction mirror path applies no clamp at the store. EARLY RETURNS WITHOUT RESET: every failure exit inside the consuming loop (line 979-980 'if (msg_len > msg_hdr_len - sizeof(*trans_hdr)) return -EINVAL;', the hdr_len/size_add check, decode_passthrough/decode_status -EINVAL/-ENOSPC/-ECANCELED/-EPIPE, default -EINVAL) and the post-loop exact-length check all return with user_msg->count still set to the unvalidated device value; there is no reset on any error path. LATER CONSUMPTION/EXPORT: the count is consumed by the loop 'for (i = 0; i < user_msg->count; ++i)' (line 976) and, on the -ECANCELED / !ret unwind, qaic_manage_ioctl() exports it to userspace at line 1345 'user_msg->count = msg->count;' after copy_to_user of msg->data (line 1341) - the device-controlled count crosses back out of the kernel as authoritative state. COUNTEREVIDENCE CHECKED: the rsp buffer is kmalloc(QAIC_MANAGE_MAX_MSG_LENGTH) (line 1058) and msg_hdr_len is clamped to <= QAIC_MANAGE_MAX_MSG_LENGTH at decode entry, and each loop iteration re-validates msg_len/hdr_len against msg_hdr_len, so the poisoned count alone does not drive a kernel OOB read/write in this tree (an oversized count fails fast at the first per-iteration check); impact is therefore state poisoning / propagation of a device-controlled count (and partial transaction data via msg->len) to userspace and unbounded loop iterations when msg_len stays small, not a demonstrated heap overflow - hence low confidence for impact, while the validated-request-fetch vs unvalidated-reply-fetch asymmetry and the no-reset error paths are directly verified."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 1345,
+      "status": "reported",
+      "reason": "user_msg->count = msg->count; in qaic_manage_ioctl's -ECANCELED/!ret copy-back exports the device-poisoned count to userspace; part of the reported finding (unwind/consumption site)."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 473,
+      "status": "unresolved",
+      "reason": "Seed mechanism present UNPATCHED in s09: usbip_pack_ret_submit unpack stores 'urb->number_of_packets = rpdu->number_of_packets;' (line 473) with no clamp, usbip_recv_iso (lines 660-715, read in full this session) keeps 'int np = urb->number_of_packets; int size = np * sizeof(*iso);' (lines 664-665) feeding kzalloc(size) and the np-iteration copy loop, and its -EPIPE error returns (short recv, total_length mismatch) never reset urb->number_of_packets; USBIP_MAX_ISO_PACKETS (usbip_common.h:130) is enforced only on the sibling CMD_SUBMIT direction (stub_rx.c:381). Excluded from findings per the explicit seed-never-reportable rule; recorded only to document snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/md/dm-zoned-metadata.c",
+      "line": 1084,
+      "status": "safe",
+      "reason": "On-disk le32 counts are validated before being stored into shared zmd state: nr_meta_zones derived from sb->nr_meta_blocks (line 1060), nr_reserved_seq rejected if !value or >= nr_useable_zones - nr_meta_zones (lines 1069-1070), nr_chunks rejected when > nr_data_zones (lines 1077-1079), and only then zmd->nr_meta_blocks/nr_reserved_seq are stored (lines 1084-1085). The stores are parse-time cross-checked against locally computed zone limits, so no unvalidated count is poisoned into shared state on this path; downstream zmd loop consumption was not separately walked (noted in limitations)."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt.c",
+      "line": 1794,
+      "status": "safe",
+      "reason": "TPA agg_count lifecycle is locally maintained and bounded: tpa_info->agg_count is reset to 0 at line 1537 and incremented only per locally completed aggregation buffer with BUG_ON(tpa_info->agg_count >= MAX_SKB_FRAGS) guarding the agg_arr[tpa_info->agg_count++] store (lines 1920-1921); at completion the device-reported agg_bufs is reconciled against the locally accumulated count ('if (unlikely(agg_bufs != tpa_info->agg_count)) { ... agg_bufs = tpa_info->agg_count; }' lines 1794-1798), so a device-supplied count cannot exceed the locally known limit and no error path leaves a poisoned count."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 692,
+      "status": "unresolved",
+      "reason": "On-disk fastmap header be32 counts directly drive element loops: 'for (i = 0; i < be32_to_cpu(fmhdr->free_peb_count); i++)' (637), used_peb_count (650), scrub_peb_count (663), erase_peb_count (676), and vol_count (692) iterate peer/on-disk-supplied counts; ai->bad_peb_count = be32_to_cpu(fmhdr->bad_peb_count) is stored at 689. Whether each loop's per-element reads are bounded against the actual fastmap image size (and whether attach-failure unwind leaves a stored count iterated later) was not verified before the finalize directive."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/md/dm-era-target.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "Prior-audit lead present in s09 (1761 lines) but only 7 le32/be32 decode sites located by grep this session; era metadata count stores, error unwinds, and consuming loops were not read before the finalize directive."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "Prior-audit lead present in s09 (1505 lines, 15 endian-decode sites); admin-queue completion count/length stores and the loops consuming them were not read before the finalize directive."
+    }
+  ],
+  "limitations": [
+    "The finalize directive stopped the audit after the qaic_control.c deep read and classification greps of the prior-lead files; dm-era-target.c, ubi fastmap.c (loops at lines 637-692), gve_adminq.c completion paths, and dm-zoned-metadata.c downstream zmd loops were not deep-read, so an error-unwind-poisoned-count variant in those files cannot be ruled out.",
+    "The reported qaic finding's impact is bounded and not a demonstrated kernel OOB: the rsp buffer is kmalloc(QAIC_MANAGE_MAX_MSG_LENGTH) (qaic_control.c:1058), msg_hdr_len is clamped at decode entry, and every loop iteration re-validates msg_len/hdr_len against msg_hdr_len, so the poisoned count propagates to userspace (line 1345) and can drive at most a few loop iterations before failing; a kernel heap overflow from the count alone is counterevidence-checked and not present on this chain.",
+    "The seed usbip chain is present unpatched in s09 (usbip_common.c:473 store, :664-665 'int size = np * sizeof(*iso)' multiply, kzalloc + np-loop at 660-715, clamp only on stub_rx.c:381) and is excluded from findings per the seed-never-reportable rule; it is recorded as an excluded unresolved candidate only.",
+    "drivers/net/ethernet/intel/ixgbe/ixgbe_e610.c does not exist in s09 (drivers/net/ethernet/intel contains only ixgbe and ixgbevf), so that prior-audit lead is not applicable to this snapshot.",
+    "No compilation, static-analysis run, or runtime reproducer was performed (assigned tree is read-only; the qaic path requires an MHI control-channel device peer); all line numbers come from direct numbered awk/sed/grep reads of snapshots/s09 in this session.",
+    "The broad error-unwind sweep (early-return/teardown paths over urbs, scatterlists, iovecs, ring entries, transaction descriptors outside the prioritized lead files) was not performed in this bounded session."
+  ]
+}

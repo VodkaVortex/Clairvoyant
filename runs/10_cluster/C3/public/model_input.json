@@ -1,0 +1,15 @@
+{
+  "seed": {
+    "hexsha": "0303b30375dff5351a79cc2c3c87dfa4fda29bed",
+    "one_line_summary": "ieee802154: hwsim: avoid possible crash in hwsim_del_edge_nl()",
+    "vulnerability_summary": "hwsim_del_edge_nl() used AND instead of OR when checking required netlink attributes, allowing MAC802154_HWSIM_ATTR_RADIO_EDGE to be absent. Subsequent nla_parse_nested_deprecated on the NULL attribute caused a crash.",
+    "vulnerability_pattern": "Required netlink attribute presence checks use incorrect logical operator, permitting a missing attribute to pass validation and be dereferenced later.",
+    "patch": "commit 0303b30375dff5351a79cc2c3c87dfa4fda29bed\nAuthor: Eric Dumazet <edumazet@google.com>\nDate:   Mon Jun 21 11:02:44 2021 -0700\n\n    ieee802154: hwsim: avoid possible crash in hwsim_del_edge_nl()\n    \n    Both MAC802154_HWSIM_ATTR_RADIO_ID and MAC802154_HWSIM_ATTR_RADIO_EDGE\n    must be present to avoid a crash.\n    \n    Fixes: f25da51fdc38 (\"ieee802154: hwsim: add replacement for fakelb\")\n    Signed-off-by: Eric Dumazet <edumazet@google.com>\n    Cc: Alexander Aring <alex.aring@gmail.com>\n    Cc: Stefan Schmidt <stefan@datenfreihafen.org>\n    Reported-by: syzbot <syzkaller@googlegroups.com>\n    Acked-by: Alexander Aring <aahringo@redhat.com>\n    Link: https://lore.kernel.org/r/20210621180244.882076-1-eric.dumazet@gmail.com\n    Signed-off-by: Stefan Schmidt <stefan@datenfreihafen.org>\n\ndiff --git a/drivers/net/ieee802154/mac802154_hwsim.c b/drivers/net/ieee802154/mac802154_hwsim.c\nindex baa7e21b7f4f..ebc976b7fcc2 100644\n--- a/drivers/net/ieee802154/mac802154_hwsim.c\n+++ b/drivers/net/ieee802154/mac802154_hwsim.c\n@@ -480,7 +480,7 @@ static int hwsim_del_edge_nl(struct sk_buff *msg, struct genl_info *info)\n \tstruct hwsim_edge *e;\n \tu32 v0, v1;\n \n-\tif (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n+\tif (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] ||\n \t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n \t\treturn -EINVAL;\n \n"
+  },
+  "snapshots": [
+    "s01",
+    "s02",
+    "s03"
+  ],
+  "task": "Find other instances of the seed mechanism in independent Linux source snapshots."
+}

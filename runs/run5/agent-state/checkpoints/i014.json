@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "tx-csum-invariant",
+  "status": "in_progress",
+  "snapshot": "s01",
+  "progress": [
+    {
+      "step": "init",
+      "state": "done",
+      "note": "Seed understood: xsk_skb_metadata TOCTOU on csum_start/csum_offset read twice from mmap'd UMEM TX metadata. Intent i014: search s01 for every site assigning skb->csum_start/csum_offset from external input (tun/tap vnet_hdr, virtio-net, vhost-net, af_packet tpacket vnet_hdr, xsk) and verify csum_start+csum_offset+2 fits within validated frame/linear length on the same fetched value. Seed fix site xsk_skb_metadata must NOT be reported."
+    }
+  ],
+  "next_actions": [
+    "rg 'csum_start' across s01 to enumerate assignment sites",
+    "rg 'skb_partial_csum_set|virtio_net_hdr_to_skb' callers",
+    "read tun.c/tap.c/af_packet.c/xdp xsk.c paths in depth"
+  ]
+}

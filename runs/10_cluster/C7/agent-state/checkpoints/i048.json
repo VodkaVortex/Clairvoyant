@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "intent_id": "i048",
+  "status": "finalizing",
+  "branch": "hardirq-shared-lock",
+  "snapshot": "s05",
+  "method": "parsed 2616 non-macro request_irq/devm_request_irq/request_threaded_irq registrations in snapshots/s05, resolved 2134 handler names, found 2082 in-file definitions, extracted spinlock acquisitions in handler bodies (546 handlers with locks, 399 plain sites), cross-indexed handler-plain locks against all plain spin_lock sites in the same file (327 rows)",
+  "classified": {
+    "reported": [
+      "drivers/tty/synclink_gt.c:1151-1160 set_params32 plain spin_lock(&info->lock) vs slgt_interrupt hardirq plain spin_lock(&port->lock)/(&info->lock) at 2362/2381, request_irq at 3638"
+    ],
+    "safe": [
+      "drivers/staging/comedi/drivers/ni_pcidio.c:365-368 poll's mite_channel_lock held only inside spin_lock_irqsave(&dev->spinlock) so local IRQs disabled; hardirq taker at 397 cannot preempt same CPU; other sites 299/322/346 use irqsave"
+    ]
+  },
+  "unresolved_top": [
+    "mv_udc_core",
+    "emxx_udc",
+    "isp1760-udc",
+    "lpc32xx_udc",
+    "sbni",
+    "ens1370",
+    "zs",
+    "harmony",
+    "ravb_main",
+    "korg1212",
+    "winbond-840"
+  ]
+}

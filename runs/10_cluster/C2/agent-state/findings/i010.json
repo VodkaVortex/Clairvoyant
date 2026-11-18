@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "l2-wireless-ie-tlv",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/wireless/util.c",
+      "start": 2022,
+      "end": 2040,
+      "quote": "static size_t skip_ie(const u8 *ies, size_t ielen, size_t pos)\n{\n\t/* we assume a validly formed IEs buffer */\n\tu8 len = ies[pos + 1];\n\n\tpos += 2 + len;\n\n\t/* the IE itself must have 255 bytes for fragments to follow */\n\tif (len < 255)\n\t\treturn pos;\n\n\twhile (pos < ielen && ies[pos] == WLAN_EID_FRAGMENT) {\n\t\tlen = ies[pos + 1];\n\t\tpos += 2 + len;\n\t}\n\n\treturn pos;\n}",
+      "confidence": "medium",
+      "reason": "Untrusted source: user-supplied IEs passed to ieee80211_ie_split_ric (cfg80211.h:9774 ieee80211_ie_split -> mlme.c:1675/1681 ieee80211_add_before_ht_elems with assoc_data->ie, and mlme.c:2369 ieee80211_ie_split_vendor with assoc_data->ie from wext/nl80211 assoc request). Violated invariant: the walker consumes the element-id byte at ies[pos] when pos < ielen, then reads the length byte ies[pos+1] without confirming at least 2 bytes remain (pos+1 < ielen); the loop then advances pos by 2+len without any pos+2+len <= ielen clamp, and the WLAN_EID_FRAGMENT loop repeats ies[pos+1] with only pos < ielen checked. Unsafe use: skip_ie can return pos > ielen; ieee80211_ie_split_ric then returns that pos, and mlme.c:2372 does skb_put_data(skb, assoc_data->ie + offset, noffset - offset) reading past the end of the user-provided IE buffer, and mlme.c:1681 skb_put_data(skb, elems + offset, noffset - offset) likewise; the fragment-continuation path (len==255) makes the overshoot exceed 256 bytes. Consequence: OOB read past a kmalloc'd IE buffer (KASAN-detectable, bytes copied into transmitted assoc frames). Counterevidence checked: cfg80211_get_p2p_attr in the same file has correct 'if (len < 2) return -EILSEQ' guards; the for_each_element macro in include/linux/ieee80211.h is bounds-correct; however neither applies to this hand-rolled skip_ie walker which explicitly comments 'we assume a validly formed IEs buffer' while being reachable from user-controlled assoc IEs."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bluetooth/eir.c",
+      "start": 372,
+      "end": 386,
+      "quote": "void *eir_get_service_data(u8 *eir, size_t eir_len, u16 uuid, size_t *len)\n{\n\tsize_t dlen;\n\n\twhile ((eir = eir_get_data(eir, eir_len, EIR_SERVICE_DATA, &dlen))) {\n\t\tu16 value = get_unaligned_le16(eir);\n\n\t\tif (uuid == value) {\n\t\t\tif (len)\n\t\t\t\t*len = dlen - 2;\n\t\t\treturn &eir[2];\n\t\t}\n\n\t\teir += dlen;\n\t\teir_len -= dlen;\n\t}\n\n\treturn NULL;\n}",
+      "confidence": "medium",
+      "reason": "Untrusted source: hcon->le_per_adv_data / adv->per_adv_data / adv->adv_data are remotely attacker-controlled EIR buffers (periodic advertising and ADV data from over-the-air peers; iso.c:2365 passes hcon->le_per_adv_data filled from LE PA sync events, hci_sync.c:1706/1714 pass per_adv_data/adv_data). Violated invariant: eir_get_data returns &eir[2] with *data_len = field_len - 1 whenever field_len > 1, i.e. dlen can be 1 (field_len == 2, a truncated EIR_SERVICE_DATA field with only the UUID low byte); eir_get_service_data then executes get_unaligned_le16(eir) reading 2 bytes with only 1 byte of field remaining - a one-byte OOB read within/past the EIR buffer. Additionally eir_len -= dlen at the bottom uses dlen (payload length) rather than the true element advance (field_len + 1), so when dlen == eir_len the unsigned size_t eir_len underflows to (size_t)-1, extending the next eir_get_data iteration far past the real buffer (bounded only by the field_len==0 stop or eir_len<2). Unsafe use at iso.c:2365-2374: base = eir_get_service_data(..., &base_len) followed by memcpy(iso_pi(sk)->base, base, base_len) with only base_len > BASE_MAX_LENGTH checked - when dlen < 2, base_len = dlen - 2 underflows to a huge size_t and the memcpy destination bound check passes, giving a large OOB read of the per-adv data buffer and OOB write into iso_pi(sk)->base. Counterevidence checked: eir_get_data itself (eir.h:62-86) has correct eir_len>=2, parsed>eir_len, and field_len==1 guards; mgmt.c eir_has_uuids and hci_event.c eir_get_length also bound-check before their second-byte reads, isolating this helper as the variant site."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/util.c",
+      "line": 2417,
+      "status": "unresolved",
+      "reason": "ieee80211_ie_split_vendor: 'pos += 2 + ies[pos + 1];' reads the length byte with only pos < ielen checked (OOB when pos == ielen-1) and can overshoot ielen; callers mesh.c:362 and mlme.c:2369 then copy 'len = ifmsh->ie_len - offset' / skb_put_data ranges. mesh.c caller checks offset < ifmsh->ie_len before copying, mitigating the overshoot copy; mlme.c:2372 path overlaps with the reported split_ric finding's data flow. Same missing >=2-remaining check, but primary impact path is captured under the net/wireless/util.c skip_ie finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/wireless/util.c",
+      "line": 1907,
+      "status": "safe",
+      "reason": "cfg80211_get_p2p_attr: explicit 'if (len < 2) return -EILSEQ;' before ies[1], 'if (iedatalen + 2 > len) return -EILSEQ;' before body, and inner loop 'if (iedatalen < 3) return -EILSEQ;' - all the invariant checks the seed requires are present."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/wireless/radiotap.c",
+      "line": 132,
+      "status": "safe",
+      "reason": "radiotap iterator init/next check '(_arg - _rtheader + sizeof(uint32_t)) > _max_length' before each extended-bitmap read and after each _arg += size advance, returning -EINVAL; vendor namespace length (vnslen) is consumed only after the bounded OUI read."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bluetooth/mgmt.c",
+      "line": 10163,
+      "status": "safe",
+      "reason": "eir_has_uuids: field_len == 0 breaks, and 'if (eir_len - parsed < field_len + 1) break;' guarantees eir[1] and all body reads stay inside the buffer before the eir += field_len + 1 advance."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 5104,
+      "status": "safe",
+      "reason": "eir_get_length reads only eir[0] within the parsed < eir_len bound and advances by field_len + 1 with no second-byte dereference; loop naturally terminates at >= eir_len."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bluetooth/eir.h",
+      "line": 62,
+      "status": "safe",
+      "reason": "eir_get_data: 'if (eir_len < 2) return NULL;' up front, 'if (parsed > eir_len) break;' before type match, field_len == 1 zero-length check - the helper itself enforces the >=2-bytes-remaining invariant correctly; the defect is in its consumer eir_get_service_data (reported)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "include/linux/ieee80211.h",
+      "line": 2710,
+      "status": "safe",
+      "reason": "for_each_element macro requires '(data + datalen) - elem >= sizeof(*elem) + elem->datalen' before each iteration, so the id and length bytes plus body are always within datalen; canonical safe pattern for comparison."
+    }
+  ],
+  "limitations": [
+    "Did not audit NFC (net/nfc), Bluetooth SDP/AMP attribute loops, or driver-specific IE parsers under drivers/net/wireless due to the finalize instruction; only net/wireless, net/mac80211, net/bluetooth core files were examined.",
+    "Did not trace every ieee80211_ie_split_ric/ieee80211_ie_split call chain (e.g. drivers calling cfg80211 exported ieee80211_ie_split_ric with packet-derived IEs); the user-controlled assoc_data->ie path was verified only through mlme.c callers.",
+    "Exploitability of the skip_ie overshoot depends on skb_put_data reading past the kmalloc'd assoc_data->ie buffer into adjacent slab memory; no runtime reproducer was compiled (assigned tree is read-only, no build attempted), so impact is a hypothesis expressed via medium confidence.",
+    "The eir_get_service_data base_len = dlen - 2 underflow-to-memcpy path at iso.c:2365 was reviewed statically; whether hcon->le_per_adv_data can practically contain a dlen<2 EIR_SERVICE_DATA field from a synced PA was not confirmed at runtime."
+  ]
+}

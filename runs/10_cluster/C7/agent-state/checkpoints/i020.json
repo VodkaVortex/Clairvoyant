@@ -1,0 +1,16 @@
+{
+  "intent_id": "i020",
+  "branch": "timer-dwork-softirq-lock",
+  "snapshot": "s05",
+  "status": "finalized",
+  "primary_finding": "drivers/scsi/libiscsi.c session->frwd_lock: TIMER_SOFTIRQ callbacks (iscsi_check_transport_timeouts:2088, iscsi_tmf_timedout:1791) take it plain; process-context iscsi_eh_cmd_timed_out:1948 (scsi .eh_timed_out hook, runs from blk_mq_timeout_work kworker) takes it plain; ~20 other sites use spin_lock_bh on same lock",
+  "candidates_classified": {
+    "libiscsi.c:1948": "reported",
+    "slip.c:1404": "safe (all process sites of sl->lock use _bh; timer cb is softirq side)",
+    "bcm63xx_enet.c:290": "safe (both rx_lock sites softirq-side; no process plain holder)",
+    "cxgb4/sge.c:4025": "unresolved (ptp_lock caller contexts not traced)",
+    "hostap_ap.c:218": "unresolved (plain-vs-_bh mix on sta_table_lock; non-timer plain site contexts not traced)",
+    "tun.c:490": "safe (tun_flow_cleanup timer cb is softirq side; process sites _bh)"
+  },
+  "scan_scope": "drivers/ + net/ *.c: timer_setup/setup_timer/DEFINE_TIMER/INIT_DELAYED_WORK/function= callbacks containing plain spin_lock; 73 callback matches triaged"
+}

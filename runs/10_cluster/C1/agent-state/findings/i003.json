@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "hwmon-sysfs-scaled-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "start": 262,
+      "end": 281,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "high",
+      "reason": "smu7_fan_ctrl_set_fan_speed_rpm(struct pp_hwmgr *hwmgr, uint32_t speed) is the unfixed sibling of the seed's vega10 function in the same snapshot. Untrusted source: the u32 'value' parsed with kstrtou32 in the hwmon store handler amdgpu_hwmon_set_fan1_target (drivers/gpu/drm/amd/pm/amdgpu_pm.c:2836-2841, SENSOR_DEVICE_ATTR(fan1_target, S_IRUGO|S_IWUSR) at line 3291) flows via amdgpu_dpm_set_fan_speed_rpm(adev, value) into this powerplay helper. Validation checks only the raw input: 'speed == 0 || (speed < fanInfo.ulMinRPM) || (speed > fanInfo.ulMaxRPM)' -- exactly the seed's pre-patch check set, with no bound tying the input to the representable range of the derived expression. Unsafe use at line 280: 'tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);' computes 8*speed in 32-bit unsigned arithmetic, which wraps to 0 for any speed > UINT_MAX/8, so a nonzero user input becomes a zero divisor and the kernel divides by zero while programming CG_TACH_CTRL TARGET_PERIOD. Direct contrast evidence inside s02: the snapshot's vega10_thermal.c:301-311 and vega20_thermal.c:189-190 both contain the upstream fix '(!speed || speed > UINT_MAX/8)', proving the seed fix is present in this tree while smu7_thermal.c:262-281 still lacks it, so the validated-equals-used invariant ('every divisor must be proven nonzero at the exact integer width where the division executes') is violated only here. Counterevidence checked: the ulMinRPM/ulMaxRPM bounds come from firmware fan info and in normal boards are small, which can gate large speeds; however the identical bound set existed in pre-patch vega10 and upstream still accepted the div-by-zero fix (commit 4b8c3c0d17c0), so the same standard applies; when the ATOM PowerPlay table reports a large/garbage ulMaxRPM (u32, e.g. 0xffffffff) with bNoFan false and tach pulses nonzero, any speed >= ulMinRPM passes and speed in (UINT_MAX/8, UINT_MAX] makes 8*speed == 0. Impact: integer division by zero -> kernel oops/DoS and stalled SMU thermal/fan programming, same class as the seed (reliability, not memory corruption)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "line": 280,
+      "status": "reported",
+      "reason": "8 * speed wraps to 0 in u32 for speed > UINT_MAX/8 and is the denominator of the tach_period division; checks at lines 269-275 validate only raw speed, no UINT_MAX/8 bound; reported as finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 307,
+      "status": "safe",
+      "reason": "Contains the seed's own upstream fix '(!speed || speed > UINT_MAX/8)' at line 307, so 8*speed cannot be 0 at the line-318 division; baseline confirming the snapshot post-dates commit 4b8c3c0d17c0."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+      "line": 190,
+      "status": "safe",
+      "reason": "Has 'if (!speed || speed > UINT_MAX/8) return -EINVAL;' guarding the identical tach_period expression at line 204."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/g762.c",
+      "line": 184,
+      "status": "safe",
+      "reason": "cnt_from_rpm() from fan1_target_store: rpm==0 returns 0xff early; rpm is clamp_val'd to ULONG_MAX/f2 so rpm*f2 cannot wrap to 0 and f2 = p*clk_div >= 2, so the DIV_ROUND_CLOSEST denominator is always nonzero; also checks rpm at input width via clamp of the derived product."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/max6650.c",
+      "line": 279,
+      "status": "safe",
+      "reason": "max6650_set_target(): rpm==0 handled separately (mode off), then rpm = clamp_val(rpm, FAN_RPM_MIN=240, FAN_RPM_MAX=30000) before 'ktach = ((clock * kscale) / (256 * rpm / 60)) - 1'; denominator 256*rpm/60 >= 1024 and constant-shaped, cannot be 0 or wrap."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/adt7475.c",
+      "line": 273,
+      "status": "safe",
+      "reason": "rpm2tach(): rpm==0 returns 0, otherwise '(90000 * 60) / rpm' with rpm >= 1; the raw input check fully determines the divisor, no fixed-width scaling of the denominator."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/adt7470.c",
+      "line": 661,
+      "status": "safe",
+      "reason": "adt7470_fan_write(): 'if (val <= 0) return -EINVAL;' precedes FAN_RPM_TO_PERIOD(val) = (90000*60)/val, so the divisor is a strictly positive user value used directly with no scaling; result then clamp_val'd to 1..65534 before register write."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/emc2305.c",
+      "line": 392,
+      "status": "safe",
+      "reason": "emc2305 pwmN store path: EMC2305_PWM_DUTY2STATE/STATE2DUTY are DIV_ROUND_CLOSEST with denominators EMC2305_FAN_MAX (0xff) and data->max_state; max_state is validated nonzero at probe (pdata->max_state must be 1..EMC2305_FAN_MAX_STATE, else defaults to 10), so no user-reachable zero denominator; emc2305_set_pwm also range-checks val."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/max31760.c",
+      "line": 426,
+      "status": "safe",
+      "reason": "lut_store()/pwm1_auto_point_temp_hyst_store() parse with kstrtou8/kstrtou32 and write registers directly; tach_to_rpm() (line 69) guards tach==0 -> 1 on the read path; no division whose denominator is derived from a scaled user store value."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/aspeed-pwm-tacho.c",
+      "line": 573,
+      "status": "safe",
+      "reason": "pwm_store() validates 'fan_ctrl < 0 || fan_ctrl > PWM_MAX' before aspeed_set_pwm_port_fan_ctrl(); the only division there is (fan_ctrl * period) / PWM_MAX with constant nonzero PWM_MAX; remaining divisions (measure period, rpm) consume DT/hardware-derived values on the read path, not scaled user store input."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/aspeed-g6-pwm-tach.c",
+      "line": 312,
+      "status": "unresolved",
+      "reason": "aspeed_tach_val_to_rpm(): tach_div = tach_val * priv->tach_divisor * DEFAULT_FAN_PULSE_PR then do_div(rpm, tach_div); a hardware tach_val of 0 with FULL_MEASUREMENT set would divide by zero, but tach_val comes from a status register on the hwmon read path, not from a user store handler, so it is outside this branch's untrusted-source scope (fits branch4 firmware/hardware data); the fan_div store path validates is_power_of_2 && DIV_TO_REG(val) <= 0xb, so the user-scaled divisor itself is safe."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hwmon/it87.c",
+      "line": 1478,
+      "status": "unresolved",
+      "reason": "set_fan_div()/set_fan_min() restore the minimum via FAN_TO_REG(min, DIV_FROM_REG(...)) which divides by user-supplied RPM; the FAN_TO_REG macro body and its zero/negative guard were not line-verified within this session's final pass, so it remains unclassified rather than assumed safe."
+    }
+  ],
+  "limitations": [
+    "Exploitability of the smu7_thermal.c finding depends on firmware-provided fanInfo.ulMinRPM/ulMaxRPM: populated small values gate large speeds, and ulMaxRPM==0 blocks all speed>0; the division is reachable when the ATOM PowerPlay fan table reports a large ulMaxRPM (u32) -- the same gating applied to pre-patch vega10 and upstream still shipped the UINT_MAX/8 fix.",
+    "The pp_funcs dispatch linkage (smu7_hwmgr.c wiring .set_fan_speed_rpm = smu7_fan_ctrl_set_fan_speed_rpm for CIK/VI ASICs) and the amdgpu_hwmon visibility gates around amdgpu_pm.c:3385-3421 were not re-verified line-by-line in the final pass; the store handler amdgpu_hwmon_set_fan1_target (amdgpu_pm.c:2836) calling amdgpu_dpm_set_fan_speed_rpm(adev, value) was verified.",
+    "The search prioritized fan/pwm/target/div sysfs surfaces in drivers/hwmon and drivers/thermal plus the AMD powerplay thermal helpers; non-fan hwmon attributes (voltage/current/power limit stores) in the remaining ~250 drivers/hwmon files were only pattern-scanned, and the two unresolved candidates (aspeed-g6 tach read path, it87 FAN_TO_REG) were not fully closed."
+  ]
+}

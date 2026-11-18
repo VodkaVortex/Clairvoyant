@@ -1,0 +1,24 @@
+{
+  "intent_id": "i015",
+  "branch": "firmware-table-divisor",
+  "snapshot": "s02",
+  "status": "complete",
+  "invariant": "Every divisor of '/' or '%' must be proven nonzero at the exact integer width where the division executes, especially when divisor = f(untrusted value) applies unchecked fixed-width scaling or narrowing and validation only checks f's input rather than f's output at division width.",
+  "progress": [
+    {"step": "init", "note": "Checkpoint created before first search of snapshots/s02."},
+    {"step": "search1", "note": "Scanned AMD PM powerplay/swsmu tach_period sites. vega10_thermal.c:310, vega20_thermal.c:194, arcturus_ppt.c:1270, smu_v13_0.c:1229 all carry the upstream 'speed > UINT_MAX/8' fix. si_dpm.c:6722 is inside '#if 0' dead code."},
+    {"step": "search2", "note": "smu_v11_0.c:1215 set_fan_speed_rpm only checks 'speed == 0' then divides by (8 * speed) at line 1217 — the exact seed mechanism, missing the upper bound; reachable via navi10_ppt.c:3589 and sienna_cichlid_ppt.c:3199 ppt function tables for Navi1x/Sienna Cichlid."},
+    {"step": "search3", "note": "Firmware-table divisions checked: atom.c atom_op_div/div32 check src != 0 (safe); do_div sites in vegam/polaris10 smumgr divide by ref_clock from amdgpu_asic_get_xclk (driver constant, non-zero); smu_v11_0/arcturus get_fan_speed rpm paths guard tach_status == 0; si.c upll fb_div divides by spll.reference_freq from atombios parser (driver-controlled constants, 10kHz units, non-zero in practice)."},
+    {"step": "finalize", "note": "Bounded negative result for firmware-table-divisor branch in s02; primary credible hit reclassified to the sibling hwmon/drm-userif mechanism (smu_v11_0_set_fan_speed_rpm), recorded as a finding with medium confidence since input path is user interface, not firmware table."}
+  ],
+  "candidates": [
+    {"path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c", "line": 1217, "status": "reported", "reason": "set_fan_speed_rpm validates only speed==0; 8*speed in u32 wraps to 0 for speed > UINT_MAX/8 and is used as divisor — seed mechanism reproduced; sibling ASICs (arcturus, vega20, smu_v13_0) have the fix but smu_v11_0.c does not."},
+    {"path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c", "line": 6722, "status": "safe", "reason": "Identical 8*speed division but enclosed in '#if 0' dead code block; not compiled."},
+    {"path": "drivers/gpu/drm/amd/amdgpu/atom.c", "line": 695, "status": "safe", "reason": "atom_op_div checks 'if (src != 0)' before dividing; div32 same pattern; firmware-table interpreter guards zero divisors."},
+    {"path": "drivers/gpu/drm/amd/pm/powerplay/smumgr/vegam_smumgr.c", "line": 764, "status": "safe", "reason": "do_div(temp, ref_clock) where ref_clock = amdgpu_asic_get_xclk() is a per-ASIC driver constant (nonzero), not a firmware-field-derived unchecked value."},
+    {"path": "drivers/gpu/drm/amd/amdgpu/si.c", "line": 1734, "status": "safe", "reason": "do_div(fb_div, ref_freq) with ref_freq = adev->clock.spll.reference_freq populated from atombios clock parse; it is a fixed reference frequency in 10kHz units, never user-controlled and effectively nonzero."}
+  ],
+  "findings": [
+    {"path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c", "start": 1215, "end": 1217, "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);", "confidence": "medium", "reason": "Untrusted RPM value from hwmon fan RPM store reaches smu_v11_0_set_fan_speed_rpm for Navi1x/Sienna Cichlid (navi10_ppt.c:3589, sienna_cichlid_ppt.c:3199); only raw speed==0 is validated while the scaled divisor 8*speed wraps to 0 in u32 when speed > UINT_MAX/8 — exactly the seed's missing invariant, while sibling implementations (vega20, arcturus, smu_v13_0) carry the bound."}
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "and-presence-guard",
+  "status": "complete",
+  "snapshot": "s02",
+  "queries_run": [
+    "rg -Un --multiline '!info->attrs[A] && ... !info->attrs[B]'",
+    "rg -Un --multiline '!tb[A] && ... !tb[B]'",
+    "policy/ops reads: mac802154_hwsim.c hwsim_genl_policy + hwsim_nl_ops",
+    "full-function reads: nl80211_new_station, nl-mac.c assoc/disassoc/set_mac_params/llsec, nfc start_poll/llc params, devlink reload, genetlink ctrl_dumppolicy_start, vxlan_fdb_add"
+  ],
+  "finding": {
+    "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+    "function": "hwsim_new_edge_nl",
+    "guard_lines": "421-423",
+    "use_lines": "425 (nested parse on attrs[RADIO_EDGE]), 431 (nla_get_u32 on attrs[RADIO_ID])",
+    "confidence": "high"
+  },
+  "candidates_classified": 12,
+  "final_artifact": "agent-state/findings/i006.json"
+}

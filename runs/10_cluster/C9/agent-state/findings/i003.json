@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "start": 1449,
+      "end": 1462,
+      "quote": "u32 msg_count = le32_to_cpu(msg->hdr.count);\n\t\tu32 msg_len = le32_to_cpu(msg->hdr.len);\n\t\tu32 len = 0;\n\t\tint j;\n\n\t\tfor (j = 0; j < msg_count && len < msg_len; ++j) {\n\t\t\tstruct wire_trans_hdr *trans_hdr;\n\n\t\t\ttrans_hdr = (struct wire_trans_hdr *)(msg->data + len);",
+      "confidence": "low",
+      "reason": "Untrusted source: resp_worker() receives wire_msg buffers completed by the device over the MHI control channel (qaic_mhi_dl_xfer_cb, lines 1490-1512, validates only transaction_status and magic_number, then queues resp_worker); the device/QSM is a remote peer of a virtual-bus protocol, matching the seed's remote-endpoint attacker. Missing guarantee (asymmetric validation): the only count clamp, qaic_manage() lines 1256-1258 'if (user_msg->len > QAIC_MANAGE_MAX_MSG_LENGTH || user_msg->count > QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr)) return -EINVAL;', and decode_message()'s per-transaction walk (msg_hdr_len bounded at lines 976-980, each hdr_len checked 'size_add(msg_len, hdr_len) > msg_hdr_len' at lines 989-993) exist only on the request/decode path; the mirror orphan-response path resp_worker() reads msg->hdr.count (le32, line 1449) with NO bound against any known maximum and no per-iteration len sanity: the loop at line 1454 'for (j = 0; j < msg_count && len < msg_len; ++j)' walks wire_trans_hdr entries at msg->data+len where len advances ONLY by the peer-supplied trans_hdr->len (line 1460/1462). If the device sends count=1, len=0xFFFFFF00 (hdr.len unchecked against the 4K DL buffer) with a non-DEACTIVATE first transaction, the first iteration reads trans_hdr at msg->data (in bounds) but sets len += 0xFFFFFF00, and the second iteration dereferences (struct wire_trans_hdr *)(msg->data + 0xFFFFFF00) — a wild pointer read on 64-bit (32-bit wrap on 32-bit) of ->type at line 1458; with hdr.len=0 it is an infinite spin at fixed offset. The DL buffer is a fixed kmalloc(QAIC_MANAGE_MAX_MSG_LENGTH=SZ_4K) (include/uapi/drm/qaic_accel.h:17; allocation at line 1063), so any len >= 4K is out of bounds. Counterevidence checked: msg->hdr.len is never validated against mhi_result->bytes_xferd or the 4K buffer anywhere between qaic_mhi_dl_xfer_cb and this loop; decode_deactivate called from this loop (line 1459, with usr=NULL) does validate dbc_id >= qdev->num_dbc but is reached only after the OOB trans_hdr dereference at line 1458; qaic_manage's clamp (1256-1258) and decode_message's walk (964-1010) cover the paired request/response direction, confirming the asymmetric-validation signature. Impact not fully proven: triggering requires a malicious or compromised QAIC device (AIC100/QSM over MHI) or a peer controlling the MHI link; the dereference is a speculative wild read of 4 bytes used only for a type compare, and the len==0/infinite-loop variant is DoS. No runtime reproducer was built (read-only snapshot; transport needs MHI hardware/peer)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 1449,
+      "status": "reported",
+      "reason": "resp_worker orphan-response loop consumes peer-supplied msg->hdr.count/hdr.len and peer trans_hdr->len advance with no clamp against QAIC_MANAGE_MAX_MSG_LENGTH (4K) or bytes_xferd; sibling request path (qaic_manage:1256-1258, decode_message:976-993) enforces the clamps — asymmetric validation. Reported as finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 979,
+      "status": "safe",
+      "reason": "decode_message() stores user_msg->count = le32_to_cpu(msg->hdr.count) (line 979) from the device response, but the count was already clamped at qaic_manage():1256-1258 (count > QAIC_MANAGE_MAX_MSG_LENGTH/sizeof(hdr) rejected) and each iteration validates msg_hdr_len bounds and size_add(msg_len, hdr_len) <= msg_hdr_len (lines 989-993); the destination user_msg->data is a kzalloc(QAIC_MANAGE_MAX_MSG_LENGTH + sizeof(*msg)) buffer (line 1323) and every decode_* helper re-checks user_msg->len + len > QAIC_MANAGE_MAX_MSG_LENGTH (lines 841-842, 865-866, 938-939). Clamped on both axes."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/can/bcm.c",
+      "line": 1130,
+      "status": "safe",
+      "reason": "bcm_rx_setup stores msg_head->nframes (userspace-provided via sendmsg) into op->nframes but first clamps 'msg_head->nframes > MAX_NFRAMES + 1 -> -EINVAL' (line 1130) before op->nframes = msg_head->nframes (line 1161) and kmalloc_array/kcalloc allocations (lines 1024-1034 area); TX_SEND sibling clamps <1 or >MAX_NFRAMES at line 941. Both directions clamped in s01."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 482,
+      "status": "safe",
+      "reason": "This snapshot already contains the upstream fix for the seed CVE: usbip_pack_ret_submit unpack now clamps 'if (rpdu->number_of_packets < 0 || rpdu->number_of_packets > urb->number_of_packets) rpdu->number_of_packets = 0;' (lines 482-484) and usbip_recv_iso validates 'np <= 0 || np > USBIP_MAX_ISO_PACKETS' and zeroes urb->number_of_packets before bailing (lines 686-693), with kcalloc replacing the int multiply (line ~699). Seed subsystem present but patched and excluded from reporting per rules."
+    }
+  ],
+  "limitations": [
+    "The s01 sweep was halted by the finalize directive after deep-reading the qaic control channel, CAN BCM, and usbip (seed, patched) families; other deserialization entry points in s01 (netlink nla_parse handlers across drivers/net, bluetooth hci_event, ksmbd/cifs/9p reply parsers, nbd, virtio/vhost, HID report descriptors, io_uring) were enumerated by query but not deep-read.",
+    "The reported qaic finding's end-to-end impact is not proven: the orphan-response path is only reached when a device response matches no pending xfer (request timed out), the OOB is a 4-byte wild read at a device-chosen offset (or infinite loop when trans_hdr->len==0 with count>1), and exploitation requires a malicious/compromised MHI device peer; confidence is low for that reason.",
+    "mt76/ath10k testmode netlink count attributes (e.g. drivers/net/wireless/mediatek/mt76/testmode.c:438 tx_count = nla_get_u32) were located but their downstream consumers were not audited before the finalize budget ran out; wireguard/ovpn/netkit netlink files were listed but not examined.",
+    "No compilation or runtime reproducer was built (assigned tree is read-only; the qaic path needs MHI control-channel hardware); all conclusions come from direct source reading with exact line numbers re-verified by numbered sed/grep output."
+  ]
+}

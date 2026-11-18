@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "intent_id": "i026",
+  "branch": "timer-dwork-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s11"
+  ],
+  "findings": [
+    {
+      "snapshot": "s11",
+      "path": "net/bridge/br_multicast.c",
+      "start": 886,
+      "end": 916,
+      "quote": "void br_multicast_disable_port(struct net_bridge_port *port)\n{\n\tstruct net_bridge *br = port->br;\n\tstruct net_bridge_port_group *pg;\n\tstruct hlist_node *n;\n\n\tspin_lock(&br->multicast_lock);",
+      "confidence": "medium",
+      "reason": "Lock object br->multicast_lock (spin_lock_init at net/bridge/br_multicast.c:1810) is shared between TIMER_SOFTIRQ callbacks and process-context code with the process side missing the bottom-half disable (timer-softirq analogue of the seed's missing spin_lock_bh). TIMER-SOFTIRQ SIDE (all plain spin_lock): br_multicast_group_expired (def 142, lock 147, timer_setup(&mp->timer,...) at 460), br_multicast_port_group_expired (def 200, lock 205, timer_setup at 491), br_multicast_router_expired (def 626, lock 632, timer_setup(&port->multicast_router_timer,...) at 828-829), br_multicast_local_router_expired (def 656, lock 660, timer_setup at 1811-1812), br_multicast_querier_expired-family (def 674, lock 690 region, timer_setup at 1813-14/1818-19) and br_multicast_query_expired (def 1755, lock 1759, reached from br_ip4_multicast_query_expired/br_ip6_multicast_query_expired timer callbacks wired by timer_setup at 1815-16/1820-21). These execute in call_timer_fn from TIMER_SOFTIRQ. PROCESS SIDE (same lock object, plain spin_lock): br_multicast_enable_port (def 886, lock 890) and br_multicast_disable_port (def 895, lock 901, unlock 913) which walk port->mglist and delete port groups under the lock; they are called from br_stp.c:476 (br_multicast_enable_port) and net/bridge/br_stp_if.c (br_stp_enable_port/br_stp_disable_port, lines 91/99), reached from net/bridge/br.c:96/105 (netlink bridge-port state change) and net/bridge/br_if.c:80/85/333/687 (add/del/change port) - process context with BH enabled. Mixed discipline proves the omission: sibling sites on the SAME lock correctly use spin_lock_bh (br_multicast_del_port:853, br_multicast_dev_del:1929, br_multicast_set_router:1946, br_multicast_toggle:2053, br_multicast_router:2090, br_multicast_set_querier:2103, br_multicast_set_igmp_version:2142, br_multicast_set_mld_version:2161), and even br_multicast_add_group:546 (process side) and the br_ip4/6_multicast_query handlers (1232/1311/1389, which run under NET_RX softirq where plain is acceptable) use plain. UNTRUSTED TRIGGER: attacker-influenced concurrency, not data - any IGMP/MLD join or query packet (drives timer arm/update) plus any STP carrier/link event or netlink port-state change on the same CPU. MISSING GUARANTEE: plain spin_lock only disables preemption, not bottom halves, so a TIMER_SOFTIRQ firing on the same CPU while br_multicast_disable_port/enable_port (or br_multicast_add_group) holds multicast_lock spins on the lock forever while the preempted holder can never resume -> soft lockup, RCU stall, bridge multicast stall DoS. COUNTEREVIDENCE CHECKED: no local_bh_disable/spin_lock_bh on the 890/901/546 sites and no annotation forcing BH-disabled context on the STP/port-config callers (br_stp_if.c br_stp_enable_port/br_stp_disable_port are plain process-context callers over netlink/sysfs); the timer callbacks themselves are genuinely softirq (timer_list wired via timer_setup in br_multicast_init/br_multicast_add_port, no IRQ-threading)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s11",
+      "path": "net/bridge/br_multicast.c",
+      "line": 890,
+      "status": "reported",
+      "reason": "br_multicast_enable_port takes br->multicast_lock with plain spin_lock at 890 while timer callbacks (group_expired 147, port_group_expired 205, router_expired 632, local_router_expired 660, querier_expired ~690, query_expired 1759) take the same lock in TIMER_SOFTIRQ; sibling process sites (853, 1929, 1946, 2053, 2090, 2103, 2142, 2161) correctly use spin_lock_bh, proving mixed discipline and the missing BH disable at this site."
+    },
+    {
+      "snapshot": "s11",
+      "path": "net/bridge/br_multicast.c",
+      "line": 901,
+      "status": "reported",
+      "reason": "br_multicast_disable_port takes the same br->multicast_lock with plain spin_lock at 901 (called from br_stp_disable_port in br_stp_if.c via netlink/sysfs port config); part of the reported finding."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/tun.c",
+      "line": 495,
+      "status": "safe",
+      "reason": "tun_flow_cleanup timer callback takes plain spin_lock(&tun->lock) but it is the softirq side itself; all process-context sites of tun->lock use spin_lock_bh, so no BH-enabled plain holder exists for a timer softirq to spin against."
+    },
+    {
+      "snapshot": "s11",
+      "path": "net/802/garp.c",
+      "line": 408,
+      "status": "safe",
+      "reason": "garp_join_timer takes plain spin_lock(&app->lock) but the process-side sites use spin_lock_bh (352, 372, 613) and the other plain site (523, PDU parse) is the NET_RX softirq side; invariant satisfied."
+    },
+    {
+      "snapshot": "s11",
+      "path": "net/802/mrp.c",
+      "line": 593,
+      "status": "safe",
+      "reason": "mrp_join_timer (593) and mrp_periodic_timer (612) take plain spin_lock(&app->lock) as the softirq side; process-context sites use spin_lock_bh (532, 557, 899); invariant satisfied."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 303,
+      "status": "safe",
+      "reason": "bcm_enet_refill_rx_timer takes plain spin_lock(&priv->rx_lock) but the only other site is the NAPI poll (also softirq); no process-context plain holder, so the holder-can-never-resume shape is absent."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 2088,
+      "status": "safe",
+      "reason": "iscsi_check_transport_timeouts (2088) and iscsi_tmf_timedout (1791) take session->frwd_lock plainly, but unlike the s05 variant every BH-enabled process-context site in this tree uses spin_lock_bh on frwd_lock/back_lock/taskqueuelock; the remaining plain sites (758, 1051, 1055, 1160, 1163, 1270, 1431) sit in the iscsi xmitworker/requeue paths already running with BH disabled (iscsi_xmitworker is queued and the TX path runs under local_bh_disable from the block layer scsi_queue_work path); no BH-enabled plain process holder identified for a timer softirq to spin against in this snapshot."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/wireless/intel/iwlwifi/pcie/tx.c",
+      "line": 183,
+      "status": "unresolved",
+      "reason": "iwl_pcie_txq_stuck_timer takes plain spin_lock(&txq->lock) at 188 inside a timer_list callback; whether every non-timer site of the same txq->lock uses spin_lock_irqsave (which would also exclude the timer softirq) was not enumerated before the finalize deadline."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/chelsio/cxgb4/sge.c",
+      "line": 4135,
+      "status": "unresolved",
+      "reason": "sge_tx_timer_cb takes plain spin_lock(&adap->ptp_lock) at ~4160 in a timer callback; the full set of ptp_lock sites and their contexts was not traced before the deadline."
+    },
+    {
+      "snapshot": "s11",
+      "path": "net/sched/sch_pie.c",
+      "line": 423,
+      "status": "unresolved",
+      "reason": "pie_timer (423) takes plain spin_lock(root_lock); qdisc root_lock process-side netlink paths (change/reset/dump) were not verified to always take it with BH disabled before the deadline; same shape as sch_sfq.c:605 sfq_perturbation and sch_red.c:317 red_adaptative_timer."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/wireless/intersil/hostap/hostap_ap.c",
+      "line": 218,
+      "status": "unresolved",
+      "reason": "ap_handle_timer (def 175) contains plain spin_lock(&ap->sta_table_lock) at 218 in a timer callback, plus 12 further plain sites on the same lock; the calling context of the non-timer plain sites was not traced before the deadline."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/eql.c",
+      "line": 142,
+      "status": "unresolved",
+      "reason": "eql_timer takes plain spin_lock(&eql->lock) at 147; process-context sites (ioctl slave config) of the same lock were not classified before the deadline."
+    }
+  ],
+  "limitations": [
+    "Static source analysis only: no runtime reproducer, lockdep run, or compile was performed (the snapshot tree lacks .config and generated headers for standalone builds); the br_multicast deadlock is a source-level hypothesis.",
+    "The process-context callers of br_multicast_enable_port/br_multicast_disable_port (br_stp.c:476 via br_stp_if.c br_stp_enable_port/br_stp_disable_port from netlink port-state change, bridge stop/start, carrier handling) were established from the standard bridge call model plus the grep-visible callers in this snapshot rather than line-level tracing of every netlink entry point, reflected in medium confidence.",
+    "A scripted enumeration found 67 timer_list callbacks containing plain spin_lock without bh_disable in their body; deep lock-object pairing was completed only for br_multicast.c (reported), tun.c, garp.c/mrp.c, bcm63xx_enet.c and libiscsi.c.",
+    "Unresolved candidates left for follow-up: iwlwifi pcie/tx.c txq->lock stuck-timer, cxgb4 sge.c adap->ptp_lock, qdisc root_lock in sch_pie/sch_sfq/sch_red, hostap ap_handle_timer sta_table_lock, eql.c eql->lock, plus the remaining ~55 low-priority timer callbacks (xfrm, ipvs, blk-iocost, watchdogs, dummy_hcd, taprio/gate, neighbour, decnet) that were enumerated but not deeply paired.",
+    "hrtimer handlers and delayed_work expiry callbacks were not separately enumerated beyond the timer_list scan; only .function= assignments caught by the heuristic were included."
+  ]
+}

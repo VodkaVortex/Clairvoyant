@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "sysfs-store-attr-terminator",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/target/target_core_alua.c",
+      "start": 1914,
+      "end": 1924,
+      "quote": "memcpy(buf, page, count);",
+      "confidence": "high",
+      "reason": "core_alua_store_tg_pt_gp_info() is a configfs/kernfs-backed attribute store reached with attacker-chosen count (capped only by the page size in the configfs write path). Line 1907 declares 'unsigned char buf[TG_PT_GROUP_NAME_BUF]' (256 bytes, include/target/target_core_base.h:36). The bounds check at 1914 is 'if (count > TG_PT_GROUP_NAME_BUF)' - off-by-one: count == 256 is accepted. Line 1918 memset(buf,0,256) is then fully overwritten by memcpy(buf, page, count) at 1919, which copies exactly count == 256 bytes with no +1 terminator slot; the configfs page buffer's trailing NUL at page[count] is NOT copied. Line 1924 then runs strcmp(strstrip(buf), \"NULL\") - strstrip/strim calls strlen(buf) first and strcmp scans to NUL, so with 256 attacker-supplied non-NUL bytes both read past the end of the 256-byte stack array (KASAN stack OOB read, info leak/crash). strstrip(buf) is passed again to core_alua_get_tg_pt_gp_by_name() (strlen/strncmp) compounding the OOB reads. This is the seed's invariant under the sysfs/configfs store interface: attacker controls length and full contents, exactly-sized destination, no memdup_user_nul/count+1/terminator-slot guarantee, then C-string consumers. Fix primitive would be count >= TG_PT_GROUP_NAME_BUF rejection or a count+1 buffer. Counterevidence checked: configfs/kernfs page termination does not help because only count bytes are memcpy'd; no strnlen/nul-byte check exists between the copy and the string uses."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/target/target_core_configfs.c",
+      "start": 2446,
+      "end": 2455,
+      "quote": "memcpy(buf, page, count);",
+      "confidence": "high",
+      "reason": "target_dev_alua_lu_gp_store() (a configfs ->store attribute callback, line 2432) declares 'unsigned char buf[LU_GROUP_NAME_BUF] = { };' (256 bytes, include/target/target_core_base.h:34). The check at 2446 is 'if (count > LU_GROUP_NAME_BUF)' - off-by-one, so count == 256 is accepted; the zero-initializer's NUL at buf[255] is overwritten by memcpy(buf, page, count) at 2450 which fills all 256 bytes with attacker data and copies no terminator (the page's trailing NUL at page[count] is outside the 256-byte copy). Line 2455 'if (strcmp(strstrip(buf), \"NULL\"))' then runs strlen (inside strstrip/strim) and strcmp over the unterminated stack buffer, reading past buf[255]; strstrip(buf) is also passed to core_alua_get_lu_gp_by_name() for further strlen/strncmp scans. Same usercopy-then-string-parser invariant as the seed (attacker-chosen length into exactly-sized buffer, no terminator slot, C-string consumers). Counterevidence checked: no nul-byte search or strnlen between copy and use; kernfs/configfs page termination is irrelevant to the fixed-size stack copy."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "fs/kernfs/file.c",
+      "line": 296,
+      "status": "safe",
+      "reason": "kernfs_fop_write_iter: buf = kmalloc(len + 1) (line 306) and buf[len] = '\\0' after copy_from_iter (line 318); prealloc path allocates of->prealloc_buf = kmalloc(len + 1) with len = atomic_write_len ?: PAGE_SIZE (lines 672-673) and writes are capped to that length. Trailing-NUL guarantee holds at every ->write/->store callback."
+    },
+    {
+      "snapshot": "s01",
+      "path": "fs/sysfs/file.c",
+      "line": 127,
+      "status": "safe",
+      "reason": "sysfs_kf_write (127-136) and sysfs_kf_bin_write (140-159) forward the kernfs page buffer (NUL-terminated at buf[count]) and count to ops->store / battr->write; they add no copy that could drop the terminator."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/nvme/host/sysfs.c",
+      "line": 562,
+      "status": "safe",
+      "reason": "nvme_ctrl_dhchap_secret_store: dhchap_secret = kzalloc(count + 1, GFP_KERNEL) then memcpy(dhchap_secret, buf, count) - byte at index count remains 0, so strcmp(dhchap_secret, opts->dhchap_secret) and nvme_auth_generate_key() see a terminated string; kernfs buf itself is also terminated."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/nvme/host/sysfs.c",
+      "line": 620,
+      "status": "safe",
+      "reason": "nvme_ctrl_dhchap_ctrl_secret_store: identical kzalloc(count + 1) + memcpy(count) pattern; terminator slot exists, string uses are safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/scsi/scsi_sysfs.c",
+      "line": 198,
+      "status": "safe",
+      "reason": "store_shost_state: strncmp(shost_states[i].name, buf, len) stops at the kernfs-guaranteed buf[count] == '\\0' when len > count (mismatch short-circuits before buf[len] is evaluated); when len <= count, buf[len] lies inside the PAGE_SIZE+1 kernfs buffer. No OOB."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/scsi/scsi_sysfs.c",
+      "line": 795,
+      "status": "safe",
+      "reason": "store_state_field: same strlen+strncmp+buf[len]=='\\n' pattern; safe for the same kernfs trailing-NUL and short-circuit reasons."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/edac/versal_edac.c",
+      "line": 848,
+      "status": "unresolved",
+      "reason": "inject_data_ue_store: 'char buf[6]' with len = min_t(size_t, count, sizeof(buf)) and then buf[len] = '\\0' - when count >= 6, len == 6 and buf[6] = '\\0' is a one-byte stack out-of-bounds WRITE (off-by-one). It is a struct file/const char __user* write handler (debugfs-style), not a sysfs ->store, and the defect is an OOB write rather than the seed's unterminated-string read; recorded for the debugfs branch, not fully audited here."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/accessibility/speakup/kobjects.c",
+      "line": 386,
+      "status": "unresolved",
+      "reason": "synth_store was flagged by the automated store-callback scan (memcpy with count followed by string parsing) but was not deeply read during the finalize phase; termination status unverified."
+    }
+  ],
+  "limitations": [
+    "The store-callback sweep was a heuristic regex over .c files in s01 (function names matching \\w*store\\w*, bodies up to 8000 chars); attribute stores defined inline in macros, in .h files, or under different naming (e.g. module_param_cb handlers, *_write_attr) were not exhaustively enumerated.",
+    "drivers/accessibility/speakup/kobjects.c synth_store and drivers/edac/versal_edac.c inject_data_ue_store remain unresolved (flagged but not deeply read within the finalize-phase read budget).",
+    "The two reported findings are configfs-backed attribute stores (target core); they sit at the boundary with the proc/configfs intent (i004) and are reported here because they implement exactly this branch's attribute-store trust pattern (attacker length + full contents into an exactly-sized buffer, then strcmp/strlen without a terminator slot).",
+    "fs/configfs/file.c fill_write_buffer() was not re-read in this finalize phase; the findings do not depend on it because only count bytes are memcpy'd into the fixed 256-byte stack buffers, so the page buffer's terminator (where present) is never copied."
+  ]
+}

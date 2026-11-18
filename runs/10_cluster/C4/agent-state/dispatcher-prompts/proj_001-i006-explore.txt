@@ -1,0 +1,197 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-24599e61b755
+  status: active
+  created_at: 1794475098194
+  reason: null
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C4/public. Seed: net: sctp: check proc_dointvec result in proc_sctp_do_auth. The full public demonstration is in seed.json. Snapshot IDs: s01, s02'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'MECHANISM PROFILE (seed = demonstration only; net/sctp/sysctl.c proc_sctp_do_auth must never be reported). UNTRUSTED SOURCE: arbitrary-format user bytes in a sysctl write buffer reaching a custom .proc_handler through a shadow copy of the ctl_table whose .data is repointed at an uninitialized stack local. MISSING GUARANTEE: the proc_dointvec-family parser only defines its out-param on success; the handler ignored the return code, so neither success nor range of the parsed value was validated before consumption. UNSAFE USE/TRANSITION: an unconditional write-side commit stored the possibly-uninitialized local into persistent per-net state that is later re-read and re-applied. CONSEQUENCE: kernel stack bytes disclosed back to unprivileged readers of the sysctl, and a security-critical boolean knob (feature enablement) toggled by garbage stack content. BRANCHES: branch1=sysctl-handler-recode — custom .proc_handler implementations tree-wide that wrap proc_dointvec/proc_dointvec_minmax/proc_doulongvec*/proc_dostring (including shadow ctl_table copies) yet use the parsed value or fire write side effects without gating on the parser return code; branch2=uninit-parse-outparam — non-sysctl user-input surfaces (netlink attributes, setsockopt/ioctl, procfs/sysfs write fops) where an uninitialized or partially-initialized stack local is the destination of an error-returning parse/copy helper and is consumed, persisted, or copied back on failure paths (stack leak / garbage state); branch3=error-path-commit — non-sysctl control write paths where an earlier parse or validation failure does not abort, so state mutations, cache invalidations, socket walks, or notifications still execute after the error; branch4=sysctl-unbounded-knob — sysctl table entries for security-relevant integer/boolean state parsed without bounds (proc_dointvec where proc_dointvec_minmax is required, missing extra1/extra2, maxlen/type mismatch) so out-of-range or garbage values alter enforcement, auth, or crypto posture.'
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794475467082
+  created_at: 1794475098252
+  concluded_at: 1794475467082
+- id: i002
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=sysctl-handler-recode; Search only snapshots/s01 for custom .proc_handler implementations tree-wide that wrap proc_dointvec/proc_dointvec_minmax/proc_doulongvec_minmax/proc_dostring — including shadow or temporary ctl_table copies whose .data is repointed at a stack local — but then consume the parsed out-param value or fire write-side commits/side effects without gating on the parser's return code; explicitly exclude the seed demonstration net/sctp/sysctl.c proc_sctp_do_auth; save a structured artifact (exact file:line evidence, candidates, or an evidence-backed negative) for snapshots/s01 only.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794475617549
+  created_at: 1794475617539
+  concluded_at: null
+- id: i003
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=uninit-parse-outparam; Search only snapshots/s01 for non-sysctl user-input surfaces — netlink attribute parsing, setsockopt/ioctl handlers, procfs/sysfs write fops — where an uninitialized or partially-initialized stack local is the destination/out-param of a parse or copy helper that can return an error, and the local is consumed, persisted, or copied back to userspace even on failure paths (stack-byte disclosure or garbage state); save a structured artifact with exact file:line evidence or a concrete negative for snapshots/s01 only.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794475617550
+  created_at: 1794475617540
+  concluded_at: null
+- id: i004
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=error-path-commit; Search only snapshots/s01 for control write paths (netlink doit callbacks, setsockopt, ioctl, procfs/sysfs writes) where an earlier parse or validation failure does not abort the flow, so state mutations, cache invalidations, socket/table walks, refcount changes, or notifications still execute after the error return is known; focus on missing error-aborts between parse and unconditional commit; save a structured artifact with exact file:line evidence or an evidence-backed negative for snapshots/s01 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794475617542
+  concluded_at: null
+- id: i005
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=sysctl-unbounded-knob; Search only snapshots/s01 for sysctl table entries governing security-relevant integer/boolean state (auth, crypto, enforcement, mitigation knobs) parsed without bounds: proc_dointvec where proc_dointvec_minmax is required, missing extra1/extra2 range limits, or maxlen/proc_handler/data-type mismatch, so out-of-range or garbage values alter enforcement or crypto posture; save a structured artifact with table-entry file:line evidence or an evidence-backed negative for snapshots/s01 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794475617543
+  concluded_at: null
+- id: i006
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=sysctl-handler-recode; Search only snapshots/s02 for custom .proc_handler implementations tree-wide that wrap proc_dointvec/proc_dointvec_minmax/proc_doulongvec_minmax/proc_dostring — including shadow or temporary ctl_table copies whose .data is repointed at a stack local — but then consume the parsed out-param value or fire write-side commits/side effects without gating on the parser's return code; explicitly exclude the seed demonstration net/sctp/sysctl.c proc_sctp_do_auth; save a structured artifact (exact file:line evidence, candidates, or an evidence-backed negative) for snapshots/s02 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794475617544
+  concluded_at: null
+- id: i007
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=uninit-parse-outparam; Search only snapshots/s02 for non-sysctl user-input surfaces — netlink attribute parsing, setsockopt/ioctl handlers, procfs/sysfs write fops — where an uninitialized or partially-initialized stack local is the destination/out-param of a parse or copy helper that can return an error, and the local is consumed, persisted, or copied back to userspace even on failure paths (stack-byte disclosure or garbage state); save a structured artifact with exact file:line evidence or a concrete negative for snapshots/s02 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794475617544
+  concluded_at: null
+- id: i008
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=error-path-commit; Search only snapshots/s02 for control write paths (netlink doit callbacks, setsockopt, ioctl, procfs/sysfs writes) where an earlier parse or validation failure does not abort the flow, so state mutations, cache invalidations, socket/table walks, refcount changes, or notifications still execute after the error return is known; focus on missing error-aborts between parse and unconditional commit; save a structured artifact with exact file:line evidence or an evidence-backed negative for snapshots/s02 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794475617545
+  concluded_at: null
+- id: i009
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=sysctl-unbounded-knob; Search only snapshots/s02 for sysctl table entries governing security-relevant integer/boolean state (auth, crypto, enforcement, mitigation knobs) parsed without bounds: proc_dointvec where proc_dointvec_minmax is required, missing extra1/extra2 range limits, or maxlen/proc_handler/data-type mismatch, so out-of-range or garbage values alter enforcement or crypto posture; save a structured artifact with table-entry file:line evidence or an evidence-backed negative for snapshots/s02 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794475617546
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794475098194
+
+```
+
+### Current Intent
+```
+i006
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s02; BRANCH=sysctl-handler-recode; Search only snapshots/s02 for custom .proc_handler implementations tree-wide that wrap proc_dointvec/proc_dointvec_minmax/proc_doulongvec_minmax/proc_dostring — including shadow or temporary ctl_table copies whose .data is repointed at a stack local — but then consume the parsed out-param value or fire write-side commits/side effects without gating on the parser's return code; explicitly exclude the seed demonstration net/sctp/sysctl.c proc_sctp_do_auth; save a structured artifact (exact file:line evidence, candidates, or an evidence-backed negative) for snapshots/s02 only.
+```
+

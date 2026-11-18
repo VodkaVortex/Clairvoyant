@@ -1,0 +1,92 @@
+{
+ "version": 1,
+ "intent_id": "i047",
+ "branch": "hardirq-shared-lock",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s04"
+ ],
+ "findings": [
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/ethernet/korina.c",
+   "start": 929,
+   "end": 945,
+   "quote": "/* Ethernet Tx Underflow interrupt */\nstatic irqreturn_t korina_und_interrupt(int irq, void *dev_id)\n{\n\tstruct net_device *dev = dev_id;\n\tstruct korina_private *lp = netdev_priv(dev);\n\tunsigned int und;\n\n\tspin_lock(&lp->lock);",
+   "confidence": "medium",
+   "reason": "korina.c takes lp->lock with plain spin_lock() in three separate hardirq handlers registered via request_irq at korina_open (tx: korina_tx_dma_interrupt->korina_tx plain spin_lock at 526, request_irq:1004; und: korina_und_interrupt at 935, request_irq:1022; ovr: korina_ovr_interrupt at 962, request_irq:1013). No irqsave/irq anywhere on lp->lock. korina_tx_dma_interrupt reads status then calls korina_tx() with hard IRQs enabled, so a same-CPU underflow or overflow IRQ (attacker-influenced via sustained TX/RX traffic producing FIFO under/overflow) can preempt the tx handler between its plain spin_lock(&lp->lock) (526) and unlock (585) and spin forever on a lock the preempted handler can never release - interrupt-context lockup, watchdog splat, device stall. Counterevidence: this is a nested-hardirq pair, not a process-vs-irq pair, so it requires the platform to deliver nested interrupts rather than being the literal process-context shape of the seed; on non-nesting IRQ delivery it is a benign same-line race. Confidence limited to medium for that reason; the driver is RC32434 MIPS-specific.",
+   "conclusion": "korina lp->lock is taken with plain spin_lock in three hardirq handlers (526/935/962); a nested same-CPU underflow/overflow IRQ preempting the TX-DMA handler spins forever on the held lock - interrupt-context lockup, medium confidence."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/tty/serial/m32r_sio.c",
+   "start": 570,
+   "end": 579,
+   "quote": "static void m32r_sio_timeout(unsigned long data)\n{\n\tstruct uart_sio_port *up = (struct uart_sio_port *)data;\n\tunsigned int timeout;\n\tunsigned int sts;\n\n\tsts = sio_in(up, SIOSTS);\n\tif (sts & 0x5) {\n\t\tspin_lock(&up->port.lock);",
+   "confidence": "medium",
+   "reason": "m32r_sio.c hardirq handler m32r_sio_interrupt (request_irq:541) takes up->port.lock plainly at 477 while iterating the shared irq_info port list, and its helper receive_chars also drops/re-takes port.lock plainly (381/384-386 region). The same lock is taken plainly by the timer-list callback m32r_sio_timeout at 577, which runs in timer softirq with hard IRQs enabled (armed by m32r_sio_startup for ports with no hw IRQ, mod_timer at 634-635). A UART RX hardirq on a sibling port sharing the same irq_info chain can preempt the timeout's critical section on the same CPU and spin forever on up->port.lock held by a softirq that can never resume. This is the interrupt-level analogue of the seed's softirq-vs-process shape, but the non-irq side here is softirq (timer) rather than process context, and it only arises on the M32R platform with a mixed no-hw-IRQ/hw-IRQ port configuration, hence medium confidence.",
+   "conclusion": "m32r_sio up->port.lock is taken plainly by both the hardirq handler (477) and the timer-softirq callback m32r_sio_timeout (577); a same-CPU RX hardirq preempting the softirq holder self-deadlocks - medium-confidence lockup."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/ethernet/qlogic/qlge/qlge_main.c",
+   "line": 672,
+   "status": "unresolved",
+   "reason": "ql_disable_completion_interrupt takes qdev->hw_lock with plain spin_lock at 672. qlge_isr (hardirq, request_irq:3583/3560) also takes hw_lock plainly at 2502 and calls this helper at 2511/2536/2552. All callers found in-file (2511, 2536, 2552 within qlge_isr; enable at 2328 inside NAPI poll complete) appear to be hardirq/NAPI contexts, which would make it a nested-context pair like korina, but the full caller set (open/close/ethtool/firmware paths) was not exhaustively traced before the audit was halted.",
+   "conclusion": "Follow up: enumerate every caller of ql_disable_completion_interrupt/ql_enable_completion_interrupt (660-684) and classify context; any process-context caller with IRQs enabled against the plain hardirq takers at 2502/672 is a reportable defect."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/ethernet/freescale/fec_mpc52xx.c",
+   "line": 363,
+   "status": "safe",
+   "reason": "priv->lock is taken plainly only inside three hardirq handlers (tx 363, rx 391, fifo-error 464); the xmit path uses spin_lock_irqsave (321) and tx_timeout hw_reset uses irqsave (95). No process- or softirq-context plain acquisition of priv->lock exists, so only a nested-hardirq pair remains.",
+   "conclusion": "No non-hardirq-context plain holder of priv->lock; safe for this branch."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/ethernet/dec/tulip/winbond-840.c",
+   "line": 1143,
+   "status": "safe",
+   "reason": "netdev_tx_done (1127) and netdev_error (1295) plain acquisitions of np->lock are both called only from within the hardirq intr_handler (request_irq at 1130 region); no other plain site of np->lock exists in the file, so all plain holders are the same single hardirq context.",
+   "conclusion": "All plain np->lock sites are inside one hardirq handler; no cross-context pair; safe."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/ethernet/realtek/atp.c",
+   "line": 722,
+   "status": "safe",
+   "reason": "Plain lp->lock users are atp_interrupt (605) and atp_timed_checker (722); the TIMED_CHECKER timer is only re-armed inside a '#if 0' block (693), so the timer callback is effectively dead on this tree and never runs concurrently; the only live plain holder is the hardirq itself.",
+   "conclusion": "Timer re-arm is compiled out (#if 0); no live non-irq plain holder; safe."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/fddi/skfp/skfddi.c",
+   "line": 1285,
+   "status": "safe",
+   "reason": "skfp_interrupt (request_irq:489) is the only plain acquirer of bp->DriverLock; llc_restart_tx (1285) is called from the hardware module with the lock already held and explicitly unlocks before send_queued_packets and relocks after; all other sites use irqsave (843/930/1126).",
+   "conclusion": "No non-irq-context plain acquisition of DriverLock; safe."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/tty/serial/msm_serial.c",
+   "line": 306,
+   "status": "safe",
+   "reason": "msm_irq (306) and its rx helpers take port->lock plainly, and __msm_console_write (867) also takes it plainly, but console writes run under earlycon/oops/panic/printk paths where IRQs are disabled or the system is halting, and the earlycon port is a distinct boot-time device rather than the IRQ-driven runtime port; set_termios uses irqsave (525). Not an attacker-influenced process-context holder.",
+   "conclusion": "Plain non-IRQ acquisitions are console/earlycon-only; not attacker-triggerable; safe."
+  }
+ ],
+ "coverage_gaps": [
+  "Cross-indexing matched lock expressions textually and only within the registering file; locks shared across files (exported helpers) or referenced through different expressions/aliases were not correlated.",
+  "Handler-lock extraction resolved in-file definitions for 1112 of 1333 unique hardirq handler names; the remaining 221 handlers (defined in other files, macro-generated, or registered via function pointers) were not examined.",
+  "request_threaded_irq registrations (15 sites) were not split into primary hardirq handler vs thread_fn, so thread-context acquisitions of handler-shared locks were not separately audited."
+ ],
+ "limitations": [
+  "Both reported findings are platform-specific (MIPS RC32434 korina; M32R SIO) and the korina case is a nested-hardirq pair rather than the literal process-vs-hardirq shape, so deliverability depends on the platform allowing nested IRQ delivery.",
+  "The m32r_sio timer-vs-irq scenario requires a mixed configuration with both a no-hw-IRQ port (timer-driven) and an hw-IRQ port on the same irq_info chain; whether that configuration occurs on real M32R boards was not verified.",
+  "qlge hw_lock caller-context audit was truncated: only in-file call sites around qlge_isr were inspected before the search was halted; open/close/ethtool/firmware paths remain untraced.",
+  "No compilation or runtime reproduction was performed; findings rest on source reading of lock discipline only."
+ ]
+}

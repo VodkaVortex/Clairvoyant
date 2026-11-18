@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "net-epidx",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/usb/qmi_wwan.c",
+      "line": 674,
+      "status": "safe",
+      "reason": "Strongest near-miss. qmi_wwan_register_subdriver() does 'dev->status = &info->control->cur_altsetting->endpoint[0];' with no bNumEndpoints check, after usbnet_get_endpoints() collected bulk endpoints from info->data. Not exploitable: for an altsetting declaring zero endpoints the USB core never allocates the endpoint array (drivers/usb/core/config.c:561-565 'if (num_ep > 0) { ... alt->endpoint = kzalloc(len, GFP_KERNEL); }'), so it stays NULL and '&endpoint[0]' evaluates to NULL without a load; the immediately following 'if (!dev->status) { rv = -EINVAL; goto err; }' (qmi_wwan.c:676-679) rejects it, and usb_cdc_wdm_register -> wdm_create (drivers/usb/class/cdc-wdm.c:811-813) additionally validates 'usb_endpoint_is_int_in(ep)' before use. No NULL-deref/OOB reachable; seed mechanism not violated."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/usb/cdc-phonet.c",
+      "line": 366,
+      "status": "safe",
+      "reason": "usbpn_probe selects the data altsetting only after 'data_intf->num_altsetting != 2 -> -EINVAL' (339-340) and a bNumEndpoints==2/==0 pattern match on both altsettings (341-349), so data_desc->endpoint[0]/[1].desc.bEndpointAddress reads (366-376) that program pnd->rx_pipe/tx_pipe are within a validated 2-endpoint array."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/usb/r8152.c",
+      "line": 1819,
+      "status": "safe",
+      "reason": "alloc_all_mem() takes 'struct usb_host_endpoint *ep_intr = alt->endpoint + 2' and later reads ep_intr->desc.bInterval (r8152.c:1873-1875) to fill the interrupt URB, but rtl8152_probe() first checks 'if (intf->cur_altsetting->desc.bNumEndpoints < 3) return -ENODEV;' (r8152.c:6703-6704); the driver never switches altsettings between probe and rtl8152_open()->alloc_all_mem (r8152.c:5259). The hardcoded usb_rcvintpipe(udev, 3) address is a functional mismatch risk only, not an array-bounds violation."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/usb/cdc_ether.c",
+      "line": 297,
+      "status": "safe",
+      "reason": "dev->status = &info->control->cur_altsetting->endpoint[0] sits inside the guard 'if (info->control->cur_altsetting->desc.bNumEndpoints == 1)' (cdc_ether.c:294), and the descriptor is then validated for int-in type, wMaxPacketSize >= sizeof(usb_cdc_notification) and bInterval (298-304), else dev->status = NULL."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/usb/usbnet.c",
+      "line": 98,
+      "status": "safe",
+      "reason": "usbnet_get_endpoints() is the shared bind path for ~30 drivers/net/usb NICs (asix, dm9601, mcs7830, sr9700, sr9800, ch9200, aqc111, ax88179_178a, ax88172a, cx82310_eth, int51x1, net1080, plusb, zaurus, rndis_host, cdc subset consumers); it scans each altsetting with 'for (ep = 0; ep < alt->desc.bNumEndpoints; ep++)' (usbnet.c:97-98) selecting bulk in/out and optional int-in endpoints by type, never by assumed index, so no untrusted-count vs assumed-index gap."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/ath/ath9k/hif_usb.c",
+      "line": 1230,
+      "status": "safe",
+      "reason": "send_eject_command() checks 'if (iface_desc->desc.bNumEndpoints < 2) return -ENODEV;' (hif_usb.c:1228-1229) before scanning endpoint[1]/endpoint[0] for a bulk-out endpoint (1231-1237)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/realtek/rtlwifi/usb.c",
+      "line": 333,
+      "status": "safe",
+      "reason": "_rtl_usb_init() loops 'for (epidx = 0; epidx < epnums; epidx++)' with 'u8 epnums = usb_intf->cur_altsetting->desc.bNumEndpoints' (usb.c:328-332), counting in/out endpoints and failing on too few (345-351). Adjacent observation, out of invariant: _rtl_usb_init_tx/_rtl_prep_rx_urb use driver-constant endpoint addresses (rtlusb->in_ep from cfg->in_ep_num, usb.c:302,413) validated only by an in_ep_nums count (345), so a malicious device with enough IN endpoints but different addresses makes RX URBs target a nonexistent endpoint - a host-controller-rejected transfer, not an OOB/NULL-deref."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/usb/hso.c",
+      "line": 2773,
+      "status": "unresolved",
+      "reason": "kzalloc(le16_to_cpu(mux->intr_endp->wMaxPacketSize), ...) dereferences a pointer obtained from hso_get_ep() (hso.c:3140-3155), which returns NULL when the altsetting has no interrupt-IN endpoint. The NULL check at the mux->intr_endp assignment site was not read before the finalize call budget ran out, so this stays unresolved; note it is a possible missing-NULL-check on a type-scanned endpoint, not an assumed-index endpoint[] bounds gap, so even confirmed it is adjacent to rather than identical to the seed mechanism."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/usb/ipheth.c",
+      "line": 462,
+      "status": "safe",
+      "reason": "ipheth_probe loops 'for (i = 0; i < hintf->desc.bNumEndpoints; i++)' (ipheth.c:461-462) over the altsetting returned by usb_altnum_to_altsetting(intf, IPHETH_ALT_INTFNUM) (454) and requires both bulk_in and bulk_out to be found (473-477) before programming pipes."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/usb/sierra_net.c",
+      "line": 681,
+      "status": "safe",
+      "reason": "sierra_net_bind reads 'numendpoints = intf->cur_altsetting->desc.bNumEndpoints' and requires exactly 3 endpoints ('Expected 3 endpoints' -> -ENODEV, sierra_net.c:684-687) before delegating endpoint collection to usbnet_get_endpoints (691)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/intersil/orinoco/orinoco_usb.c",
+      "line": 1614,
+      "status": "safe",
+      "reason": "Probe scans 'for (i = 0; i < iface_desc->bNumEndpoints; ++i)' (orinoco_usb.c:1613-1614) selecting bulk in/out endpoints by type and aborts when either is missing (1660-1663). Representative of the same bounded type-scanning pattern verified at ath10k/usb.c:841, ath6kl/usb.c:316, carl9170/usb.c:1064, at76c50x-usb.c:2245, brcmfmac/usb.c:1365, p54usb.c:1014, libertas/if_usb.c:225, libertas_tf/if_usb.c:175, mwifiex/usb.c:448, mt76/usb.c:255, mt7601u/usb.c:238, rt2x00usb.c:612, rsi_91x_usb.c:124, hso.c:3147/3168, cdc_ncm.c:683, lan78xx.c:2879 - all loop-bounded by bNumEndpoints with no fixed assumed index."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c",
+      "line": 6392,
+      "status": "safe",
+      "reason": "rtl8xxxu_parse_endpoints loops 'for (i = 0; i < endpoints; i++)' with 'endpoints = interface_desc->bNumEndpoints' (rtl8xxxu_core.c:6386-6392), builds pipes from the parsed bEndpointAddress, and caps out-endpoints at RTL8XXXU_OUT_ENDPOINTS (6437-6441)."
+    }
+  ],
+  "limitations": [
+    "hso.c:2773 (mux->intr_endp->wMaxPacketSize) remains unresolved: the NULL check at the hso_get_ep() assignment site inside hso_create_shared_int() was not read before the finalize call budget expired.",
+    "grep of drivers/net/wwan returned no endpoint[] matches, but whether that directory exists at all in this snapshot's kernel version was not verified with ls.",
+    "Legacy drivers (kaweth.c, pegasus.c, catc.c, rtl8150.c, cx82310_eth.c) program URB pipes from hardcoded endpoint numbers (e.g., usb_rcvbulkpipe(udev,1), usb_rcvintpipe(udev,3)) without consulting the descriptor array; this was reviewed as outside the seed's unvalidated-array-index mechanism (no descriptor array indexing occurs), but runtime device-behavior consequences were not analyzed further.",
+    "ath9k/ath6kl/ath10k/ath11k 'htc->endpoint[eid]' indexing uses driver-internal HTC structures keyed by firmware-supplied eids, not USB descriptor arrays; excluded from this branch's invariant and not audited.",
+    "Interface/altsetting-count forms (e.g., cdc_ncm.c:1024 usb_altnum_to_altsetting, actconfig->interface[] consumers) are owned by the if-alt-count branch (i009) and were not audited here.",
+    "qmi_wwan.c:674 safety depends on implicit USB-core behavior (NULL endpoint array for zero-endpoint altsettings) rather than an explicit driver-side bNumEndpoints check; the conclusion is firm for this snapshot but is not an upstream guarantee."
+  ]
+}

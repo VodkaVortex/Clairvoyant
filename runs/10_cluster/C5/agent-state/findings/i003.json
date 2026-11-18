@@ -1,0 +1,113 @@
+{
+ "version": 1,
+ "intent_id": "i003",
+ "branch": "uapi-double-fetch",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s01"
+ ],
+ "findings": [
+  {
+   "snapshot": "s01",
+   "path": "drivers/usb/core/devio.c",
+   "start": 1990,
+   "end": 2004,
+   "quote": "(((struct usbdevfs_urb __user *)arg)->iso_frame_desc),",
+   "confidence": "low",
+   "reason": "Untrusted source: the ioctl argument buffer (USBDEVFS_SUBMITURB) is plain user memory writable concurrently by the submitting task (a second thread racing the ioctl). Violated invariant (validated-equals-used): proc_submiturb() fetches the whole struct once via copy_from_user(&uurb, arg, sizeof(uurb)) (devio.c:1996) -- which includes the iso_frame_desc member -- and proc_do_submiturb() (devio.c:1619) validates number_of_packets from that kernel copy ('if (uurb->number_of_packets < 1 || uurb->number_of_packets > 128) return -EINVAL;' devio.c:1742-1744) and derives isofrmlen from it; but the pointer actually consumed by 'isopkt = memdup_user(iso_frame_desc, isofrmlen);' (devio.c:1750) is a SECOND, independent fetch of the same user-memory location: '(((struct usbdevfs_urb __user *)arg)->iso_frame_desc)' (devio.c:2003), while the kernel-copy value uurb.iso_frame_desc fetched by the first copy is discarded. A racing userspace writer can therefore substitute the iso descriptor-array pointer after the struct copy was taken, so the buffer whose count was validated need not be the buffer whose contents are consumed (the same double fetch exists in the compat path proc_submiturb_compat() via '((struct usbdevfs_urb32 __user *)arg)->iso_frame_desc', devio.c:2209, fed by get_urb32's one-shot copy at devio.c:2202). Unsafe use / impact assessment: the second-fetched pointer feeds memdump sizing and per-descriptor length accounting that programs as->urb->iso_frame_desc[0..number_of_packets-1] and the total buffer_length for the submitted URB; however memdup_user()/copy_from_user() re-check access_ok on the substituted pointer and each isopkt[u].length is re-checked (>98304 -> -EINVAL), so the demonstrated consequence is limited to kernel state (iso schedule and transfer length) being built from a different user buffer than the validated struct copy, i.e., a validated-vs-consumed divergence within the submitter's own address space -- no kernel OOB was demonstrated, hence low confidence; reported as the literal same-location double-fetch variant of the seed's single-fetch invariant in a UAPI ioctl handler."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s01",
+   "path": "drivers/usb/core/devio.c",
+   "line": 2003,
+   "status": "reported",
+   "reason": "proc_submiturb(): iso_frame_desc re-fetched from user memory after copy_from_user of the same struct; consumed by memdup_user in proc_do_submiturb with count validated on the kernel copy. Primary finding."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/usb/core/devio.c",
+   "line": 2209,
+   "status": "reported",
+   "reason": "proc_submiturb_compat() (devio.c:2196-2210): same double-fetch pattern -- get_urb32() copies the compat struct once into kernel uurb (devio.c:2202), then line 2209 '((struct usbdevfs_urb32 __user *)arg)->iso_frame_desc' re-reads the same user location for the memdup source in proc_do_submiturb, while the number_of_packets validated on the kernel copy governs the copy size; part of the primary finding."
+  },
+  {
+   "snapshot": "s01",
+   "path": "io_uring/io_uring.c",
+   "line": 1727,
+   "status": "safe",
+   "reason": "io_init_req() consumes the userspace-mapped SQ ring with READ_ONCE for every field (opcode/flags/user_data/buf_group/fd/personality, io_uring.c:1727-1816) and per-op prep functions likewise READ_ONCE each SQE field exactly once; io_get_sqe() (io_uring.c:1978-2007) READ_ONCEs sq_array[head], bounds-checks against sq_entries, and applies array_index_nospec. Canonical single-fetch handling of mmap-shared UAPI memory."
+  },
+  {
+   "snapshot": "s01",
+   "path": "lib/iov_iter.c",
+   "line": 1342,
+   "status": "safe",
+   "reason": "copy_iovec_from_user()/copy_compat_iovec_from_user() copy each iovec element once into a kernel iov array; access_ok validation and MAX_RW_COUNT clamping (lib/iov_iter.c:1364-1410) operate on the kernel copy. The classic iovec double-fetch area is snapshot-fixed here."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/android/binder.c",
+   "line": 1780,
+   "status": "safe",
+   "reason": "binder_get_object() copies each object once (copy_from_user/binder_alloc_copy_from_buffer into a stack struct, binder.c:1796-1804) and all validation (offset vs data_size, object_size fit, binder.c:1791-1828) uses that local; the offsets array is copied once via binder_alloc_copy_user_to_buffer (binder.c:3421) and FDA/fixup parsing (binder.c:2139-2190, 2696-2711) re-reads only the kernel-side buffer copy, never the sender's user buffer."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/scsi/sg.c",
+   "line": 405,
+   "status": "safe",
+   "reason": "get_sg_io_pack_id()'s multiple get_user calls target different offsets selected by a single reply_len fetch (v1/v2 header vs v3/compat struct); each distinct user location is fetched exactly once. sg_ioctl_common() per-command get_user(&val, ip) calls are one fetch per distinct ioctl."
+  },
+  {
+   "snapshot": "s01",
+   "path": "fs/ext4/ioctl.c",
+   "line": 1599,
+   "status": "safe",
+   "reason": "EXT4_IOC_GROUP_EXTEND: get_user(n_blocks_count, (__u32 __user *)arg) once into a local (fs/ext4/ioctl.c:1599); ext4_group_extend() re-validates the local against block counts. EXT4_IOC_RESIZE_FS likewise copy_from_user(&n_blocks_count,...) once (line 1731). No second fetch of *arg."
+  },
+  {
+   "snapshot": "s01",
+   "path": "fs/nfsd/nfs4recover.c",
+   "line": 710,
+   "status": "safe",
+   "reason": "__cld_pipe_inprogress_downcall(): namelen is get_user'd once, validated (0 < namelen <= NFS4_OPAQUE_LIMIT) and the same local drives memdup_user; princhashlen is fetched once with no range check, but it is u8-typed (max 255) and consumed only by memdup_user, which is kmalloc+copy_from_user with access_ok -- no kernel-memory offset use; the pipe is a privileged rpc_pipefs downcall, not arbitrary unprivileged UAPI."
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/core/pktgen.c",
+   "line": 984,
+   "status": "safe",
+   "reason": "pktgen_if_write() parses the user buffer token-by-token, copying each token (name[16]/valstr[32], count_trail_chars/strn_len/num_arg) into kernel locals before interpretation; values used for pkt_dev state come from the kernel copies. debugfs, root-only."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/media/dvb-core/dvb_frontend.c",
+   "line": 2442,
+   "status": "safe",
+   "reason": "FE_SET_PROPERTY (native and compat, dvb_frontend.c:2150/2442): the dtv_properties header is copied once into a kernel struct (dvb_usercopy / copy_from_user(&prop,...)), tvps->num is validated against DTV_IOCTL_MAX_MSGS on that copy, and the props array is memdup_array_user'd once; per-property processing uses the kernel copy. No re-fetch of tvps->num/props."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/video/fbdev/sbuslib.c",
+   "line": 102,
+   "status": "safe",
+   "reason": "sbusfb_ioctl_helper() FBIOPUTCMAP_SPARC: index/count/ured/ugreen/ublue are each get_user'd exactly once into locals; the loop then reads data bytes per element (data reads, not validation re-reads) into locals; fb_set_cmap consumes the locals. No same-location validate/use divergence."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/usb/core/devio.c",
+   "line": 962,
+   "status": "safe",
+   "reason": "proc_alloc_streams(): num_streams and num_eps are each get_user'd once into locals, validated against endpoint stream limits, and the eps[] array is read once per element bounded by the validated local num_eps; the same one-fetch-per-location pattern holds for the remaining devio.c ioctls (ctrl/bulk/setintf/disconnect clauses each copy their struct once)."
+  }
+ ],
+ "limitations": [
+  "Impact of the reported USBDEVFS_SUBMITURB double fetch is unproven beyond data-consistency divergence: the re-fetched iso_frame_desc pointer is consumed only through memdup_user/copy_from_user (access_ok-enforced) and every isopkt[u].length is re-checked against 98304, so no kernel out-of-bounds read/write was demonstrated; the divergence lets a racing thread substitute which user buffer backs the validated number_of_packets. Confidence is low for this reason and the finding is a mechanism-match hypothesis, not an exploit claim.",
+  "Bounded scan: a structural scanner over 26,608 .c files (kernel, fs, net, ipc, security, mm, block, io_uring, drivers, virt, lib, crypto; tools/samples/selftests excluded) flagged 129 functions with repeated user-fetches of the same pointer token (raw output persisted at agent-state/tmp/proj_001-i003-explore/doublefetch_scan.json); only the top ~20 clusters were deeply read line-by-line.",
+  "Unexamined scanner hits that may hide a same-location double fetch: drivers/mtd/mtdchar.c, drivers/mtd/ubi/cdev.c, virt/kvm/kvm_main.c ioctls, drivers/platform/raspberrypi/vchiq-interface/vchiq_dev.c, drivers/scsi/megaraid.c and megaraid_mm.c, kernel/trace/trace.c trace_get_user, net/atm/ioctl.c do_vcc_ioctl, fs/xfs/xfs_ioctl32.c xfs_compat_ioc_fsbulkstat, drivers/vfio/vfio_iommu_spapr_tce.c, drivers/input/evdev.c, drivers/input/misc/uinput.c, drivers/hid/usbhid/hiddev.c, drivers/misc/genwqe/card_dev.c, drivers/net/wwan/wwan_core.c, drivers/tty/n_gsm.c, drivers/isdn/capi/capi.c, drivers/char/ppdev.c, drivers/pwm/core.c, drivers/char/random.c, drivers/watchdog/watchdog_dev.c, drivers/xen/evtchn.c, kernel/power/user.c, drivers/accel/habanalabs _hl_interrupt_wait_ioctl_user_addr.",
+  "Netlink attribute handlers were not separately swept for double reads of the same nlattr payload (nla_memcpy/nla_for_each_attr re-fetches), and BPF (bpf syscall attr) and perf-event ioctl paths were only covered insofar as they appeared in the copy_from_user/get_user scan; a netlink- or BPF-specific double fetch could remain.",
+  "Classification is static reading of the literal source; no runtime race reproducer or compiler-based double-fetch detector was run (the snapshot tree is read-only and was not built), so a short-window double fetch inside a large function outside the deeply-read set could have been missed."
+ ]
+}

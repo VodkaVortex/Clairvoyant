@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "sysctl-handler-recode",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/ipvs/ip_vs_ctl.c",
+      "start": 2391,
+      "end": 2417,
+      "quote": "\tstruct ctl_table tmp = {\n\t\t.data = &val,\n\t\t.maxlen = table->maxlen,\n\t\t.mode = table->mode,\n\t};\n\n\tmutex_lock(&ipvs->sync_mutex);\n\tmemcpy(val, valp, sizeof(val));\n\trc = proc_dointvec(&tmp, write, buffer, lenp, ppos);\n\tif (write) {\n\t\tif (val[0] < 0 || val[1] < 0 ||\n\t\t    (val[0] >= val[1] && val[1]))\n\t\t\trc = -EINVAL;\n\t\telse\n\t\t\tmemcpy(valp, val, sizeof(val));\n\t}",
+      "confidence": "medium",
+      "reason": "Untrusted source: arbitrary-format user bytes in the sysctl write buffer reach this custom .proc_handler ('/proc/sys/net/ipv4/vs/sync_threshold', table entry at net/netfilter/ipvs/ip_vs_ctl.c:2769-2771). Missing guarantee: the handler builds a shadow ctl_table 'tmp' whose .data points at the partially-initialized stack local 'int val[2]' (line 2399-2403), calls proc_dointvec (line 2407) and then, at line 2408, tests only 'if (write)' - not 'write && rc == 0'. do_proc_dointvec (kernel/sysctl.c:575-645, esp. 606-623) commits each successfully parsed element into table->data immediately and breaks the loop with err set when a later element fails to parse, so on a failed write val[0] can hold a newly parsed attacker value while val[1] keeps the old (or, for a zero-length initial state, uninitialized) stack content. Unsafe use: when the partially-parsed val passes the val[0]<0/val[1]<0/val[0]>=val[1] consistency test, memcpy(valp, val, sizeof(val)) at line 2413 commits the mixture into ipvs->sysctl_sync_threshold and the local rc remains the parser's error, which is returned to the caller while the commit already happened - the mirror image of the seed's 'commit without gating on parser success'. The sibling handler proc_do_sync_ports (lines 2419-2441) has the same ungated 'if (write && (*valp != val))' shape. Counterevidence checked: the post-parse val[0]<0||val[1]<0||(val[0]>=val[1]&&val[1]) range test at 2409-2410 does catch some garbage, but it never consults rc, so partial-parse commits that satisfy the range test still pass; no audit hook, lock, or caller in this tree re-validates sysctl_sync_threshold after this write, and the sync daemon re-reads it (ip_vs_sync.c uses sysctl_sync_reshuffle/sysctl_sync_threshold semantics). Impact is state-corruption/partial-commit with attacker-influenced values rather than a proven uninit-stack disclosure, hence medium confidence."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/addrconf.c",
+      "start": 6356,
+      "end": 6379,
+      "quote": "\tlctl = *ctl;\n\tlctl.data = &val;\n\n\tret = proc_dointvec(&lctl, write, buffer, lenp, ppos);\n\n\tif (write)\n\t\tret = addrconf_fixup_forwarding(ctl, valp, val);\n\tif (ret)\n\t\t*ppos = pos;\n\treturn ret;\n}",
+      "confidence": "medium",
+      "reason": "Untrusted source: user-supplied sysctl write bytes for /proc/sys/net/ipv6/conf/*/forwarding reach addrconf_sysctl_forward. Missing guarantee: the handler copies the live ctl_table into the stack local 'lctl' and repoints lctl.data at stack local 'int val' (lines 6363, 6372-6373), then calls proc_dointvec (line 6375) and at line 6377 tests only 'if (write)' - the parser's return code is never gated. Unsafe use: for every write, whether or not proc_dointvec failed, the handler invokes addrconf_fixup_forwarding(ctl, valp, val), which (per its body ending at line 6453) takes rtnl, writes *valp = newf, updates net->ipv6.devconf_dflt->forwarding and idev->cnf.forwarding, and calls dev_disable_change()/inet6_netconf_notify_devconf() - a full write-side commit driven by the partially-updated stack local 'val' even when the parse failed midway. Additionally line 6378 unconditionally overwrites 'ret' with the fixup's return, discarding the parser's error so the failed write is reported to userspace as success. The same ungated pattern repeats in addrconf_sysctl_disable (6453-6479), addrconf_sysctl_ignore_routes_with_linkdown (6654-6677) and addrconf_sysctl_disable_policy (6754-6780), all of which call their fixup under 'if (write)' or 'if (write && (*valp != val))' without checking ret. Counterevidence checked: 'val' is pre-initialized from *valp (line 6361) so this is not an uninit-stack leak but a partial-commit/garbage-toggle mechanism; on parse failure val can equal the old value (no-op) or a partially parsed new value, so the forwarding knob (a security-relevant packet-forwarding switch) can be toggled by a write the kernel simultaneously reports as failed, and *ppos restoration at 6379-6380 masks the error further. Medium confidence because the exact observable on a failing multi-element write is partial (single int here, so failure typically leaves val untouched), but the missing 'ret == 0' gate and ret overwrite are literal and match the branch invariant."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/utsname_sysctl.c",
+      "start": 33,
+      "end": 69,
+      "quote": "static int proc_do_uts_string(const struct ctl_table *table, int write,\n\t\t  void *buffer, size_t *lenp, loff_t *ppos)\n{\n\tstruct ctl_table uts_table;\n\tint r;\n\tchar tmp_data[__NEW_UTS_LEN + 1];\n\n\tmemcpy(&uts_table, table, sizeof(uts_table));\n\tuts_table.data = tmp_data;\n\n\t/*\n\t * Buffer the value in tmp_data so that proc_dostring() can be called\n\t * without holding any locks.\n\t * We also need to read the original value in the write==1 case to\n\t * support partial writes.\n\t */\n\tdown_read(&uts_sem);\n\tmemcpy(tmp_data, get_uts(table), sizeof(tmp_data));\n\tup_read(&uts_sem);\n\tr = proc_dostring(&uts_table, write, buffer, lenp, ppos);\n\n\tif (write) {\n\t\t/*\n\t\t * Write back the new value.\n\t\t * Note that, since we dropped uts_sem, the result can\n\t\t * theoretically be incorrect if there are two parallel writes\n\t\t * at non-zero offsets to the same sysctl.\n\t\t */\n\t\tadd_device_randomness(tmp_data, sizeof(tmp_data));\n\t\tdown_write(&uts_sem);\n\t\tmemcpy(get_uts(table), tmp_data, sizeof(tmp_data));\n\t\tup_write(&uts_sem);\n\t\tproc_sys_poll_notify(table->poll);\n\t}\n\n\treturn r;\n}",
+      "confidence": "low",
+      "reason": "Untrusted source: user bytes written to /proc/sys/kernel/hostname or /proc/sys/kernel/domainname. Missing guarantee: proc_do_uts_string copies the table into 'uts_table' and repoints uts_table.data at the stack buffer tmp_data[__NEW_UTS_LEN+1] (lines 40-41), pre-populates it from the current value (line 50), calls proc_dostring (line 52) and then at line 54 gates the write-back only on 'if (write)' - never on r. Unsafe use: when proc_dostring fails mid-write (e.g. an overlong user string, invalid byte, or short write), the handler still feeds tmp_data to add_device_randomness (line 61) and memcpy's the whole fixed-size stack buffer into the persistent uts namespace (lines 62-63), committing whatever partial or stale bytes proc_dostring left behind; the parser error r is only returned at line 68 after the commit. Counterevidence checked: tmp_data is fully pre-initialized by the memcpy at line 50, so this is not an uninitialized-stack disclosure, and upstream proc_dostring fails before touching the buffer in the common overlong-string case, leaving the old value - which is why this is low confidence rather than a proven disclosure; the structurally missing 'r == 0' gate is nevertheless a literal instance of the branch invariant (commit without gating on the parser's return code), and uts strings are later re-read by uname() and by user-space tooling, so a partial string (e.g. truncated to a shorter embedded NUL) can persist while userspace sees an error."
+    },
+    {
+      "snapshot": "s02",
+      "path": "ipc/ipc_sysctl.c",
+      "start": 51,
+      "end": 70,
+      "quote": "\tsemmni = ns->sem_ctls[3];\n\tret = proc_dointvec(table, write, buffer, lenp, ppos);\n\n\tif (!ret)\n\t\tret = sem_check_semmni(ns);\n\n\t/*\n\t * Reset the semmni value if an error happens.\n\t */\n\tif (ret)\n\t\tns->sem_ctls[3] = semmni;\n\treturn ret;\n}",
+      "confidence": "low",
+      "reason": "Untrusted source: user bytes written to /proc/sys/kernel/sem, a four-int sysctl (sem_ctls[SEMMSL..SEMMNI]) parsed by one proc_dointvec call directly into ns->sem_ctls. Missing guarantee: do_proc_dointvec (kernel/sysctl.c:606-623) commits each element into table->data as soon as it parses and breaks with err on the first failing element, so a write like '32000 1024000000 32 garbage' commits the first three elements and returns -EINVAL. Unsafe use: proc_ipc_sem_dointvec (ipc/ipc_sysctl.c:51-70) calls sem_check_semmni only 'if (!ret)' and, on any error, restores only ns->sem_ctls[3] (line 68) - elements 0,1,2 (SEMMSL, SEMMNS, SEMOPM: per-semaphore limits, total semaphore limits, per-call ops limits) keep the partially committed new values from a write that userspace saw fail, permanently altering IPC resource limits. Counterevidence checked: this is a direct-table (non-shadow) wrapper, semmni itself is correctly restored, and sem_check_semmni's cross-field invariant is only enforced on success, so the impact is limited to out-of-range/unreviewed SEMMSL/SEMOPM/SEMOPM-style limits after a failed write rather than memory corruption or an uninit leak; reported as a low-confidence variant of the 'ungated commit after parser error' mechanism."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/ipvs/ip_vs_ctl.c",
+      "line": 2391,
+      "status": "reported",
+      "reason": "proc_do_sync_threshold: shadow ctl_table tmp.data=&val (stack local val[2]); proc_dointvec at 2407; commit memcpy(valp, val, sizeof(val)) at 2413 guarded only by 'if (write)', not rc; partial-parse commit + error returned after commit."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/ipvs/ip_vs_ctl.c",
+      "line": 2420,
+      "status": "safe",
+      "reason": "proc_do_sync_ports: same shadow pattern but val is pre-initialized from *valp and the val<1/!is_power_of_2 test catches garbage; commit *valp=val still fires when rc!=0 only if val differs and passes the check, but the value written is a fully parsed single int or the old value; residual partial-commit risk is minimal (single element), classified safe with note."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/addrconf.c",
+      "line": 6356,
+      "status": "reported",
+      "reason": "addrconf_sysctl_forward: lctl.data=&val stack local; fixup called under 'if (write)' without gating ret and ret overwritten at 6378; same pattern at 6453 (disable), 6654 (linkdown), 6754 (disable_policy)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/utsname_sysctl.c",
+      "line": 33,
+      "status": "reported",
+      "reason": "proc_do_uts_string: uts_table.data=tmp_data stack buffer; write-back at 62-63 gated only on 'if (write)', parser return r ignored before commit."
+    },
+    {
+      "snapshot": "s02",
+      "path": "ipc/ipc_sysctl.c",
+      "line": 51,
+      "status": "reported",
+      "reason": "proc_ipc_sem_dointvec: error path restores only sem_ctls[3]; proc_dointvec commits elements 0-2 before failing; sem_check_semmni skipped on error."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/fork.c",
+      "line": 3367,
+      "status": "safe",
+      "reason": "sysctl_max_threads: shadow t.data=&threads pre-initialized to max_threads; explicit 'if (ret || !write) return ret;' before commit - correct gating."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/pid.c",
+      "line": 767,
+      "status": "safe",
+      "reason": "proc_do_cad_pid: tmp_table.data=&tmp_pid pre-initialized from cad_pid; 'if (r || !write) return r;' before use - correct gating."
+    },
+    {
+      "snapshot": "s02",
+      "path": "arch/arm64/kernel/fpsimd.c",
+      "line": 549,
+      "status": "safe",
+      "reason": "vec_proc_do_default_vl: tmp_table.data=&vl pre-initialized; 'if (ret || !write) return ret;' then sve_vl_valid() check - correct gating."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/tty/sysrq.c",
+      "line": 1123,
+      "status": "safe",
+      "reason": "sysrq_sysctl_handler: tmp pre-initialized from sysrq_mask(); 'if (ret) return ret;' before sysrq_toggle_support(tmp) - correct gating."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/sysctl_net_core.c",
+      "line": 141,
+      "status": "safe",
+      "reason": "rps_sock_flow_sysctl: tmp.data=&size but size pre-initialized from current table (line 158) so no uninit use; vmalloc path has its own bounds check; parser ret propagated although the size commit is not explicitly gated on ret==0 - single-value so partial-commit risk minimal; also proc_do_dev_weight (316) and bpf_enable (376) do gate on '!ret && write'."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/latencytop.c",
+      "line": 60,
+      "status": "safe",
+      "reason": "sysctl_latencytop: reads err from proc_dointvec then 'if (latencytop_enabled) force_schedstat_enabled();' - the side effect is idempotent, keyed to the already-committed global (not an out-param), and err is returned; no partial-commit or leak."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/xfs/xfs_sysctl.c",
+      "line": 13,
+      "status": "safe",
+      "reason": "xfs_stats_clear_proc_handler / xfs_panic_mask_proc_handler: both use 'if (!ret && write ...)' / 'if (!ret && write)' gating on the parser return - correct."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/sysctl_net_core.c",
+      "line": 316,
+      "status": "safe",
+      "reason": "proc_do_dev_weight: 'if (!ret && write)' gating; proc_do_skb_defer_max (352) compares before/after values of the committed global, not an out-param."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/trace/ftrace.c",
+      "line": 9370,
+      "status": "safe",
+      "reason": "ftrace_enable_sysctl: 'if (ret || !write || ...)' gating before side effects; trace_stack.c stack_trace_sysctl (517) and trace.c tracepoint_printk_sysctl (1979) key side effects off the committed global and still return ret."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/devinet.c",
+      "line": 2568,
+      "status": "safe",
+      "reason": "devinet_conf_proc: side effects keyed off old/new values of the directly-committed global (no shadow out-param); rt_cache_flush on post_set - no out-param consumption."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/exec.c",
+      "line": 1994,
+      "status": "safe",
+      "reason": "proc_dointvec_minmax_coredump: 'if (!error && write && (old != READ_ONCE(suid_dumpable)))' - correct gating on both error and write."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mptcp/ctrl.c",
+      "line": 137,
+      "status": "safe",
+      "reason": "proc_scheduler and set_default_qdisc (net/core/sysctl_net_core.c:297), tcp congestion handlers (net/ipv4/sysctl_net_ipv4.c:218,238,254,291) all use 'if (write && ret == 0)' gating; smc/sctp/vsock/nf_log string handlers return immediately on parser error ('if (ret) return ret;')."
+    }
+  ],
+  "limitations": [
+    "The wrapper-function enumeration used a regex/brace heuristic over 86 files and 198 functions; wrappers split across unusual macro layouts or whose call is inside a helper called by the handler could have been missed, notably the full bodies of arch/s390, arch/riscv, arch/sh, drivers/md, drivers/misc/sgi-xp, fs/lockd, fs/nfs, fs/ocfs2, net/rds, net/tipc, net/unix, net/x25, net/xfrm, security/yama and mm/hugetlb were only skimmed, not deep-read.",
+    "Whether the ipvs partial-commit path is actually reachable with a mixed valid/invalid two-int write was reasoned from do_proc_dointvec's element-by-element commit (kernel/sysctl.c:606-623) but not demonstrated by executing the sysctl write against a running kernel; no build or runtime test was performed in this read-only snapshot.",
+    "The utsname finding's observable impact depends on proc_dostring's failure-time buffer contents (upstream truncation semantics), which were read but not exercised; the pre-initialized tmp_data prevents an uninit-stack leak, so only a partial/stale-string commit is claimed.",
+    "The ipc finding was not checked against every consumer of ns->sem_ctls[0..2] to bound the consequence of a partially committed failed write; only sem_check_semmni was examined.",
+    "Time budget stopped the audit before deep-reading all remaining checked~=False entries in the functions.txt list (e.g. kernel/sched/rt.c:2868, kernel/sched/topology.c:275, mm/compaction.c:2963, mm/vmstat.c:77, net/ipv6/ndisc.c, net/ipv6/sysctl_net_ipv6.c, net/sunrpc, arch/s390/mm/cmm.c:262); those are unexamined, not cleared."
+  ]
+}

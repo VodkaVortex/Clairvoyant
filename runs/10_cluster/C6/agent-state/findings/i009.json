@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "rx-pull-stale-hdr",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/rx.c",
+      "start": 3321,
+      "end": 3336,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: remote 802.11 data frames from a peer station, 802.3-converted by __ieee80211_data_to_8023 (net/mac80211/rx.c:3310) so that skb->data is an Ethernet header whose h_proto == ETH_P_TDLS (checked at 3322-3323); every frame byte at rx->skb->data is attacker-controlled. VIOLATED INVARIANT: tf is captured at line 3324 as a direct cast of rx->skb->data and must be refetched after any call that can reallocate skb->head. UNSAFE USE: pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) at lines 3326-3327 calls __pskb_pull_tail() and, for a cloned/non-linear RX skb or one whose headlen is below the pull length, invokes pskb_expand_head() which frees and replaces skb->head (all pointers into the head must be reloaded); because the pull is the left operand of &&, on success lines 3328-3330 immediately dereference the stale pre-pull tf (tf->payload_type, tf->category, tf->action_code) with no refetch -- the exact pep_get_sb() shape (ph captured, pskb_may_pull, ph->sb_type read) in a receive-path parser. The read bytes gate whether the frame is queued via __ieee80211_queue_skb_to_iface (3333-3334) into the interface TDLS channel-switch worker, i.e. a kernel state transition selected through possibly-freed slab memory; KASAN-detectable slab use-after-free read. COUNTEREVIDENCE: reallocation requires the converted skb to be cloned/non-linear or to have headlen < ~19 bytes so the pull actually expands the head (driver/A-MSDU/monitor-clone dependent); the stale reads are single bytes whose result only decides queuing versus fallthrough to normal delivery. Same code shape independently rated high by the parallel s01/s02 rx-pull intents (f013/f007); not previously reported for s03."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/tdls.c",
+      "start": 2006,
+      "end": 2032,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)skb->data;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: ieee80211_process_tdls_channel_switch() consumes skbs queued by the mac80211 RX TDLS block (net/mac80211/rx.c:3333 __ieee80211_queue_skb_to_iface -> skb_queue_tdls_chsw worker), i.e. remote attacker-supplied ETH_P_TDLS channel-switch frames; skb->data bytes are fully attacker-controlled. VIOLATED INVARIANT: tf is captured at line 2010 as a cast of skb->data and must be reloaded after skb_linearize(). UNSAFE USE: skb_linearize(skb) at line 2020 (comment 'we want to access the entire packet') calls pskb_may_pull(skb, skb->len) and for a cloned/non-linear skb runs __pskb_pull_tail()/pskb_expand_head(), freeing and replacing skb->head -- the RX side only pulled offsetof(struct ieee80211_tdls_data, u) bytes (rx.c:3326), so the remainder can still live in frags; line 2026 then reads tf->action_code through the stale pre-linearize pointer with no refetch, dispatching between the REQUEST/RESPONSE handlers that drive TDLS channel-switch kernel state -- same structural shape as pep_get_sb() (capture, reallocating linearize, post-call header-field read). COUNTEREVIDENCE: exploitation requires the queued skb to still be non-linear or cloned at the worker (driver RX dependent); the use is a single-byte read and both handlers re-parse the skb themselves. NOTE: this site was also reported for s03 by the parallel tx-cow-head-realloc intent (i010, fact f002, medium); it is re-recorded here because the skb originates from the RX path queue and the intent definition includes skb_linearize."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/rx.c",
+      "line": 3324,
+      "status": "reported",
+      "reason": "ieee80211_rx_h_data TDLS block: tf captured from rx->skb->data at 3324; pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) at 3326-3327 may pskb_expand_head the head; stale tf->payload_type/category/action_code read at 3328-3330 in the && chain. Raised as finding 1 (high)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/tdls.c",
+      "line": 2010,
+      "status": "reported",
+      "reason": "ieee80211_process_tdls_channel_switch worker: tf captured at 2010; skb_linearize at 2020 can free/replace skb->head for a cloned/non-linear skb; stale tf->action_code read at 2026 without refetch. Raised as finding 2 (medium); overlaps sibling i010/f002."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/phonet/pep.c",
+      "line": 55,
+      "status": "reported",
+      "reason": "Seed location itself present unpatched in s03: ph = skb_header_pointer(skb, 0, 2, &h) at 55, pskb_may_pull(skb, ph->sb_len) at 56 with attacker-controlled length, stale ph->sb_len -= 2 write at 58 and ph->sb_type read at 59. Already reported as the baseline by the parallel s03 loop-parser intent (i011, fact f011); not counted as a new variant here."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bridge/br_multicast.c",
+      "line": 2869,
+      "status": "safe",
+      "reason": "br_ip4_multicast_igmp3_report(): grec captured at 2869 AFTER pull #1 (ip_mc_may_pull 2866); group/type/nsrcs are copied to scalars at 2870-2872 BEFORE the attacker-length-driven pull #2 at 2875 (len += nsrcs*4); between pull #2 and its uses there is no grec dereference (2878-2920 use scalars and fresh eth_hdr(skb)), and grec is explicitly reloaded at 2921 ('reload grec and host addr') from post-pull skb->data before grec->grec_src is read (2926+). The s03 copy is the fixed pattern (unlike s02/s05 versions reported by sibling intents)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bridge/br_multicast.c",
+      "line": 3616,
+      "status": "safe",
+      "reason": "br_ip6_multicast_query(): saddr.src.ip6 = ipv6_hdr(skb)->saddr at 3616 is a fresh accessor call, not a captured stale pointer; mld/mld2q are correctly re-derived from icmp6_hdr(skb) after each pskb_may_pull (3588->3592, 3597->3601); no header pointer captured before a pull survives it in the s03 copy (unlike the s02/s05 ip6h pattern reported by sibling intents)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/ip6_output.c",
+      "line": 436,
+      "status": "safe",
+      "reason": "ip6_forward_proxy_check(): hdr captured at 436 via ipv6_hdr(skb); the only pull (pskb_may_pull at 451-452, ICMPV6 nexthdr branch) is followed by an explicit refetch hdr = ipv6_hdr(skb) at 471 before the ipv6_addr_type(&hdr->daddr) read at 479; ipv6_skip_exthdr at 442 is skb_header_pointer-based and does not relocate the head (net/ipv6/exthdrs_core.c). Correct refetch discipline."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/psp/psp_main.c",
+      "line": 345,
+      "status": "safe",
+      "reason": "psp_rcv packet parse: psph captured at 345 and psph->hdrlen read at 352 BEFORE the variable-length pskb_may_pull at 358-359; psph is explicitly refetched at 362 from post-pull skb->data before pse->spi/verfl reads; iph (322) is read (ihl/protocol) only before the pull at 330 and a fresh iph is captured at 378; uh (341) is read at 342 before the pull. Correct refetch discipline."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ppp/pppoe.c",
+      "line": 1191,
+      "status": "safe",
+      "reason": "pppoe_gro_complete(): phdr captured at 1191 and phdr->length written at 1202 with no relocating call in between (gro_find_complete_by_type does not touch the skb); pppoe_gso_segment() captures phdr at 1224 only AFTER pskb_may_pull(skb, PPPOE_SES_HLEN) at 1221. No stale use."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/udp_offload.c",
+      "line": 181,
+      "status": "reported",
+      "reason": "__skb_udp_tunnel_segment(): uh captured at 181 via udp_hdr(skb); pskb_may_pull(skb, tnl_hlen) at 189 may free/realloc the head; stale uh->len/uh->check read at 193+. Not re-raised here: it is a GSO segmentation path already reported for s03 by the sibling gro-frag intent (i019, fact f017)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/igmp.c",
+      "line": 963,
+      "status": "unresolved",
+      "reason": "Scanner flagged ih/ih3 captured at 963-964 (igmp_hdr/igmpv3_query_hdr) with pskb_may_pull at 1011/1015 and a later use at 1115; the s03 function was not line-verified in this session. Sibling s02/s05 audits of igmp_heard_query found explicit refetch after each pull (f007/f012), suggesting safe, but that is cross-snapshot inference, not s03 evidence."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/ip_input.c",
+      "line": 365,
+      "status": "unresolved",
+      "reason": "Scanner chain (iph captured 365, pull 523, use 539) spans what appear to be multiple functions (ip_rcv_core and following helpers), so it may be a heuristic false positive; the s05 sibling verified the analogous ip_rcv_core refetch pattern safe (iph refetched after the ihl-driven pull), but the s03 lines were not read here."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/openvswitch/flow.c",
+      "line": 449,
+      "status": "unresolved",
+      "reason": "Scanner flagged vh = (struct vlan_head *)skb->data captured at 449 in ovs flow-key extraction (parses received packets) with a pull at 457 and use at 462; the function was not deeply read before the bounded search was halted."
+    }
+  ],
+  "limitations": [
+    "All findings are static-analysis hypotheses: no runtime reproducer or KASAN trace was produced; each requires the skb to actually be cloned or non-linear (or have headlen below the pull length) at the flagged pull so __pskb_pull_tail -> pskb_expand_head really frees the old head, which is driver RX/GRO/A-MSDU-path dependent and was not dynamically verified on s03.",
+    "The automated scan (function-span heuristic over s03 net/ and drivers/, 234 raw capture-before-pull chains) merged some adjacent functions (e.g. net/mctp/route.c 387->1332, net/ipv4/tcp_offload.c 108->199, net/ipv4/tcp_ipv4.c, net/ipv6/tcp_ipv6.c, net/sctp/input.c, net/iucv/af_iucv.c, drivers/net/macsec.c 406->3094, drivers/net/wireless/ath/ath10k/wmi.c 2199->3685), so those chains are unverified false-positive-prone spans; interprocedural stale-pointer propagation is out of scope here (parallel callee-pull-caller-stale intent i024).",
+    "Unread/unresolved scanner chains beyond the twelve triaged candidates: net/ipv4/igmp.c:963, net/ipv4/ip_input.c:365, net/openvswitch/flow.c:449, net/ipv4/ip_tunnel_core.c:283, net/ipv4/xfrm/xfrm4_input.c:33, net/ipv4/esp4.c:254 / net/ipv6/esp6.c:290 (esph before later cow), net/netfilter/nf_nat_proto.c:407, net/ipv6/ip6_tunnel.c:473, net/ipv6/seg6_local.c:276, net/ipv6/rpl_iptunnel.c:222, net/ipv6/calipso.c:1289, net/ipv6/ila/ila_common.c:79, net/core/lwt_bpf.c:95, net/ipv4/ipmr.c, net/llc/llc_input.c:72, net/ipv6/icmp.c:641 -- pattern-screened only, not line-verified in s03.",
+    "drivers/ receive-path chains outside the deep-read set (ath10k htt_rx/wmi/mac, ath11k dp_rx, ath12k/mac, ath9k recv, iwlwifi tx/dvm/mld/pcie, vmxnet3, rmnet_handlers, ipvlan_core, r8169, gtp, geneve, vxlan_core, macsec, fcoe_ctlr, qeth, btmtkuart, solos-pci, mtk_eth_soc) were listed by the scanner but only pattern-screened; drivers/ outside drivers/net (plus arch/, fs/, headers/macros) were not audited.",
+    "Only the mac80211 rx.c TDLS block and tdls.c worker were deep-read among the many mac80211 rx.c/wpa.c hdr chains (986-5392 flagged by the scanner); the remaining mac80211 handlers rely on the sibling s03 audits (f002 classified wpa.c michael-mic safe with refetch) and were not all re-verified line-by-line.",
+    "The s03 copies of br_ip4_multicast_igmp3_report() and br_ip6_multicast_query() are the fixed variants (scalar copy-out before the attacker-length pull, explicit 'reload grec' at 2921, fresh ipv6_hdr(skb) accessor at 3616) even though the same functions were reported buggy in s02/s05; whether upstream fixed them relative to those snapshots could not be checked (no network/Git access)."
+  ]
+}

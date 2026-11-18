@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "intent_id": "i056",
+  "branch": "hci-completed-length-trust",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/cx231xx/cx231xx-417.c",
+      "start": 1341,
+      "end": 1361,
+      "quote": "buffer_size = urb->actual_length;\n\n\tbuffer = kmalloc(buffer_size, GFP_ATOMIC);\n\tif (!buffer)\n\t\treturn -ENOMEM;\n\n\tmemcpy(buffer, dma_q->ps_head, 3);\n\tmemcpy(buffer+3, p_buffer, buffer_size-3);",
+      "confidence": "medium",
+      "reason": "Untrusted source: buffer_size = urb->actual_length in cx231xx_bulk_copy() (drivers/media/usb/cx231xx/cx231xx-417.c:1348) is the completion-time transfer length written by the host controller (and effectively chosen by the streaming device firmware, which controls how many bytes it sends, including zero-length and short packets) — exactly the completed-metadata class this branch hunts; the locally requested size is transfer_buffer_length = sb_size = 320 * max_pkt_size set in cx231xx_init_bulk (drivers/media/usb/cx231xx/cx231xx-core.c:1177,1205 via the cx231xx_init_bulk(dev,320,5,...) call at cx231xx-417.c:1418). Missing guarantee 1 (no minimum/subtraction bound): nothing checks actual_length >= 3 before the arithmetic; for a zero-length packet or 1-2 byte short completion, buffer_size-3 underflows the u32 buffer_size to 0xFFFFFFFD/0xFFFFFFFE/0xFFFFFFFF, so memcpy(buffer+3, p_buffer, buffer_size-3) at line 1355 requests a ~4GiB copy from the sb_size URB buffer into the kmalloc(actual_length) (i.e. 0-2 byte) heap buffer, and memcpy(dma_q->ps_head, p_buffer+buffer_size-3, 3) at line 1356 reads p_buffer + huge-offset — an immediate remotely-device-triggerable slab over-read/over-write pair under the HCD's short-packet semantics. Missing guarantee 2 (no cross-check on the consuming copy): even for a full-length completion, buffer_filled(p_buffer, buffer_size, ...) at line 1359 does memcpy(vbuf, data, len) into the vb2 plane vaddr with no bound (lines 1294-1313); the vb2 plane is sized mpeglinesize*mpeglines = 512*128 = 65536 bytes (queue_setup, line 1232, module params at lines 63-69), while the URB buffer the device can fill is 320*max_pkt_size — whenever 320*max_pkt_size > 65536 (max_pkt_size > 204, e.g. the TS1 endpoint's 3072-byte max packet size on this hardware family) a single full bulk URB's actual_length drives a linear heap overflow of the VB2 buffer via the unguarded memcpy; the isoc sibling path partially guards the same consumer through buffer_copy()'s mpeg_buffer_completed+len < mpeglines*mpeglinesize test, and the isoc loop itself checks buffer_size > 0 before dispatch (cx231xx_isoc_copy, line 1334) — asymmetric validation between the paired isoc/bulk mirror paths of the same driver, the same shape as the seed's submit/receive asymmetry. Consuming unsafe use confirmed by reading the complete functions (cx231xx_bulk_copy 1341-1361, buffer_filled 1294-1313, buffer_copy 1237-1293, cx231xx_init_bulk buffer sizing 1177-1211, queue_setup 1215-1234). Consequence: device-firmware-triggerable kernel heap corruption (giant underflowed memcpy on short completion; VB2-plane linear overflow on long completion) — crash/DoS, potential privilege escalation; report is a hypothesis on the memory-corruption mechanism, not a proven exploit. Counterevidence checked: urb->actual_length <= transfer_buffer_length is guaranteed by the HCD, which bounds the ZLP/short case to the underflow mechanism and the long case to 320*max_pkt_size; cx231xx_bulk_irq_callback (cx231xx-core.c:851) calls bulk_copy on status==0 with no length filtering of its own, so no check exists upstream of the consumer.",
+      "conclusion": "cx231xx_bulk_copy trusts completion-time urb->actual_length with no >=3 minimum (u32 underflow drives a ~4GiB memcpy into a kmalloc(actual_length) buffer on ZLP/short bulk-ins) and buffer_filled memcpy's the full length into a 65536-byte VB2 plane with no bound; the isoc mirror path checks size>0 and bounds the copy — asymmetric validation."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/opticon.c",
+      "line": 76,
+      "status": "safe",
+      "reason": "size_t data_len = urb->actual_length - 2 is computed before the guard but the function returns early when urb->actual_length <= 2 (lines 78-82) before data_len is ever used, so no size_t underflow reaches tty_insert_flip_string; actual_length is HCD-bounded to the bulk-in buffer.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/kl5kusb105.c",
+      "line": 360,
+      "status": "safe",
+      "reason": "klsi_105_process_read_urb checks urb->actual_length <= KLSI_HDR_LEN first (line 355) and then clamps the wire len to urb->actual_length - KLSI_HDR_LEN, so both the subtraction and the copy are bounded by completion length.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/es2.c",
+      "line": 840,
+      "status": "safe",
+      "reason": "cport_in_callback enforces urb->actual_length >= sizeof(*header) (line 830) and passes the HCD-bounded actual_length to greybus_data_rcvd; the URB is filled with transfer_buffer_length = ES2_GBUF_MSG_SIZE_MAX matching the kmalloc'ed buffer (es2.c:1340-1353), so the delivered length is locally bounded.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/usb/ipheth.c",
+      "line": 215,
+      "status": "safe",
+      "reason": "legacy path guards urb->actual_length <= IPHETH_IP_ALIGN before len = actual_length - 2; NCM path checks >= IPHETH_NCM_HEADER_SIZE and every datagram index/length against actual_length (dg_idx < IPHETH_NCM_HEADER_SIZE, dg_idx >= actual_length, dg_len > actual_length - dg_idx all rejected), and dev_alloc_skb(len) allocates exactly len — all cross-checked.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/usb/hso.c",
+      "line": 1015,
+      "status": "safe",
+      "reason": "read_bulk_callback only calls packetizeRx when actual_length != 0, resubmits with MUX_BULK_RX_BUF_SIZE, and packetizeRx clamps every copy to min(count, rx_buf_missing) where rx_buf_missing is only ever set to sizeof(struct iphdr) or frame_len-sizeof(struct iphdr) with frame_len validated against DEFAULT_MRU and allocated netdev_alloc_skb(frame_len); the WAIT_IP header copy into the fixed odev->rx_ip_hdr is bounded by the same min() — no path consumes more than actual_length bytes.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/can/usb/etas_es58x/es58x_core.c",
+      "line": 1229,
+      "status": "safe",
+      "reason": "es58x_copy_to_cmd_buf checks rx_cmd_buf_len + raw_cmd_len > rx_urb_cmd_max_len and returns -EMSGSIZE before its memcpy into the fixed rx_cmd_buf; es58x_handle_incomplete_cmd additionally clamps cpy_len with min_t(int, rx_urb_cmd_max_len - rx_cmd_buf_len, urb->actual_length) and es58x_check_rx_urb bounds urb_cmd_len <= rx_urb_cmd_max_len — the previously-suspected overflow guard exists and is correct.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/storage/uas.c",
+      "line": 433,
+      "status": "safe",
+      "reason": "scsi_set_resid(cmnd, sdb->length - urb->actual_length) relies on the HCD invariant actual_length <= transfer_buffer_length, and the data URB is filled with sdb->length (the locally requested scsi length), so no unsigned underflow; uas_sense clamps len via min(len+16, actual_length)-16 within the fixed sense buffer.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/mfd/dln2.c",
+      "line": 282,
+      "status": "safe",
+      "reason": "len = urb->actual_length - sizeof(struct dln2_header) is computed only after the actual_length < sizeof(struct dln2_header) guard (line 260) and after an exact size == actual_length header cross-check, so the subtraction cannot underflow.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/can/usb/esd_usb.c",
+      "line": 508,
+      "status": "unresolved",
+      "reason": "The completion loop bounds pos by urb->actual_length but dereferences msg->hdr at transfer_buffer+pos before validating pos + sizeof(header) <= actual_length; the post-loop pos > actual_length check fires only after the message was consumed, and msg->hdr.len (device-declared, up to 4x word units) advances pos — this is a parse-time straddled-header/wire-count issue, not completion-metadata trust, and was not traced into esd_usb_rx_can_msg in this session.",
+      "conclusion": "Follow up: read esd_usb_rx_can_msg and pin down whether a straddled header at the tail of the ESD_USB_RX_BUFFER_SIZE buffer parses stale bytes (including an unclamped msg->hdr.len) into netdev state, then reclassify under the unclamped-wire-count branch."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/cx231xx/cx231xx-dvb.c",
+      "line": 257,
+      "status": "unresolved",
+      "reason": "dvb_bulk_copy (cx231xx-dvb.c:241+) is the DVB sibling of the reported cx231xx-417 cx231xx_bulk_copy and likewise consumes urb->actual_length, but its body was identified only by grep and not deep-read in this session, so whether it guards short/zero completions and bounds its copy is unconfirmed.",
+      "conclusion": "Follow up: read dvb_bulk_copy in drivers/media/usb/cx231xx/cx231xx-dvb.c to determine whether it repeats the missing >=3 check and unbounded vb2/dvb copy of the reported cx231xx-417 sibling."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 662,
+      "status": "safe",
+      "reason": "Excluded-by-rule: the seed usbip_recv_iso path (np from the wire, int multiply, kzalloc) is present in this snapshot but is demonstration-only and must never be reported as the finding for this intent; it is also a parse-time wire count plus allocator-overflow mechanism covered by other branch intents, not completion-time metadata.",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "dvb_bulk_copy in drivers/media/usb/cx231xx/cx231xx-dvb.c was identified but not deep-read; it may repeat the reported cx231xx-417 missing-short-check pattern.",
+    "The sibling bulk-copy paths cx231xx_bulk_copy in cx231xx-vbi.c and cx231xx-video.c and the ts1_mode.max_pkt_size value used for the TS1 bulk endpoint were not read, so the exact threshold (320*max_pkt_size vs the 65536-byte VB2 plane) for the long-URB overflow variant is not pinned to this hardware's descriptor value.",
+    "HCI-side setters of urb->actual_length (ehci, xhci-dbgcap, c67x00, dummy_hcd, etc.) were not per-site audited; a controller bug setting actual_length > transfer_buffer_length cannot be excluded, though none is known in this tree.",
+    "drivers/input/joystick/iforce/iforce-usb.c:162 (urb->actual_length - 1 into iforce->data_in + 1) and the gpib bulk_urb->actual_length consumers were grep-identified but not deep-read; iforce has a min() against the IFORCE_MAX_LENGTH check upstream of the copy and gpib paths are sync-URB style where the HCD bound applies, but neither was confirmed line-by-line."
+  ],
+  "limitations": [
+    "The reported cx231xx-417 finding is a static-analysis hypothesis: the ~4GiB memcpy underflow on a 0-2 byte completion and the VB2-plane overflow on a >65536-byte completion were established by reading the code paths, not by running a device or reproducer; the practical impact of the underflowed memcpy length (allocator/page-fault behavior on a 4GiB request) and the actual TS1 max_pkt_size were not empirically confirmed.",
+    "Sweep coverage is bounded to completion handlers that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands across usb serial/core/class/misc/storage, greybus, net (usb/can/wireless), media, input, scsi resid, mfd, hwmon, char and tty; handlers that merely log or count the metadata were triaged out without deep reads.",
+    "The gb-beagleplay greybus hdr.size issue (peer-declared message size, sibling-snapshot finding f002/i033) exists in this tree's shape but is a parse-time wire count excluded from this branch by rule and was not re-reported here."
+  ]
+}

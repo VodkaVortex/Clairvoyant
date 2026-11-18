@@ -1,0 +1,61 @@
+{
+  "intent_id": "i033",
+  "branch": "hci-completed-length-trust",
+  "status": "finalizing",
+  "snapshot": "s03",
+  "finding": {
+    "path": "drivers/greybus/gb-beagleplay.c",
+    "line": 213,
+    "note": "hdlc_rx_greybus_frame passes peer-declared gb_frame->hdr.size (gb_msg_len) as the length to greybus_data_rcvd with no check against the actually received frame length len (<= MAX_RX_HDLC-4 = 255). Downstream 'size < msg_size' check is tautological (both come from hdr.size). Request direction memcpy in gb_operation_create_incoming copies gb_msg_len bytes from bg->rx_buffer (259 bytes) -> heap OOB read; response direction is cross-checked against local payload_size (asymmetric)."
+  },
+  "candidates": [
+    {
+      "path": "drivers/greybus/es2.c",
+      "line": 844,
+      "status": "safe",
+      "note": "actual_length <= transfer_buffer_length = ES2_GBUF_MSG_SIZE_MAX = hd buffer_size_max; all downstream copies bounded."
+    },
+    {
+      "path": "drivers/staging/vc04_services/interface/vchiq_arm/vchiq_core.c",
+      "line": 2120,
+      "status": "safe",
+      "note": "peer bulk->actual only drives fragment copies bounded within the last pinned page (offset < PAGE_SIZE-64, len < 64)."
+    },
+    {
+      "path": "drivers/net/usb/rtl8150.c",
+      "line": 421,
+      "status": "safe",
+      "note": "pkt_len <= actual_length-4 <= 1536 < skb 1542."
+    },
+    {
+      "path": "drivers/char/xillybus/xillyusb.c",
+      "line": 666,
+      "status": "safe",
+      "note": "bytes=min(count+1, dws<<2), fifo_write clamps to free space."
+    },
+    {
+      "path": "drivers/usb/storage/uas.c",
+      "line": 428,
+      "status": "safe",
+      "note": "actual_length <= sdb->length by HCD invariant."
+    },
+    {
+      "path": "drivers/net/can/usb/esd_usb.c",
+      "line": 503,
+      "status": "unresolved",
+      "note": "pos+sizeof(hdr) not validated before deref."
+    },
+    {
+      "path": "drivers/net/can/usb/etas_es58x/es58x_core.c",
+      "line": 1320,
+      "status": "unresolved",
+      "note": "overflow guard not fully read."
+    },
+    {
+      "path": "drivers/net/usb/hso.c",
+      "line": 1015,
+      "status": "unresolved",
+      "note": "packetizeRx bounds not fully read."
+    }
+  ]
+}

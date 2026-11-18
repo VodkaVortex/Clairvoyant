@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "intent_id": "i018",
+  "branch": "timer-dwork-softirq-lock",
+  "snapshot": "s03",
+  "status": "finalized",
+  "progress": "Finalized. Enumeration of 16,667 .c files / 741 timer callback names found exactly one timer callback body with plain spin_lock (net/sunrpc/xprt.c xprt_init_autodisconnect:702, setup_timer at :1375); triaged SAFE because all 14 sibling transport_lock sites in xprt.c use spin_lock_bh including the workqueue xprt_autoclose worker (locks 631/646/669) that the timer queues at :710. No violated invariant confirmed; negative result bounded by single-line-definition regex gap - br_multicast.c and libiscsi.c copies in s03 (confirmed vulnerable families in sibling snapshots) remain unverified.",
+  "candidates": [
+    {
+      "path": "net/sunrpc/xprt.c",
+      "line": 702,
+      "status": "safe"
+    },
+    {
+      "path": "net/bridge/br_multicast.c",
+      "line": 248,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 2088,
+      "status": "unresolved"
+    },
+    {
+      "path": "net/sched/sch_pie.c",
+      "line": 433,
+      "status": "unresolved"
+    }
+  ],
+  "findings": []
+}

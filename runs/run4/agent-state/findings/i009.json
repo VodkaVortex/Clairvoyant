@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "io-uring-sq-ring",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "start": 2670,
+      "end": 2685,
+      "quote": "if (po->has_vnet_hdr) {\n\t\t\tvnet_hdr = data;\n\t\t\tdata += sizeof(*vnet_hdr);\n\t\t\ttp_len -= sizeof(*vnet_hdr);\n\t\t\tif (tp_len < 0 ||\n\t\t\t    __packet_snd_vnet_parse(vnet_hdr, tp_len)) {\n\t\t\t\ttp_len = -EINVAL;\n\t\t\t\tgoto tpacket_error;\n\t\t\t}\n\t\t\tcopylen = __virtio16_to_cpu(vio_le(),\n\t\t\t\t\t\t    vnet_hdr->hdr_len);\n\t\t}",
+      "confidence": "medium",
+      "reason": "Untrusted source: vnet_hdr points into the TPACKET TX ring frame (ph from packet_current_frame(po, &po->tx_ring, TP_STATUS_SEND_REQUEST)), memory mmap'd MAP_SHARED and concurrently writable by unprivileged userspace, identical trust boundary to the seed's UMEM TX metadata. Missing guarantee: __packet_snd_vnet_parse() (line 2416) validates __virtio16_to_cpu(vnet_hdr->hdr_len) <= len (the post-vnet-header tp_len) and even writes back a corrected hdr_len into the shared header, but the validated value is not cached; line 2680 independently re-reads vnet_hdr->hdr_len from the same shared memory to compute copylen, which directly sizes sock_alloc_send_skb (line 2684: hlen + tlen + sizeof(sockaddr_ll) + (copylen - dev->hard_header_len)) and later skb_push/skb_put/copy lengths in tpacket_fill_skb (copylen - hard_header_len is skb_put, hdrlen = min(copylen, tp_len) is skb_store_bits length). A userspace race between the check in __packet_snd_vnet_parse and the fetch at 2680 makes the consumed hdr_len differ from the validated one, the exact check-then-use double-fetch the seed fixed in xsk_skb_metadata(). Additionally line 2719 passes the same shared pointer to virtio_net_hdr_to_skb(), a third fetch of csum_start/csum_offset; however that path re-validates via skb_partial_csum_set() against skb_headlen, which is the main counterevidence weakening full OOB proof for the checksum fields specifically. The hdr_len->copylen path is the reportable instance: validated equals used is violated, copylen feeds skb allocation and linear copy sizing, and the only clamp afterwards is max_t(int, copylen, dev->hard_header_len), which does not bound copylen from above."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "fs/aio.c",
+      "line": 1032,
+      "status": "safe",
+      "reason": "lookup_ioctx(): get_user(id, &ring->id) fetches the mmap'd aio_ring id exactly once; the same local id is used for the id >= table->nr bounds check and the table->table[id] lookup. Single-fetch invariant holds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/aio.c",
+      "line": 1165,
+      "status": "safe",
+      "reason": "aio_read_events_ring(): ring->head and ring->tail each read once into locals under ring_lock; both normalized with %= ctx->nr_events before any page/offset arithmetic; copy_to_user targets only kernel-owned ring pages. No second fetch of the shared fields."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/aio.c",
+      "line": 940,
+      "status": "safe",
+      "reason": "refill_reqs_available() explicitly documents 'Clamp head since userland can write to it' and clamps head %= ctx->nr_events before use; user_refill_reqs_available() reads ring->head once into a local. Safe."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/aio.c",
+      "line": 1783,
+      "status": "safe",
+      "reason": "io_submit_one(): copy_from_user(&iocb, user_iocb, sizeof(iocb)) snapshots the entire iocb; all later uses (aio_buf, aio_nbytes, aio_lio_opcode, aio_resfd) come from the stack copy, not re-fetched from userspace."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/events/ring_buffer.c",
+      "line": 161,
+      "status": "safe",
+      "reason": "perf_output_begin(): tail = READ_ONCE(rb->user_page->data_tail) fetched once from the mmap'd perf user page; the same local is used for ring_buffer_has_space() and never re-read. Documented control-dependency barrier."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/events/ring_buffer.c",
+      "line": 385,
+      "status": "safe",
+      "reason": "perf_aux_output_begin(): aux_tail = READ_ONCE(rb->user_page->aux_tail) fetched once; used only in the single CIRC_SPACE computation. Single-fetch."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2035,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc(): ring_head fetched once via vhost_get_avail into a local, bounds-checked head >= vq->num before use; descriptor chain fields re-copied per iteration via vhost_copy_from_user into a local desc which is then used for translate_desc/log, and next_desc() re-checks i < vq->num each iteration. No unchecked re-read of a validated field."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 2680,
+      "status": "reported",
+      "reason": "tpacket_snd(): vnet_hdr points into the mmap'd TPACKET TX ring frame; __packet_snd_vnet_parse() validates hdr_len against tp_len but line 2680 independently re-reads vnet_hdr->hdr_len from shared memory to compute copylen, which sizes sock_alloc_send_skb (line 2684) and the skb_put/skb_store_bits lengths in tpacket_fill_skb. Line 2719 passes the same shared pointer to virtio_net_hdr_to_skb() for a further fetch of csum_start/csum_offset (that path re-validates via skb_partial_csum_set). Validated-equals-used invariant violated on the hdr_len->copylen path."
+    }
+  ],
+  "limitations": [
+    "s02 contains no io_uring implementation at all (no fs/io_uring.c, no include/uapi/linux/io_uring.h, zero occurrences of io_uring/IORING_ anywhere in the 45251-file tree); the assigned branch target is structurally absent, so the audit pivoted to the intent's named fallback: adjacent mmap'd shared-ring plumbing (aio ring, perf user_page, af_packet TX ring) under the same single-fetch invariant.",
+    "Exploitability of the reported tpacket_snd hdr_len double fetch is not fully proven: copylen is u16-derived (max 65535) so the over-allocation/over-copy magnitude is bounded, tp_len was already validated <= size_max, and the csum fields re-fetched at line 2719 are re-validated by skb_partial_csum_set() against skb_headlen; impact is stated as a hypothesis (linear-data over-copy/allocation mismatch in tpacket_fill_skb), not a demonstrated OOB.",
+    "Other mmap'd-ring consumers outside the four families audited (videobuf2, infiniband umem, xen gntdev, UIO) were identified by VM_SHARED grep but not deeply read; they are candidates for follow-up intents, not evidence of safety."
+  ]
+}

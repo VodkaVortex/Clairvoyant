@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "xmit-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": ["s10"],
+  "findings": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "start": 1980,
+      "end": 2040,
+      "quote": "spin_lock(&priv->stream_lock);",
+      "confidence": "medium",
+      "reason": "Lock object: priv->stream_lock (spinlock_t, drivers/net/wireless/marvell/mwl8k.c:209, spin_lock_init at 6140). Softirq/tx side: mwl8k_tx (ieee80211_ops .tx, mwl8k.c:4684-4698) -> mwl8k_txq_xmit (1893) takes spin_lock(&priv->stream_lock) at 1987 (range 1980-2040, unlock 2038) and again at 2051/2074/2124 inside the same xmit helper; .tx is invoked by mac80211 from ndo_start_xmit/ieee80211_subif_start_xmit and from tx-dequeue under NET_TX softirq, and the very same function takes priv->tx_lock with spin_lock_bh (2059) proving this path is expected to run with bottom halves enabled, so plain spin_lock on stream_lock is the missing-BH-disable defect. Process/workqueue side sharing the same lock: mwl8k_watchdog_ba_events worker (3813, spin_lock(&priv->stream_lock) at 3830, queued from the A2H interrupt handler via ieee80211_queue_work(hw, &priv->watchdog_ba_handle) at 4613, INIT_WORK at 6118), mwl8k_cmd_set_new_stn_del (4152, stream_lock at 4160) reached from mwl8k_sta_remove (5317->5324) under the wiphy mutex in process context, and mwl8k_ampdu_action (5436, stream_lock at 5453) from cfg80211/mac80211 process context. Deadlock shape: a worker or user task holds stream_lock acquired with plain spin_lock; a NET_TX softirq on the same CPU enters mwl8k_txq_xmit and spins on stream_lock forever while the preempted holder can never resume -> soft-lockup/RCU stall/TX stall DoS, the exact seed mechanism (missing spin_lock_bh on a lock shared between process/workqueue context and the xmit softirq path). Counterevidence checked: no spin_lock_bh/irqsave/irq variant exists on any stream_lock site (all 13 sites at 1987/2051/2074/2124/3830/3843/4160/4171/5453/5494/5515/5533/5544/5551 are plain), while the adjacent tx_lock in the same xmit path does use spin_lock_bh, confirming the inconsistency is real rather than an outer BH-disable convention; no local_bh_disable() wrapper surrounds mwl8k_txq_xmit. Static hypothesis only; no runtime reproducer (tree lacks .config/headers for standalone build)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/staging/ks7010/ks7010_sdio.c",
+      "line": 398,
+      "status": "safe",
+      "reason": "The seed demonstration itself (spin_lock(&priv->tx_dev.tx_dev_lock) in ks_wlan_hw_tx); present unmodified in s10 and explicitly excluded from reporting per intent instructions."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/wireless/st/cw1200/wsm.c",
+      "line": 1088,
+      "status": "safe",
+      "reason": "priv->wsm_cmd.lock is taken with plain spin_lock in wsm_cmd_send (wsm.c:1088-1165) and in wsm_get_tx (1676) / wsm_txed (1768), but all consumption is serialized by the wsm_cmd_mux mutex (wsm_cmd_lock macro, wsm.c:85) and the only reader of wsm_cmd.ptr in the transmit loop runs in the dedicated cw1200_bh kthread (bh.c:373/409), not from a NET_TX softirq callback; the xmit path cw1200_tx (txrx.c) goes through cw1200_queue and the BH thread, so no process-vs-softirq sharing of the spinlock was found. Other cw1200 shared locks (ps_state_lock) correctly use spin_lock_bh (wsm.c:1689/1700)."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/wireless/ath/ath9k/main.c",
+      "line": 387,
+      "status": "safe",
+      "reason": "spin_lock(&sc->sc_pcu_lock) at main.c:387 is inside ath9k_tasklet (softirq side), while all process-context/worker sites of the same sc_pcu_lock use spin_lock_bh (main.c:295/340/674/733/845/854/865/892/2120/2122). The softirq-side plain acquisition is taken from a tasklet that itself cannot nest under a softirq on the same CPU in the harmful direction (the dangerous direction is a plain process-context holder, which does not exist); ath_reset_internal even tasklet_disable()s around its BH-disabled critical section. txq axq_lock uses spin_lock_bh (main.c:62). No process-context plain acquisition of a softirq-shared lock found."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/wireless/intersil/hostap/hostap_ap.c",
+      "line": 218,
+      "status": "unresolved",
+      "reason": "ap->sta_table_lock has 13 plain spin_lock sites (hostap_ap.c:218/666/730/775/2706/2832/2902/2942/3069/3096/3112/3133) mixed with ~40 spin_lock_bh sites on the same lock, and hostap_hw.c mixes plain and _bh/_irqsave on local->baplock (825/898 _bh vs 1858/1949/2225/2416 plain) and local->txfidlock (1659 _irqsave vs 1715/2111 plain). hostap is a softmac driver whose xmit (prism2_transmit / hostap_data_start_xmit path) can run from hardirq-ish/TX-completion contexts, so a plain process-context holder vs TX-side acquirer is plausible; the full call-context proof for each mixed lock was not completed before the intent deadline."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+      "line": 30,
+      "status": "unresolved",
+      "reason": "ctl_node->resp_lock is taken with plain spin_lock at trans.c:30/47/87/136; qtnfmac bus locks (tx_lock, tx_reclaim_lock, irq_lock) all use spin_lock_irqsave, but whether any resp_lock site is reachable from the TX softirq path was not traced before the deadline."
+    }
+  ],
+  "limitations": [
+    "Bounded search: only drivers/net/wireless and drivers/staging wireless-relevant trees were ranked by plain spin_lock density (iwlwifi pcie/rx.c 23 sites, mwl8k 15, hostap 24 across two files, cw1200 wsm.c 11, ath9k/ath5k/wil6210/rtlwifi/qtnfmac lower counts); iwlwifi pcie/rx.c had the highest plain-spin_lock count but was not analyzed before the deadline and merits a follow-up pass.",
+    "hostap mixed plain/_bh usage of sta_table_lock, baplock and txfidlock was not fully resolved (unresolved candidate): the TX-side execution context of prism2 transmit paths needs call-graph confirmation.",
+    "qtnfmac trans.c resp_lock softirq reachability was not concluded (unresolved candidate).",
+    "The mwl8k finding is a static hypothesis: no runtime reproducer was built because the s10 tree lacks .config and generated headers for building the driver standalone.",
+    "Only branch=xmit-softirq-lock was searched in s10; timer/tasklet/hardirq analogues (branches 2-4 of the mechanism profile) were out of scope for this intent."
+  ]
+}

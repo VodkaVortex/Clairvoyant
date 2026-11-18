@@ -1,0 +1,30 @@
+{
+  "intent_id": "i035",
+  "branch": "net-epidx",
+  "snapshot": "s09",
+  "status": "candidates_classified",
+  "notes": [
+    "lan78xx.c:4688 bNumEndpoints<3 guard precedes endpoint[2] at 4707 -> SAFE (fixed vs f008/f010)",
+    "r8152.c:2458 endpoint+2 read of ep_intr->desc.bInterval at 2516 -> REPORTED; rtl_check_vendor_ok (8296) uses usb_find_common_endpoints type-scan, never validates the cur_altsetting endpoint COUNT, validated!=used",
+    "qmi_wwan.c:699 control endpoint[0] no bNumEndpoints>0 check, only ==2 diag reject at 1570 -> REPORTED (medium)",
+    "ath9k hif_usb.c:1305 bNumEndpoints<2 guard before r=1..0 loop at 1314 -> SAFE",
+    "zd1211rw zd_usb.c:1267 bNumEndpoints<2 guard before loop at 1276 -> SAFE",
+    "cdc-phonet.c:349-354 both-altsetting bNumEndpoints pattern -> SAFE",
+    "cdc_ether.c:309 bNumEndpoints==1 guard at 309 wraps endpoint[0] at 312 -> SAFE",
+    "usbnet.c:107 bNumEndpoints loop bound -> SAFE (shared bind path)",
+    "sierra_net.c:666 numendpoints!=3 reject -> SAFE",
+    "cdc_ncm.c:731, hso.c:3135, carl9170:1070, brcmfmac:1405, rtlwifi:249 all loop-bounded -> SAFE"
+  ],
+  "candidates": [
+    {"path": "drivers/net/usb/r8152.c", "line": 2458, "status": "reported"},
+    {"path": "drivers/net/usb/qmi_wwan.c", "line": 699, "status": "reported"},
+    {"path": "drivers/net/usb/lan78xx.c", "line": 4707, "status": "safe"},
+    {"path": "drivers/net/wireless/ath/ath9k/hif_usb.c", "line": 1314, "status": "safe"},
+    {"path": "drivers/net/wireless/zydas/zd1211rw/zd_usb.c", "line": 1276, "status": "safe"},
+    {"path": "drivers/net/usb/cdc-phonet.c", "line": 374, "status": "safe"},
+    {"path": "drivers/net/usb/cdc_ether.c", "line": 312, "status": "safe"},
+    {"path": "drivers/net/usb/sierra_net.c", "line": 666, "status": "safe"},
+    {"path": "drivers/net/usb/usbnet.c", "line": 107, "status": "safe"},
+    {"path": "drivers/net/usb/hso.c", "line": 2748, "status": "safe"}
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "intent_id": "i021",
+  "branch": "if-alt-count",
+  "snapshot": "s05",
+  "status": "complete",
+  "updated_at": "2026-11-15",
+  "findings": [
+    "s05:drivers/hid/wacom_sys.c:2178-2190 wacom_wireless_work fixed-index usbdev->config->interface[1]/[2], zero bNumInterfaces in wacom_sys.c+wacom_wac.c, triggered by device-supplied wireless HID report (wacom_wac.c:2539/2547), chain-deref via usb_get_intfdata/hid_get_drvdata/wacom_release_resources - reported medium",
+    "s05:drivers/media/usb/gspca/stv06xx/stv06xx.c:324-337 isoc_init/isoc_nego literal intf_cache[0]->altsetting[1] with zero num_altsetting/bNumEndpoints in file; hooks fire from gspca.c:856-857/961-962 at VIDIOC_STREAMON before core alt selection - reported high (altsetting-count half; endpoint half already in f014)",
+    "s05:drivers/media/usb/gspca/xirlink_cit.c:2657-2680 sd_isoc_init/sd_isoc_nego same literal altsetting[1] pattern, zero guards in file - reported medium",
+    "s05:drivers/media/usb/usbvision/usbvision-video.c:1448-1456 model-index actconfig->interface[...] with no bNumInterfaces check while sibling ifnum branch at 1450 has it; model .interface values are 0 (20) or -1 (47) - reported medium"
+  ],
+  "safe_candidates": [
+    "qcserial.c:233 altsetting[1] gated by num_altsetting == 2 (with >2/==1 branches)",
+    "cdc_ncm.c:848/850/868 alt switch via core-validated usb_set_interface; no literal altsetting[N] indexing in file",
+    "gspca.c:2061 loop-bounded by bNumInterfaces (same construct verified in s01/s07)",
+    "em28xx-cards.c:3602-3603 loop-bounded by bNumInterfaces (directly verified)",
+    "ftdi_sio.c:1885/1921-1922 pointer-identity comparisons only",
+    "usb-serial.c:830-832 deref guarded by pointer equality with interface[0]",
+    "xusbatm.c:59/153 loop over bNumInterfaces with NULL checks",
+    "ueagle-atm.c:2209 interface[0]/altsetting[0] structurally in-bounds; endpoint half owned by i020"
+  ],
+  "unexamined": [
+    "sound/usb fixed altsetting[1] literal sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c); no set_alt handlers exist in sound/usb (grep)",
+    "drivers/usb/serial/sierra.c alt-switch path not verified this pass",
+    "cdc_ncm post-switch endpoint scan not line-verified (net-epidx territory)"
+  ]
+}

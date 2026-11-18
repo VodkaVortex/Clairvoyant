@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "loop-parser-stale-state",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/802/garp.c",
+      "start": 447,
+      "end": 488,
+      "quote": "ga = (struct garp_attr_hdr *)skb->data;\n\tif (ga->len < sizeof(*ga))\n\t\treturn -1;\n\n\tif (!pskb_may_pull(skb, ga->len))\n\t\treturn -1;\n\tskb_pull(skb, ga->len);\n\tdlen = ga->len - sizeof(*ga);",
+      "confidence": "high",
+      "reason": "Untrusted source: GARP/MRP PDU bytes from link-local 802.1ak traffic delivered via stp_proto_register (garp_pdu_rcv -> garp_pdu_parse_msg -> per-attribute loop at net/802/garp.c:503-508), parsed with fully attacker-controlled variable-length attribute headers (garp_attr_hdr.len, .event, .data in include/net/garp.h:29-33). Violated invariant: ga points into skb->data, and pskb_may_pull(skb, ga->len) at line 453 may call __pskb_pull_tail, which pskb_expand_head's / reallocates the skb head for a non-linear skb, invalidating ga; the pull length is itself read from the attacker header (ga->len), exactly like the seed's pskb_may_pull(skb, ph->sb_len). Unsafe use: stale ga dereferenced after the pull at line 456 (ga->len read for dlen), line 461 (ga->event drives the state switch), and line 485 (ga->data with attacker dlen passed to garp_attr_lookup, which memcmps/inspects the stale freed memory and gates GARP state transitions) — same-function structural duplicate of pep_get_sb(): header pointer captured, variable pull from untrusted length, post-pull read of header fields and stale pointer handed to a lookup. Impact: KASAN-detectable slab use-after-free read on the receive path reachable from a neighbor sending a crafted non-linear GARP PDU (e.g. MRP/GARP over VLAN with frag-list); garp_attr_lookup output then drives garp_attr_event state transitions. Counterevidence checked: garp_pdu_rcv refetches gp only for its own pull; x25_decode and batadv_bla_process_claim in this snapshot refetch after pulls (safe counterparts); the mid-function switch-case structurally interrupts linear refetch, and this exact pattern is absent from the fixed-upstream pep_get_sb. Non-linear arrival plausibility was not demonstrated with a reproducer; pskb_may_pull only reallocates when skb is non-linear at that offset, which an attacker-controlled sender can arrange."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/x25/x25_subr.c",
+      "line": 296,
+      "status": "safe",
+      "reason": "x25_decode() captures frame = skb->data (line 269) and calls pskb_may_pull (lines 294, 3312) inside the decode helper, but explicitly refetches frame = skb->data immediately after each pull (lines 296, 314); the only post-pull frame uses follow the refetch, so no stale state survives."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/batman-adv/bridge_loop_avoidance.c",
+      "line": 1138,
+      "status": "safe",
+      "reason": "batadv_bla_process_claim() holds ethhdr across pskb_may_pull(skb, headlen + arp_hdr_len(...)) at line 1134 inside a VLAN-traversal do/while, but refetches ethhdr = eth_hdr(skb) right after the pull (line 1138) with an explicit comment; all later uses (1180-1216) use the refetched pointer."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/nfc/nci/hci.c",
+      "line": 496,
+      "status": "safe",
+      "reason": "nci_hci_data_received_cb() captures packet = skb->data (line 447 area) and calls pskb_may_pull(hcp_skb, ...) at line 490, but refetches packet = (struct nci_hcp_packet *)hcp_skb->data at line 496 before any post-pull dereference (lines 497-498)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/nfc/hci/core.c",
+      "line": 917,
+      "status": "safe",
+      "reason": "nfc_hci_recv_shdl_chain() (function ending at line 929) captures packet = skb->data (line 869) and calls pskb_may_pull(hcp_skb, NFC_HCI_HCP_HEADER_LEN) at line 912, but refetches packet from hcp_skb->data at line 917 before the post-pull dereferences at 918-921."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/phonet/pep.c",
+      "line": 55,
+      "status": "unresolved",
+      "reason": "pep_get_sb() still exhibits the seed pattern in this snapshot (ph captured line 55, pskb_may_pull(skb, ph->sb_len) line 56, ph->sb_type/ph->sb_len dereferences lines 58-65); left unresolved here because it is the seed location itself, not a new variant, and is assigned to the parallel rx-pull-stale-hdr intent (i012)."
+    }
+  ],
+  "limitations": [
+    "Scan was static and heuristic (regex pull-vs-capture analysis, $TMPDIR/i014/find_stale.py); it covers same-function capture->pull->use chains in net/ but cannot prove pointer staleness (depends on runtime skb non-linearity) or catch cross-function returns of captured pointers.",
+    "drivers/ tree (outside drivers/net) was listed but not deeply scanned; drivers/net and net/ were the focus, and only files containing pull/linearize APIs plus loops were triaged (~261 files with pulls, 66 candidates deep-read at function level for the top candidates).",
+    "The garp_pdu_parse_attr finding is a hypothesis: no reproducer proving non-linear GARP skb arrival was built, and pskb_expand_head reuse of freed slab memory (which would make this a UAF rather than a read of old bytes) was not empirically confirmed.",
+    "Cross-iteration variants where state legitimately crosses a call boundary (e.g. helpers that both pull and return outer-scope pointers) outside the top-ranked files remain unexamined beyond the 12-candidate triage limit."
+  ]
+}

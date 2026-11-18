@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "intent_id": "i053",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s13"
+  ],
+  "findings": [
+    {
+      "snapshot": "s13",
+      "path": "fs/dlm/member.c",
+      "start": 118,
+      "end": 141,
+      "quote": "num_slots = le16_to_cpu(rf->rf_num_slots);\n\tif (!num_slots)\n\t\treturn -1;\n\n\tro0 = (struct rcom_slot *)(rc->rc_buf + sizeof(struct rcom_config));\n\n\tfor (i = 0, ro = ro0; i < num_slots; i++, ro++) {\n\t\tro->ro_nodeid = le32_to_cpu(ro->ro_nodeid);\n\t\tro->ro_slot = le16_to_cpu(ro->ro_slot);\n\t}",
+      "confidence": "high",
+      "reason": "Untrusted source: rf_num_slots is a peer-controlled le16 count in a DLM_RCOM_STATUS_REPLY recovery message from a remote cluster node; receive_sync_reply (fs/dlm/rcom.c:263) memcpy's the peer h_length bytes into ls->ls_recover_buf, and dlm_process_incoming_buffer (fs/dlm/midcomms.c:81-105) validates only h_length (<= ci_buffer_size=4096) against the buffer, never the embedded slot count. Violated invariant: dlm_slots_copy_in checks only !num_slots; the sibling local-generation path dlm_slots_assign (fs/dlm/member.c:276-283) does enforce max_slots = (ci_buffer_size - sizeof(dlm_rcom) - sizeof(rcom_config)) / sizeof(rcom_slot) and rejects num_slots exceeding it, so the receive/peer direction is asymmetrically unvalidated (same mirror-path shape as the seed). Unsafe use: the first loop at member.c:124-127 performs in-place endian conversion writes at ro0[i] for i in [0,num_slots) - sizeof(struct rcom_slot)==16, so with num_slots up to 65535 the loop walks past the 4096-byte kmalloc'd ls_recover_buf (fs/dlm/lockspace.c:581) in both read and write; a second loop at member.c:132-141 then reads the same OOB entries (ro->ro_nodeid, ro->ro_slot) into memb->slot. Even when the happy path would be safe, every failure exit inside the loop (slot-changed, no-slot) returns without unpoisoning the already-endian-converted buffer or the consumed num_slots, and ls_generation has already been overwritten from the peer message. Impact: remote-triggerable OOB read+write of adjacent heap memory during DLM recovery by any node with cluster-network access (the DLM threat model: peer nodes are semi-trusted, but a compromised/malicious node or MITM on the unencrypted dlm socket reaches this path); the writes are endian-conversions (bswap32/16 of OOB data) so corruption is value-restricted but the read feeds memb->slot. Counterevidence checked: midcomms h_length bound is the only length gate; check_rcom_config (rcom.c) validates only lvblen/lsflags/version, not slot counts; DLM_MAX_SLOTS does not exist in this tree; a possible future guard would be max_slots-style clamp like member.c:276.",
+      "conclusion": "dlm_slots_copy_in loops on peer rf_num_slots (le16, up to 65535) with only a !num_slots check while sibling dlm_slots_assign clamps to max_slots - remote OOB read+bswap-write of 16-byte entries past the 4096-byte ls_recover_buf during DLM recovery."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/md/raid5-ppl.c",
+      "start": 831,
+      "end": 841,
+      "quote": "for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++) {\n\t\tstruct ppl_header_entry *e = &pplhdr->entries[i];",
+      "confidence": "medium",
+      "reason": "Untrusted source: pplhdr->entries_count is a u32 read from the on-disk PPL header page (ppl_load_distributed reads PAGE_SIZE via sync_page_io at raid5-ppl.c:928-933 and gates only on page CRC and signature, not on the count). Violated invariant: the write path enforces io->entries_count == PPL_HDR_MAX_ENTRIES (raid5-ppl.c:274) before appending entries, but the recovery mirror path ppl_recover iterates le32_to_cpu(pplhdr->entries_count) with no clamp - asymmetric validation. Unsafe use: entries[] is a fixed PPL_HDR_MAX_ENTRIES (~126) array inside a single page (include/uapi/linux/raid/md_p.h:411-426); a crafted header with entries_count > 126 makes ppl_recover_entry index past the page, and each entry's pp_size (le32) also drives repeated sync_page_io disk reads. The error-unwind shape: any -EIO inside the loop jumps to out: freeing the page but the poisoned count has already driven OOB entry reads; CRC over the whole page is the only gate, so a local attacker with write access to the member disk (or a corrupted/malicious disk) controls the count while passing CRC. Counterevidence checked: the header CRC covers the full PAGE_SIZE including entries_count, but CRC is not a trust boundary against a disk attacker; requires mdadm-configured PPL, dirty array start (mddev->recovery_cp != MaxSector), and write access to the PPL region. This matches the prior sibling report (i052/f051 medium) and is independently confirmed in s13 at the recovery lines.",
+      "conclusion": "raid5-ppl ppl_recover iterates on-disk le32 entries_count with no PPL_HDR_MAX_ENTRIES clamp that write path raid5-ppl.c:274 enforces - crafted-but-CRC-valid PPL header walks entries[] past the header page during recovery (prior-audit lead confirmed in s13)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s13",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 611,
+      "status": "unresolved",
+      "reason": "Seed-instance chain confirmed present and unpatched in s13: usbip_recv_iso at lines 611-670 keeps int size = np * sizeof(*iso) (line 616), kzalloc(size) with no USBIP_MAX_ISO_PACKETS clamp, a recv+copy loop over np iterations, and -EPIPE/-EPROTO-style error returns that leave the wire value in urb->number_of_packets for processcompl iteration. Excluded from findings by rule (seed mechanism demonstration-only); recorded as excluded-by-rule.",
+      "conclusion": "Unpatched seed usbip_recv_iso chain exists in s13 at usbip_common.c:611-670 but is excluded-by-rule; track via the dedicated seed CVE, do not re-report here."
+    },
+    {
+      "snapshot": "s13",
+      "path": "fs/dlm/member.c",
+      "line": 118,
+      "status": "reported",
+      "reason": "Promoted to finding: peer-controlled rf_num_slots consumed without clamp with asymmetric sibling validation in dlm_slots_assign; see findings list.",
+      "conclusion": "Reported as high-confidence finding (peer rf_num_slots unclamped slot-walk past ls_recover_buf)."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 831,
+      "status": "reported",
+      "reason": "Promoted to finding: recovery-path entries_count consumption without the write-path clamp; see findings list.",
+      "conclusion": "Reported as medium-confidence finding (on-disk entries_count unclamped in ppl_recover)."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/target/iscsi/iscsi_target.c",
+      "line": 1000,
+      "status": "safe",
+      "reason": "The iscsi_target extended-CDB/ahslength chain named in the intent is absent: the only reference is the FIXME comment 'Add checks for AdditionalHeaderSegment' at iscsi_target.c:1000; grep for ahslength/AHS across drivers/ and net/ finds only initiator-side libiscsi.c construction sites; iscsit_get_rx_pdu (3946-4021) reads exactly ISCSI_HDR_LEN bytes and never parses an AHS segment, so no peer count is stored and no loop consumes it.",
+      "conclusion": "Safe: extended-CDB ahslength attack surface does not exist in s13's iscsi target (AHS unimplemented, FIXME only)."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 645,
+      "status": "safe",
+      "reason": "All on-flash count loops in ubi_scan_fastmap (free/used/scrub/erase_peb_count at 645,656,667,678; vol_count at 692; fm_eba->reserved_pebs at 725-735) advance fm_pos by the fixed element size and re-check fm_pos >= fm_size every iteration before dereferencing, so an oversized count exits at fail_bad instead of walking past the fm_buf; pool sizes are additionally clamped against UBI_FM_MAX_POOL_SIZE (615-637). No poisoned count survives to a later consumer.",
+      "conclusion": "Safe: UBI fastmap count stores are per-iteration bounds-checked against fm_size and pool sizes are clamped; no error-unwind poisoned count."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt.c",
+      "line": 1307,
+      "status": "safe",
+      "reason": "Firmware-provided agg_bufs from RX and TPA-end completions is validated before consumption: bnxt_agg_bufs_valid (bnxt.c:936-945) advances the completion ring by agg_bufs and checks validity, and the TPA path additionally rejects agg_bufs > MAX_SKB_FRAGS (bnxt.c:1307-1310) calling bnxt_abort_tpa on the error-unwind path rather than looping on the poisoned value; bnxt_discard_rx (974-1000) also gates on bnxt_agg_bufs_valid before advancing raw_cons.",
+      "conclusion": "Safe: bnxt TPA/RX agg_bufs is ring-validity-checked and MAX_SKB_FRAGS-clamped with abort on error; no unclamped count store."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/md/dm-era-target.c",
+      "line": 1430,
+      "status": "safe",
+      "reason": "The only 'count' in dm-era-target.c is the argument-count string 'Invalid argument count' (ti->error, line 1430); the prior-audit lead's ws_inc/ws_dec counters are internally generated, not stored from any peer-controlled source, so no poisoned-count store exists in this file.",
+      "conclusion": "Safe: dm-era-target.c contains no attacker-controlled count store (only an argument-count error string); lead closed."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/md/dm-zoned-metadata.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "Prior-audit lead not completed in this session: the file exists in s13 but was not read past confirming no obvious peer/peer-like count store surface in grep; its superblock-read and metadata-recovery error paths (on-disk bitmap/nr_meta_blk style counters) were not walked end-to-end, so a poisoned-count shape there cannot be excluded.",
+      "conclusion": "Follow up: walk dm-zoned-metadata.c superblock-read/recovery error paths for on-disk count stores (nr_meta_blk, bitmap block counts) consumed by later iteration loops; not audited in this session."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "drivers/net/ethernet/google/ does not exist in s13 (directory listing empty/absent), so the gve_adminq prior-audit lead could not be audited at all in this tree.",
+      "conclusion": "Follow up: gve_adminq lead is absent from s13 (no google ethernet driver directory); nothing to audit here."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/accel/qaic/qaic_drv.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "No drivers/accel directory and no qaic references tree-wide in s13, so the qaic control decode_message poisoned hdr.count chain (the strongest prior-audit example) could not be audited here.",
+      "conclusion": "Follow up: qaic is absent from s13 (no drivers/accel, no qaic references); the manage_msg hdr.count poison chain cannot exist in this tree."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_e610.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "No e610 references exist in drivers/net/ethernet/intel/ in s13, so the ixgbe_e610 admin-queue count lead could not be audited here.",
+      "conclusion": "Follow up: ixgbe_e610 is absent from s13 (no e610 files or references in the intel drivers); nothing to audit here."
+    }
+  ],
+  "coverage_gaps": [
+    "dm-zoned-metadata.c on-disk count stores and their error-unwind consumers were not read line-by-line; only presence and grep-level triage was done.",
+    "Beyond the intent's named leads, no systematic tree-wide sweep for other early-return paths leaving untrusted counts in shared objects (e.g. other fs/dlm receive handlers like receive_rcom_names, other md recovery readers) was completed before finalization.",
+    "drivers/scsi/elx/libefc_sli/sli4.c and drivers/net/ethernet/emulex/benet be_cmds.c firmware-response field conversions flagged as follow-ups by sibling facts f045/f049 (s11/s12) were not audited in s13 in this session.",
+    "The dlm finding's exploitability depends on DLM cluster peer trust assumptions (unencrypted lowcomms, no node authentication); the practical reachability from a non-member host was not verified."
+  ],
+  "limitations": [
+    "dlm finding: the OOB writes are endian byte-swaps of out-of-bounds read data (ro_nodeid bswap32, ro_slot bswap16), restricting achievable corruption values, and the target ls_recover_buf is exactly ci_buffer_size (default 4096, sysfs-tunable) so the overflow distance and adjacent objects depend on the configured buffer size.",
+    "dlm finding: a peer must reach the DLM_RCOM_STATUS_REPLY receive path with matching rc_seq_reply (receive_sync_reply checks rc_id against ls_rcom_seq at rcom.c:250-263), so the attacker is a node that already participated in recovery sequencing - a compromised cluster member or on-path attacker, not an arbitrary host.",
+    "raid5-ppl finding requires local write access to the PPL region of an mdadm-managed member disk plus a dirty-array restart, and the header CRC must be recomputed after tampering; it is the same site sibling fact f051 already reported from s13 under branch2, listed here for the branch3 (error-unwind) angle only.",
+    "The finalize directive stopped the investigation early: candidate count reached is 8 classified plus 4 absence-confirmed leads; no compile/reproducer validation of the dlm OOB walk was performed (source-only analysis)."
+  ]
+}

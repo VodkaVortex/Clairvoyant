@@ -1,0 +1,55 @@
+{
+ "version": 1,
+ "intent_id": "i039",
+ "branch": "tasklet-napi-softirq-lock",
+ "snapshot": "s10",
+ "status": "complete",
+ "progress": [
+  {
+   "step": "1",
+   "note": "Ranked tasklet-using files by plain spin_lock count; mwl8k.c(15), cxgb3/sge.c(12), cxgb4/sge.c(11), sc92031.c(3) top."
+  },
+  {
+   "step": "2",
+   "note": "mwl8k tx_lock: tasklet mwl8k_tx_poll takes spin_lock at 4642 (softirq side) but ALL process sites use spin_lock_bh (1573-1626, 2059, 2120) -> SAFE (inverted discipline; no plain process holder)."
+  },
+  {
+   "step": "3",
+   "note": "sc92031 tx_timeout plain spin_lock at 1088 vs sc92031_tasklet softirq side -> candidate C3 (prior i032/s03 high-confidence analogue)."
+  },
+  {
+   "step": "4",
+   "note": "ath5k: tasklet side plain (rxbuflock 1550, txbuflock 1774, txq->lock 1740, block 2202); process-side drain uses spin_lock_bh on txq->lock and stop_tasklets+tasklet_kill before drain; txbuflock process sites use irqsave. Partially safe; will recheck."
+  },
+  {
+   "step": "5",
+   "note": "cassini: NAPI cas_poll -> cas_rx_ringN -> cas_post_page/cas_post_rxds_ringN take rx_spare_lock/rx_inuse_lock plain (501-643,1369,2237) in NET_RX softirq; process side cas_reset_task worker + cas_open/cas_close call cas_spare_recover/cas_spare_init/cas_spare_free/cas_clean_rxds taking the same locks plain -> strong candidate C5."
+  },
+  {
+   "step": "final",
+   "note": "Finalized: findings cassini.c:545-560 (high), cpmac.c:715-722 (medium), sc92031.c:1081-1096 (medium); safe: mwl8k.c:4642, altera_tse_main.c:452, mvneta.c:3722; unresolved: ath5k/base.c:1125, cxgb3/sge.c:2611, tsi108_eth.c:830. Artifact written to findings/i039.json."
+  }
+ ],
+ "candidates": [
+  {
+   "id": "C1",
+   "file": "drivers/net/wireless/marvell/mwl8k.c:4642",
+   "status": "safe"
+  },
+  {
+   "id": "C3",
+   "file": "drivers/net/ethernet/silan/sc92031.c:1088",
+   "status": "pending"
+  },
+  {
+   "id": "C4",
+   "file": "drivers/net/wireless/ath/ath5k/base.c",
+   "status": "pending"
+  },
+  {
+   "id": "C5",
+   "file": "drivers/net/ethernet/sun/cassini.c:556",
+   "status": "pending"
+  }
+ ]
+}

@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "intent_id": "i040",
+  "branch": "tasklet-napi-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s11"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/wireless/ath/ath5k/base.c",
+      "line": 1125,
+      "status": "safe",
+      "reason": "Softirq side: ath5k_tasklet_tx (tasklet_init base.c:3073, scheduled from ath5k_intr via ath5k_schedule_tx:2257) -> ath5k_tx_processq:1732 takes spin_lock(&ah->txbuflock) at 1774 (tasklet/TASKLET softirq context, plain lock is the norm there). Process side: ath5k_drain_tx_buffs:1110 (reached from workqueue ath5k_reset_work:2970 and ath5k_tx_complete_poll_work:2457 -> ath5k_reset:2857, and from ath5k_stop_locked:2716) takes plain spin_lock(&ah->txbuflock) at 1125. MITIGATION VERIFIED IN SOURCE: the 1125 acquisition is nested inside spin_lock_bh(&txq->lock) taken at the head of the same loop body in ath5k_drain_tx_buffs, so bottom halves are disabled on the local CPU for the entire txbuflock hold; a same-CPU tasklet cannot preempt the holder. The code comment at 1107 ('we do not need to block ath5k_tx_tasklet') confirms intent. Additionally the reset path masks device IRQs (ath5k_hw_set_imr(ah,0):2868), synchronize_irq (2869), and tasklet_kill via ath5k_stop_tasklets (2870, kills at 2793-2796) before drain at 2881; the only ordering gap (ath5k_stop_locked drains at 2716 before ath5k_stop's tasklet_kill at 2841) is still covered by the enclosing spin_lock_bh. Cross-CPU tasklet contention on txbuflock/txq->lock uses the same lock order (txq->lock -> txbuflock) on both sides, so no ABBA; the xmit path ath5k_tx uses spin_lock_irqsave (1635).",
+      "conclusion": "ath5k txbuflock plain spin_lock at base.c:1125 is nested inside spin_lock_bh(&txq->lock), which disables BHs locally, so the tasklet-side (ath5k_tx_processq:1774) cannot same-CPU preempt the holder; no missing-BH-disable violation."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/atm/he.c",
+      "line": 1770,
+      "status": "safe",
+      "reason": "Softirq side: he_tasklet:1928 (tasklet_init he.c:386, scheduled from he_irq_handler:2043) takes he_dev->global_lock with spin_lock_irqsave at 1936. The scan flagged the plain spin_lock(&he_dev->global_lock) at 1770, but that site lives in he_service_rbrq:1642, whose ONLY callers are he_tasklet itself (he.c:1949 and 1988; grep over drivers/atm/ confirms no other callers), i.e. it is softirq-side code, not process context. Moreover the unlock/relock pair at 1768/1770 executes while IRQs are still disabled from the outer irqsave acquisition at 1936 (plain spin_unlock does not restore saved flags, and he_tasklet's spin_unlock_irqrestore only runs at 2011), so no softirq can interleave on that CPU. Every genuine process-context site of global_lock (he.c:2177, 2206, 2245, 2286, 2356, 2411, 2447, 2525, 2627, 2680, 2694, 2727) uses spin_lock_irqsave. No plain process-context acquisition exists.",
+      "conclusion": "he.c global_lock plain spin_lock at 1770 runs inside he_tasklet softirq context under an outer irqsave hold (IRQs stay disabled across the pair); all process-context sites use spin_lock_irqsave, so the invariant is not violated."
+    }
+  ],
+  "coverage_gaps": [
+    "Lock correlation was done by textual lock-expression base name (e.g. 'txbuflock'); locks reached via differently named pointers, container_of aliases, or array-of-locks indexing between softirq and process sites could not be matched.",
+    "Only the tasklet/NAPI callback body plus its direct same-directory callees were treated as the softirq side; locks reached through deeper indirect calls (ops->, hw->, function-pointer tables) were not resolved.",
+    "NAPI poll functions whose netif_napi_add registration sits in a different file than the napi_schedule site may have been missed where the poll function name could not be extracted positionally (nonstandard arg lists).",
+    "Process-context sites that disable BHs via local_bh_disable()/spin_lock_bh nesting rather than taking the shared lock with _bh directly were only manually resolved for the two flagged hits."
+  ],
+  "limitations": [
+    "The negative result rests on a two-pass static scan of all 496 files containing tasklet_init/DECLARE_TASKLET/netif_napi_add/napi_schedule registrations across drivers/, net/, kernel/, mm/, fs/, block/, crypto/, lib/, security/, ipc/, sound/, virt/ (function-level brace parsing, lock-usage extraction, cross-file matching within the driver directory and its parent); it is bounded evidence, not exhaustive proof.",
+    "Runtime lock-context (who actually runs in process vs softirq context) was verified by deep source reading only for the two textual matches (ath5k txbuflock, he.c global_lock); all other drivers rely on the name-matching heuristic returning no overlap.",
+    "Branch scope excluded ndo_start_xmit and timer/delayed-work callback paths (covered by the xmit-softirq-lock and timer-dwork-softirq-lock branches); no analysis was performed for those shapes in s11.",
+    "The seed driver (staging ks7010) appears in s11 with its rx_event_task tasklet but was excluded from reporting per instructions; its tasklet path was not audited for other lock shapes."
+  ]
+}

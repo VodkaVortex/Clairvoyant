@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "optsize-body-clamp",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 3724,
+      "status": "safe",
+      "reason": "tcp_parse_options default path: opsize = *ptr++ at 3724 is followed by 'if (opsize < 2) return' (3725-3726) and 'if (opsize > length) return' (3727-3728) before any body read (get_unaligned_be16/be32 of ptr) and before 'ptr += opsize-2; length -= opsize'. The validated opsize equals the opsize used for the pointer advance, so a truncated final option cannot over-read. This is the post-9609dad263f8 fixed shape; the missing length<2 guard of the seed is present in spirit via the opsize<2 rejection and length bookkeeping never diverges (length only decremented by opsize while ptr advances opsize)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 3886,
+      "status": "safe",
+      "reason": "tcp_parse_md5sig_option: opsize = *ptr++ at 3886 is followed by 'if (opsize < 2 || opsize > length) return NULL' at 3887-3888 before 'ptr += opsize - 2; length -= opsize' at 3892-3893; returning ptr for MD5SIG only when opsize == TCPOLEN_MD5SIG (18) which is guaranteed present because opsize <= length and the initial 'length < TCPOLEN_MD5SIG' short-circuit at 3871-3873."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 3671,
+      "status": "safe",
+      "reason": "tcp_parse_fastopen_option clamps: memcpy(foc->val, cookie, len) executes only when TCP_FASTOPEN_COOKIE_MIN <= len <= TCP_FASTOPEN_COOKIE_MAX (4..16) into the fixed 16-byte foc->val; callers pass len = opsize - TCPOLEN_FASTOPEN_BASE with opsize already validated (>=2, <=length), and the len<0 and odd-len cases return early."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_synproxy_core.c",
+      "line": 53,
+      "status": "safe",
+      "reason": "synproxy_parse_options walks a 40-byte skb_header_pointer copy: after opsize = *ptr++ it checks opsize < 2 (54-55) and opsize > length (56-57) before get_unaligned_be16/be32 body reads and before ptr += opsize-2, length -= opsize at 87-88. Validated size equals used size."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/dccp/options.c",
+      "line": 74,
+      "status": "safe",
+      "reason": "dccp_parse_options: before reading the len byte it checks 'if (opt_ptr == opt_end) goto out_nonsensical_length' (74-75); after 'len = *opt_ptr++; if (len < 2) goto out_nonsensical_length' it advances opt_ptr += len-2 and verifies 'if (opt_ptr > opt_end) goto out_nonsensical_length' (89-90), so value/dccp_decode_value_var reads and the get_unaligned((__be32*)value) at the TIMESTAMP case stay inside the DCCP header region bounded by opt_end = dh + dh->dccph_doff*4."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/batman-adv/tvlv.c",
+      "line": 438,
+      "status": "safe",
+      "reason": "batadv_tvlv_containers_process loop: requires tvlv_value_len >= sizeof(struct batadv_tvlv_hdr) (431), subtracts the header first (435), then 'if (tvlv_value_cont_len > tvlv_value_len) break' (437-438) before handing tvlv_value/tvlv_value_cont_len to handlers and before 'tvlv_value += tvlv_value_cont_len; tvlv_value_len -= tvlv_value_cont_len'. Both call sites bound the buffer: batadv_recv_unicast_tvlv checks tvlv_buff_len > skb->len - hdr_size (routing.c 1100-1101) and bat_v_ogm processing reaches the call only after batadv_check_management_packet(skb, if_incoming, BATADV_OGM2_HLEN) and the batadv_v_ogm_aggr_packet(ogm_offset, skb_headlen(skb), tvlv_len) aggregate bound, so the attacker-supplied 16-bit tvlv_len is clamped to actual skb headroom before the walk."
+    },
+    {
+      "snapshot": "s01",
+      "path": "include/net/sctp/sctp.h",
+      "line": 470,
+      "status": "safe",
+      "reason": "sctp_walk_params / sctp_walk_errors loop conditions require pos+offsetof(length)+sizeof(length) <= chunk+end, pos <= chunk+end-ntohs(pos.p->length), and ntohs(pos.p->length) >= sizeof(struct sctp_paramhdr) before each body use and before advancing by SCTP_PAD4(ntohs(length)); the chunk-level walkers in net/sctp/input.c additionally check SCTP_PAD4(ntohs(ch->length)) > skb->len and ch_end > skb_tail_pointer(skb). Size is always clamped to remaining chunk length."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/x25/x25_facilities.c",
+      "line": 164,
+      "status": "safe",
+      "reason": "x25_parse_facilities Class-D branch: 'if (len < p[1] + 2) return -1' (150) proves the p[1]-byte body is inside the pskb_may_pull-verified facilities area; 'if (p[1] > X25_MAX_DTE_FACIL_LEN || p[1] <= 1) return -1' (155/170) caps p[1] at 21, so memcpy(dte_facs->calling_ae, &p[3], p[1]-1) copies at most 20 bytes into the 20-byte calling_ae[20]/called_ae[20] arrays of struct x25_dte_facilities (include/uapi/linux/x25.h 118-128). Source side and destination side both bounded."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 1039,
+      "status": "safe",
+      "reason": "ipv6_renew_option inherit path copies an inherited kernel-side ohdr using ipv6_optlen(ohdr); ohdr originates from an ipv6_txoptions built by ipv6_renew_options/datagram_sendmsg paths that validate ipv6_optlen(hdr) > newoptlen against the user-supplied newoptlen before the option is accepted into opt space (1050-1051 for the new-opt path), and ipv6_renew_options sizes the destination buffer from the sum of validated optlens. No separately-fetch unclamped size reaches the memcpy."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/nsh/nsh.c",
+      "line": 37,
+      "status": "safe",
+      "reason": "nsh_pop/nsh_gso_segment derive length = nsh_hdr_len(nh) from the first 4-byte NSH base header but immediately gate on pskb_may_pull(skb, length) (49-51, 89-91) before any pull/use; nsh_push copies from the locally built pushed_nh whose hdrlen was validated when the lwtunnel state was created."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/seg6.c",
+      "line": 32,
+      "status": "safe",
+      "reason": "seg6_validate_srh enforces ((srh->hdrlen + 1) << 3) == len, segments_left <= first_segment, and walks trailing TLVs with 'if (trailing < sizeof(*tlv)) return false' and 'trailing -= tlv_len; if (trailing < 0) return false' so a tlvs_len byte can never walk past the netlink-supplied buffer; the validated srh is then what seg6_do_srh_encap/inline memcpy with hdrlen consistent with the stored tuninfo_len."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/qrtr/qrtr.c",
+      "line": 291,
+      "status": "unresolved",
+      "reason": "qrtr_endpoint_post reads v2->optlen (u8, attacker-influenced via the remote IPCrouter peer) into hdrlen = sizeof(*v2) + v2->optlen (16+optlen <= 271, no 32-bit overflow) and v2->size (u32) into size; the single equality gate 'if (len != ALIGN(size, 4) + hdrlen) goto err' at 312 then authorizes skb_put_data(skb, data + hdrlen, size) at 318 into a netdev_alloc_skb(NULL, len) buffer. ALIGN(size,4)+hdrlen is computed in unsigned int where size can be up to 0xFFFFFFFF, so for a 4-byte-aligned len of 0x100000000-ish scale it can wrap; in practice len (size_t from the rpmsg callback, normally < 64K) bounds real buffers, and hdrlen<=271 cannot itself over-read the source. Not classifiable as the seed's missing-remaining-clamp shape: the size field is cross-checked against the total packet length rather than clamped to a separately tracked remaining, and no divergence between validated length and used length was demonstrated with a reachable len. Left unresolved rather than safe because the wrap of ALIGN(size,4)+hdrlen for attacker-chosen size was not fully ruled out under all rpmsg transports."
+    }
+  ],
+  "limitations": [
+    "Only net/ plus selected driver/network paths of snapshots/s01 were audited for size-byte-then-unclamped-use parsers; drivers/, fs/, sound/, and most of net/netfilter helper code were searched only with pattern grep for memcpy/get_unaligned with variable length, not read line by line.",
+    "Bluetooth EIR/AMP, cfg80211/mac80211 IE walks, radiotap, and IPv4 IPOPT/exthdr walkers were not deep-read here; they are covered by sibling intents i005-i010 on their own snapshots, and only pattern-level grep (e.g. net/bluetooth/amp.c frag_len memcpy at 242-251 and 374) was performed in this branch.",
+    "The qrtr_endpoint_post candidate (net/qrtr/qrtr.c:291/312/318) could not be fully closed: the u32 'size' can make ALIGN(size,4)+hdrlen wrap in unsigned arithmetic, but demonstrating a reachable rpmsg/transport 'len' that both satisfies the equality and exceeds the real buffer requires knowledge of the actual smd/mi transports present, which is outside this snapshot's read-only evidence.",
+    "SCTP sm_make_chunk.c parameter handlers invoked through sctp_walk_params were assumed to inherit the macro's clamping; individual handler bodies (e.g. ipv4/ipv6 address param processing) were spot-checked, not exhaustively read."
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "intent_id": "i006",
+  "branch": "rx-pull-stale-hdr",
+  "snapshot": "s02",
+  "status": "finalizing",
+  "note": "Heuristic scan (find_stale.py over net/) produced ~20 candidate functions; strongest read in full. Classified findings: (1) net/mac80211/rx.c:2558-2565 ieee80211_rx_h_data TDLS: tf cast from rx->skb->data, pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) at 2560, stale tf->payload_type/category/action_code reads 2562-2565, no refetch (HIGH). (2) net/bridge/br_multicast.c:1430/1450/1459/1474 br_ip6_multicast_query: ip6h captured 1430, two pskb_may_pull, ip6h->saddr read 1474 (MEDIUM). (3) net/mac80211/tdls.c:1923/1933/1939 ieee80211_process_tdls_channel_switch: tf captured 1923, skb_linearize 1933, tf->action_code read 1939 (MEDIUM). (4) net/ipv6/ip6_output.c:308/323/350 ip6_forward_proxy_check: hdr captured 308, pskb_may_pull 323, hdr->daddr read 350 (LOW). (5) net/ipv4/xfrm4_policy.c:109/129/132 _decode_session4: iph captured 109, pskb_may_pull per-protocol, iph->ihl re-read at 132/145/158/170/182/195 after pull (LOW). Safe: icmp.c:741 (no post-pull iph use), igmp.c:897 (ih3 refetched after each pull). Unresolved: rx.c:3785 ieee80211_invoke_fast_rx (hdr used after pskb_may_pull at 3855; branch structure not fully read), udp_offload.c:26 (flagged deref appears to be in a comment). Seed itself present unpatched at net/phonet/pep.c:67-71 (baseline).",
+  "candidates": [
+    "net/mac80211/rx.c:2558 reported (finding)",
+    "net/bridge/br_multicast.c:1430 reported (finding)",
+    "net/mac80211/tdls.c:1923 reported (finding)",
+    "net/ipv6/ip6_output.c:308 reported (finding)",
+    "net/ipv4/xfrm4_policy.c:109 reported (finding)",
+    "net/phonet/pep.c:67 reported (seed baseline)",
+    "net/ipv4/icmp.c:741 safe",
+    "net/ipv4/igmp.c:897 safe",
+    "net/mac80211/rx.c:3785 unresolved",
+    "net/ipv4/udp_offload.c:26 unresolved"
+  ]
+}

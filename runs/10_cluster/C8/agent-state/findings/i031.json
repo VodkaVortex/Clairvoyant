@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "intent_id": "i031",
+  "branch": "net-epidx",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s08"
+  ],
+  "findings": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/qmi_wwan.c",
+      "start": 686,
+      "end": 712,
+      "quote": "dev->status = &info->control->cur_altsetting->endpoint[0];",
+      "confidence": "medium",
+      "reason": "Untrusted source: interface descriptor data supplied at USB enumeration by a physically attacker-controlled gadget. In qmi_wwan_bind (line 744) info->control starts as the probed interface; a CDC Union descriptor's bSlaveInterface0 can move info->data to a different interface, leaving info->control == intf while info->data != info->control. qmi_wwan_register_subdriver (line 686, called from bind at line 798 during usbnet_probe) then does 'dev->status = &info->control->cur_altsetting->endpoint[0];' (line 699) with no bNumEndpoints >= 1 check for the control altsetting. Per drivers/usb/core/config.c usb_parse_interface (lines 612-627), when bNumEndpoints == 0 the alt->endpoint array is never allocated and stays NULL (kzalloc only when num_ep > 0), so &endpoint[0] evaluates to a null-based pointer and dev->status->desc is dereferenced immediately at line 711 (usb_cdc_wdm_register(info->control, &dev->status->desc, ...)) - a NULL-pointer dereference at probe triggered by device plug-in. Reachability: the id table matches class-based entries like USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, 1, 9) (qmi_wwan.c ~lines 979-996) and QMI_MATCH_FF_FF_FF, which match on interface class regardless of endpoint count; qmi_wwan_probe (line 1530) only rejects bNumEndpoints == 2 (diag interface, line 1570) and never requires >= 1 endpoint on the control interface, so a gadget declaring a vendor-spec control interface with zero endpoints and a separate union-referenced data interface reaches the read. Unsafe use: the endpoint descriptor is passed to usb_cdc_wdm_register and dev->status feeds usbnet status URB logic (init_status). Counterevidence checked: for the single-interface case (control == data) usbnet_get_endpoints (usbnet.c:90-142) requires an in+out bulk pair, so it is protected; cdc_ether.c:305 guards its identical endpoint[0] read with 'bNumEndpoints == 1', showing the expected validation pattern that qmi_wwan lacks; usbnet.c:1854 post-bind check only validates bulk endpoints on the data interface, not the control interface's endpoint[0]; usb_parse_interface itself only warns when actual endpoint descriptors differ from bNumEndpoints (config.c:646-650), it does not force an allocation.",
+      "conclusion": "qmi_wwan_bind path reads control interface endpoint[0] with no bNumEndpoints check (qmi_wwan.c:699); a gadget with a zero-endpoint vendor-spec control interface makes endpoint[] NULL, dereferenced at usb_cdc_wdm_register (line 711), crashing probe on plug-in."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/cdc-phonet.c",
+      "line": 369,
+      "status": "safe",
+      "reason": "usbpn_probe explicitly validates data_intf->altsetting[0]/[1] bNumEndpoints combinations (lines 344-351) to be 0/2 or 2/0 before reading endpoint[0]/[1] (lines 369-378)."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/cdc_ether.c",
+      "line": 308,
+      "status": "safe",
+      "reason": "endpoint[0] read is guarded by 'if (info->control->cur_altsetting->desc.bNumEndpoints == 1)' at line 305, and the endpoint is then validated as int-in with sufficient wMaxPacketSize."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/lan78xx.c",
+      "line": 4708,
+      "status": "safe",
+      "reason": "probe checks 'if (intf->cur_altsetting->desc.bNumEndpoints < 3) return -ENODEV' at line 4689 before endpoint[2] access, and validates bulk in/out via usb_pipe_endpoint."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/hso.c",
+      "line": 3146,
+      "status": "safe",
+      "reason": "hso_get_ep and hso_get_mux_ports iterate 'for (i = 0; i < iface->desc.bNumEndpoints; i++)' (lines 3145, 3166) so all endpoint[i] accesses are bounded by the descriptor-declared count."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/ipheth.c",
+      "line": 607,
+      "status": "safe",
+      "reason": "probe loops 'for (i = 0; i < hintf->desc.bNumEndpoints; i++)' (line 606) over usb_altnum_to_altsetting result and rejects missing bulk in/out endpoints before use."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/usbnet.c",
+      "line": 107,
+      "status": "safe",
+      "reason": "usbnet_get_endpoints iterates 'for (ep = 0; ep < alt->desc.bNumEndpoints; ep++)' per altsetting and returns -EINVAL unless an in and out bulk endpoint were found."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/cdc_ncm.c",
+      "line": 732,
+      "status": "safe",
+      "reason": "cdc_ncm_find_endpoints loops ep over cur_altsetting->desc.bNumEndpoints before reading endpoint + ep."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/sierra_net.c",
+      "line": 666,
+      "status": "safe",
+      "reason": "sierra_net_bind requires numendpoints == 3 (lines 666-672) before usbnet_get_endpoints and requires a non-NULL status endpoint."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/usb/qmi_wwan.c",
+      "line": 1570,
+      "status": "reported",
+      "reason": "qmi_wwan_probe only rejects bNumEndpoints == 2 (diag interface); it imposes no lower bound on the control interface that bind later indexes at endpoint[0] (see finding at line 699)."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/wireless/ath/ath9k/hif_usb.c",
+      "line": 1314,
+      "status": "safe",
+      "reason": "probe rejects 'bNumEndpoints < 2' at line 1309 and iterates endpoint[r] bounded by the descriptor count, then requires bulk/int endpoints via usb_find_common_endpoints."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/wireless/ath/carl9170/usb.c",
+      "line": 1071,
+      "status": "safe",
+      "reason": "endpoint loop is bounded by bNumEndpoints (line 1070) and probe then requires all expected endpoints via usb_check_bulk_endpoints/usb_check_int_endpoints (lines 1089-1102)."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/wireless/broadcom/brcm80211/brcmfmac/usb.c",
+      "line": 1407,
+      "status": "safe",
+      "reason": "brcmf_usb_probe needs vendor-spec interface (class 0xff/2/0xff) and loops ep over desc->bNumEndpoints, then fails with -ENODEV when no in/out bulk endpoint was found, so fixed assumed indices are never used."
+    }
+  ],
+  "coverage_gaps": [
+    "Remaining drivers/net/wireless USB NIC loops (ath10k, ath6kl, at76c50x, ar5523, libertas, libertas_tf, mt76, mt7601u, mwifiex, p54usb, rt2x00, rtl8xxxu, rtlwifi, rtw88, rsi, zd1211rw) were confirmed bNumEndpoints-bounded by grep line evidence, not by full-function reads.",
+    "drivers/net/usb drivers using hardcoded pipe numbers with usb_pipe_endpoint() (e.g. lan78xx BULK_IN_PIPE) other than lan78xx were not individually re-read; only their grep-visible patterns were checked.",
+    "cdc_mbim.c, huawei_cdc_ncm.c, hso.c control-interface paths beyond the endpoint loops were only spot-checked for status-endpoint endpoint[0]-style reads.",
+    "drivers/net/wwan (iosm, mhi, rpmsg, t7xx) contains no USB interface descriptor-array access (PCIe/MHI/rpmsg only), but this was established by a single directory-wide grep, not file-by-file review."
+  ],
+  "limitations": [
+    "No runtime reproducer or compile test was run; the qmi_wwan NULL-deref hypothesis rests on static reading of qmi_wwan.c plus the drivers/usb/core/config.c usb_parse_interface allocation path (alt->endpoint left NULL when bNumEndpoints == 0).",
+    "Actual exploitability of the class-based Huawei/Quectel ID entries with a zero-endpoint control interface depends on usbcore matching order and cdc_parse_cdc_header behavior, which were reviewed statically but not exercised.",
+    "Legacy Fact cards for sibling snapshots (i003/i007/i011/i015/i019/i023/i027/i035) were unavailable for cross-comparison; conclusions here cover snapshot s08 only."
+  ]
+}

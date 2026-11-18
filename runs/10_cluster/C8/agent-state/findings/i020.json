@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "intent_id": "i020",
+  "branch": "fixed-epidx-rest",
+  "execution_status": "complete",
+  "snapshots_checked": ["s05"],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "start": 2206,
+      "end": 2211,
+      "quote": "endpoint[0].desc.bInterval",
+      "confidence": "high",
+      "reason": "Untrusted source: USB descriptor data of a physically attacker-controlled ADSL modem supplied at enumeration; usbcore only sizes/allocates the endpoint[] flex array from the descriptor-declared bNumEndpoints and leaves it NULL for 0-endpoint altsettings. In uea_boot(), reached directly from uea_probe() at device plug-in, the interrupt URB is programmed from a fixed index: usb_fill_int_urb(..., sc->usb_dev->actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval) at line 2209 with no bNumEndpoints guard anywhere in the file (the only loop bound, altsetting[0].desc.bNumEndpoints, appears later at line 2215 and does not cover line 2209). This is exactly the f002-flagged interrupt-URB pattern that sibling snapshots s02/s09 fix with a 'if (alt->desc.bNumEndpoints < 1) return -ENODEV;' guard; s05, like s01/s04/s06/s07, has no such guard. An interface advertising 0 endpoints yields a NULL/OOB endpoint[0] dereference at probe. Same-file line 2218 (alt->endpoint[1]) is only preceded by a loop bound and was not fully re-verified."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "start": 716,
+      "end": 724,
+      "quote": "endpoint[1].desc.bEndpointAddress",
+      "confidence": "high",
+      "reason": "Untrusted source: descriptor data of an attacker-controlled USB device at plug-in. In gigaset_probe(), the driver reads fixed indices interface->altsetting[0].endpoint[0].desc.bEndpointAddress (line 717) and endpoint[1].desc.bEndpointAddress (line 723) to program its in/out pipes with no bNumEndpoints validation anywhere in the file (grep confirmed zero bNumEndpoints occurrences). A device whose interface 0 declares 0 or 1 endpoints causes a NULL/OOB read at probe; usbcore leaves endpoint[] NULL for a 0-endpoint altsetting. This is the same family pattern reported in sibling snapshots (f013/f024) for this exact file."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/uwb/hwa-rc.c",
+      "start": 698,
+      "end": 703,
+      "quote": "endpoint[0].desc.bInterval",
+      "confidence": "high",
+      "reason": "Untrusted source: descriptor data of an attacker-controlled UWB radio-controller device at plug-in. In hwarc_probe(), usb_fill_int_urb(..., usb_dev->actconfig->interface[0]->altsetting[1].endpoint[0].desc.bInterval) at line 701 uses fixed index endpoint[0] (and altsetting index 1) with no bNumEndpoints guard anywhere in the file (grep confirmed zero occurrences). A 0-endpoint altsetting yields a NULL/OOB descriptor read at probe, programming the interrupt pipe from garbage/NULL. Not staging in this snapshot (drivers/uwb is in-tree), matching the sibling-snapshot reports (f004/f010/f021)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/isdn/gigaset/bas-gigaset.c",
+      "start": 2486,
+      "end": 2508,
+      "quote": "endpoint[0].desc.bInterval",
+      "confidence": "medium",
+      "reason": "Untrusted source: descriptor data of an attacker-controlled Gigaset base station at plug-in. In bas_gigaset_init(), a loop over interfaces (interface->altsetting[0]) uses fixed indices mconfig->endpoint[0].desc.bInterval at line 2488 and mconfig->endpoint[1].desc.bEndpointAddress at line 2507 to program the interrupt URB and bulk-out pipe, with no bNumEndpoints validation anywhere in the file (grep confirmed zero occurrences). A 0-endpoint interface causes a NULL/OOB descriptor read at probe. Medium confidence: verified unguarded at source level in s05, but the surrounding control flow (which interface ids are iterated) was only partially re-read in this session; sibling facts classified this exact site safe only under a branch restricted to usb-gigaset.c."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2209,
+      "status": "reported",
+      "reason": "usb_fill_int_urb bInterval read of interface[0]->altsetting[0]->endpoint[0].desc at probe; no bNumEndpoints guard in file (only a later loop bound at 2215 for the data-endpoint scan)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2218,
+      "status": "unresolved",
+      "reason": "alt->endpoint[1].desc fixed index follows a bNumEndpoints-bounded loop at 2215; whether the loop guarantees >=2 endpoints before line 2218 executes was not fully read within this session's call budget."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "line": 717,
+      "status": "reported",
+      "reason": "gigaset_probe reads endpoint[0].desc.bEndpointAddress with zero bNumEndpoints occurrences in the file."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "line": 723,
+      "status": "reported",
+      "reason": "gigaset_probe reads endpoint[1].desc.bEndpointAddress with no guard; fixed index 1 beyond a 0- or 1-endpoint descriptor array."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/isdn/gigaset/bas-gigaset.c",
+      "line": 2488,
+      "status": "reported",
+      "reason": "bas_gigaset_init reads mconfig->endpoint[0].desc.bInterval for the interrupt URB with zero bNumEndpoints occurrences in the file."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/isdn/gigaset/bas-gigaset.c",
+      "line": 2507,
+      "status": "reported",
+      "reason": "bas_gigaset_init reads mconfig->endpoint[1].desc.bEndpointAddress for the bulk-out pipe with no guard."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/uwb/hwa-rc.c",
+      "line": 701,
+      "status": "reported",
+      "reason": "hwarc_probe usb_fill_int_urb reads altsetting[1].endpoint[0].desc.bInterval with zero bNumEndpoints occurrences in the file."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/uwb/i1480/dfu/usb.c",
+      "line": 304,
+      "status": "safe",
+      "reason": "i1480_usb_probe checks iface->cur_altsetting->desc.bNumEndpoints < 1 before using endpoint[0].desc.bEndpointAddress."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/uwb/i1480/dfu/usb.c",
+      "line": 312,
+      "status": "safe",
+      "reason": "Second endpoint[0] use at line 312 is within the same guarded probe function after the bNumEndpoints < 1 early return."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/wusbcore/wa-nep.c",
+      "line": 646,
+      "status": "safe",
+      "reason": "Local read of endpoint[0].desc.bInterval in wa_nep_create has no local guard, but the sole caller path is gated by wa-hc.c:42 'if (usb_dev->actconfig->desc.bNumEndpoints < 3) { ... result = -ENODEV; goto error; }' in wa_create before any endpoint use (same shared-data validation as f005)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/wusbcore/wa-hc.c",
+      "line": 42,
+      "status": "safe",
+      "reason": "This is the protecting bNumEndpoints < 3 check on the actconfig interface reached from wa_fill_*_bos buffer; it validates the same descriptor data later consumed by wa-nep.c's endpoint[0] read."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/mmc/host/ushc.c",
+      "line": 1057,
+      "status": "safe",
+      "reason": "ushc_probe's only endpoint access is inside a bNumEndpoints-bounded loop (endpoint[i]); no fixed-index descriptor read exists in the file."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/input/touchscreen/sur40.c",
+      "line": 531,
+      "status": "safe",
+      "reason": "sur40_probe checks desc->bNumEndpoints != 5 at line 527 before touching endpoint[4]; guard precedes the index use in the same probe function."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/watchdog/pcwd_usb.c",
+      "line": 634,
+      "status": "safe",
+      "reason": "pcwd_usb_probe checks interface->cur_altsetting->desc.bNumEndpoints < 1 at line 629 before reading endpoint[0].desc.bInterval at 634."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1174,
+      "status": "safe",
+      "reason": "acm_probe checks ctrl interface bNumEndpoints < 1 (epread = -ENODEV) before its endpoint[0] reads, matching f028, and the endpoint[0]/[1] reads found by the general fixed-index sweep resolve to guarded probe code with interface-kind checks."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/storage/alauda.c",
+      "line": 81,
+      "status": "safe",
+      "reason": "alauda_get_pipes scans endpoint[i] inside a bNumEndpoints-bounded for-loop and returns -EIO on missing endpoints; no fixed-index read."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/misc/adutux.c",
+      "line": 679,
+      "status": "safe",
+      "reason": "adu_probe checks iface->cur_altsetting->desc.bNumEndpoints < 1 before using endpoint[0] (matching f008; this s05 file carries the same source as the one audited in the sibling branch)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/misc/legousbtower.c",
+      "line": 879,
+      "status": "safe",
+      "reason": "tower_probe checks interface->altsetting[0].desc.bNumEndpoints == 2 before reading endpoint[0] and endpoint[1] (as audited under f008)."
+    }
+  ],
+  "limitations": [
+    "ueagle-atm.c:2218 (alt->endpoint[1] after the bounded data-endpoint scan loop at 2215) is unresolved: the loop's control flow between lines 2215-2218 was not fully read within the finalize call budget.",
+    "The bNumEndpoints guard audit covered the family-pattern files (ueagle-atm, gigaset, uwb, wusbcore, ushc, sur40, pcwd, cdc-acm, alauda, adutux, legousbtower) plus the drivers/usb/misc and 1-interface fixed-index sweep; endpoint[] hits in staging USB drivers (drivers/staging/*) were not individually re-read in this session and are assumed to match sibling snapshots' source only where identical paths exist.",
+    "No dynamic exploitation or compilation was performed; conclusions are source-level guard-presence/absence analyses, and confidence for bas-gigaset.c is reduced because its surrounding loop semantics were only partially re-read.",
+    "media/usb and net/usb trees were excluded by intent (other branches); gspca/lg/pwc sites in drivers/media/usb observed during the sweep are out of scope here."
+  ]
+}

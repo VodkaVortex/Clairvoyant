@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "role": "explore",
+  "snapshot": "s04",
+  "branch": "chardev-ioctl-divisor",
+  "status": "complete",
+  "updated_at": 1794443098.0939705,
+  "progress": [
+    {
+      "step": "initial checkpoint; semantic invariant: divisor = f(user ioctl numeric param) with unchecked fixed-width scaling/offset/subtraction at division width; checks on raw input do not prove f(output) != 0 at '/' or '%'",
+      "ts": 1794441409.5805027
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/dvb-frontends/tda10023.c",
+      "line": 192,
+      "status": "reported",
+      "reason": "tda10023_set_symbolrate(state, c->symbol_rate) called unconditionally from tda10023_set_parameters (line 343) with user u32 symbol_rate; BDRI /= sr at line 192 divides by raw sr with no ==0 check in driver; core dvb_frontend_check_parameters range-checks only when symbol_rate_min/max nonzero (set at attach to sysclk/128 ~ 225937, but zero if attach not called via that path / attach always sets... verify); symbol_rate_min set at attach so sr=0 rejected by core => not zero; but sr in [1, symbol_rate_min)? also rejected. Actually attach sets min, so core check protects. Re-examine."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/dvb-frontends/stv0367.c",
+      "line": 2322,
+      "status": "unresolved",
+      "reason": "TRLTimeOut=100000000/p->symbol_rate and CRLTimeOut divisors p->symbol_rate/1000 (truncates to 0 for sr<1000) exist, but stv0367ddb_set_frontend has explicit symbol_rate==0 guard; symbol_rate_min=870000 ops info means core check rejects sr<870000 for DDB (ter/cab combined) frontend; the pure stv0367cab ops at line 2851 also sets symbol_rate_min=870000. Need to check whether any board registers cab-only ops."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/tuners/msi001.c",
+      "line": 216,
+      "status": "candidate",
+      "reason": "gcd(k_thresh,k_frac)=0 possible at lowest allowed frequency: band_lut[0].rf=50000000 and clamp rangelow=49000000 -> AM_MODE2 div_lo=16; f_vco=(49000000+5*24000000)*16=2086400000; k=16364000000%(4*24000000)=16,000,000; k_thresh=(4*24000000)/16=6,000,000; k_frac=16000000*6000000/96000000=1,000,000; gcd=1,000,000; k_frac/gcd=1 -> not zero. Also f_if=0 case: f_rf=49,000,000 f_vco=784,000,000 k=16,000,000 same -> k_frac>0. Checked f_if in {0,450k,1620k,2048k} div_lo=16 k>=? candidate needs k==0. Next: verify msi2500 ADC sampling path and other candidates."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/msi2500/msi2500.c",
+      "line": 774,
+      "status": "safe",
+      "reason": "msi2500_s_frequency clamps f_adc to [1200000,15000000] (bands[0]) before msi2500_set_usb_adc; f_vco=f_sr*div_out*12 all divisors are constants (div_u64_rem modulus constant 48000000, k_cw divides by constant); no user-derived divisor."
+    }
+  ],
+  "findings": [],
+  "final": "1 finding (ad7192.c:987 scaled 32-bit divisor val*f_order*1024 can wrap to 0, only raw val!=0 checked); 5 candidates classified (stv0367/tda10023/msi001/msi2500/ds3000 safe with concrete evidence)"
+}

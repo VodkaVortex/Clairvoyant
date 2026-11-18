@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/hci_event.c",
+      "start": 5344,
+      "end": 5365,
+      "quote": "u8 num_reports = skb->data[0];",
+      "confidence": "medium",
+      "reason": "Untrusted source: HCI event skb payload is controller-supplied and crosses a trust boundary on any virtual/remote HCI transport (VHCI hci_vhci.c, UART H4/ll_disc, USB btusb) - the remote-endpoint peer of the seed's protocol; hci_rx_work (net/bluetooth/hci_core.c:4377-4412) dispatches HCI_EVENT_PKT straight to hci_event_packet with no payload-minimum gate, hci_event_packet (hci_event.c:5742-5775) only skb_pull(HCI_EVENT_HDR_SIZE) before the switch, and hci_le_meta_evt (hci_event.c:5639-5645) skb_pull(sizeof(*le_ev)) and switches on the subevent with NO skb->len validation of any kind. Violated invariant (unclamped wire count, verified at exact lines): hci_le_adv_report_evt reads 'u8 num_reports = skb->data[0];' (line 5346) raw from the wire with no clamp and no skb->len check, then loops 'while (num_reports--)' (5351) dereferencing struct hci_ev_le_advertising_info at ptr (5352-5359) and advancing 'ptr += sizeof(*ev) + ev->length + 1;' (5364) where ev->length is itself an unvalidated wire byte; num_reports is never compared to skb->len or any known maximum. Unsafe use: with a 2-byte event (subevent + num_reports>=1) the loop walks past skb->data into adjacent slab, and each ev->data[ev->length] rssi read plus per-field copies (process_adv_report) consume OOB bytes; sibling asymmetry (the branch's key signal, exact lines verified): the SAME FILE's inquiry handlers validate the same wire-count pattern - hci_inquiry_result_with_rssi_evt at hci_event.c:3979 computes '(skb->len - 1) / num_rsp != sizeof(struct inquiry_info_with_rssi)' to cross-check the count against the actual received skb length before its loop, and hci_event.c:3559/3647 guard other handlers with 'if (skb->len < sizeof(*ev) || skb->len < sizeof(*ev) + ...)' - the LE advertising-report mirror path omits exactly this check. The same pattern is present in hci_le_ext_adv_report_evt (line 5418, no length check at all, no HCI_MAX_AD_LENGTH cap either) and hci_le_direct_adv_report_evt (line 5621, num_reports-driven fixed-stride loop with no skb->len check). This is the pre-hardening upstream form later fixed by hci_ev_skb_pull()/ev->min_len validation; exploitability requires a malicious/virtual controller or compromised peer transport sending a malformed LE advertising report event, impact is a bounded OOB read of controller-supplied skb data into Bluetooth advertising processing, not a write."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 5346,
+      "status": "reported",
+      "reason": "hci_le_adv_report_evt: wire count num_reports = skb->data[0] with no range check against skb->len or a known maximum; loop at 5351-5364 iterates num_reports times over variable-length structs whose own ev->length advance (5364) is unvalidated; sibling handlers in the same file (3979, 3559, 3647) DO cross-check the count against skb->len - asymmetric validation."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 5418,
+      "status": "reported",
+      "reason": "hci_le_ext_adv_report_evt: same unclamped wire count (num_reports = skb->data[0], no skb->len check anywhere in the function, ptr += sizeof(*ev)+ev->length+1 at 5436); even the HCI_MAX_AD_LENGTH sanity check of the legacy path is absent here; part of the reported finding family."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 5621,
+      "status": "reported",
+      "reason": "hci_le_direct_adv_report_evt: num_reports = skb->data[0] drives a fixed-stride loop over struct hci_ev_le_direct_adv_info with no skb->len validation; OOB read when the controller-supplied count exceeds the received payload; part of the reported finding family."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 392,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim present in s02: usbip_pack_ret_submit unpack stores urb->number_of_packets = rpdu->number_of_packets with no clamp (USBIP_MAX_ISO_PACKETS does not exist anywhere in this tree's drivers/usb/usbip, grep-verified), while the sibling CMD_SUBMIT path stub_rx.c:372-376 checks 'number_of_packets < 0 || > packets'; usbip_common.c:583-584 keeps 'int size = np * sizeof(*iso)' before kzalloc. Excluded from findings by the seed-never-reportable rule; recorded as excluded-by-rule for a later worker's snapshot-local-seed decision."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 3979,
+      "status": "safe",
+      "reason": "hci_inquiry_result_with_rssi_evt cross-checks the wire count against the received length before looping: '(skb->len - 1) / num_rsp != sizeof(struct inquiry_info_with_rssi)' at line 3979 - the enforcing sibling that demonstrates the LE adv-report paths' missing check."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 5639,
+      "status": "safe",
+      "reason": "hci_le_meta_evt dispatch itself performs no validation (skb_pull(sizeof(*le_ev)) then switch on subevent) - safe only in that it stores no count; the vulnerability is in the three sub-handlers reported above. Listed as evidence of the missing per-event min_len gate."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/usbip/stub_rx.c",
+      "line": 372,
+      "status": "safe",
+      "reason": "CMD_SUBMIT direction clamps the wire count ('number_of_packets < 0 || > packets' derived from DIV_ROUND_UP(bytes, maxp)) before usb_alloc_urb at line 460; this is the asymmetric-validation evidence for the excluded seed family, not itself vulnerable."
+    }
+  ],
+  "limitations": [
+    "Sweep bounded to six high-signal query families plus targeted reads: endianness-decoded count stores into persistent objects (le/be16/32/64_to_cpu, get_unaligned, ntoh) across drivers/net/fs/block/sound/crypto, raw byte-ptr count fetches, netlink attribute count stores, and the HCI event family; the s02 tree predates the hci_ev_skb_pull/min_len hardening (hci_store_wake_reason from newer snapshots is absent).",
+    "The usbip seed family is present unpatched in s02 (usbip_common.c:392 store, :583-584 int multiply, USBIP_MAX_ISO_PACKETS absent tree-wide) but is excluded from findings by the seed-never-reportable rule; the intent description did not yet carry the explicit excluded-by-rule recording instruction, so it is recorded here as candidate status unresolved.",
+    "Other high-count files located by the wire-count store sweep (fs/f2fs/super.c, drivers/nvme/host/lightnvm.c, drivers/net/ethernet/mellanox/mlx4/mcg.c, drivers/net/ethernet/emulex/benet/be_cmds.c, drivers/md/dm-zoned-metadata.c, fs/xfs/libxfs, drivers/scsi/qla2xxx, drivers/net/wireless/ath/ath10k/htt_rx.c, drivers/block/rbd.c, drivers/scsi/aacraid) were enumerated but not deep-read before the finalize directive.",
+    "Impact of the reported finding is bounded to an OOB read of controller-supplied skb data (legacy path caps ev->length at HCI_MAX_AD_LENGTH only for the rssi/data use, not the ptr advance; ext/direct paths have no cap at all); no allocation is sized by the count, so no heap overflow write analogous to the seed's kzalloc under-allocation; exploitability requires a malicious/virtual controller or compromised HCI peer transport (VHCI/unprivileged vhci write to /dev/vhci in some configurations).",
+    "No compilation, static analysis, or runtime reproducer was run (assigned tree is read-only); all line numbers come from direct numbered grep/awk reads of net/bluetooth/hci_event.c, net/bluetooth/hci_core.c, and drivers/usb/usbip/* in snapshots/s02."
+  ]
+}

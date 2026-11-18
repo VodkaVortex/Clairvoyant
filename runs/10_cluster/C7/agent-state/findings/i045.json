@@ -1,0 +1,124 @@
+{
+ "version": 1,
+ "intent_id": "i045",
+ "branch": "hardirq-shared-lock",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s02"
+ ],
+ "findings": [
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ethernet/mediatek/mtk_star_emac.c",
+   "start": 769,
+   "end": 786,
+   "quote": "static irqreturn_t mtk_star_handle_irq(int irq, void *data)\n{\n\tstruct net_device *ndev = data;\n\tstruct mtk_star_priv *priv = netdev_priv(ndev);\n\tunsigned int intr_status = mtk_star_intr_ack_all(priv);",
+   "confidence": "high",
+   "reason": "HARDIRQ-SHARED LOCK TAKEN WITH PLAIN spin_lock ON BOTH SIDES - the interrupt-level analogue of the seed's missing-context-disable bug. LOCK OBJECT: struct mtk_star_priv.lock (spin_lock_init at mtk_star_emac.c:1548). HARDIRQ SIDE: mtk_star_handle_irq (def 769, non-threaded, request_irq(ndev->irq, mtk_star_handle_irq, IRQF_TRIGGER_NONE, ...) at 1001) takes spin_lock(&priv->lock) PLAINLY at 782 (around mtk_star_disable_dma_irq at 784) inside 'if (rx || tx)'. NON-IRQ SIDE: the same lock is taken with plain spin_lock at 1185 (mtk_star_tx_poll NAPI completion) and 1351 (mtk_star_rx_poll NAPI completion); NAPI poll callbacks run in NET_RX softirq with hard IRQs ENABLED, and the critical section calls mtk_star_enable_dma_irq (1186/1352), whose regmap_write to REG_INT_MASK UNMASKS the FNRC/TNTC interrupt bits while the lock is still held. UNTRUSTED SOURCE: attacker-influenced timing, not data - any received frame or TX completion that raises the FNRC/TNTC interrupt on the same CPU at the moment the poll holds priv->lock (the unmask write makes the interrupt deliverable exactly inside the critical section). MISSING GUARANTEE: because the hardirq handler acquires priv->lock, every non-hardirq acquisition must disable interrupts (spin_lock_irqsave/irq); a plain spin_lock() only disables preemption, so a hardirq can preempt the softirq holder on the same CPU. UNSAFE USE: mtk_star_handle_irq preempts mtk_star_tx_poll/rx_poll between 1185/1351 lock and 1187/1353 unlock and spins forever on spin_lock(&priv->lock) at 782 while the preempted NAPI softirq can never resume - self-deadlock in interrupt context. CONSEQUENCE: the IRQ line is never serviced nor re-acked, soft-lockup/watchdog and RCU stall splats on that CPU, permanent NIC RX/TX stall, repeatable denial of service from ordinary traffic. COUNTEREVIDENCE CHECKED: full-file grep shows priv->lock is acquired only at 782/1185/1351 plus init 1548 - there is NO spin_lock_irqsave/_irq/_bh anywhere on this lock, so no IRQ-disabled holder exists to rule out preemption; mtk_star_disable (def 1037) does napi_disable() then free_irq() before touching rings, so down/close paths do not create a competing process-context holder (the non-irq side is precisely the NAPI poll side, which still requires IRQ-disable against the handler); the handler's 782 acquisition is the irq side of the pair. Static analysis only (no .config/build in the snapshot), so no lockdep confirmation; the same defect shape was independently confirmed in the sibling snapshot's tree (context only, not evidence for s02).",
+   "conclusion": "mtk_star_emac.c hardirq mtk_star_handle_irq (request_irq:1001) takes priv->lock plainly at 782 while NAPI polls (softirq, hard IRQs enabled) take the same lock plainly at 1185/1351 with no irqsave anywhere - hardirq preempts poll and spins forever; high-confidence interrupt-context deadlock/DoS."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ethernet/mediatek/mtk_star_emac.c",
+   "line": 1185,
+   "status": "reported",
+   "reason": "mtk_star_tx_poll takes plain spin_lock(&priv->lock) at 1185 after napi_complete() and unmasks the TX-complete interrupt (mtk_star_enable_dma_irq at 1186) while holding the lock; hardirq mtk_star_handle_irq takes the same plain lock at 782 - reported as the non-irq-side missing-irqsave site of the primary finding."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ethernet/mediatek/mtk_star_emac.c",
+   "line": 1351,
+   "status": "reported",
+   "reason": "mtk_star_rx_poll takes plain spin_lock(&priv->lock) at 1351 after napi_complete_done() and unmasks the RX-complete interrupt (mtk_star_enable_dma_irq at 1352) while holding the lock; same hardirq-shared lock as 1185 - second non-irq-side site of the reported finding."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/thunderbolt/nhi.c",
+   "line": 422,
+   "status": "safe",
+   "reason": "ring_msix (hardirq, request_irq at 481) takes ring->nhi->lock (449) then ring->lock (451) plainly, but every non-irq acquisition of ring->lock (tb_ring_poll_complete 422, tb_ring_start 686, tb_ring_stop 767, nhi_interrupt_work 950) is nested inside an IRQ-disabled nhi->lock critical section (spin_lock_irq/irqsave at 421/685/766/914), and the handler itself serializes on nhi->lock first - the hardirq can never preempt a ring->lock holder, correct two-level discipline."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/gpu/drm/vc4/vc4_irq.c",
+   "line": 228,
+   "status": "safe",
+   "reason": "vc4_irq (hardirq, request_irq at vc4_irq.c:314) takes vc4->job_lock plainly at 228/235, but every non-irq acquisition (vc4_gem.c 87/168/278/334/696/951/976/985/1018, vc4_irq.c 83/354, vc4_v3d.c 185, vc4_irq.c overflow_mem_work 83) uses spin_lock_irqsave - plain use only inside the hardirq where local IRQs are already off; standard correct pattern."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ethernet/renesas/ravb_main.c",
+   "line": 1173,
+   "status": "safe",
+   "reason": "ravb_interrupt (1173), ravb_multi_interrupt (1227), ravb_dma_interrupt (1257) and ravb_emac_interrupt (1087) take priv->lock plainly as hardirq handlers, but every non-hardirq acquisition (1303/1313/1351 NAPI polls, 1948/2134/2314) uses spin_lock_irqsave - the only plain uses are in hardirq context where local IRQs are off; safe direction."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/gpu/drm/gma500/psb_irq.c",
+   "line": 91,
+   "status": "safe",
+   "reason": "gma_irq_handler (hardirq, request_irq at 324) takes dev_priv->irqmask_lock plainly at 205 and calls gma_pipe_event_handler (plain at 91, only callers are 141/144 inside the same handler); all process-context sites (preinstall/postinstall/enable/disable) use spin_lock_irqsave - plain uses are confined to hardirq context; safe."
+  },
+  {
+   "snapshot": "s02",
+   "path": "sound/parisc/harmony.c",
+   "line": 300,
+   "status": "unresolved",
+   "reason": "snd_harmony_interrupt (hardirq) and its helpers take h->lock plainly at 187/195/205/214/224/231, and two further plain acquisitions exist at 300 and 336 with only one irqsave site in the file; whether 300/336 sit on process-context paths (PCM open/close/setup) against the plain hardirq side was not read before the audit was halted.",
+   "conclusion": "Read harmony.c around 300/336 and trace their callers to decide whether any process-context plain acquisition of h->lock races the plain hardirq acquisitions; if all non-irq paths use irqsave, classify safe."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/staging/emxx_udc/emxx_udc.c",
+   "line": 2329,
+   "status": "unresolved",
+   "reason": "_nbu2ss_vbus_irq (hardirq) takes udc->lock plainly at 2329 while the file mixes 8 plain acquisitions (126/1659/1848/2236/2296/2316/2329/2353) with 10 spin_lock_irqsave sites on the same lock object; which plain sites are reachable from process-context gadget ops (bind/pullup/queue) versus only from the irq side was not classified.",
+   "conclusion": "Classify each plain udc->lock site in emxx_udc.c by context; any process/softirq-context plain holder against the hardirq taker at 2329 is a reportable mixed-discipline defect."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ethernet/dec/tulip/winbond-840.c",
+   "line": 1282,
+   "status": "unresolved",
+   "reason": "intr_handler (hardirq) takes np->lock plainly at 1143 and further plain acquisitions exist at 1127 and 1282 alongside 13 spin_lock_irq sites; whether 1127/1282 (likely tx_timeout or reset paths, which run in process context) take the same lock plainly against the handler was not verified.",
+   "conclusion": "Trace winbond-840.c lines 1127 and 1282 to their enclosing functions and call context; a process-context plain holder of np->lock against the hardirq taker at 1143 would confirm a defect."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ethernet/amd/7990.c",
+   "line": 661,
+   "status": "unresolved",
+   "reason": "lance_interrupt (hardirq) takes lp->devlock plainly at 447 and another plain acquisition exists at 661 with only one irqsave site in the file; line 661 is suspected to sit in a reset/tx_timeout path reachable from process context (netdev core workqueue), which would make it a plain non-irq holder.",
+   "conclusion": "Read 7990.c around 661, identify the enclosing function and its callers (open/tx_timeout/reset), and confirm or refute a process-context plain acquisition of lp->devlock against the hardirq side."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/media/rc/ite-cir.c",
+   "line": 233,
+   "status": "unresolved",
+   "reason": "ite_cir_isr (hardirq) takes dev->lock plainly at 262 with a second plain site at 233 against 14 spin_lock_irqsave sites; whether 233 is a helper shared between the isr and process-context ite-cir callbacks (TX set_send_carrier / tx_rx transactions) was not determined.",
+   "conclusion": "Trace ite-cir.c line 233 to its function and all callers; if any caller is a process-context LIRC ioctl path, the plain hardirq/plain process pair on dev->lock is a candidate defect."
+  },
+  {
+   "snapshot": "s02",
+   "path": "sound/pci/intel8x0m.c",
+   "line": 465,
+   "status": "unresolved",
+   "reason": "snd_intel8x0m_interrupt (hardirq) takes chip->reg_lock plainly at 477 with a second plain site at 465 and zero irqsave variants in the file; line 465 likely sits in a codec/register accessor also called from PCM open/prepare (process context), which would make the whole file plain-only on a hardirq-shared lock.",
+   "conclusion": "Read intel8x0m.c around 465 and enumerate the callers of that function; a process-context caller taking chip->reg_lock plainly against the hardirq taker at 477 would confirm a defect."
+  }
+ ],
+ "coverage_gaps": [
+  "Handler-lock extraction resolved in-file lock usage for 1234 of 2790 irq registrations (354 lock sites, 157 distinct handler-plain locks); handlers defined in other files or registered via macros/indirect function pointers were not resolved or examined.",
+  "Cross-indexing matched lock expressions only within the registering file; locks shared across files (exported helpers, &priv->lock vs &dev->lock aliases) could hide additional hardirq-shared pairs.",
+  "request_threaded_irq sites were not split into primary hardirq handler vs thread_fn; non-NULL primary handlers and thread-context acquisitions of handler-shared locks were not separately audited.",
+  "Legacy s02 facts f005/f021/f036 (softirq/timer/tasklet branches) were not cross-consulted to prioritize candidates shared with this hardirq branch."
+ ],
+ "limitations": [
+  "Static analysis only; the snapshot tree has no .config or generated headers, so no kernel build, lockdep, or runtime reproducer of the mtk_star handler-vs-NAPI deadlock was possible.",
+  "The mtk_star deadlock window requires an FNRC/TNTC interrupt to fire on the same CPU while mtk_star_tx_poll/rx_poll holds priv->lock across the IRQ-unmask regmap_write (1185-1187/1351-1353); its probability depends on traffic load and IRQ affinity and was not measured.",
+  "Legacy driver candidates (harmony, emxx_udc, winbond-840, 7990, ite-cir, intel8x0m, echoaudio and other cross-table rows) were classified from the cross-index signal plus targeted reads only; their remaining plain sites were not deeply read."
+ ]
+}

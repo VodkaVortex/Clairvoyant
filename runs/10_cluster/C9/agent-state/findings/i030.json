@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "intent_id": "i030",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s08"
+  ],
+  "findings": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 221,
+      "quote": "\tif (param.count == 0 ||\n\t    param.count > U64_MAX - lb_offset - PAGE_SIZE + 1)\n\t\treturn -EINVAL;\n\tnum_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: ioctl FSL_HV_IOCTL_MEMCPY on /dev/fsl-hv copies a fully userspace-controlled struct fsl_hv_ioctl_memcpy via copy_from_user (drivers/virt/fsl_hypervisor.c:165); param.count is a u64 chosen by the caller. Missing guarantee: num_pages is declared 'unsigned int num_pages' (line ~156) and computed at line 221 as (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT -- a 64-bit u64 addition whose result is truncated to 32 bits on assignment with no clamp against any maximum; the preceding check at 218-220 only prevents u64 overflow of the addition (param.count > U64_MAX - lb_offset - PAGE_SIZE + 1), it does NOT bound num_pages to <= 2^32-1. The subsequent allocation at lines 239-240 'sg_list_unaligned = kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1, GFP_KERNEL);' is a plain 32-bit unsigned multiply (element size 32 bytes per struct fh_sg_list, arch/powerpc/include/asm/fsl_hcalls.h) with no kcalloc/array_size overflow check. Unsafe use: the fill loop 'for (i = 1; i < num_pages; i++) { ... sg_list[i].source = ...; sg_list[i].target = ...; sg_list[i].size = min_t(uint64_t, count, PAGE_SIZE); }' (lines ~340-353) writes one 32-byte element per iteration for the full untruncated num_pages while kmalloc received only the wrapped 32-bit product; e.g. param.count near 2^41 + lb_offset 0 yields num_pages = 2^29 whose 32-bit product 2^29*32 = 2^34 wraps to 0, so kmalloc(31) succeeds and the loop writes gigabytes past the heap buffer; the sibling pages[] allocation at line 229 uses kcalloc(num_pages, sizeof(struct page *)) which also catches no error because the truncated num_pages itself is small. This is the seed's exact sizing-chain mechanism (untrusted count -> narrow-typed multiply -> plain kmalloc -> element-indexed fill loop) with a different entry point (powerpc Freescale hypervisor memcpy ioctl rather than a wire protocol), matching fact f007's s02 instance; counterevidence checked: the u64-overflow guard at 218-220 exists (an upstream fix for a different bug) but guards only the 64-bit addition, not the 64->32 truncation; get_user_pages_fast(num_pages) would normally fail for absurd num_pages, but the sg_list kmalloc and loop happen only after pinning succeeds, and for wrapped-small num_pages (2^29 pages pinned requires pinned memory; a more practical trigger is num_pages just under 2^27 where 2^27*32=2^32 wraps to 0 while pinning 512MB is feasible) the pinning succeeds and the loop still uses the ORIGINAL count. Device is root-only (0600), so the attacker is local root or an attacker who has captured the device node; no runtime reproducer was built (snapshot read-only), so confidence is medium for the invariant violation, lower for end-to-end exploitation."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 665,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim and UNPATCHED in s08: 'int size = np * sizeof(*iso);' (line 665) with np = urb->number_of_packets set unclamped from the wire by usbip_pack_ret_submit (usbip_common.c:473, 'urb->number_of_packets = rpdu->number_of_packets;'), kzalloc(size) at line 677, and the per-element loop at 699-703 writing np entries; USBIP_MAX_ISO_PACKETS (usbip_common.h:130) is enforced only on the CMD_SUBMIT direction (stub_rx.c:379-384) -- asymmetric validation. Excluded from findings per the explicit rule that the seed usbip/recv_iso/number_of_packets chain must never be reported as the finding itself; recorded so a later worker can decide snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s08",
+      "path": "block/partitions/ldm.c",
+      "line": 1247,
+      "status": "reported",
+      "reason": "On-disk untrusted count into 32-bit multiply then memcpy loop: ldm_frag_add() (ldm.c:1216) receives 'data' (a 512-byte sector read from the block device under scan) and 'size' = ldb->vm.vblk_size which is a raw on-disk be32 field read in ldm_parse_vmdb (ldm.c:187) with only a zero check (ldm.c:188-191) -- no upper bound, so vblk_size can be up to 0xFFFFFFFF. The allocation 'f = kmalloc(sizeof(*f) + size*num, GFP_KERNEL)' (line 1247) multiplies the disk-supplied int size (up to 0x7FFFFFFF after int sign issues, and ldm_frag_add only requires size >= 2*VBLK_SIZE_HEAD=32) by num (bounded 1..4) in plain int arithmetic: size=0x40000000 makes size*num wrap negative/zero so the small allocation succeeds. The consuming copies 'memcpy(f->data + VBLK_SIZE_HEAD + rec * size, data, size)' (line 1293) and 'memcpy(f->data, data, VBLK_SIZE_HEAD)' then write up to 'size' bytes from the sector buffer into the undersized fragment; 'rec * size' (rec 0..3) is also unchecked int arithmetic. Caller ldm_get_vblks (ldm.c:1352 'size = ldb->vm.vblk_size') passes the raw disk value. Attacker = anyone who controls the disk image (loop device, USB stick, VM disk) scanned by the LDM partition parser. Bounded by perbuf = 512/size > 0 requirement only when size <= 512 (size > 512 makes perbuf 0 and skips the loop, so reachability requires size in [1,512] via perbuf, which keeps size*num <= 512*4 -- see limitation)."
+    },
+    {
+      "snapshot": "s08",
+      "path": "block/partitions/ldm.c",
+      "line": 1293,
+      "status": "reported",
+      "reason": "Consuming copy of the reported ldm finding: memcpy(f->data + VBLK_SIZE_HEAD + rec * size, data, size) inside ldm_frag_add writes disk-sized 'size' bytes into f->data allocated as sizeof(*f) + size*num; when size*num wraps (e.g. size=0x40000000, num=4 -> 0), the copy overflows the heap fragment object. Part of the same finding as the line-1247 candidate."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 1103,
+      "status": "safe",
+      "reason": "u32 size = num_entries * sizeof(qpl->page_buses[0]) (line 1103) with dma_alloc_coherent(hdev, size) (line 1108) and fill loop for (i = 0; i < num_entries; i++) (line 1115) is 32-bit multiply+alloc+loop in shape, but num_entries is set by the driver itself in gve_alloc_queue_page_list (gve_main.c:1066-1073) from the locally computed 'pages' argument (kernel-derived ring sizing), not from any device reply field; page_buses itself is kvcalloc'd with the same count. No untrusted count crosses into the multiply. (The same shape exists at gve_main.c:1063 with kvcalloc, overflow-checked.)"
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/s390/cio/vfio_ccw_cp.c",
+      "line": 514,
+      "status": "safe",
+      "reason": "int idal_len = idaw_nr * sizeof(*idaws) (line 514) is a 32-bit multiply, but the idaws buffer itself is allocated with kcalloc(idaw_nr, sizeof(*idaws)) (line 517) so the allocation is overflow-checked; idal_len is used only as the read length in vfio_dma_rw(vdev, ..., idaws, idal_len, false) (line 522) where a wrapped-small idal_len merely under-reads the guest IDAL into an array that kcalloc sized with the same idaw_nr, and the following loops (lines 534, 541) iterate idaw_nr entries of the correctly sized array. The guest-controlled idaw_nr derives from ccw_count_idaws over the guest CCW length, and the under-read is a correctness issue, not an overflow of the host buffer. Validated-equals-used holds for the allocation."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/rds/message.c",
+      "line": 339,
+      "status": "safe",
+      "reason": "int extra_bytes = num_sgs * sizeof(struct scatterlist) (net/rds/message.c:339): num_sgs is derived from the caller's sg page count via the kernel's own sg allocation (rds_message_alloc_sgs path uses get_user_pages results, bounded by the pinned pages and RDS_MAX_SG), not a raw wire count; the product is added to the hdrs kmem_cache allocation and each sg is then consumed one at a time under the same bounded count. No wire/ioctl count enters the multiply."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/ethtool/bitset.c",
+      "line": 249,
+      "status": "safe",
+      "reason": "unsigned int nbytes = nwords * sizeof(u32) (bitsets at lines 249 and 473): nwords derives from the netlink attribute length (nla_len/sizeof(u32)) so it is bounded by the message size (max ~64KB), giving nbytes at most ~64KB -- no 32-bit overflow possible; the subsequent copies use the same nwords-derived bounds."
+    },
+    {
+      "snapshot": "s08",
+      "path": "fs/xfs/libxfs/xfs_inode_fork.c",
+      "line": 117,
+      "status": "safe",
+      "reason": "int size = nex * sizeof(xfs_bmbt_rec_t) (line 117): nex comes from the on-disk di_nextents converted with be32_to_cpu but is validated against XFS_MAX_ABTC_BMAPL/ifork extents limits and the fork's total size (xfs_bmapi / xfs_iformat_extents check nex against the fork bytes before use), and callers additionally use kmem_realloc with checked sizing in the reachable paths; the legacy int arithmetic is bounded by the fork-size validation upstream of the multiply."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/sctp/sm_make_chunk.c",
+      "line": 3683,
+      "status": "safe",
+      "reason": "__u16 stream_len = stream_num * sizeof(__u16) (line 3683): stream_num is __u16 so the product is at most 65535*2=131070, and the value feeds a stream-reset chunk parameter length that is additionally bounded by the chunk's accepted SCTP_MAX_CHUNK_LEN on both the TX parse and the response side; no 32-bit truncation can make an allocation smaller than the loop that follows."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/ethernet/freescale/enetc/enetc_cbdr.c",
+      "line": 9,
+      "status": "safe",
+      "reason": "int size = bd_count * sizeof(struct enetc_cbd) (lines 9 and 51): bd_count is a compile-time driver constant (ENETC_CBDR_DEFAULT_SIZE / ring length written into hardware registers), not a device- or wire-supplied count; the same driver-constant multiply sizes both allocation and the ring iteration, so validated-equals-used holds trivially."
+    },
+    {
+      "snapshot": "s08",
+      "path": "sound/soc/codecs/tas571x.c",
+      "line": 183,
+      "status": "safe",
+      "reason": "unsigned int recv_size = len * sizeof(uint32_t) (line 183): len is the coefficient count embedded in the driver's own snd_kcontrol private_value (numcoef = 5, a compile-time constant), not user- or firmware-controlled; the product is 20 bytes."
+    },
+    {
+      "snapshot": "s08",
+      "path": "fs/fat/dir.c",
+      "line": 1351,
+      "status": "safe",
+      "reason": "int size = free_slots * sizeof(*de) (line 1351): free_slots is a loop counter accumulated locally while scanning on-disk directory entries, bounded by the number of entries that fit in the fixed 32-byte-per-entry cluster buffers, and the allocation (kmemdup of the accumulated run) copies exactly free_slots entries of the same size; count is kernel-computed from bounded input, not a raw disk count."
+    }
+  ],
+  "limitations": [
+    "The ldm.c candidate (block/partitions/ldm.c:1247) reachability is bounded: the caller ldm_get_vblks computes perbuf = 512 / size and only enters the vblk loop when perbuf > 0, i.e. vblk_size <= 512, which keeps size*num <= 512*4 = 2048 -- the 32-bit wrap then requires the alternate path where ldm_frag_add is invoked with size > 512 through a different caller, which was not located before the finalize directive; the wrap-based overflow at line 1247 is therefore only demonstrated for hypothetical callers with unclamped size, while the rec*size offset arithmetic at line 1293 stays in-bounds when size*num does not wrap. No runtime reproducer or static-analyzer run was performed (read-only snapshot), so the on-disk attacker reachability of the wrapped product is unproven; treat as low-confidence until perbuf gating is re-verified.",
+    "The fsl_hypervisor.c finding is the same instance as fact f007 reported for s02 (drivers/virt/fsl_hypervisor.c:218-237); it is reported here for the assigned snapshot s08 with s08's exact line numbers (218-241, 229, 239-240, 340-353). Exploitation additionally requires /dev/fsl-hv access (root-owned misc device) and successful get_user_pages_fast pinning of num_pages pages, which constrains practical wrapped-product choices to num_pages just under 2^27; no runtime reproducer was built.",
+    "Sweep bounded to six high-signal query families over drivers/, fs/, net/, sound/, block/, crypto/: (1) narrow-typed 'size = count * sizeof(' assignments, (2) allocator calls containing a raw multiply in the size argument, (3) 'count << shift' sizing expressions, (4) be/le*_to_cpu/get_unaligned count stores adjacent to multiplies, (5) netlink nla_len/sizeof-derived counts, (6) subsystem spot-checks of the strongest shapes (xfs, sctp, rds, ethtool bitset, gve adminq, vfio_ccw, enetc, tas571x, fat, ldm, fsl_hypervisor, usbip seed). Multiply sites inside arch/, tools/, mm/ internals, and staging with locally-derived counts were only spot-checked; a complete per-site audit of the ~200 allocator-adjacent multiply expressions was not performed before the finalize directive.",
+    "The seed usbip code is present UNPATCHED in s08 (int size = np * sizeof(*iso) at usbip_common.c:665 with the unclamped wire store at usbip_common.c:473 and the USBIP_MAX_ISO_PACKETS clamp enforced only on the CMD_SUBMIT direction at stub_rx.c:379-384); per the seed-exclusion rule it is recorded as an unresolved candidate and must never be the reported finding itself.",
+    "No compilation, static analysis, or reproducer harness was run (assigned tree is read-only; all generated artifacts belong under $TMPDIR and none were needed for the source-level analysis); all line numbers come from direct numbered sed/rg reads of snapshots/s08."
+  ]
+}

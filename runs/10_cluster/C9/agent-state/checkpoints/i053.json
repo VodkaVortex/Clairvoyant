@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "intent_id": "i053",
+  "branch": "error-unwind-poisoned-count",
+  "status": "finalizing",
+  "snapshot": "s13",
+  "notes": "Verified: usbip seed unpatched at usbip_common.c:611-670 (excluded-by-rule). dlm_slots_copy_in fs/dlm/member.c:118-141 consumes peer rf_num_slots (le16) with only !num_slots check, walks 16-byte rcom_slot entries with in-place endian writes past ci_buffer_size(4096) ls_recover_buf; sibling dlm_slots_assign enforces max_slots at member.c:276 - asymmetric; NEW finding high confidence. raid5-ppl ppl_recover:831 iterates le32 entries_count unclamped (write path clamps at :274) - already reported by sibling i052/f051. iscsi_target: AHS chain absent (only FIXME at iscsi_target.c:1000; rx reads exactly ISCSI_HDR_LEN). ubi fastmap:645-696 all count loops bounded per-iteration by fm_pos>=fm_size, pool sizes clamped - safe. bnxt:1307/1472 agg_bufs validated (bnxt_agg_bufs_valid + MAX_SKB_FRAGS) - safe. dm-era: no attacker count store. qaic/gve/ixgbe_e610 absent from s13. dm-zoned not walked - unresolved.",
+  "candidates": [
+    {
+      "path": "fs/dlm/member.c",
+      "line": 118,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 611,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 831,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/target/iscsi/iscsi_target.c",
+      "line": 1000,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 645,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt.c",
+      "line": 1307,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/md/dm-era-target.c",
+      "line": 1430,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/md/dm-zoned-metadata.c",
+      "line": 0,
+      "status": "unresolved"
+    }
+  ]
+}

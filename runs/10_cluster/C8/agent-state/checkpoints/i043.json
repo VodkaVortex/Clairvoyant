@@ -1,0 +1,57 @@
+{
+  "intent_id": "i043",
+  "branch": "net-epidx",
+  "snapshot": "s11",
+  "status": "complete",
+  "step": "final artifact written to findings/i043.json; 5 reported, 12 safe, 0 unresolved",
+  "confirmed_findings": [
+    {
+      "path": "drivers/net/usb/lan78xx.c",
+      "start": 3582,
+      "end": 3592,
+      "confidence": "high"
+    },
+    {
+      "path": "drivers/net/usb/r8152.c",
+      "start": 1352,
+      "end": 1361,
+      "confidence": "high"
+    },
+    {
+      "path": "drivers/net/usb/qmi_wwan.c",
+      "start": 291,
+      "end": 318,
+      "confidence": "medium"
+    },
+    {
+      "path": "drivers/net/wireless/ath/ath9k/hif_usb.c",
+      "start": 1214,
+      "end": 1230,
+      "confidence": "high"
+    },
+    {
+      "path": "drivers/net/wireless/zydas/zd1211rw/zd_usb.c",
+      "start": 1272,
+      "end": 1290,
+      "confidence": "high"
+    }
+  ],
+  "safe_confirmed": [
+    "cdc-phonet.c: bNumEndpoints==2 validated on chosen altsetting before endpoint[0]/[1]",
+    "cdc_ether.c:293-296 bNumEndpoints==1 guard",
+    "usbnet.c usbnet_get_endpoints bounded",
+    "cdc_ncm.c find_endpoints bounded",
+    "sierra_net.c numendpoints==3 required",
+    "hso.c hso_get_ep/hso_get_mux_ports bounded, NULL-checked",
+    "ipheth.c bounded loop",
+    "at76c50x, p54usb, brcmfmac, rtlwifi, rtl8xxxu, ath6kl, carl9170, libertas, libertas_tf, mwifiex, mt7601u, rt2x00, rsi, orinoco: all bounded i<bNumEndpoints loops",
+    "pegasus/kaweth/catc/rtl8150/kalmia/rtl8187: hardcoded pipe numbers or usbnet info->in/out, no endpoint[] reads (rtl8150 interval=100 constant; pegasus interval from EEPROM)"
+  ],
+  "notes": [
+    "no drivers/net/wwan directory in s11",
+    "ath9k/ath6kl/ath10k htc endpoint[] arrays are internal driver structs, not USB descriptors",
+    "lan78xx bind ignores lan78xx_get_endpoints return; probe unconditionally overwrites ep_blkin/ep_blkout/ep_intr with fixed +0/+1/+2",
+    "r8152 alloc_all_mem called from rtl8152_open (ifup); ep_intr=alt->endpoint+2, bInterval at 1430, pipe usb_rcvintpipe(udev,3)",
+    "qmi_wwan endpoint[0] only when control!=data (CDC union); usb_cdc_wdm_register consumes &dev->status->desc"
+  ]
+}

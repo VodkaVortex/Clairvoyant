@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "af-packet-tpacket-rings",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "start": 2887,
+      "end": 2896,
+      "quote": "if (err && __packet_get_status(po, ph) ==",
+      "confidence": "low",
+      "reason": "Untrusted source: tp_status lives in the mmap'd TPACKET TX ring frame that unprivileged userspace maps and can write concurrently; no lock or snapshot protects it between kernel instructions (pg_vec_lock only guards ring vector, not frame contents). Double fetch of the SAME shared field: fetch 1 (validation gate) at net/packet/af_packet.c:2795-2796 packet_current_frame(po, &po->tx_ring, TP_STATUS_SEND_REQUEST) -> packet_lookup_frame:528 'if (status != __packet_get_status(po, h.raw)) return NULL' -> __packet_get_status:439-446 READ_ONCE(h.h1/h2/h3->tp_status) gates frame consumption on TP_STATUS_SEND_REQUEST; fetch 2 (independent, later) at line 2891 re-reads the same shared tp_status and the result drives kernel skb-lifetime state: TP_STATUS_AVAILABLE => 'skb was destructed already' skb = NULL + goto out_status (kfree_skb(NULL), frame re-marked SEND_REQUEST at 2911), otherwise err = 0 and the loop continues treating the skb as qdisc-owned. A concurrent userspace write between 2795 and 2891 makes the validated ownership value differ from the consumed one, exactly the seed's check-then-use shape. Counterevidence checked, hence low confidence: tp_status feeds no offset/length/size arithmetic; tracing both race directions statically (user fakes AVAILABLE while skb is still alive in qdisc, and user fakes non-AVAILABLE while tpacket_destruct_skb:2511-2529 already freed it) yields only benign accounting/ownership skew (packet_inc_pending at 2884 stays balanced with packet_dec_pending in the destructor), no OOB access, no double free, no UAF was identified. Reported as the only same-field double fetch found in s03's tpacket TX consumer path; impact unproven and expressed via confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2891,
+      "status": "reported",
+      "reason": "Second independent fetch of shared tp_status; first validating fetch at 2795-2796 via packet_lookup_frame:528 / __packet_get_status:439-446 (READ_ONCE). See findings[0]."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2664,
+      "status": "safe",
+      "reason": "tpacket_parse_header():2650-2716 fetches tp_len (2664/2667/2670 ph.h3/h2/h1->tp_len) ONCE into a local int, bounds-checks the local at 2673 (tp_len > size_max => -EMSGSIZE), and returns the validated local by value (2715); the caller (tpacket_snd:2816) uses that same returned value for all copies (tpacket_fill_skb:2851). Negative u32->int tp_len is rejected at 2817-2818 before data is used. Validated equals used: no double fetch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2698,
+      "status": "safe",
+      "reason": "tpacket_parse_header(): off (tp_mac 2698/2701/2704 or tp_net 2686/2689/2692, __u16 so no sign games) is fetched ONCE into local 'off', bounds-checked against off_min/off_max at 2708, and the data pointer is formed from the validated local at 2714 (*data = frame + off). off + tp_len <= frame_size is enforced via off_max = frame_size - tp_len at 2682. Single-fetch pattern; no re-read of tp_mac/tp_net."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2830,
+      "status": "safe",
+      "reason": "tpacket_snd() vnet_hdr: the virtio_net_hdr residing in the user-mapped frame is snapshotted ONCE via memcpy(&vnet_hdr, data - vnet_hdr_sz, sizeof(vnet_hdr)) into the stack local at 2830; validation (__packet_snd_vnet_parse:2831, csum_start/csum_offset/hdr_len checks at 2531-2545) and all consumption (copylen from local hdr_len at 2835-2836; virtio_net_hdr_to_skb:2875 and virtio_net_hdr_set_proto:2879) operate on the local copy. This is exactly the seed's fix pattern applied; no second fetch from shared memory."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2594,
+      "status": "safe",
+      "reason": "tpacket_fill_skb():2570-2648 consumes only the already-validated tp_len/data parameters (to_write = tp_len at 2594; hdrlen = min(copylen, tp_len) at 2602; skb_store_bits length hdrlen <= tp_len at 2606); it never re-reads tp_len/tp_mac/tp_net from the shared frame. The only shared-frame touch is skb_zcopy_set_nouarg(skb, ph.raw) at 2589 (opaque cookie, see separate unresolved candidate)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2556,
+      "status": "safe",
+      "reason": "packet_snd_vnet_parse():2552-2559 copies the virtio_net_hdr from the msghdr iterator into the kernel stack local via copy_from_iter_full at 2556 and validates the local copy; the non-ring TX path (packet_snd) therefore uses a kernel snapshot, not shared memory."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2407,
+      "status": "safe",
+      "reason": "tpacket_rcv():2405-2465 is the kernel->user direction: tp_len/tp_snaplen/tp_mac/tp_net are WRITTEN into the shared frame from kernel locals (macoff/netoff/snaplen computed at 2294-2349 from skb and ring state); no user-supplied value is fetched, validated and then re-read. skb_copy_bits at 2392 uses kernel-local snaplen/macoff. No check-then-use double fetch on the RX path."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2589,
+      "status": "unresolved",
+      "reason": "skb_zcopy_set_nouarg(skb, ph.raw) stores the user-shared TX frame pointer as an opaque cookie in skb_shinfo(skb)->destructor_arg. The later clear/consume path (include/linux/skbuff.h skb_zcopy_clear_nouarg / skb_zcopy_get_nouarg) was NOT line-verified in this session; if that path dereferences the cookie as a struct ubuf_info_msgzc (e.g. indirect ubuf callback), it would be an unsafe use of user-shared memory, though it is a distinct bug class (type confusion), not the check-then-use double-fetch invariant of this branch."
+    }
+  ],
+  "limitations": [
+    "Only the net/packet TPACKET consumer path was line-audited (af_packet.c: tpacket_snd, tpacket_rcv, tpacket_parse_header, tpacket_fill_skb, vnet helpers, status/ring lookup helpers 439-539); packet_setsockopt/PACKET_RX_RING ring setup, packet_set_ring, and the TPACKET_V3 block-management helpers (prb_* retire/timer code around af_packet.c:828-950) were only grep-surveyed, not line-audited.",
+    "Impact of the reported tp_status double fetch (af_packet.c:2891) is unproven: static reasoning over both race directions found no OOB/double-free/UAF; no kernel build or runtime reproducer was performed (source tree is read-only; no compilation attempted).",
+    "The skb_zcopy_set_nouarg cookie clear path in include/linux/skbuff.h (candidate at af_packet.c:2589) remains unexamined; budget for source-line reads was exhausted.",
+    "Only snapshot s03 was searched, per the assignment; other snapshots (s01, s02, s04) were not inspected."
+  ]
+}

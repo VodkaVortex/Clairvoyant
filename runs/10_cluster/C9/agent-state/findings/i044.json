@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "intent_id": "i044",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s11"
+  ],
+  "findings": [
+    {
+      "snapshot": "s11",
+      "path": "fs/cifs/cifsacl.c",
+      "start": 794,
+      "end": 851,
+      "quote": "num_aces = le32_to_cpu(pdacl->num_aces);\n\tif (num_aces > 0) {\n\t\tumode_t denied_mode = 0;\n\n\t\tif (num_aces > ULONG_MAX / sizeof(struct cifs_ace *))\n\t\t\treturn;\n\t\tppace = kmalloc_array(num_aces, sizeof(struct cifs_ace *),\n\t\t\t\t      GFP_KERNEL);\n\t\tif (!ppace)\n\t\t\treturn;\n\n\t\tfor (i = 0; i < num_aces; ++i) {\n\t\t\tppace[i] = (struct cifs_ace *) (acl_base + acl_size);",
+      "confidence": "high",
+      "reason": "Untrusted source: the CIFS/SMB server's QuerySecurity reply is copied into a kernel buffer and parsed; the DACL header field pdacl->num_aces is a raw peer-supplied __le32 (fs/cifs/cifsacl.c:794) and the only size the code cross-checks is pdacl->size against end_of_acl (lines 777-780) - the entry COUNT is never validated against the ACL byte length. Violated invariant: num_aces is taken from the wire with no clamp against the deserialized buffer extent (end_of_acl minus acl_base), unlike the sibling length fields that are checked (parse_sid validates >=8 bytes at 1158; dump_ace checks pace->size against end_of_acl at 733) - asymmetric validation between length fields (checked) and the entry count (unchecked) of the same wire structure. Unsafe use: the loop at 805-851 walks num_aces entries advancing acl_size by each wire ACE's ppace[i]->size (line 851, le16, up to 65535 per step) with no per-step end_of_acl check in the non-DEBUG build, dereferencing ppace[i]->sid through compare_sids (line 823) which itself loops min(num_sat, num_saw) over sub_auth[] of a peer-controlled num_subauth byte (lines 183-194, capped only by the peer's own byte, struct has 5 slots) - OOB reads past the server-response buffer feeding cf_mode (permission confusion); the stored pointers themselves are only pointer writes within the correctly sized kmalloc_array, so the primary harm is OOB read of peer-controlled extent, plus mode_from_special_sid consuming ppace[i]->sid.sub_auth[2] (lines 810-817). Counterevidence checked: kmalloc_array at 800 is overflow-checked and the pointer array cannot overflow on 64-bit (u32 count * 8 fits in size_t); the sibling function set_chmod_dacl/cifs_copy_ace (1046, 1100) read the same num_aces but are bounded by the caller-allocated destination; no clamp of num_aces against pdacl->size exists anywhere in the file. Report is a hypothesis about OOB-read extent, not an exploit claim; reaching the path requires a CIFS mount whose server (or a man-in-the-middle on unencrypted connections) returns a crafted security descriptor.",
+      "conclusion": "CIFS parse_dacl trusts server-supplied pdacl->num_aces (le32, line 794) with no cross-check of the count against the ACL byte length that the sibling size fields do get, so a crafted QuerySecurity reply makes the ACE loop and compare_sids read OOB past the response buffer and derive file mode fro..."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/scsi/smartpqi/smartpqi_init.c",
+      "start": 8312,
+      "end": 8320,
+      "quote": "num_memory_descriptors =\n\t\tget_unaligned_le16(&ofap->num_memory_descriptors);\n\n\tfor (i = 0; i < num_memory_descriptors; i++) {\n\t\tdma_free_coherent(dev,\n\t\t\tget_unaligned_le32(&mem_descriptor[i].length),\n\t\t\tctrl_info->pqi_ofa_chunk_virt_addr[i],",
+      "confidence": "medium",
+      "reason": "Untrusted source: the pqi_ofa_memory object (ofap) lives in a dma_alloc_coherent buffer shared with the Smart Array controller (line 8276-8278); every field in it, including num_memory_descriptors (raw __le16) and each sg_descriptor entry, is device-writable after allocation. Violated invariant: pqi_ofa_free_host_buffer() re-reads num_memory_descriptors from the shared buffer (lines 8312-8313) and iterates it (8315) with no comparison to the count actually used at allocation time; the kernel-side writer pqi_ofa_alloc_mem() enforced the bound - sg_count > PQI_OFA_MAX_SG_DESCRIPTORS (=64, smartpqi.h:512) is rejected at line 8206 - but the free path never re-checks it, an asymmetric validation where the enforcing sibling is the same protocol's alloc direction. The re-fetch hazard is concrete: dma-coherent memory is owned by the device, so a firmware/device write between alloc and free changes the count the kernel later trusts. Unsafe use: the loop indexes ctrl_info->pqi_ofa_chunk_virt_addr[i] (kmalloc_array sized by the ORIGINAL sg_count, line 8210) and ofap->sg_descriptor[i] within a single-page dma_alloc_coherent(sizeof(*ofap)) allocation, so a device-raised count reads/writes OOB pointer entries and passes device-controlled addresses to dma_free_coherent (arbitrary-address free / OOB access); pqi_ofa_host_memory_update() (line 8347) also recomputes buffer_length from the re-read count. Counterevidence checked: the field is written by the kernel at 8227 and no path other than the device rewrites it in-tree; there is no runtime reproducer (requires Microsemi smartpqi controller hardware to write the shared buffer), which is why this is medium confidence; the alloc-side clamp at 8206 proves the maximum is known and the free path omits it.",
+      "conclusion": "smartpqi OFA teardown re-reads the device-shared ofap->num_memory_descriptors (le16, lines 8312-8313) and loops/freeing pqi_ofa_chunk_virt_addr[i] with no re-clamp to the alloc-side PQI_OFA_MAX_SG_DESCRIPTORS=64, so a device write to the shared buffer between alloc and free drives OOB pointer-arr..."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/acpi/cppc_acpi.c",
+      "start": 705,
+      "end": 711,
+      "quote": "num_ent = cpc_obj->integer.value;\n\t} else {\n\t\tpr_debug(\"Unexpected entry type(%d) for NumEntries\\n\",\n\t\t\t\tcpc_obj->type);\n\t\tgoto out_free;\n\t}\n\tcpc_ptr->num_entries = num_ent;",
+      "confidence": "low",
+      "reason": "Untrusted source: acpi_cppc_processor_probe() evaluates the firmware-supplied _CPC package; elements[0] is the firmware-declared entry count and is stored verbatim into the persistent per-CPU cpc_desc (line 711). Violated invariant: the count is stored BEFORE is_cppc_supported() validates it (line 724), and the two later consumers iterate cpc_ptr->num_entries directly: the out_free unwind loop 'for (i = 2; i < cpc_ptr->num_entries; i++) cpc_ptr->cpc_regs[i-2]...' (line 836) and acpi_cppc_processor_exit() (line 879). The enforcing sibling is is_cppc_supported() itself, which requires num_ent to exactly equal CPPC_V2_NUM_ENT(21)/CPPC_V3_NUM_ENT(23) - but only on the success path; when it fails, execution goes to out_free with the poisoned count still stored in shared state. Because cpc_regs is a fixed array of MAX_CPC_REG_ENT=21 (include/acpi/cppc_acpi.h:67), any firmware value > 23 that reaches out_free makes the unwind iounmap OOB cpc_regs entries (reads past the array to fetch sys_mem_vaddr pointers and iounmap them). Unsafe use: firmware-controlled count left in a persistent kernel object on a failure path and iterated later (error-unwind flavor of the unclamped-wire-count invariant, matching the seed's processcompl pattern). Counterevidence checked: the probe error path leaves cpc_ptr freed, so the poisoned object does not survive a FAILED probe; the exit() consumer at 879 only runs for successfully probed CPUs whose num_ent passed the exact-match check, so exploitation requires an out_free branch reached between the store (711) and the validation (724) - only the type-mismatch branch at 707-710 for elements[1] qualifies, and cpc_regs is zeroed by kzalloc so the OOB iounmap reads garbage-but-zero pointers. Low confidence exactly because that window is narrow; reported per the directive that an unvalidated count stored in shared state before validation with later iteration is reportable with uncertainty expressed in confidence.",
+      "conclusion": "CPPC probe stores firmware _CPC NumEntries into persistent cpc_desc->num_entries (line 711) before is_cppc_supported() exact-match validation (724), and the out_free unwind (836) and processor_exit (879) later iterate that count over the fixed 21-entry cpc_regs array - OOB iounmap access if the c..."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s11",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 387,
+      "status": "unresolved",
+      "reason": "SEED, EXCLUDED-BY-RULE (never reportable). Confirmed the seed mechanism is UNPATCHED in s11: urb->number_of_packets = rpdu->number_of_packets at usbip_common.c:387 copies the wire value with no clamp on the RET_SUBMIT path, while USBIP_MAX_ISO_PACKETS=1024 (usbip_common.h:130) is enforced only on the sibling CMD_SUBMIT path (stub_rx.c:368-373, vudc_rx.c:132-136); usbip_recv_iso (line 578: int np = urb->number_of_packets; 579: int size = np * sizeof(*iso); 591: kzalloc) retains the unchecked multiply. Recorded as the seed instance for branch coverage; per task rules it must never be reported.",
+      "conclusion": "Seed instance present and unpatched in s11 (wire count stored at line 387, unclamped, asymmetric vs stub_rx.c:368); excluded from findings by rule - follow up only to confirm it is tracked elsewhere."
+    },
+    {
+      "snapshot": "s11",
+      "path": "fs/cifs/cifsacl.c",
+      "line": 1046,
+      "status": "reported",
+      "reason": "Sibling consumers of the same unclamped num_aces: build_sec_dacl (1046) and set_chmod_dacl (1100) read src_num_aces = le32_to_cpu(pdacl->num_aces) and iterate reading pntace at acl_base+size advanced by wire ACE sizes with no end-of-buffer check; the source DACL comes from a server response, same unclamped count as the reported parse_dacl finding (794-851)."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/acpi/cppc_acpi.c",
+      "line": 836,
+      "status": "reported",
+      "reason": "Consumer half of the reported CPPC finding: error-unwind loop 'for (i = 2; i < cpc_ptr->num_entries; i++)' iterates the pre-validation stored count over the fixed MAX_CPC_REG_ENT=21 cpc_regs array; reported together with the store at 705-711."
+    },
+    {
+      "snapshot": "s11",
+      "path": "net/bluetooth/mgmt.c",
+      "line": 2355,
+      "status": "safe",
+      "reason": "Every mgmt command count handler verified clamped: load_link_keys (2355-2360 key_count > max_key_count rejected), set_blocked_keys (3626), load_ltks (6204), load_conn_param (6956), load_irks (6114), start_service_discovery (5019) all enforce a computed max plus an exact expected_len==len match via struct_size; parse_adv_monitor_pattern bounds each pattern with HCI_MAX_AD_LENGTH checks. These are the enforcing-sibling style the branch looks for - they are the patched mirror of the seed pattern."
+    },
+    {
+      "snapshot": "s11",
+      "path": "net/core/rtnetlink.c",
+      "line": 3165,
+      "status": "safe",
+      "reason": "rtnl_create_link validates num_tx_queues/num_rx_queues in [1,4096] (lines 3168-3176) before alloc_netdev_mqs; IFLA_GSO_MAX_SEGS is checked against GSO_MAX_SEGS at 2767. Only residual gap: line 3227 'dev->gso_max_segs = nla_get_u32(tb[IFLA_GSO_MAX_SEGS])' in rtnl_create_link itself lacks the GSO_MAX_SEGS clamp present in do_setlink at 2767 - a mild intra-file asymmetry, but gso_max_segs is a hint consumed by GSO sizing with internal caps (sk_gso_max_segs clamped at sock layer), so no unsafe element-indexed consumer was found; classified safe."
+    },
+    {
+      "snapshot": "s11",
+      "path": "net/sched/act_bpf.c",
+      "line": 192,
+      "status": "safe",
+      "reason": "tcf_bpf_init_from_ops clamps bpf_num_ops to [1, BPF_MAXINSNS] and requires bpf_size == nla_len (exactly the seed's missing clamp, present here); cls_bpf.c:343 identical; seccomp kernel/seccomp.c:645 also clamps len to BPF_MAXINSNS with INT_MAX/len overflow check. These are enforcing siblings confirming the pattern is usually clamped at parse time."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/scsi/qla2xxx/qla_tmpl.c",
+      "line": 164,
+      "status": "safe",
+      "reason": "qla27xx fwdump entries read reg_count from on-chip template memory, but qla27xx_read_window only inserts into the dump buffer via qla27xx_insert32 which returns early when the capture length budget is exhausted; the fwdt walk (qla27xx_walk_template:833) is bounded by tmp->count and buffer-length accounting, and the template is firmware-from-flash rather than a remotely writable peer channel; no unclamped count crossing into allocation was demonstrated."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/scsi/mpt3sas/mpt3sas_base.c",
+      "line": 4869,
+      "status": "safe",
+      "reason": "All three trigger-page counts (4869, 4921, 4973) are explicitly clamped: 'count = min_t(u16, NUM_VALID_ENTRIES, count)' before the copy loop into the fixed ioc->diag_trigger_* arrays - the exact clamp the branch demands, present on every sibling path in this driver."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/block/rsxx/dma.c",
+      "line": 507,
+      "reason": "count = le16_to_cpu(hw_st_buf[...].count) is a DMA-shared status-ring sequence number consumed only by comparison (while (count == ctrl->e_cnt)) with idx masked by RSXX_CS_IDX_MASK (547-548), so the device-controlled value cannot drive an OOB index; loop termination depends on the counter matching, worst case a spin. No count crosses into allocation or an unmasked index.",
+      "status": "safe"
+    },
+    {
+      "snapshot": "s11",
+      "path": "fs/fuse/dev.c",
+      "line": 2024,
+      "status": "safe",
+      "reason": "cs.nr_segs = nbuf at 2024 is bounded by the loop guard 'WARN_ON(nbuf >= count ...)' (1994) against the locally computed pipe buffer count, and every fuse_copy consumer (713, 813, 899, 1384, 1389, 1403) re-checks against pipe->max_usage or the locally computed bufs array size; fuse args in_numargs/out_numargs are kernel-set by request originators, not wire-parsed from the daemon reply header."
+    },
+    {
+      "snapshot": "s11",
+      "path": "fs/ceph/snap.c",
+      "line": 718,
+      "status": "unresolved",
+      "reason": "ceph_decode_need(&p, e, sizeof(u64)*(le32_to_cpu(ri->num_snaps) + le32_to_cpu(ri->num_prior_parent_snaps)), bad) at 718-719 does bounds-check the aggregate decode against the message end pointer e before advancing p by sizeof(u64)*num_snaps (721,723) and storing realm->num_snaps (748); the snap-split path (886-887 num_split_inos/num_split_realms) was only partially read this session - the decode_need guards were not both confirmed before the finalize directive. The direction looks guarded by ceph_decode_need, but a full confirmation of both loops was not completed.",
+      "conclusion": "Ceph snaprealm num_snaps/num_split_* counts from the MDS reply appear bounded by ceph_decode_need before use, but the split-realm loops at fs/ceph/snap.c:886-887 were not fully read - follow up by reading ceph_apply_snap_split() and confirming every decode_need covers each count-derived advance."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/scsi/qla2xxx/qla_isr.c",
+      "line": 3015,
+      "status": "unresolved",
+      "reason": "Sense/response lengths (sense_len, rsp_info_len le16 from completion entries) and the aic94xx/esas2r/pmcraid/mpi3mr reply-field decodes were enumerated in the sweep (aic94xx_sds.c:245 ue_num, esas2r addr_len, pmcraid auto_sense_length, mpi3mr change_count) but not deep-read before the finalize directive; none of them showed an unclamped count flowing into kmalloc or an element-indexed write in the grep output, they are length-style fields feeding memcpy-ish copies.",
+      "conclusion": "SCSI HBA reply length fields (qla_isr sense/rsp_info lengths, esas2r addr_len, pmcraid auto_sense_length) were only grep-triaged; follow up by confirming each copy site clamps against the response buffer size and the allocated sense buffer."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/media/i2c/ccs/ccs-data.c",
+      "line": 720,
+      "status": "unresolved",
+      "reason": "pdgroup->num_descs = *__num_pixel_descs at 720 stores a value read from the CCS static-data metadata blob (sensor-parsed, ultimately from the sensor/firmware description) into a persistent structure; the consuming loops and any max (e.g. CCS private limits) were not read this session. Metadata is not a live wire peer, weakening the trust-boundary claim, but the store is verbatim from a parsed blob.",
+      "conclusion": "ccs-data.c:720 stores a blob-declared num_descs verbatim into a persistent object; follow up by reading the descriptor-array allocation and loops to check for a clamp against the blob length (lower priority: source is static sensor metadata, not a live peer)."
+    },
+    {
+      "snapshot": "s11",
+      "path": "fs/cifs/misc.c",
+      "line": 774,
+      "status": "unresolved",
+      "reason": "*num_of_nodes = le16_to_cpu(rsp->NumberOfReferrals) at 774 stores the DFS referral count from a server reply; the consuming loop in dfs mounts was not read this session. Referral parsing has historically been a CIFS OOB area; not deep-read before the finalize directive.",
+      "conclusion": "CIFS DFS referral count stored at fs/cifs/misc.c:774 from the server reply was not traced to its consuming loop; follow up by reading the referral-array iteration for a clamp against the response length."
+    }
+  ],
+  "coverage_gaps": [
+    "Only the le16/le32/be16/be32 *_cpu(->count/num_*/nr_*) and get_unaligned_* sweep hits in drivers/, net/, fs/ were triaged (about 60 sites listed); the many remaining conversion sites (e.g. AMD gpu discovery, inv_icm42600 fifo.count, scsi_debug, target_core_sbc) were never individually read.",
+    "fs/ on-disk metadata count stores (exfat super.c num_clusters, adfs bigdirentries, dlm rf_num_slots, ext2/ext4 group descriptors) were grep-enumerated but not read; they need a corrupt-fs-image threat model to matter, which was not established for any of them.",
+    "dm-array/dm-btree nr_entries sites (drivers/md/persistent-data/*) are internal metadata-tree fields with partial BUG_ON/max_entries checks visible in the grep output, but the full enforcement chain (dm-btree-spine.c:68 checks nr_entries>max_entries on one path only) was not completed.",
+    "Bluetooth hci_event.c num_blocks (882) and 802.15.4 llsec frame_counter paths were listed but not read; mgmt.c command paths were fully cleared, event/HCI-packet parser paths were not.",
+    "nla_parse/copy_from_user sweeps were limited to count-style fields (nr_*, num_*, count, segs, bufs, entries) in net/ and selected drivers/; media, sound, crypto, and block ioctl paths with differently named count fields (n, cnt, nelem, vecs, iovs) were not swept."
+  ],
+  "limitations": [
+    "No dynamic verification was possible: the snapshot tree is read-only and the three reported paths require, respectively, a malicious/compromised CIFS server or MITM on a non-signing connection, smartpqi controller hardware able to write its dma-coherent OFA buffer, and ACPI firmware control of _CPC - none reproducible under the sandbox, so all findings are source-hypotheses with the stated confidence levels.",
+    "The CIFS finding's kmalloc_array pointer array is itself correctly sized and overflow-checked; the demonstrated harm is OOB read of peer-controlled extent (ACE walk + compare_sids sub_auth loop with peer-declared num_subauth capped by the peer's byte value against a 5-slot array), not a demonstrated OOB write - write potential was not established.",
+    "The smartpqi finding depends on the device writing the shared buffer between kernel alloc and free; in-tree the only writers are the kernel and the device, and no in-tree device path that writes num_memory_descriptors was identified, so the threat requires an assumed malicious/faulty device or one compromised via other means.",
+    "The CPPC finding's exploit window is the narrow store-at-711 to validation-at-724 span reachable via the elements[1] type-mismatch branch, with kzalloc-zeroed cpc_regs making the OOB unwind reads likely zero/garbage pointers; it is reported at low confidence per the finalize directive that an unvalidated count stored in shared state with later iteration is reportable.",
+    "The seed usbip instance was confirmed unpatched in s11 (line 387 store, line 578 unchecked multiply) but is excluded from findings by rule; its presence means the snapshot predates the seed fix, which also dates the tree for the other findings' likely patch state."
+  ]
+}

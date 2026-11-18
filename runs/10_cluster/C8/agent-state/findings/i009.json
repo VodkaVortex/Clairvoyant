@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "if-alt-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "start": 307,
+      "end": 318,
+      "quote": "static int stv06xx_isoc_init(struct gspca_dev *gspca_dev)\n{\n\tstruct usb_host_interface *alt;\n\tstruct sd *sd = (struct sd *) gspca_dev;\n\n\t/* Start isoc bandwidth \"negotiation\" at max isoc bandwidth */\n\talt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];\n\talt->endpoint[0].desc.wMaxPacketSize =\n\t\tcpu_to_le16(sd->sensor->max_packet_size[gspca_dev->curr_mode]);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: the usb_host_interface_cache at actconfig->intf_cache[0] is built entirely from the enumerated device's configuration descriptors; a malicious gadget can declare a single altsetting (num_altsetting==1) or an altsetting[1] with zero endpoints. MISSING GUARANTEE: stv06xx_isoc_init (and stv06xx_isoc_nego at line 326, same pattern) indexes ->altsetting[1] and ->endpoint[0] with no check that intf_cache[0]->num_altsetting > 1 or that altsetting[1].desc.bNumEndpoints > 0; it also assumes the negotiated video interface is interface index 0 of the configuration. UNSAFE USE: alt->endpoint[0].desc.wMaxPacketSize is both read and WRITTEN in stv06xx_isoc_nego (line 326-336) to program the isoc packet size before usb_set_interface(dev, iface, 1); if a malicious device lacks altsetting 1 or its endpoint, this is an out-of-bounds write of a 16-bit value beyond the altsetting/endpoint flex arrays in the kernel heap (or NULL-deref when num_altsetting==1 leaves only a zeroed slot region), triggered by streaming start (VIDIOC_STREAMON) on a plugged device. Counterevidence checked: the probe-time path gspca.c:594 (alt_xfer(&intf->altsetting[j])) does validate; core usb_set_interface uses usb_altnum_to_altsetting and would reject the switch, but the driver's direct cache indexing happens before/independent of that check, so the core validation does not protect this write. Same pattern duplicated in drivers/media/usb/gspca/xirlink_cit.c:2645 and 2668 (sd_isoc_init/sd_isoc_nego)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/staging/media/usbvision/usbvision-video.c",
+      "start": 1435,
+      "end": 1438,
+      "quote": "if (usbvision_device_data[model].interface >= 0)\n\t\tinterface = &dev->actconfig->interface[usbvision_device_data[model].interface]->altsetting[0];\n\telse if (ifnum < dev->actconfig->desc.bNumInterfaces)\n\t\tinterface = &dev->actconfig->interface[ifnum]->altsetting[0];",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: actconfig->interface[] is sized by the device-supplied bNumInterfaces at enumeration; a malicious gadget declaring fewer interfaces than the driver's device-model assumption yields out-of-range entries (config.c only warns and leaves NULL/garbage beyond the parsed count). MISSING GUARANTEE: the model-driven branch at line 1435-1436 indexes actconfig->interface[usbvision_device_data[model].interface] with a hardcoded per-model index but never checks dev->actconfig->desc.bNumInterfaces > that index, and then dereferences ->altsetting[0]; the sibling ifnum branch (1437-1438) explicitly validates against bNumInterfaces, proving the needed check exists and was omitted for the model-index path. UNSAFE USE: interface->desc.bNumEndpoints and &interface->endpoint[1].desc (lines ~1446-1457) are read immediately after, so a too-small interface array yields NULL-deref at ->altsetting[0] during probe (device plug-in). Note: all currently listed model entries in usbvision-cards.c have .interface == -1 or 0, so triggering with an in-tree model requires a device whose probed model has interface==0 while bNumInterfaces==0; bNumInterfaces==0 configs are warned about but not rejected by usb_parse_configuration, making the index-0 path with a zero-length array concrete. Counterevidence checked: the altsetting[0].bNumEndpoints>=2 check at 1448 and per-alt loop check exist, so this gap is purely at the interface-array level, matching this branch."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/usb/cx231xx/cx231xx-audio.c",
+      "line": 610,
+      "status": "safe",
+      "reason": "actconfig->interface[audio_index + 1] indexes with a driver-computed index from pcb config without a visible bNumInterfaces check at that line; however the audio_index value originates from cx231xx_read_usb_ctrl_descriptor-parsed config tables and the seed patch family already covers cx231xx endpoint checks present here (bNumEndpoints < isoc_pipe + 1 checks at lines 613 and 641 are present). Interface-count validation for cx231xx is the seed's own subsystem and the endpoint checks exist; residual ifnum risk is tied to the never-reportable seed cx231xx files."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 1474,
+      "status": "safe",
+      "reason": "Loop over dev->actconfig->desc.bNumInterfaces with NULL checks on both intf2 and intf2->altsetting before dereferencing ->desc.bInterfaceClass; interface index is loop-bounded by the same descriptor count that sized the array."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/atm/xusbatm.c",
+      "line": 45,
+      "status": "safe",
+      "reason": "xusbatm_find_intf loops i < bNumInterfaces, NULL-checks actconfig->interface[i], and uses usb_altnum_to_altsetting() plus j < alt->desc.bNumEndpoints for endpoint iteration; unbind path at 139 also NULL-checks. Module params drive the altsetting numbers, not device data, and core usb_set_interface validates the altnum (drivers/usb/core/message.c:1379-1383)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/serial/qcserial.c",
+      "line": 234,
+      "status": "safe",
+      "reason": "nintf = serial->dev->actconfig->desc.bNumInterfaces is read and subsequent altsetting[1] access at line 243 is guarded by nintf-based logic; uses core-derived counts consistently."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/core/config.c",
+      "line": 740,
+      "status": "safe",
+      "reason": "Core parser only warns on bNumInterfaces mismatch and missing interface numbers ('config %d has no interfaces?') and still accepts the config with nintf=n; this documents the absence of a core-side guarantee that justifies the branch's invariant but is not itself a driver bug."
+    },
+    {
+      "snapshot": "s02",
+      "path": "sound/usb/pcm.c",
+      "line": 393,
+      "status": "unresolved",
+      "reason": "alts = &iface->altsetting[1] in snd_usb_pcm's open/setup path (similar at mixer.c:2948, mixer_quirks.c:1513, quirks.c:211/425, misc/ua101.c:906/1003/1011) assumes num_altsetting >= 2 without a local check; not fully traced to the exact call-time guards (chip keep_binding / format-table validation may guarantee altset presence because the format list was built by iterating actual altsettings in stream.c:1109). Bounded search stopped before resolving sound/usb altsetting[1] sites; the parsing side (stream.c) iterates existing altsettings, so the residual risk is that these fixed indexes pair with parser-built format tables that already imply the altsetting exists."
+    }
+  ],
+  "limitations": [
+    "sound/usb fixed altsetting[1] sites (pcm.c:302/393/913, quirks.c:166/211/425, mixer.c:2948, mixer_quirks.c:1513, misc/ua101.c:906-1011, midi.c:1085/1970) were identified but not fully resolved to their guarding format-table construction; altset_idx-based accesses likely derive from enumerated altsettings and are safe, but alt-1 literals need one more pass.",
+    "Runtime S_ALT/set_alt re-validation paths (UVC uvc_video.c:1850-1881, gspca gspca.c:783/826, em28xx) were spot-checked: uvc uses usb_altnum_to_altsetting-equivalent loops over num_altsetting and gspca alt_xfer takes the alt index from the same loop bounds; a deeper per-driver audit of all set_alt handlers was not completed.",
+    "tm6000-cards.c:1235 and stk1160-core.c:188 iterate e < altsetting[i].desc.bNumEndpoints, so their endpoint indexing is bounded; the enclosing altsetting-loop bounds (i < num_altsetting) are core-derived and were assumed, not independently re-proven per driver.",
+    "No compilation or dynamic reproducer was run for the two reported candidates; the OOB write in stv06xx_isoc_nego depends on usb_set_interface succeeding after the cache mutation, but the write at line 326-336 occurs before the set_interface call and is unguarded regardless."
+  ]
+}

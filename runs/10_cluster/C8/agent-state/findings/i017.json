@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "if-alt-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "start": 314,
+      "end": 348,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];\n\talt->endpoint[0].desc.wMaxPacketSize =",
+      "confidence": "high",
+      "reason": "Untrusted source: usb_host_config.intf_cache[] is allocated (drivers/usb/core/config.c:698-699, kzalloc of sizeof(*intfc)+sizeof(struct usb_host_interface)*nalts) and filled solely from the configuration descriptors a physically attacker-controlled USB gadget presents at enumeration; usb_parse_configuration recomputes bNumInterfaces/num_altsetting from the raw descriptor stream (config.c:668-674), so num_altsetting==1 and altsetting-with-fewer-endpoints devices are accepted with only dev_warn. Missing guarantee: stv06xx_isoc_init (line 320) and stv06xx_isoc_nego (line 333) index intf_cache[0]->altsetting[1] with a literal 1 and never check intf_cache[0]->num_altsetting >= 2 (grep of stv06xx.c shows zero num_altsetting references), nor altsetting[1].desc.bNumEndpoints >= 1 before touching ->endpoint[0]; the gspca core invokes these hooks at VIDIOC_STREAMON (gspca.c:850-856 gspca_init_transfer_kind -> sd_desc->isoc_init, and :957-960 -> sd_desc->isoc_nego) before any alt selection of its own has validated altsetting 1. Unsafe use: alt->endpoint[0].desc.wMaxPacketSize is read and WRITTEN (lines 321-322, 334, 342) to fake bandwidth negotiation, then usb_set_interface(dev, iface, 1) (line 344) selects the altsetting whose real wMaxPacketSize sizes the later isoc URBs; with a single-altsetting gadget (num_altsetting==1, common for these Logitech VID/PIDs spoofable by a gadget) the altsetting[1] expression reads/writes past the usb_interface_cache allocation (kzalloc sized for 1 alt), giving an out-of-bounds 16-bit write of driver-computed packet_size into adjacent kernel heap at first stream start, or NULL/garbage deref; a 2-altsetting gadget whose alt 1 has bNumEndpoints==0 additionally OOB-accesses endpoint[0]. Counterevidence checked: stv06xx.c contains no num_altsetting or bNumEndpoints check anywhere (grep); the gspca core's own paths are guarded (build_isoc_ep_tb loops actual altsettings; gspca.c:890 num_altsetting>1 before usb_set_interface) but those guards run for the core-selected alt, not for the subdriver's hardcoded intf_cache[0]->altsetting[1]; stv06xx.c:285-286's own usb_altnum_to_altsetting NULL-checked use is a different (start-path) function. Same mechanism and trigger as the seed's trust of descriptor-declared counts, one level up (altsetting count instead of endpoint count)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "start": 2635,
+      "end": 2691,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];\n\talt->endpoint[0].desc.wMaxPacketSize = cpu_to_le16(max_packet_size);",
+      "confidence": "medium",
+      "reason": "Same pattern in sd_isoc_init (lines 2653-2654) and sd_isoc_nego (2676-2686): literal altsetting[1] into actconfig->intf_cache[0] with zero num_altsetting>=2 or bNumEndpoints>=1 validation anywhere in xirlink_cit.c (grep: only the four intf_cache/altsetting[1] lines plus NULL-checked usb_altnum_to_altsetting at 1447-1448 in cit_get_packet_size); wMaxPacketSize is patched (2654, 2684) then usb_set_interface(dev, iface, 1) at 2686. A malicious gadget matching the CIT/ibmcam device_table IDs with one altsetting gives the same OOB write past the usb_interface_cache flex array at VIDIOC_STREAMON (gspca.c:852-853 calls sd_desc->isoc_init unconditionally when the hook exists). Confidence medium rather than high because the other alt accessor in the file is NULL-safe and some supported models negotiate via bulk paths, but the isoc hook fires from the same unguarded core call site. Same seed mechanism, different driver/file from the cx231xx demonstration, and altsetting-level rather than endpoint-level."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "line": 1443,
+      "status": "safe",
+      "reason": "Model-index branch actconfig->interface[usbvision_device_data[model].interface]->altsetting[0] lacks the bNumInterfaces check that the sibling ifnum branch (1444-1445) has; but every one of the 67 model entries in this snapshot's usbvision-cards.c is .interface == -1 (47) or .interface == 0 (20), so the only index used is 0, and config->interface[0] is non-NULL whenever the config parsed with nintf>=1 (kzalloc'd array of nintf entries, each filled by usb_parse_interface); a 0-interface config cannot reach a bound usbvision probe because there would be no interface to probe. Not triggerable as written in s04."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/em28xx/em28xx-audio.c",
+      "line": 763,
+      "status": "safe",
+      "reason": "Runtime alt-switch consumer does validate: intf->num_altsetting <= alt rejected at 763-767 before altsetting[alt].endpoint[] scan bounded by bNumEndpoints (769-770); dev->ifnum comes from the bound interface. Correct pattern."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/em28xx/em28xx-cards.c",
+      "line": 3429,
+      "status": "safe",
+      "reason": "ifnum derived from altsetting[0].desc.bInterfaceNumber is used only in log messages and stored dev fields; the endpoint scan at 3478-3485 is bounded by num_altsetting and bNumEndpoints loops."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/serial/ftdi_sio.c",
+      "line": 1886,
+      "status": "safe",
+      "reason": "actconfig->interface[0]/[1] appear only in pointer-equality comparisons (1886, 1922-1923); a short interface array yields NULL which merely makes the comparison false. No dereference of an unvalidated index."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/serial/usb-serial.c",
+      "line": 832,
+      "status": "safe",
+      "reason": "Guarded by interface != dev->actconfig->interface[0] at 830; the subsequent interface[0]->cur_altsetting read happens only when interface IS interface[0], i.e. the non-NULL interface currently being probed."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 850,
+      "status": "safe",
+      "reason": "Core stream-on path: usb_ifnum_to_if(udev, gspca_dev->iface) with iface captured from the bound interface at probe; alt table built by build_isoc_ep_tb iterating actual altsettings; usb_set_interface only when intf->num_altsetting > 1 (gspca.c:890). The core itself does not violate the invariant; the violations are in the subdriver isoc_init/isoc_nego hooks it calls (reported as findings)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/dvb-usb/m920x.c",
+      "line": 131,
+      "status": "unresolved",
+      "reason": "m920x uses usb_altnum_to_altsetting(intf, 1) with a visible NULL comparison at line 131 ((alt = usb_altnum_to_altsetting(intf, 1)) == NULL) and at 474 the result feeds a further use whose NULL-check was not read before the finalize instruction; the NULL-comparison form suggests it is guarded but the second site's full context is unexamined."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/pwc/pwc-if.c",
+      "line": 381,
+      "status": "unresolved",
+      "reason": "idesc = usb_altnum_to_altsetting(intf, pdev->valternate) at line 381; the NULL handling of idesc between 381 and its endpoint use was not read before the finalize budget; pdev->valternate is driver state influenced by the negotiated alt table, so a mismatch could yield NULL, but this was not confirmed."
+    },
+    {
+      "snapshot": "s04",
+      "path": "sound/usb/pcm.c",
+      "line": 297,
+      "status": "safe",
+      "reason": "snd_usb_init_sample_rate-era altsetting accessors in this snapshot carry explicit guards: pcm.c:297 'if (!iface || iface->num_altsetting < altsetting + 1)' before altsetting[altsetting] use; quirks.c:221/432 and mixer_quirks.c:1523 check num_altsetting < 2; midi.c:1945/1990 and misc/ua101.c:926 check num_altsetting != 2 / < 1 with !intf. The sound/usb fixed altsetting sites visible in this snapshot's grep are guarded."
+    }
+  ],
+  "limitations": [
+    "Findings are static source hypotheses; no kernel build, Kconfig check (CONFIG_USB_GSPCA_STV06XX / CONFIG_USB_GSPCA_CIT) or USB-gadget reproducer was run because the snapshot is read-only and this intent was finalized on collected evidence.",
+    "The exact OOB shape depends on the kzalloc'd usb_interface_cache size (config.c:698-699): num_altsetting==1 makes altsetting[1] an out-of-allocation read/write; a device with >=2 altsettings but bNumEndpoints==0 in alt 1 turns the same statement into the endpoint-level OOB owned by the media-epidx branch; both stem from the identical unvalidated altsetting[1] index.",
+    "Interface-count sweep outside drivers/media, drivers/net, drivers/usb, drivers/staging, sound/usb (e.g. hid, input, iio under other directories) was not completed for this branch in this session; actconfig->interface[...] grep over the whole s04 tree returned matches only in the trees listed in candidates plus drivers/usb/core (core code loops over bNumInterfaces or uses interface[0] of a bound hub interface, structurally in-bounds).",
+    "usb_altnum_to_altsetting consumers m920x.c:474 and pwc-if.c:381 were not fully read and remain unresolved; the remainder of the usb_set_interface call-site list from the sweep (dvb-usb cxusb/ttusb2/technisat-usb2, dvb-usb-v2 mxl111sf/ce6230, pvrusb2, msi2500, cpia2, flexcop-usb) switches to altsettings the usb core validates against the parsed descriptor set, but per-site endpoint re-validation was not individually audited beyond em28xx.",
+    "sound/usb set_alt/pcm alt sites beyond the grep-verified guards (pcm.c:297/335/346/355, quirks.c:221/432, mixer_quirks.c:1523, midi.c:1945/1990, ua101.c:926) were not exhaustively deep-read; the fixed altsetting[1] literals found in the sweep are in these guarded files."
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/hv/hv_balloon.c",
+      "start": 1350,
+      "end": 1362,
+      "quote": "int range_count = req->range_count;",
+      "confidence": "medium",
+      "reason": "Untrusted source: the Hyper-V host (peer endpoint of the guest-host vmbus virtual device channel) sends DM_UNBALLOON_REQUEST; balloon_onchannelcallback() (drivers/hv/hv_balloon.c:1475-1519) receives it into the static u8 recv_buffer[PAGE_SIZE] (line 506) via vmbus_recvpacket() (lines 1489-1490) and dispatches on dm_hdr->type with the only gate being recvlen > 0 (line 1492) - the peer-supplied hdr.size is never checked against recvlen on this path, while the sibling DM_MEM_HOT_ADD_REQUEST handler does compare ha_msg->hdr.size == sizeof(struct dm_hot_add) (line 1527) - asymmetric validation between message types of the same host protocol, mirroring the seed's submit-vs-return asymmetry. Violated invariant: balloon_down() fetches range_count = req->range_count (line 1354), a raw peer-controlled __u32, with no clamp against a known maximum, no cross-check against recvlen/PAGE_SIZE, and no comparison to the locally-known set of pages the guest actually ballooned, then iterates for (i = 0; i < range_count; i++) free_balloon_pages(dm, &range_array[i]) (lines 1359-1360) - an OOB read walking past the PAGE_SIZE recv_buffer for oversized range_count. Unsafe use: each element's 24-bit host field num_pages = range_array->finfo.page_cnt and 40-bit start_frame = range_array->finfo.start_page (free_balloon_pages, lines 1194-1195) feed for (i = 0; i < num_pages; i++) { pg = pfn_to_page(i + start_frame); __free_page(pg); dm->num_pages_ballooned--; } (lines 1199-1203) - a peer-chosen PFN range is converted and freed with no pfn_valid() check, no membership check against the guest's ballooned-page bookkeeping, and an unbounded decrement of the unsigned num_pages_ballooned counter (underflow). Counterevidence checked: no clamp on range_count/page_cnt anywhere between vmbus_recvpacket and the loops; the only sibling-path size check (hdr.size for hot-add) is absent for unballoon; balloon_up path (DM_BALLOON_REQUEST, line 1512) is separately bounded by the PAGE_SIZE bl_resp->hdr.size check and alloc_pages failure and is safe. Impact argued from source only: arbitrary/invalid page free or refcount corruption from a malicious or compromised host injecting into the balloon channel; attacker is the hypervisor peer (standard drivers/hv threat model), not a remote network peer, hence medium confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1354,
+      "status": "reported",
+      "reason": "balloon_down(): peer-supplied req->range_count (__u32 from DM_UNBALLOON_REQUEST in static recv_buffer[PAGE_SIZE]) drives the free_balloon_pages() loop with no range check vs recvlen or any protocol maximum; dispatch path (lines 1516-1519) checks only recvlen > 0."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1194,
+      "status": "reported",
+      "reason": "free_balloon_pages(): host-supplied 24-bit page_cnt and 40-bit start_page (lines 1194-1195) drive pfn_to_page(i + start_frame) + __free_page() (lines 1199-1202) with no pfn_valid() and no cross-check against the guest's ballooned-page bookkeeping; num_pages_ballooned-- underflows."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/block/nbd.c",
+      "line": 541,
+      "status": "safe",
+      "reason": "nbd_read_stat(): reply magic checked; handle resolved through blk_mq tag tables bounded by nr_hw_queues with blk_mq_request_started gate; read data goes only into the request's own bvec segments via sock_xmit/iov_iter with per-segment bvec.bv_len bound - no peer length drives allocation or unbounded iteration."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/9p/trans_virtio.c",
+      "line": 154,
+      "status": "safe",
+      "reason": "req_done(): virtqueue-supplied len used only as a boolean (if (len) p9_client_cb); response parsing bounded by client msize; probe path tag_len is a __u16 config field so kmalloc(tag_len) is bounded <= 65535 with no arithmetic overflow."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/virtio_net.c",
+      "line": 818,
+      "status": "safe",
+      "reason": "receive_mergeable(): peer num_buf (hdr->num_buffers) loops are per-buffer bounded - len > truesize rejected before use (line 833), num_skb_frags == MAX_SKB_FRAGS forces a new skb/frag_list (lines 836-848), buffers come only from virtqueue_get_buf (no allocation sized by peer count), and xdp_linearize_page() rejects page_off + buflen + tailroom > PAGE_SIZE before memcpy - the same site i011 flagged unresolved in s03 is bounded here."
+    },
+    {
+      "snapshot": "s04",
+      "path": "fs/cifs/smb2misc.c",
+      "line": 105,
+      "status": "safe",
+      "reason": "get_neg_ctxt_len(): peer NegotiateContextCount validated by nc_offset >= non_ctxlen and len < nc_offset + (neg_count * sizeof(struct smb2_neg_context)) frame-bound checks; smb2_get_data_area_len() clamps offset > 4096 and length > 128K to zero before use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/virt/vboxguest/vboxguest_utils.c",
+      "line": 576,
+      "status": "safe",
+      "reason": "hgcm_call_copy_back_result(): copy_to_user length is min(src_parm->u.pointer.size, dst_parm->u.pointer.size) - the host-set size is capped by the locally-known destination parameter size."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1512,
+      "status": "safe",
+      "reason": "DM_BALLOON_REQUEST path: host num_pages only bounds an allocation loop that is itself bounded by the PAGE_SIZE bl_resp->hdr.size check in alloc_balloon_pages() and by alloc_pages failure; the error path frees only entries the guest itself built in range_array."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: peer/virtual-transport reply handlers deep-read in s04 were drivers/hv/hv_balloon.c (vmbus dynamic-memory), drivers/block/nbd.c, net/9p/trans_virtio.c, drivers/net/virtio_net.c, fs/cifs/smb2misc.c, drivers/virt/vboxguest/vboxguest_utils.c; xen-blkfront/xen-blkback, drbd, drivers/block/rbd.c (ceph), fs/cifs/smbdirect.c, net/9p trans_fd/trans_rdma/trans_xen, drivers/hv hv_kvp/hv_fcopy/hv_snapshot channels, virtio_scsi, vmw_pvscsi, vhost, and vsock were only enumerated, not deep-read.",
+    "Impact of the reported hv_balloon finding is argued from source only: no runtime reproducer was built (read-only snapshot; the vmbus balloon channel requires a Hyper-V host injecting DM_UNBALLOON_REQUEST messages); pfn_to_page()+__free_page() on host-chosen PFNs without pfn_valid() is a source-level invariant violation, but end-to-end corruption behavior was not demonstrated.",
+    "The reported chain's attacker is the hypervisor/host peer (semi-trusted in the standard drivers/hv threat model), weaker than the seed's remote-network attacker; confidence is medium for the mechanism, lower for real-world exploitability.",
+    "The seed's own usbip code present unpatched in s04 (drivers/usb/usbip) was excluded per the seed-never-reportable rule and re-covered by intents i015/i016; it is not re-reported here."
+  ]
+}

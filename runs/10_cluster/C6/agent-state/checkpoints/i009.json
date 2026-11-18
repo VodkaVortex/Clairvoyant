@@ -1,0 +1,69 @@
+{
+  "intent_id": "i009",
+  "branch": "rx-pull-stale-hdr",
+  "snapshot": "s03",
+  "status": "complete",
+  "progress": "Finalized. Scanner over s03 net/ + drivers/ produced 234 capture-before-pull chains; strongest deep-read: mac80211 rx.c TDLS block (tf at 3324, pskb_may_pull 3326-3327, stale tf->payload_type/category/action_code 3328-3330) = finding (high); mac80211 tdls.c worker (tf at 2010, skb_linearize 2020, stale tf->action_code 2026) = finding (medium, overlaps i010/f002). Safe in s03: br_multicast.c igmp3 report (grec reloaded 2921, scalars pre-copied), br_ip6_multicast_query (fresh ipv6_hdr(skb) accessor at 3616, mld/mld2q re-derived), ip6_forward_proxy_check (hdr refetched 471 after pull 451), psp_main.c (psph refetched 362, iph/uh read pre-pull), pppoe.c (capture after pull 1224 / no pull before use 1202). Unresolved unread chains: igmp.c 963, ip_input.c 365, ovs flow.c 449 and the multi-function-span scanner hits; drivers chains pattern-screened only.",
+  "candidates": [
+    {
+      "path": "net/mac80211/rx.c",
+      "line": 3324,
+      "status": "reported"
+    },
+    {
+      "path": "net/mac80211/tdls.c",
+      "line": 2010,
+      "status": "reported"
+    },
+    {
+      "path": "net/phonet/pep.c",
+      "line": 55,
+      "status": "reported (seed location itself, reported by sibling i011; not a new variant)"
+    },
+    {
+      "path": "net/bridge/br_multicast.c",
+      "line": 2869,
+      "status": "safe"
+    },
+    {
+      "path": "net/bridge/br_multicast.c",
+      "line": 3616,
+      "status": "safe"
+    },
+    {
+      "path": "net/ipv6/ip6_output.c",
+      "line": 436,
+      "status": "safe"
+    },
+    {
+      "path": "net/psp/psp_main.c",
+      "line": 345,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/net/ppp/pppoe.c",
+      "line": 1191,
+      "status": "safe"
+    },
+    {
+      "path": "net/ipv4/udp_offload.c",
+      "line": 181,
+      "status": "reported (by sibling i019 gro intent)"
+    },
+    {
+      "path": "net/ipv4/igmp.c",
+      "line": 963,
+      "status": "unresolved"
+    },
+    {
+      "path": "net/ipv4/ip_input.c",
+      "line": 365,
+      "status": "unresolved"
+    },
+    {
+      "path": "net/openvswitch/flow.c",
+      "line": 449,
+      "status": "unresolved"
+    }
+  ]
+}

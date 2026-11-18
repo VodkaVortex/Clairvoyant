@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "intent_id": "i021",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s05"
+  ],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/rpmsg/qcom_glink_native.c",
+      "start": 833,
+      "end": 838,
+      "quote": "chunk_size = le32_to_cpu(hdr.chunk_size);\n\tleft_size = le32_to_cpu(hdr.left_size);\n\n\tif (avail < sizeof(hdr) + chunk_size) {",
+      "confidence": "medium",
+      "reason": "Peer-trusted-transport invariant violation in Qualcomm glink, the smem/mailbox channel to the remote subsystem (modem/SSR peer) - the kernel-side client of a remote virtual device transport, matching the seed's remote-endpoint attacker without sharing the seed's subsystem. UNTRUSTED SOURCE: qcom_glink_rx_data() (drivers/rpmsg/qcom_glink_native.c:810-922) peeks the glink TX_DATA header out of the shared-memory RX fifo; hdr.chunk_size and hdr.left_size (line 833-834) are raw 32-bit fields written by the remote peer. MISSING LOCAL LIMIT CHECK: the only validation, line 836 'avail < sizeof(hdr) + chunk_size', compares the peer field against glink_smem_rx_avail() (drivers/rpmsg/qcom_glink_smem.c:70-76), which is itself derived from peer-writable shared memory: head = le32_to_cpu(*pipe->head) where pipe->head points into the remote-partition SMEM item - the bound is computed from the same attacker-controlled memory it is meant to validate (the peer independently resets *pipe->tail via glink_smem_rx_advance, so the two are not a common validated snapshot); chunk_size is never checked against a kernel-known maximum (no min with fifo length/pipe->native.length) and can be up to 0xffffffff. UNSAFE USE: after idr lookup, qcom_glink_rx_peak(glink, intent->data + intent->offset, sizeof(hdr), chunk_size) at line 897-898 copies peer-supplied chunk_size bytes; in glink_smem_rx_peak (qcom_glink_smem.c:79-97) len = min_t(count, pipe->native.length - tail) caps only within one lap of the fifo, but the wraparound branch 'if (len != count) memcpy_fromio(data + len, pipe->fifo, (count - len))' then copies the remainder starting at fifo offset 0, so the destination kernel buffer receives up to pipe->native.length bytes while the intent was sized from a different peer field: kmalloc(chunk_size + left_size) at line 859/867 (intentless mode, chunk_size+left_size can overflow/truncate in unsigned int and disagree with the count later copied), and in the normal intent mode the intent buffer was allocated by a *previous, separate* peer message (intent announce at lines 967-972, intent->size = le32_to_cpu(msg->intents[i].size)); the local space check at line 890 'intent->size - intent->offset < chunk_size' is unsigned and, more importantly, is evaluated against intent sizes that are themselves peer-supplied and stored in shared kernel state, while the actual copy length crosses the peak() wrap logic - a peer that announces a small intent then sends a TX_DATA whose chunk_size passes the (attacker-derived) avail check drives a read past the intent heap buffer into the rpmsg callback (channel->ept.cb at line 908-914) and onward to rpmsg consumers. IMPACT: peer-triggered OOB read of shared fifo memory / OOB write past the kmalloc'd intent buffer (heap corruption) on any QCOM platform using glink-smem/glink-rpm; the asymmetry mirrors the seed: the local intent-based sizing path and the wire-data copy path validate against different, independently-fetched peer values. COUNTEREVIDENCE CHECKED: (1) avail/chunk_size arithmetic happens in unsigned int and 'avail < sizeof(hdr) + chunk_size' can itself wrap, but even without wrap the bound source is peer-writable SMEM; (2) the non-intentless fast path re-checks intent->size - intent->offset >= chunk_size (line 890) which bounds the write for honestly-announced intents - the residual risk is that intent->size comes from the peer's own earlier INTENT announce (line 972), not a kernel-chosen limit, and that the intentless kmalloc(chunk_size + left_size) allocation and the later chunked copies are driven by independent peer fields; (3) upstream glink is designed assuming a cooperative peer, same trust posture the seed criticizes for wire transports."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/rpmsg/qcom_glink_native.c",
+      "line": 836,
+      "status": "reported",
+      "reason": "Only validation of peer chunk_size is against avail computed from peer-writable SMEM head/tail (qcom_glink_smem.c:70-76), never against pipe->native.length or a kernel-known max; copy at line 897-898 uses the raw peer field via qcom_glink_rx_peak; reported as finding."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/greybus/es2.c",
+      "line": 844,
+      "status": "safe",
+      "reason": "cport_in_callback passes urb->actual_length (HCI-set, <= transfer_buffer_length by USB contract, buffer allocated by es2 itself) to greybus_data_rcvd; downstream gb_connection_recv (operation.c:1030-1064) requires size >= sizeof(header) and size >= msg_size, and gb_operation_create_incoming (operation.c:630-655) re-allocates request buffers with request_size = size - hdr bounded by hd->buffer_size_max in gb_operation_message_alloc (operation.c:361-368). No undersized-copy chain."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/greybus/operation.c",
+      "line": 1038,
+      "status": "safe",
+      "reason": "gb_connection_recv compares wire msg_size only against the delivered size (also wire-derived) - the same mirror-only weakness as the s03 beagleplay finding (f002), but in s05 the only greybus host driver is es2.c whose delivered length is HCI-bounded; no unbounded deliverer exists in this snapshot, so the weakness is not reachable."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/9p/trans_virtio.c",
+      "line": 140,
+      "status": "safe",
+      "reason": "virtio 9p receive loop stores peer-set used-ring len into req->rc.size (line 147), but rc buffers were posted by the client with msize-bounded sg lists (pack_sg_list, client->msize clamped at negotiation) and p9_parse_header (net/9p/client.c:441-479) rejects pdu->size != r_size; p9_check_errors and trans_fd both reject rc.size >= client->msize; zc error path handle_rerror (trans_virtio.c:381-408) truncates to P9_ZC_HDR_SZ before memcpy_from_page. Peer lengths cross-checked against locally negotiated msize."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/virtio_net.c",
+      "line": 944,
+      "status": "safe",
+      "reason": "receive_mergeable consumes peer num_buf = virtio16_to_cpu(hdr->num_buffers); while(--num_buf) loop is bounded by virtqueue_get_buf_ctx availability, per-buffer len is checked against locally-known truesize (len > truesize -> error), and frag count is capped by MAX_SKB_FRAGS with frag_list rollover to a fresh skb; xdp_linearize_page (line 717-760) guards page_off + buflen + tailroom > PAGE_SIZE. Peer counts cross-checked against local limits."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/rpmsg/qcom_glink_native.c",
+      "line": 942,
+      "status": "safe",
+      "reason": "qcom_glink_handle_intent uses const size_t msglen = struct_size(msg, intents, count) with 'avail < msglen' check before kmalloc(msglen) and the copy loop iterates the same clamped count; overflow-safe sizing, unlike the rx_data path."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/block/nbd.c",
+      "line": 713,
+      "status": "safe",
+      "reason": "nbd_read_reply reads a fixed sizeof(struct nbd_reply) header; nbd_handle_reply (line 709-800) cross-checks the peer handle against kernel-issued tag/hwq/cmd_cookie before use, and reply payload reads are driven by rq_for_each_segment over the kernel-built request, not by any peer-supplied length; no peer count drives allocation or loop."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: deep-read greybus (es2.c, connection.c, operation.c), rpmsg qcom_glink_native.c/qcom_glink_smem.c, 9p trans_virtio.c/trans_fd.c, virtio_net receive_mergeable/xdp_linearize_page, and nbd reply handling; 9p trans_rdma/trans_xen, ceph/cifs/smb reply parsers, fuse device, xen-blkfront/back, mctp, nfc NCI, vhost, and virtio_rpmsg_bus were only enumerated, not deep-read.",
+    "The reported glink chain depends on the remote peer posting head beyond its own fifo partition (or racing tail advance), i.e. a malicious/compromised modem-side peer; no runtime reproducer was built because the assigned tree is read-only and the transport requires QCOM SMEM peer hardware.",
+    "Impact is bounded: the dominant risk shown from source is an OOB read of up to one fifo length plus OOB write past the peer-sized intent buffer (kmalloc(chunk_size + left_size) can also truncate in unsigned int arithmetic); no path delivering the copied bytes back to userspace was proven, so confidence is medium for the invariant violation and lower for end-to-end impact.",
+    "Whether pipe->head/pipe->tail really point into the remote-writeable SMEM partition (vs an atomic-protected local copy) was established from the qcom_smem_get() acquisition in glink_smem_rx_avail (qcom_glink_smem.c:57-68) and the __le32 pointer types, not from a hardware layout document."
+  ]
+}

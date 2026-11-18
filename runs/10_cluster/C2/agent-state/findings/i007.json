@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "ip-exthdr-tlv-walk",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 144,
+      "status": "safe",
+      "reason": "ip6_parse_tlv (hop-by-hop/destination option walk) consumes the type byte in the Pad1 fast path only when nh[off]==IPV6_TLV_PAD1, and otherwise enforces 'if (len < 2) goto bad' (line 144) before reading the length byte nh[off+1] (line 146) and 'if (optlen > len) goto bad' (line 147) before advancing. Both callers (ipv6_parse_hopopts line 1049-1051, ipv6_destopt_rcv line 306-308) pskb_may_pull the full (hdrlen+1)<<3 option area first, so the walk buffer is guaranteed present. Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/exthdrs_core.c",
+      "line": 146,
+      "status": "safe",
+      "reason": "ipv6_find_tlv verifies 'offset + 2 > packet_len' (line 123) and 'offset + len > packet_len' (line 128) against skb_tail_pointer-derived packet_len before the walk; inside the loop PAD1 is a 1-byte fast path and every other type requires 'if (len < 2) goto bad' (line 146) before reading nh[offset+1] plus 'optlen > len' guard (lines 148-150). ipv6_find_hdr and ipv6_skip_exthdr in the same file use skb_header_pointer with sizeof(struct ipv6_opt_hdr) (=2) before touching hdrlen/nexthdr, returning -EBADMSG/-1 on truncation. Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/ip_options.c",
+      "line": 274,
+      "status": "safe",
+      "reason": "__ip_options_compile, the IPv4 IPOPT walk used by ip_input.c line 290 and cipso_ipv4.c line 1731, handles IPOPT_END/IPOPT_NOOP as 1-byte fast paths and for all other kinds enforces 'if (unlikely(l < 2)) { pp_ptr = optptr; goto error; }' (lines 274-277) before 'optlen = optptr[1]' (line 278), then 'optlen < 2 || optlen > l' (line 279). Same guards in ip_options_fragment (lines 211-213). ip_options_rcv_srr (line 585) runs only after compile-time validation of the SRR option (optlen>=3, ptr>=4, optlen<=l checked at lines 286-302). Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/ah6.c",
+      "line": 148,
+      "status": "safe",
+      "reason": "Both AH mutable-option walkers, zero_out_mutable_opts (lines 140-160) and ipv6_rearrange_destopt (lines 184-218), treat IPV6_TLV_PAD1 as the only 1-byte fast path and otherwise enforce 'if (len < 2) goto bad' (lines 148, 192) before 'optlen = opt[off+1]+2' plus 'if (len < optlen) goto bad' (lines 151, 195). Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/calipso.c",
+      "line": 813,
+      "status": "safe",
+      "reason": "calipso_tlv_len rejects offset beyond opt_len, special-cases PAD1 (1 byte), and requires 'if (offset + 1 >= opt_len) return -EINVAL' (line 813) before reading tlv[offset+1] and 'offset + tlv_len > opt_len' (line 816) before advancing. All calipso TLV consumers (calipso_opt_find line 852, calipso_sock_getattr line 1088) iterate via calipso_tlv_len and stop at opt_len. Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/ndisc.c",
+      "line": 232,
+      "status": "safe",
+      "reason": "ndisc_parse_options (lines 229-283) checks 'if (opt_len < sizeof(struct nd_opt_hdr)) return NULL' (2-byte header, line 232-233) before reading nd_opt_len, then 'if (opt_len < l || l == 0) return NULL' (line 235-236) before 'opt_len -= l; nd_opt += l' (lines 281-282). ndisc_next_option/ndisc_next_useropt (lines 184-218) only walk already-validated option chains for cmsg copies. Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/utils.c",
+      "line": 207,
+      "status": "safe",
+      "reason": "nf_ip6_check_hbh_len (lines 183-230) pskb_may_pulls the full hop-by-hop header (off+8 and off+len), special-cases PAD1, and enforces 'if (len < 2) return -EBADMSG' (line 207) before 'optlen = nh[off + 1] + 2' (line 209) and 'if (optlen > len)' (line 210). Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/netfilter/ip6t_hbh.c",
+      "line": 122,
+      "status": "safe",
+      "reason": "hbh_mt6 hop-by-hop/destination match walks TLVs with 'hdrlen < 1' before the type byte and 'if (hdrlen < 2) break' (line 122) before reading the length byte via skb_header_pointer (lines 124-126), plus 'ptr > skb->len - optlen || hdrlen < optlen' before advancing (line 146). ip6t_rt.c similarly validates hdrlen against skb->len and uses skb_header_pointer per address. Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/seg6.c",
+      "line": 60,
+      "status": "safe",
+      "reason": "seg6_validate_srh trailing-TLV loop (lines 56-71) requires 'if (trailing < sizeof(*tlv)) return false' (sizeof(struct sr6_tlv)==2, line 60) before dereferencing tlv->len, then 'trailing -= tlv_len; if (trailing < 0) return false' so the cursor never advances past len. Callers (seg6_get_srh line 91, seg6_iptunnel/exthdrs.c ipv6_srh_rcv) pskb_may_pull the full (hdrlen+1)<<3 first. Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/flow_dissector.c",
+      "line": 1555,
+      "status": "safe",
+      "reason": "__skb_flow_dissect hop-by-hop/routing/destination step (lines 1547-1563) reads the 2-byte {nexthdr,hdrlen} pair atomically via __skb_header_pointer(skb, nhoff, sizeof(_opthdr), data, hlen, &_opthdr) and bails with FLOW_DISSECT_RET_OUT_BAD if the pair is not fully inside the packet before 'nhoff += (opthdr[1] + 1) << 3'. NEXTHDR_FRAGMENT is likewise fetched via 8-byte __skb_header_pointer. Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/output_core.c",
+      "line": 88,
+      "status": "safe",
+      "reason": "ip6_find_1stfragopt checks 'if (offset + sizeof(struct ipv6_opt_hdr) > packet_len) return -EINVAL' (line 88, 2-byte exthdr fully in packet) before reading exthdr->hdrlen, and 'if (offset > IPV6_MAXPLEN) return -EINVAL' after advancing (line 94). Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/cipso_ipv4.c",
+      "line": 1503,
+      "status": "safe",
+      "reason": "cipso_v4_optptr iterates 'for (optlen = ihl*4 - sizeof(iphdr); optlen > 1; )' so a lone trailing non-END/NOOP byte ends the loop before optptr[1] is read; after a type byte is consumed there are always >=2 bytes in the remaining window, and '!taglen || taglen > optlen' (line 1513) validates the advance. cipso_v4_validate (line 1545) reads opt[1] only after its caller __ip_options_compile has validated optlen>=2, and its tag loop checks 'opt_iter + 1 == opt_len' (line 1580) before tag[1] and 'tag_len > (opt_len - opt_iter)' (line 1585). Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/ah4.c",
+      "line": 92,
+      "status": "safe",
+      "reason": "ip_clear_mutable_options walks IPv4 options with IPOPT_END return / IPOPT_NOOP 1-byte fast paths, then 'optlen = optptr[1]; if (optlen<2 || optlen>l) return -EINVAL' (lines 92-94) before using or advancing. Comment notes options were already validated by __ip_options_compile. Invariant intact."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 1062,
+      "status": "safe",
+      "reason": "ipv6_parse_hopopts and ipv6_destopt_rcv pskb_may_pull the complete option header ((hdrlen+1)<<3) before calling ip6_parse_tlv, and ipv6_rthdr_rcv (line 664-666) and ipv6_srh_rcv/ipv6_rpl_srh_rcv operate on already-pulled headers with hdrlen/segments_left consistency checks (e.g. segments_left >= (hdrlen>>1) rejection at line 428). Sub-option handlers ipv6_hop_ra/jumbo/calipso read nh[optoff+1] only after ip6_parse_tlv has verified optlen>=2 fits within the pulled header. Invariant intact."
+    }
+  ],
+  "limitations": [
+    "Bounded to the ip-exthdr-tlv-walk branch (IP-layer variable-length header walkers) in snapshots/s03 only; the seed mptcp_get_options itself and TCP-option walkers belong to branch tcp-optwalk-len2 (i002/i004) and were not re-audited here.",
+    "Files surveyed but only via targeted reads of the loop bodies, not full-function analysis of every caller: net/ipv6/datagram.c ipv6_recv_rxpmtu/datagram cmsg re-parse (lines 644-697, ptr[0]/ptr[1] reads rely on the same opt->lastopt bookkeeping validated at input), net/ipv6/ip6_offload.c ipv6_gro_pull_exthdrs/ipv6_exthdrs_len (both use 2-byte header fetches via skb_gro_header/pskb_may_pull), net/ipv6/icmp.c and net/ipv6/mcast_snoop.c (both delegate to ipv6_skip_exthdr/ipv6_find_tlv), net/ipv6/ip6_tunnel.c, net/ipv6/fou6.c, net/xfrm/xfrm_output.c.",
+    "Drivers and non-net/ subsystems with their own IP-option TLV copies (e.g. NIC firmware parsers, netfilter xt_bpf helpers) were not exhaustively enumerated; the audit focused on the core in-tree walkers named in the intent (IPv4 IPOPT loops, IPv6 hop-by-hop/destination-option and other exthdr TLV iteration, net/core IP-option helpers) plus adjacent netfilter/seg6/calipso/ndisc walkers.",
+    "Runtime confirmation (KASAN reproducer or targeted compilation) was not performed because no candidate violated the invariant; all conclusions are from static reading of the guard checks and the pskb_may_pull/skb_header_pointer bounds establishment in the same functions."
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "rtnl-doit-attr-gaps",
+  "status": "complete",
+  "snapshot": "s01",
+  "notes": "Bounded audit of rtnetlink RTM_* doit/setlink/newlink/dellink/getlink/dumpit handlers in snapshots/s01. One credible finding: mpls_valid_fib_dump_req() (CONFIG_INET=n variant) dereferences tb[RTA_OIF] via nla_get_u32() without a NULL check in its RTM_GETROUTE dump filter loop. All other examined handlers correctly guard every tb[] dereference. Final artifact written.",
+  "candidates": [
+    {
+      "path": "net/mpls/af_mpls.c",
+      "line": 2118,
+      "status": "reported"
+    },
+    {
+      "path": "net/core/rtnetlink.c",
+      "line": 4792,
+      "status": "safe"
+    },
+    {
+      "path": "net/sched/act_api.c",
+      "line": 1449,
+      "status": "safe"
+    },
+    {
+      "path": "net/phonet/pn_netlink.c",
+      "line": 248,
+      "status": "safe"
+    },
+    {
+      "path": "net/qrtr/qrtr.c",
+      "line": 1043,
+      "status": "safe"
+    },
+    {
+      "path": "net/core/net_namespace.c",
+      "line": 722,
+      "status": "safe"
+    },
+    {
+      "path": "net/core/fib_rules.c",
+      "line": 493,
+      "status": "safe"
+    },
+    {
+      "path": "net/ipv4/devinet.c",
+      "line": 637,
+      "status": "safe"
+    },
+    {
+      "path": "net/bridge/br_netlink.c",
+      "line": 854,
+      "status": "safe"
+    },
+    {
+      "path": "net/dcb/dcbnl.c",
+      "line": 1732,
+      "status": "safe"
+    },
+    {
+      "path": "net/can/gw.c",
+      "line": 732,
+      "status": "safe"
+    },
+    {
+      "path": "net/sched/cls_api.c",
+      "line": 2041,
+      "status": "safe"
+    }
+  ]
+}

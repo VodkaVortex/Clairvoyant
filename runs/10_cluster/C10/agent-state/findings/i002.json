@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "intent_id": "i002",
+  "branch": "debugfs-write-memdup-sscanf",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 314,
+      "end": 319,
+      "quote": "\t/* Copy the user space buf */\n\tkern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &len);",
+      "confidence": "high",
+      "reason": "bnad_debugfs_write_regrd (registered via debugfs_create_file at bnad_debugfs.c:521 with .write at :454) is a byte-for-byte sibling of the seed's bfad_debugfs_write_regrd in the same Brocade driver family. Untrusted source: full contents and length (nbytes) of a debugfs write() are attacker-controlled. Violated invariant: memdup_user(buf, nbytes) allocates exactly nbytes bytes and copies exactly nbytes bytes, so the buffer carries no NUL terminator and no check guarantees one in-bounds; no memdup_user_nul, strndup_user, or count+1 slot exists. Unsafe use: sscanf(kern_buf, \"%x:%x\", ...) scans the C string past the allocation end whenever the user writes nbytes bytes without a NUL/whitespace delimiter (e.g. printf without trailing newline, 'echo -n 1:2' with nbytes=3 makes sscanf read byte 4 out of bounds to terminate the second %x token). Impact: heap out-of-bounds read (KASAN slab-OOB, info leak/crash), identical class to CVE-fixed bfa. Counterevidence checked: entire function (lines 300-358) read; no terminator, no length-based parsing, only sscanf on the raw buffer; len bound (len > UINT_MAX >> 2) applies to the register count, not to string termination."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 374,
+      "end": 379,
+      "quote": "\t/* Copy the user space buf */\n\tkern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &val);",
+      "confidence": "high",
+      "reason": "bnad_debugfs_write_regwr (.write at bnad_debugfs.c:462) is the second seed sibling in the same file. Untrusted source: attacker-controlled debugfs write() contents and nbytes. Violated invariant: memdup_user(buf, nbytes) gives an exactly-nbytes allocation with no NUL terminator and no in-bounds terminator check. Unsafe use: sscanf(kern_buf, \"%x:%x\", &addr, &val) reads past the allocation when the write contains no NUL (e.g. 'echo -n 1:2' -> 3-byte kmalloc(3)-class object, sscanf must inspect the 4th byte to end the token). Impact: heap OOB read (slab-OOB/info leak), and the parsed addr/val then drive writel() to device MMIO, so a successful parse also mutates device state. Counterevidence checked: full function (lines 362-415) read; addr is masked with BFA_REG_ADDRMSK and bna_reg_offset_check bounds-checks the register offset, but neither provides string termination."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "start": 170,
+      "end": 184,
+      "quote": "\t/* don't allow partial writes or invalid input */\n\tif (*ppos != 0 || count > 8)\n\t\treturn -EINVAL;\n\n\tcmd_buf = memdup_user(buf, count);\n\tif (IS_ERR(cmd_buf))\n\t\treturn PTR_ERR(cmd_buf);\n\n\tmodule = ice_find_module_by_dentry(pf, dentry);\n\tif (module < 0) {\n\t\tdev_info(dev, \"unknown module\\n\");\n\t\treturn -EINVAL;\n\t}\n\n\tcnt = sscanf(cmd_buf, \"%s\", user_val);",
+      "confidence": "high",
+      "reason": "ice_debugfs_module_write (debugfs_create_file 'module' at ice_debugfs.c:618). Untrusted source: debugfs write() contents and count, bounded only by count <= 8. Violated invariant: memdup_user(buf, count) allocates exactly count bytes with no NUL terminator and no count+1 slot. Unsafe use: sscanf(cmd_buf, \"%s\", user_val) must scan for a whitespace/NUL delimiter; with count == 8 non-whitespace bytes (e.g. the legitimate command 'disabled' written with 'echo -n', 8 bytes, no newline) it reads the 9th byte past the kmalloc(8) object to end the token - deterministic heap OOB read. Destination user_val[16] is large enough, so the bug is purely the missing terminator on the source. Impact: KASAN slab-out-of-bounds read, info leak/crash. Counterevidence checked: full function (lines 160-209) read; *ppos != 0 and count > 8 checks bound the destination only, not source termination; no memdup_user_nul anywhere in the file. Three sibling handlers in the same file share the identical pattern (nr_messages 260->264, enable 335->339, log_size 431->435, counts <= 4/2/5)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "start": 98,
+      "end": 102,
+      "quote": "\tbuffer = vmemdup_user(buf, lbuf);\n\tif (IS_ERR(buffer))\n\t\treturn -ENOMEM;\n\n\trc = sscanf(buffer, \"%x %x %x %x %x %x %x\", &slct, &oflw, &chn, &rsc, &anc,",
+      "confidence": "medium",
+      "reason": "crw_inject_write is the .write handler of the debugfs file 'crw_inject' (debugfs_create_file at cio_inject.c:166-167, crw_fops at :150). Untrusted source: debugfs write() contents and lbuf (unbounded length). Violated invariant: vmemdup_user(buf, lbuf) (kvmalloc(lbuf) + copy_from_user of exactly lbuf bytes, verified in mm/util.c:236) provides no NUL terminator and no lbuf+1 slot. Unsafe use: sscanf(buffer, \"%x %x %x %x %x %x %x\", ...) scans seven tokens until whitespace/NUL; a write of lbuf bytes consisting only of hex digits and spaces with no NUL (e.g. 'echo -n 1 2 3 4 5 6 7') forces sscanf to read past the allocation to terminate the last token - heap OOB read (or unmapped-page fault for vmalloc-backed large buffers). Impact: KASAN slab-OOB read / crash; parsed values then inject artificial channel-report words. Counterevidence checked: whole function (lines 85-124) read; the only gate is the cio_inject_enabled static branch set by a separate root-writable debugfs node, and the file is mode 0200, so this is a root/debug-path trigger like the seed (reduces severity, not the violated invariant); the IS_ERR mis-return of -ENOMEM instead of PTR_ERR is a separate minor issue."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 260,
+      "status": "reported",
+      "reason": "ice_debugfs_nr_messages_write: identical pattern to the reported module_write - memdup_user(buf, count) at 260 (count <= 4, no +1) then sscanf(cmd_buf, \"%s\", user_val) at 264 into char user_val[8] with no terminator."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 335,
+      "status": "reported",
+      "reason": "ice_debugfs_enable_write: identical pattern - memdup_user(buf, count) at 335 (count <= 2) then sscanf(cmd_buf, \"%s\", user_val) at 339; no terminator slot."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 431,
+      "status": "reported",
+      "reason": "ice_debugfs_log_size_write: identical pattern - memdup_user(buf, count) at 431 (count <= 5, so e.g. '128K' with echo -n = 4 non-whitespace bytes) then sscanf(cmd_buf, \"%s\", user_val) at 435; no terminator slot."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 1002,
+      "status": "safe",
+      "reason": "rvu_dbg_qsize_write uses memdup_user(buffer, count + 1) followed by explicit cmd_buf[count] = '\\0' at line 1006 before strchr/strsep/strcmp - a proper terminator slot exists, so strchr cannot run off the buffer."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/realtek/rtw88/debug.c",
+      "line": 206,
+      "status": "safe",
+      "reason": "rtw_debugfs_set_read_reg and siblings copy via rtw_debugfs_copy_from_user (debug.c:173-192): memset(tmp, 0, size), copies at most size-1 bytes, then writes tmp[tmp_len] = '\\0' before sscanf - terminated and bounded."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/realtek/rtw89/debug.c",
+      "line": 3233,
+      "status": "safe",
+      "reason": "rtw89_hex2bin_user: memdup_user(user_buf, count) consumed only by hex2bin(bin, buf, count/2) - bounded binary conversion, no C-string consumer; sscanf sites in this file (149/226/272/326/1004/1115) sit in different handlers that were not fully verified (see limitations)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/infiniband/hw/qib/qib_fs.c",
+      "line": 333,
+      "status": "safe",
+      "reason": "flash_write requires count == sizeof(struct qib_flash) and passes the memdup_user buffer straight to binary qib_eeprom_write - fixed-size binary, no string parsing."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/silabs/wfx/debug.c",
+      "line": 216,
+      "status": "unresolved",
+      "reason": "wfx_send_pds_write does memdup_user(user_buf, count) and passes (buf, count) to wfx_send_pds; the consumption path (length-bounded chunk loop vs sscanf on unterminated text) was not read deeply before the search was bounded."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/silabs/wfx/debug.c",
+      "line": 258,
+      "status": "safe",
+      "reason": "wfx_send_hif_msg_write: binary HIF message; validates le16_to_cpu(request->len) == count and sends as binary - non-string consumption."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/ath/wil6210/debugfs.c",
+      "line": 981,
+      "status": "safe",
+      "reason": "blkrx pair write uses memcpy of two binary frames; not a C-string consumer (its own length-trust issue is a different bug class, out of this branch). The sscanf/kstrtol handlers at 701/796/893 use memdup_user_nul (line 701), which terminates."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/ti/wlcore/debugfs.c",
+      "line": 1141,
+      "status": "safe",
+      "reason": "debugfs write requires bytes % 4 == 0, clamps bytes to WLCORE_MAX_BLOCK_SIZE, and forwards the buffer as binary data to wlcore_raw_write - no string parsing."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/base/regmap/regmap-debugfs.c",
+      "line": 232,
+      "status": "safe",
+      "reason": "regmap_read_debugfs (and the same pattern at line 379): kmalloc(count) buffers are read-side OUTPUT buffers filled from register data and copied to user, not usercopy input, and contain no user-controlled string parsing."
+    }
+  ],
+  "limitations": [
+    "Only the debugfs/debug-control write branch was searched in s01; sysfs, proc/configfs and ioctl/sockopt branches are covered by intents i003-i005 and were not audited here.",
+    "The memdup_user/vmemdup_user sweep covered all 206 plain call sites in the snapshot and flagged string consumers within each enclosing function; debugfs write handlers that copy via simple_write_to_buffer into fixed arrays (ath10k, ath11k, ixgbe, hisilicon qm/hpre/zip, xgbe, habanalabs, mtk_vcodec, adf_heartbeat, powernv eeh, moxtet, turris-mox-rwtm, i915_gpu_error) were enumerated but not individually audited for terminator guarantees.",
+    "The kmalloc(count)/kzalloc(count)+copy_from_user sweep was only partially triaged: regmap-debugfs was checked safe; drivers/char/nvram.c:241, drivers/greybus/es2.c:1123, drivers/i2c/i2c-dev.c:145 and similar sites were not read.",
+    "Unresolved leftovers: wfx_send_pds consumption (wfx/debug.c:216) and the sscanf write helpers in rtw89/debug.c (lines 149, 226, 272, 326, 1004, 1115) were not deeply verified.",
+    "Evidence is static source analysis of the read-only snapshot; no kernel build or KASAN reproducer was run, and exploit impact (heap layout, leak content) is not demonstrated.",
+    "All four findings are debugfs-root-writable paths (bna/ice/cio files are created via debugfs_create_file); practical triggering requires root or an unprivileged debugfs mount, the same trust posture as the seed bfa bug.",
+    "The seed location itself, drivers/scsi/bfa/bfad_debugfs.c:253 and :320 (memdup_user + sscanf), is present in s01 and confirms the pattern but is excluded from findings per task rules."
+  ]
+}

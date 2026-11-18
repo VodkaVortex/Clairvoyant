@@ -1,0 +1,27 @@
+{
+ "intent_id": "i003",
+ "branch": "uninit-parse-outparam",
+ "status": "finalizing",
+ "snapshot": "s01",
+ "progress": "Static scans of copy_from_user/kstrto* error-handling across net/fs/drivers/mm/kernel completed. Strongest candidate: rtw88 debugfs write handlers ignore rtw_debugfs_copy_from_user() return (helper can return nonzero when copy_from_user fails after memset, so tmp is zeroed; but handlers also never check count<num EFAULT path and downstream sscanf/kstrtobool failures are ignored in some handlers). vchiq_dev.c QUEUE_MESSAGE: elements copied with ==0 check then used \u2014 safe. zatm.c checks EFAULT \u2014 safe. Finalizing artifact.",
+ "candidates": [
+  {
+   "path": "drivers/net/wireless/realtek/rtw88/debug.c",
+   "line": 186,
+   "status": "reported",
+   "reason": "rtw_debugfs_copy_from_user return ignored; sscanf output vars consumed on num!=2 only partially guarded; helper itself returns 'count' (non-error) on copy failure"
+  },
+  {
+   "path": "drivers/staging/vc04_services/interface/vchiq_arm/vchiq_dev.c",
+   "line": 753,
+   "status": "safe",
+   "reason": "copy_from_user(elements,...)==0 checked before vchiq_ioc_queue_message"
+  },
+  {
+   "path": "drivers/atm/zatm.c",
+   "line": 1487,
+   "status": "safe",
+   "reason": "copy_from_user checked with -EFAULT return"
+  }
+ ]
+}

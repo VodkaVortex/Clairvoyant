@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "nested-parse-null-arg",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 421,
+      "end": 426,
+      "quote": "\tif (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))\n\t\treturn -EINVAL;",
+      "confidence": "high",
+      "reason": "Untrusted source: hwsim_new_edge_nl is the doit handler for MAC802154_HWSIM_CMD_NEW_EDGE (registered in hwsim_nl_ops at lines 606-610 with .flags = GENL_UNS_ADMIN_PERM, so an unprivileged user in a user namespace holding CAP_NET_ADMIN there can issue it); the netlink attribute set is fully attacker-chosen. Violated invariant: the presence guard at lines 421-423 joins two negated presence tests with && instead of ||, so it returns -EINVAL only when BOTH MAC802154_HWSIM_ATTR_RADIO_ID and MAC802154_HWSIM_ATTR_RADIO_EDGE are absent; a message that includes RADIO_ID but omits RADIO_EDGE passes validation while info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] stays NULL. The genl policy does not close the gap: hwsim_genl_policy (lines 579-583) declares [RADIO_EDGE] = { .type = NLA_NESTED } with no NLA_POLICY_REQUIRED/NLA_REJECT/required marker and the op sets GENL_DONT_VALIDATE_STRICT (line 607), so the genl core does not reject its absence. Unsafe use: the NULL slot is passed directly as the nesting attribute to nla_parse_nested_deprecated at line 425; that inline (include/net/netlink.h:1226-1233) calls nla_data(nla) = (char*)nla + NLA_HDRLEN and nla_len(nla) = nla->nla_len - NLA_HDRLEN (include/net/netlink.h:1137-1149) on the NULL pointer, giving a kernel NULL-pointer dereference oops (local DoS). A second, independent NULL deref path exists at line 431: v0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]) is executed with no covering presence check, so a message that supplies RADIO_EDGE but omits RADIO_ID also crashes (check-one-attribute-then-use-a-different-sibling). Counterevidence checked: lines 483-485 (hwsim_del_edge_nl) and 531-533 (hwsim_set_edge_lqi) in this same file already use the corrected || connective, i.e. the seed fix landed for those two handlers but hwsim_new_edge_nl was left with the inverted guard, which is exactly the variant relationship this intent searches for; no other presence check or policy-required coverage exists between the guard and the two uses."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 425,
+      "status": "reported",
+      "reason": "hwsim_new_edge_nl: inverted && presence guard (421-423) lets info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] be NULL into nla_parse_nested_deprecated at 425; policy entry is optional NLA_NESTED (581); op is GENL_UNS_ADMIN_PERM (609)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 431,
+      "status": "reported",
+      "reason": "same handler, second gap: nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]) at 431 has no covering check, so omitting RADIO_ID while supplying RADIO_EDGE also NULL-derefs"
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 487,
+      "status": "safe",
+      "reason": "hwsim_del_edge_nl (seed instance) and hwsim_set_edge_lqi (535) both use the corrected || guard at 483-485 / 531-533 in this snapshot; seed instance is not reportable by rule"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ieee802154/nl802154.c",
+      "line": 1565,
+      "status": "safe",
+      "reason": "'if (!info->attrs[NL802154_ATTR_SEC_KEY] || nla_parse_nested_deprecated(...))' NULL-checks the slot on the same if (1564-1565); identical pattern at 1617, 1794, 1928, 1962; helpers ieee802154_llsec_parse_dev_addr (1298) and ieee802154_llsec_parse_key_id (1338) each begin with 'if (!nla || nla_parse_nested...)'"
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/macsec.c",
+      "line": 1670,
+      "status": "safe",
+      "reason": "parse_sa_config checks !attrs[MACSEC_ATTR_SA_CONFIG] before the nested parse (1667-1670); parse_rxsc_config likewise (1678-1681)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/ipvs/ip_vs_ctl.c",
+      "line": 3655,
+      "status": "safe",
+      "reason": "ip_vs_genl_set_daemon guards with '!info->attrs[IPVS_CMD_ATTR_DAEMON] ||' on the same if (3654-3655)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sched/act_api.c",
+      "line": 1605,
+      "status": "safe",
+      "reason": "find_dump_kind checks tb1 = nla[TCA_ACT_TAB] for NULL (1600-1602) and tb[1] for NULL (1605-1606) before each nested parse"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/tipc/udp_media.c",
+      "line": 684,
+      "status": "safe",
+      "reason": "tipc_udp_enable checks '!attrs[TIPC_NLA_BEARER_UDP_OPTS]' and jumps to err before the nested parse (681-684)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/nl80211.c",
+      "line": 7452,
+      "status": "safe",
+      "reason": "nl80211_update_mesh_config (7451-7452) and nl80211_parse_mesh_setup (7589-7590) each NULL-check info->attrs[NL80211_ATTR_MESH_CONFIG]/[MESH_SETUP] immediately before the nested parse"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netlabel/netlabel_cipso_v4.c",
+      "line": 88,
+      "status": "safe",
+      "reason": "netlbl_cipsov4_add_common validates info->attrs[NLBL_CIPSOV4_A_TAGLST] (88-93) but every caller NULL-checks TAGLST first: add_std 132-134 (also MLSLVLLST), add_pass 332-333, add_local 371-372; MLSCATLST use at 226-237 is inside 'if (info->attrs[NLBL_CIPSOV4_A_MLSCATLST])' at 225; DOI/MTYPE guarded in netlbl_cipsov4_add 409-411"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/nfc/netlink.c",
+      "line": 1166,
+      "status": "safe",
+      "reason": "nfc_genl_llc_sdreq requires '!info->attrs[NFC_ATTR_DEVICE_INDEX] || !info->attrs[NFC_ATTR_LLC_SDP] -> -EINVAL' (1140-1142) before nla_for_each_nested over attrs[NFC_ATTR_LLC_SDP] at 1166; the nested parse inside iterates over concrete 'attr' values, not a NULL slot"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sched/sch_mqprio.c",
+      "line": 191,
+      "status": "safe",
+      "reason": "nla_for_each_nested(attr, tb[TCA_MQPRIO_MIN_RATE64]/[MAX_RATE64]) at 191/207 are inside 'if (tb[TCA_MQPRIO_MIN_RATE64])'/'if (tb[TCA_MQPRIO_MAX_RATE64])' guards (185/201)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/8021q/vlan_netlink.c",
+      "line": 35,
+      "status": "safe",
+      "reason": "vlan_validate_qos_map begins with 'if (!attr) return 0;' (33-34) before nla_validate_nested_deprecated; callers pass optional data[IFLA_VLAN_INGRESS_QOS]/[EGRESS_QOS] (98-105)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sched/cls_flower.c",
+      "line": 1269,
+      "status": "safe",
+      "reason": "fl_set_enc_opt call site is inside 'if (tb[TCA_FLOWER_KEY_ENC_OPTS])' (1699-1702); MASK branch inside 'if (tb[TCA_FLOWER_KEY_ENC_OPTS_MASK])' (1272)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sched/sch_ets.c",
+      "line": 518,
+      "status": "safe",
+      "reason": "ets_qdisc_priomap_parse/quanta_parse callers guard with 'if (tb[TCA_ETS_PRIOMAP])' (627) and 'if (tb[TCA_ETS_QUANTA])' (634)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireguard/netlink.c",
+      "line": 459,
+      "status": "safe",
+      "reason": "nla_for_each_nested over attrs[WGPEER_A_ALLOWEDIPS] (459) is inside 'if (attrs[WGPEER_A_ALLOWEDIPS])' (451); PEERS loop (584) inside 'if (info->attrs[WGDEVICE_A_PEERS])' (578); inner parses act on the concrete iteration variable"
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/block/nbd.c",
+      "line": 1941,
+      "status": "safe",
+      "reason": "nla_for_each_nested over info->attrs[NBD_ATTR_SOCKETS] at 1932 and 2113 are each inside 'if (info->attrs[NBD_ATTR_SOCKETS])' (1926/2107); socks[NBD_SOCK_FD] NULL-checked at 1947"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bridge/br_mrp_netlink.c",
+      "line": 38,
+      "status": "safe",
+      "reason": "all nine per-command parsers take attr as a parameter; dispatcher br_mrp_parse only calls each under 'if (tb[IFLA_BRIDGE_MRP_*])' (376-440); same structure in br_cfm_parse (br_cfm_netlink.c:391-445)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/dcb/dcbnl.c",
+      "line": 1438,
+      "status": "safe",
+      "reason": "both ieee set (1433-1438) and del (1543-1548) check '!tb[DCB_ATTR_IEEE] -> -EINVAL' before nla_parse_nested_deprecated; APP_TABLE iteration at 1495/1556 is inside 'if (ieee[DCB_ATTR_IEEE_APP_TABLE])'"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/openvswitch/meter.c",
+      "line": 342,
+      "status": "safe",
+      "reason": "ovs_meter_cmd_alloc checks '!a[OVS_METER_ATTR_BANDS] -> ERR_PTR(-EINVAL)' (340-341) before nla_for_each_nested over the band list at 342/364"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_conntrack_netlink.c",
+      "line": 1266,
+      "status": "safe",
+      "reason": "ctnetlink_parse_tuple_ip/_proto receive attr as a parameter; upstream callers (ctnetlink_parse_tuple, filters) NULL-check tb[CTA_TUPLE_*] before calling; the CTA_PROTO_NUM slot is NULL-checked at 1322-1323 before nla_get_u8"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nft_tunnel.c",
+      "line": 361,
+      "status": "safe",
+      "reason": "nft_tunnel_obj_opts_init is only reached from the NFTA_TUNNEL_KEY_OPTS case where attr = tb[NFTA_TUNNEL_KEY_OPTS] was presence-checked in the switch dispatch; nla_for_each_attr then walks nla_data/nla_len of the concrete attr"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_tables_api.c",
+      "line": 3346,
+      "status": "unresolved",
+      "reason": "nla_for_each_nested(tmp, nla[NFTA_RULE_EXPRESSIONS], rem) and the five sibling sites (4431, 5261, 5782, 6032, 6297) plus nft_dynset.c:271 take the nesting attribute from a locally parsed tb/nla array; each was spot-checked but the upstream policy-required coverage per attribute was not fully traced for all six in this bounded pass (findings already established by the reported hwsim variant)"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/openvswitch/flow_netlink.c",
+      "line": 56,
+      "status": "unresolved",
+      "reason": "12 nla_for_each_nested sites take 'actions'/'attr' parameters propagated from OVS_ACTION_ATTR_* slots; per-slot presence coverage was not exhaustively traced for all 12 in this bounded pass"
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/ip_tunnel_core.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "5 nested helper sites (plus seg6_local.c, nexthop.c, lwt_bpf.c, pmsr.c, team.c, qeth, devlink, drbd_nla.c) take nesting attributes through intermediate locals/parameters; not traced in this bounded pass"
+    }
+  ],
+  "limitations": [
+    "Coverage is bounded to nested-parse/validate/for_each call sites whose nesting attribute is directly indexed from info->attrs[N]/tb[N]/attrs[N]/nla[N] (grep over all 336 helper call sites in net/, drivers/, fs/, kernel/ of snapshots/s02; every directly-indexed site was read together with its guard).",
+    "Call sites where the nesting attribute reaches the helper through an intermediate local or helper parameter (nf_tables_api.c expressions/elements lists, openvswitch flow_netlink.c actions, ip_tunnel_core.c, seg6_local.c, nexthop.c, lwt_bpf.c, pmsr.c, team.c, qeth, devlink, drbd_nla.c) were only spot-checked and are listed as unresolved candidates, not proven safe.",
+    "No compilation or reproducer was run: the snapshot tree is read-only and no top-level build was attempted; the NULL-deref conclusion rests on reading nla_parse_nested_deprecated (include/net/netlink.h:1226-1233) which calls nla_data(nla)/nla_len(nla) (1137-1149) on the passed attribute, and on the genl core not enforcing presence for a plain NLA_NESTED policy entry under GENL_DONT_VALIDATE_STRICT.",
+    "Privilege reachability is asserted from .flags = GENL_UNS_ADMIN_PERM (mac802154_hwsim.c:609), satisfiable by an unprivileged user with CAP_NET_ADMIN in a user namespace; whether the mac802154_hwsim module is loaded in a target configuration is deployment-dependent.",
+    "Impact is characterized as a local kernel NULL-pointer-dereference DoS (kernel oops) from unprivileged input; no privilege-escalation path was demonstrated.",
+    "The reported hwsim_new_edge_nl variant shares the seed's subsystem/file by construction of the snapshot pair; it is a different handler (NEW_EDGE vs the seed's DEL_EDGE) and this snapshot's DEL_EDGE/SET_EDGE instances carry the fix, but a reviewer applying a stricter same-subsystem exclusion rule should treat the two remaining unresolved candidate groups as the fallback scope."
+  ]
+}

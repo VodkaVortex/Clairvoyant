@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 392,
+      "status": "unresolved",
+      "reason": "Confirmed unclamped wire-count store with asymmetric sibling validation, but it is the SEED mechanism verbatim in s04. usbip_pack_pdu() USBIP_RET_SUBMIT unpack stores the peer count verbatim ('urb->number_of_packets = rpdu->number_of_packets;', usbip_common.c:392) into the shared struct urb with no range check, while the sibling CMD_SUBMIT direction enforces a bound in stub_rx.c:372-377 ('if (pdu->u.cmd_submit.number_of_packets < 0 || pdu->u.cmd_submit.number_of_packets > packets)' with packets = DIV_ROUND_UP(transfer_buffer_length, maxp)). Downstream consumer usbip_recv_iso() (usbip_common.c:579-638) computes 'int size = np * sizeof(*iso);' (line 584) -> 'buff = kzalloc(size, GFP_KERNEL);' (line 596) -> 'for (i = 0; i < np; i++)' loop (line ~607) reading urb->iso_frame_desc[i] for np iterations; grep shows USBIP_MAX_ISO_PACKETS exists nowhere in s04's drivers/usb/usbip (no macro at all), so no clamp exists on the reply direction. EXCLUDED from findings: this is the seed (usbip/recv_iso/number_of_packets) present as pre-fix upstream code in this snapshot, and the task rule states seed names must never be used as the finding itself. Left unresolved (vulnerable, unreported) rather than safe."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/usbip/stub_rx.c",
+      "line": 372,
+      "status": "safe",
+      "reason": "CMD_SUBMIT parse path clamps the wire count before use: stub_rx.c:372-373 checks 'pdu->u.cmd_submit.number_of_packets < 0 || > packets' (packets = DIV_ROUND_UP(bytes, maxp), maxp = usb_endpoint_maxp * maxp_mult, lines 362-369) and returns -1 (line 377) before usb_alloc_urb(pdu->u.cmd_submit.number_of_packets) at stub_rx.c:460. This is the enforcing sibling path demonstrating the asymmetric validation."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 706,
+      "status": "safe",
+      "reason": "usbip_recv_xbuff() clamps the peer-supplied transfer size against the locally known buffer: 'if (size > urb->transfer_buffer_length)' (~line 706) raises SDEV_EVENT_ERROR_TCP / VDEV_EVENT_ERROR_TCP or returns -EPIPE before usbip_recv(ud->tcp_socket, urb->transfer_buffer, size). Reply-direction length parse entry point verified clamped."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/usbip/vhci_rx.c",
+      "line": 77,
+      "status": "unresolved",
+      "reason": "vhci_recv_ret_submit() (vhci_rx.c:55-84) is the reply-direction deserialization entry: usbip_pack_pdu(pdu, urb, USBIP_RET_SUBMIT, 0) at line 77 stores the unclamped peer count into the urb, then usbip_recv_xbuff (line 80) and usbip_recv_iso (line 84) consume it, with no local cross-check of number_of_packets against the urb allocated at submit time. Same seed-instance caveat as the usbip_common.c:392 candidate: excluded from findings by the seed-exclusion rule, recorded so a later worker can decide whether snapshot-local pre-fix presence is in scope."
+    }
+  ],
+  "limitations": [
+    "Bounded to the usbip protocol family within s04: the finalize directive stopped the audit after verifying drivers/usb/usbip; the broad sweep of other s04 deserialization entry points (netlink nla_parse handlers, ioctl copy_from_user paths, other socket/message/protocol unpack parsers across drivers/, fs/, net/) was NOT performed, so an unclamped-wire-count variant elsewhere in s04 cannot be ruled out.",
+    "The only confirmed unclamped store-consume chain in the examined region (usbip_common.c:392 -> usbip_recv_iso:579-638) is the seed mechanism verbatim present in s04 (pre-fix upstream code; USBIP_MAX_ISO_PACKETS is absent from the entire drivers/usb/usbip tree in this snapshot), excluded from findings per the explicit seed rule that seed names must never be used as the finding itself; whether snapshot-local seed presence is meant to be reportable remains unresolved.",
+    "No compilation, static analysis, or reproducer harness was run (read-only snapshot, finalize directive); line numbers come from direct sed/grep reads, and the recv_xbuff clamp line (~706) and recv_iso loop line (~607) are counted from sed windows rather than re-verified by an independent read."
+  ]
+}

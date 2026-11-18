@@ -1,0 +1,91 @@
+{
+ "version": 1,
+ "intent_id": "i013",
+ "branch": "peer-trusted-transport",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s03"
+ ],
+ "findings": [
+  {
+   "snapshot": "s03",
+   "path": "drivers/greybus/gb-beagleplay.c",
+   "start": 204,
+   "end": 214,
+   "quote": "u16 gb_msg_len = le16_to_cpu(gb_frame->hdr.size);\n\n\tdev_dbg(&bg->sd->dev, \"Greybus Operation %u type %X cport %u status %u received\",\n\t\tgb_frame->hdr.operation_id, gb_frame->hdr.type, cport_id, gb_frame->hdr.result);\n\n\tgreybus_data_rcvd(bg->gb_hd, cport_id, (u8 *)&gb_frame->hdr, gb_msg_len);",
+   "confidence": "medium",
+   "reason": "Untrusted source: hdlc_rx_greybus_frame() reads gb_frame->hdr.size from the HDLC-encapsulated Greybus frame sent by the remote MCU/peer over the serdev UART link (the peer endpoint of a virtual-bus protocol, matching the seed's remote-endpoint attacker). Missing guarantee: the peer-controlled 16-bit length is extracted (le16_to_cpu) and immediately handed to greybus_data_rcvd() as the 'length' parameter with no local cross-check against the actual received frame length (the caller hdlc_rx_process() passes buf and len=rx_buffer_len-4). Unsafe use: greybus_data_rcvd -> gb_connection_recv() computes msg_size = le16_to_cpu(header.size) and only checks 'size < msg_size' (frame-supplied size vs frame-supplied msg_size), so a peer sending hdr.size larger than the real HDLC payload length drives msg_size past the buffer; gb_connection_recv_request()/recv_response() then memcpy(message->buffer, data, size) peer-supplied bytes from the shared rx_buffer \u2014 an OOB read into a heap message buffer sized from the locally-known request payload_size (checked only as size > message_size, i.e. the mirror-asymmetry of the seed: the request path enforces GB_OPERATION_MESSAGE_SIZE_MAX at send time via gb_message_send()'s 'msg->header->size > RX_HDLC_PAYLOAD' check on the TX side, but the RX peer-controlled hdr.size drives iteration on the response/request side). Impact: remotely triggerable OOB read of adjacent serdev rx_buffer memory into kernel heap (info disclosure / crash), analogous to the seed's peer-controlled count crossing a transport trust boundary. Counterevidence checked: RX_HDLC_PAYLOAD=256 bounds the tx path; the HDLC layer itself bounds bytes collected in rx_buffer to MAX_RX_HDLC, so the exposure is bounded by the small fixed rx buffer; gb_connection_recv rejects size < sizeof(header) and size < msg_size, but nothing binds msg_size to the actual peer frame length because the same peer field supplies both the claimed size and the delivered-length argument (gb_msg_len), making the two checks compare two peer-chosen values rather than a peer value against a kernel-known limit \u2014 this is the shared-memory validated-vs-used asymmetry."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s03",
+   "path": "drivers/greybus/gb-beagleplay.c",
+   "line": 213,
+   "status": "reported",
+   "reason": "hdlc_rx_greybus_frame passes peer-controlled le16 hdr.size as both buffer pointer base and length to greybus_data_rcvd; downstream gb_connection_recv only compares peer msg_size against peer-delivered size, never against the actual HDLC frame length or a kernel-known maximum for the RX direction; response/request handlers memcpy msg_size bytes from the fixed 258-byte rx_buffer."
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/greybus/operation.c",
+   "line": 1055,
+   "status": "safe",
+   "reason": "gb_connection_recv() validates size < sizeof(header) and size < msg_size (both derived from the wire), but the consuming response path memcpy(message->buffer, data, size) is additionally capped by message_size = sizeof(*header)+payload_size for responses (errno=-EMSGSIZE when size > message_size), bounding the copy for the response direction; the residual risk is attributed to the gb-beagleplay caller's use of the peer hdr.size as the delivered length."
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/greybus/manifest.c",
+   "line": 112,
+   "status": "safe",
+   "reason": "Peer-supplied manifest desc_size (le16) is used only to locate the next descriptor within the manifest buffer; total manifest_size is bounded by the 16-bit header->size and descriptor allocation uses fixed kzalloc(sizeof(*descriptor)); kcalloc(count,...) for cport_desc uses locally computed count from parsed descriptors, not the raw peer field."
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/greybus/gb-beagleplay.c",
+   "line": 399,
+   "status": "safe",
+   "reason": "hdlc_rx() byte-collection loop bounds bg->rx_buffer_len < MAX_RX_HDLC before each store, so the serdev RX accumulation into the fixed rx_buffer is range-checked; the unvalidated propagation happens later at line 208-213 via gb_msg_len."
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/greybus/gb-beagleplay.c",
+   "line": 538,
+   "status": "safe",
+   "reason": "cc1352_bootloader_rx() memcpy's serdev-delivered 'count' bytes into bg->rx_buffer and advances rx_buffer_len; count is the serdev provider's chunk size, bounded by MAX_RX_HDLC by construction in gb_tty_receive/hdlc_rx callers, and offset consumption is bounded by rx_buffer_len; no peer-supplied count drives an unbounded allocation or loop here."
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/greybus/operation.c",
+   "line": 380,
+   "status": "safe",
+   "reason": "gb_operation_message_alloc uses kzalloc(message_size) where message_size is locally computed from the request/response size constants and GB_OPERATION_MESSAGE_SIZE_MAX, not from a peer reply field; TX-side only."
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/greybus/es2.c",
+   "line": 844,
+   "status": "unresolved",
+   "reason": "greybus_data_rcvd(hd, cport_id, urb->transfer_buffer, urb->actual_length) \u2014 ES2 host-driver receives Greybus frames via USB bulk URBs; actual_length is HCI-set, analogous to the seed's urb number_of_packets trust. Not deeply read in this session (time-bounded); flagged for a later audit of whether urb->actual_length is bounded against transfer_buffer_length before gb_connection_recv memcpy."
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/usb/usbip/usbip_common.c",
+   "line": 660,
+   "status": "unresolved",
+   "reason": "Seed demonstration subsystem present in s03; deliberately excluded from reporting per task rules. Not examined for variants beyond the seed path itself."
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/9p/protocol.c",
+   "line": 1,
+   "status": "unresolved",
+   "reason": "9p trans_fd/trans_virtio/trans_rdma reply decoders were on the planned peer-transport list; the session was halted by the finalize directive before deep reading. p9dirent_read and p9_readstr validate string lengths against the received buffer, but the deep audit (readdir count vs rsize) was not completed."
+  }
+ ],
+ "limitations": [
+  "The audit was halted by the finalize directive after covering the greybus serdev/HDLC transport chain in depth; 9p (trans_fd/virtio/rdma/xen), nbd, virtio/vhost ring paths, and HID-BPF/socket transports were only enumerated, not deep-read.",
+  "drivers/greybus/es2.c line 844 (greybus over USB bulk URB, urb->actual_length feeding greybus_data_rcvd) remains unresolved: it is the strongest unexamined analogue because actual_length is peer/HCI-controlled like the seed's number_of_packets.",
+  "The reported finding's impact is bounded: the HDLC rx_buffer is a fixed 258-byte array, so the OOB is a bounded adjacent read into a heap buffer rather than a large overflow; no runtime reproducer was built because the assigned tree is read-only and the transport requires serdev hardware/peer.",
+  "Exploitability (what lies adjacent to struct gb_beagleplay's rx_buffer and whether the copied bytes are exposed to userspace via Greybus responses) was not proven; confidence is medium for the invariant violation, low for end-to-end impact."
+ ]
+}

@@ -1,0 +1,335 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-0f71f852a96a
+  status: active
+  created_at: 1794431517282
+  reason: null
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/public. Seed: phonet: pep: fix use-after-free in pep_get_sb(). The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04, s05'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'Mechanism profile for seed ''phonet: pep: fix use-after-free in pep_get_sb()''. UNTRUSTED SOURCE: network-received packet payloads parsed in protocol RX handlers; here a Phonet pipe control skb whose first bytes (sb_len, sb_type) are fully attacker-controlled, including the length field that drives how far the skb must be linearized. MISSING GUARANTEE: lifetime/representation invariant that a raw pointer into skb->head/skb->data is invalidated whenever a linearization or head-reallocation helper (pskb_may_pull, __pskb_pull_tail, skb_linearize, pskb_expand_head, skb_cow*, skb_unclone) may relocate the head buffer; code assumed skb_header_pointer() results stay valid across such calls. No revalidation/refetch, no copy-out of the header before the pull. UNSAFE USE: after pskb_may_pull(skb, ph->sb_len) potentially reallocates the head, the stale pre-pull pointer ph is dereferenced for both read (ph->sb_type) and write (ph->sb_len -= 2) — a state transition through freed slab memory. CONSEQUENCE: slab use-after-free read/write on the RX path reachable from an unauthenticated/untrusted peer packet; KASAN-detectable UAF, potential info leak or memory corruption. TRANSFERABLE INVARIANT: any code that captures a pointer into a buffer that a subsequent call may realloc/free (skb head linearization being the canonical case) and dereferences it afterward without refetching is the same bug class, independent of protocol. BRANCHES: rx-pull-stale-hdr=receive-path protocol parsers (net/* *_rcv/_recv/_do_rcv handlers) that cache a header pointer via skb_header_pointer or a direct skb->data cast before calling pskb_may_pull/pskb_pull/__pskb_pull_tail and then read or write through the stale pointer after the pull; tx-cow-head-realloc=transmit/edit paths (tunnel xmit, neighbor, netfilter mangle, encapsulation) where a pointer into skb headers survives a call documented to reallocate the head (skb_cow_head, skb_cow, skb_unclone, skb_share_check, pskb_expand_head, skb_linearize) and is reused without refetch; loop-parser-stale-state=variable-length record/TLV parse loops and ''get next record'' helpers where a pull/linearize happens inside the loop body or helper while pointer, offset, or length state captured in an earlier iteration remains live and is dereferenced in a later one (the seed''s pep_get_sb is exactly such a helper); gro-frag-stale-ptr=GRO/segmentation/frag-list paths where pointers into per-packet headers (skb_gro_header_pointer, skb_gro_header_slow results, pointers into frag-list data) are held across skb_gro_pull/pskb_may_pull over frag lists and become stale after head relocation or frag consumption.'
+- id: f002
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i010.json; branch=tx-cow-head-realloc; snapshots=s03; missing=s01,s02,s04,s05; findings=2; unresolved=0; execution_status=complete
+    finding 1: s03:net/mac80211/tdls.c:2010-2037 confidence=medium; source quote='struct ieee80211_tdls_data *tf = (void *)skb->data;'; reason=UNTRUSTED SOURCE: remote 802.11 TDLS (ETH_P_TDLS) data frames delivered to the sdata->skb_queue worker and dispatched to ieee80211_process_tdls_channel_switch() at net/mac80211/iface.c:1815; the frame bytes at skb->data are fully attacker-controlled. VIOLATED INVARIANT: tf is captured as a cast of skb->data at line 2010 and must be refetched after any call that can reallocate skb->head. UNSAFE USE: skb_linearize(skb) at line 2020 can call pskb_expand_head and free/replace the head buffer when the skb is cloned or non-linear (comment 'we want to access the entire packet'); after it returns success, line 2026 dereferences the stale pre-linearize pointer via 'switch (tf->action_code)' with no refetch — same structural shape as the seed's pep_get_sb() (ph captured, pskb_may_pull, ph->sb_type read). COUNTEREVIDENCE: exploitation requires a cloned/non-linear TDLS skb reaching this worker (driver RX path dependent), and the use is a single-byte read whose result only selects between the REQUEST/RESPONSE handlers which re-parse the skb themselves, so impact is a slab UAF read (KASAN-detectable) rather than proven memory corruption; if the skb is already linear and unshared, skb_lineariz...
+    finding 2: s03:drivers/net/wireless/mediatek/mt76/mt7925/mcu.c:642-648 confidence=low; source quote='if (rxd->option & MCU_UNI_CMD_UNSOLICITED_EVENT) {'; reason=UNTRUSTED SOURCE: MCU event skb received from the mt7925 firmware via the mt76 RX/PCIe event path and parsed here; its head bytes are firmware-supplied. VIOLATED INVARIANT: rxd is captured from skb->data at line 642 and must be reloaded after skb_linearize(). UNSAFE USE: skb_linearize(skb) at line 644 can free and reallocate skb->head (cloned/non-linear skb); line 647 reads 'rxd->option' through the stale pointer without refetching. COUNTEREVIDENCE/WEAKNESS: the untrusted source is on-device firmware rather than a remote network peer, and if MCU event skbs are always allocated linear and unshared (typical for mt76 event skbs) the reallocation path never triggers; whether the event skb can be cloned/non-linear was not proven. Reported at low confidence as the same stale-pointer-after-linearize pattern.
+    candidate: s03:net/mac80211/tdls.c:2026 status=reported; tf captured from skb->data at 2010; skb_linearize at 2020 can reallocate head; tf->action_code read at 2026 without refetch. Raise as finding.
+    candidate: s03:drivers/net/wireless/mediatek/mt76/mt7925/mcu.c:647 status=reported; rxd captured from skb->data at 642; skb_linearize at 644; rxd->option read at 647 without refetch; firmware-supplied skb, reallocation precondition unproven. Low-confidence finding.
+    candidate: s03:drivers/net/wan/hdlc_fr.c:946 status=safe; fr_rx(): fh/data captured from skb->data at 893-894; skb_share_check() at 940 only replaces the skb when shared (returns a new refcounted skb copy of the SAME head buffer or drops it), and no skb data modification occurs between capture and the data[] reads at 946-977, so the captured pointers stay valid; not a head-reallocation bug.
+    candidate: s03:net/netfilter/nf_flow_table_ip.c:620 status=safe; nf_flow_tunnel_ipip_push(): iph captured at 595 from skb_network_header(skb); after skb_cow_head(skb, headroom) at 608 the code refetches 'iph = ip_hdr(skb)' at 619 before all writes (620-630); no stale use.
+    candidate: s03:net/netfilter/nf_flow_table_ip.c:683 status=safe; nf_flow_tunnel_ip6ip6_push(): ip6h captured at 651; after skb_cow_head at 670, refetched 'ip6h = ipv6_hdr(skb)' at 682 before writes; only sizeof(*ip6h) used at 675 in between.
+    candidate: s03:net/ipv6/exthdrs.c:277 status=safe; ipv6_dest_hao(): ipv6h captured at 236; pskb_expand_head at 271; ipv6h refetched at 277 before swap at 283; hao itself is revalidated around the expand. No stale dereference.
+    candidate: s03:net/ipv6/ip6_output.c:684 status=safe; ip6_forward(): hdr captured at 522; skb_cow at 678; hdr refetched at 684 before hdr->hop_limit-- at 688.
+    candidate: s03:net/mac80211/wpa.c:156 status=safe; ieee80211_rx_h_michael_mic_verify(): hdr captured at 102; skb_linearize at 154; hdr refetched 'hdr = (void *)skb->data' at 156; later uses (161, 184-185) use the refetched value.
+    limitation: The automated audit only recognized pointer captures of the form 'type *var = <hdr accessor>' within the enclosing function of each skb_cow_head/skb_cow/skb_unclone/skb_share_check/pskb_expand_head/skb_linearize call site; pointers passed into helper functions, captured in outer loops, or obtained via memcpy/from-skb->data arithmetic casts not matching the regex may be missed.
+    limitation: Only net/ and drivers/ were scanned; arch/, fs/, net in headers, and macros generating call sites were not individually audited.
+    limitation: For the two reported findings, the reallocation precondition (cloned or non-linear skb on that specific path) was not dynamically reproduced; classification is based on the documented pskb_expand_head() semantics (frees old head, all pointers into skb header must be reloaded) in net/core/skbuff.c:2279-2283.
+    limitation: Candidates from the skb_cow_head dump (ip_gre.c, seg6_iptunnel.c, rpl_iptunnel.c, ioam6_iptunnel.c, nsh.c, ife.c, psp_main.c, sch_frag.c, br_netfilter_hooks.c, nf_conntrack_bridge.c, l2tp, xfrm, batman-adv, phonet af_phonet.c) were pattern-screened but not all deeply read line-by-line; they were deprioritized because inspection of a sample showed pointer capture consistently placed after the cow call.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i010.json
+- id: f003
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i014.json; branch=loop-parser-stale-state; snapshots=s04; missing=s01,s02,s03,s05; findings=1; unresolved=1; execution_status=complete
+    finding 1: s04:net/802/garp.c:447-488 confidence=high; source quote='ga = (struct garp_attr_hdr *)skb->data; if (ga->len < sizeof(*ga)) return -1; if (!pskb_may_pull(skb, ga->len)) return -1; skb_pull(skb, ga->len); dlen = ga->len - sizeof(*ga);'; reason=Untrusted source: GARP/MRP PDU bytes from link-local 802.1ak traffic delivered via stp_proto_register (garp_pdu_rcv -> garp_pdu_parse_msg -> per-attribute loop at net/802/garp.c:503-508), parsed with fully attacker-controlled variable-length attribute headers (garp_attr_hdr.len, .event, .data in include/net/garp.h:29-33). Violated invariant: ga points into skb->data, and pskb_may_pull(skb, ga->len) at line 453 may call __pskb_pull_tail, which pskb_expand_head's / reallocates the skb head for a non-linear skb, invalidating ga; the pull length is itself read from the attacker header (ga->len), exactly like the seed's pskb_may_pull(skb, ph->sb_len). Unsafe use: stale ga dereferenced after the pull at line 456 (ga->len read for dlen), line 461 (ga->event drives the state switch), and line 485 (ga->data with attacker dlen passed to garp_attr_lookup, which memcmps/inspects the stale freed memory and gates GARP state transitions) — same-function structural duplicate of pep_get_sb(): header pointer captured, variable pull from untrusted length, post-pull read of header fields and stale pointer handed to a lookup. Impact: KASAN-detectable slab use-after-free read on the receive path reac...
+    candidate: s04:net/x25/x25_subr.c:296 status=safe; x25_decode() captures frame = skb->data (line 269) and calls pskb_may_pull (lines 294, 3312) inside the decode helper, but explicitly refetches frame = skb->data immediately after each pull (lines 296, 314); the only post-pull frame uses follow the refetch, so no stale state survives.
+    candidate: s04:net/batman-adv/bridge_loop_avoidance.c:1138 status=safe; batadv_bla_process_claim() holds ethhdr across pskb_may_pull(skb, headlen + arp_hdr_len(...)) at line 1134 inside a VLAN-traversal do/while, but refetches ethhdr = eth_hdr(skb) right after the pull (line 1138) with an explicit comment; all later uses (1180-1216) use the refetched pointer.
+    candidate: s04:net/nfc/nci/hci.c:496 status=safe; nci_hci_data_received_cb() captures packet = skb->data (line 447 area) and calls pskb_may_pull(hcp_skb, ...) at line 490, but refetches packet = (struct nci_hcp_packet *)hcp_skb->data at line 496 before any post-pull dereference (lines 497-498).
+    candidate: s04:net/nfc/hci/core.c:917 status=safe; nfc_hci_recv_shdl_chain() (function ending at line 929) captures packet = skb->data (line 869) and calls pskb_may_pull(hcp_skb, NFC_HCI_HCP_HEADER_LEN) at line 912, but refetches packet from hcp_skb->data at line 917 before the post-pull dereferences at 918-921.
+    candidate: s04:net/phonet/pep.c:55 status=unresolved; pep_get_sb() still exhibits the seed pattern in this snapshot (ph captured line 55, pskb_may_pull(skb, ph->sb_len) line 56, ph->sb_type/ph->sb_len dereferences lines 58-65); left unresolved here because it is the seed location itself, not a new variant, and is assigned to the parallel rx-pull-stale-hdr intent (i012).
+    limitation: Scan was static and heuristic (regex pull-vs-capture analysis, $TMPDIR/i014/find_stale.py); it covers same-function capture->pull->use chains in net/ but cannot prove pointer staleness (depends on runtime skb non-linearity) or catch cross-function returns of captured pointers.
+    limitation: drivers/ tree (outside drivers/net) was listed but not deeply scanned; drivers/net and net/ were the focus, and only files containing pull/linearize APIs plus loops were triaged (~261 files with pulls, 66 candidates deep-read at function level for the top candidates).
+    limitation: The garp_pdu_parse_attr finding is a hypothesis: no reproducer proving non-linear GARP skb arrival was built, and pskb_expand_head reuse of freed slab memory (which would make this a UAF rather than a read of old bytes) was not empirically confirmed.
+    limitation: Cross-iteration variants where state legitimately crosses a call boundary (e.g. helpers that both pull and return outer-scope pointers) outside the top-ranked files remain unexamined beyond the 12-candidate triage limit.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i014.json
+- id: f004
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i017.json; branch=loop-parser-stale-state; snapshots=s05; missing=s01,s02,s03,s04; findings=1; unresolved=1; execution_status=complete
+    finding 1: s05:net/mpls/af_mpls.c:167-216 confidence=medium; source quote='hdr = mpls_hdr(skb) + label_index;'; reason=Untrusted source: mpls_multipath_hash() parses network-received MPLS label stacks on forwarded RX/TX packets; the label-stack length is attacker-controlled. Missing guarantee: hdr (struct mpls_shim_hdr * into skb head, captured at line 174 inside the for-loop over MAX_MP_SELECT_LABELS) is not refetched after the interior pskb_may_pull() calls at lines 199 and 208-209, which __pskb_pull_tail()/pskb_expand_head() may use to reallocate and free skb->head; the loop-parser stale-state shape of the seed's pep_get_sb(). Unsafe use: at line 202 v4hdr = (const struct iphdr *)(hdr + 1) and at line 212 v6hdr = (const struct ipv6hdr *)(hdr + 1) are derived from the pre-pull hdr and dereferenced (v4hdr->version, saddr/daddr/protocol; v6hdr->saddr/daddr/nexthdr) for the multipath hash — reads through a potentially freed slab pointer (KASAN slab-use-after-free read), same consequence class as the seed. Counterevidence: only triggers when the skb is non-linear at that offset (pull must actually reallocate, i.e. skb is cloned/nonlinear), MPLS multipath hashing with entropy-label/label-stack must be enabled, and the derefs are reads-only with hash-side effects (no direct write, unlike the seed's ...
+    candidate: s05:net/phonet/pep.c:56 status=reported; Seed itself still present unpatched in s05: ph captured via skb_header_pointer at line 54, pskb_may_pull(skb, ph->sb_len) at line 56, then ph->sb_len -= 2 / ph->sb_type read at lines 59-61 — exact seed UAF; reported as the baseline, not the searched-for new variant.
+    candidate: s05:net/x25/x25_facilities.c:66 status=safe; x25_parse_facilities() is a true TLV loop but pulls the entire facility block (pskb_may_pull(skb, 1 + len), len attacker-controlled at data[0]) BEFORE capturing p = skb->data + 1; no pull occurs inside the loop body, so p cannot go stale; the seed's 'pull inside loop while outer pointer lives' shape is absent.
+    candidate: s05:net/ipv6/exthdrs_core.c:72 status=safe; ipv6_skip_exthdr() and ipv6_find_hdr() (lines 72-282) are next-record helpers that pull nothing — they use skb_header_pointer() exclusively, which either returns a pointer into the current head or a stack copy; no pskb_may_pull/pskb_pull inside, so no head relocation and no stale outer pointer; hp is re-fetched per iteration.
+    candidate: s05:net/ipv6/ip6_tunnel.c:405 status=safe; ip6_tnl_parse_tlv_enc_lim() loop refetches hdr = (struct ipv6_opt_hdr *)(skb->data + off) after every pskb_may_pull and explicitly caches next = hdr->nexthdr before the second pull with the comment 'cache hdr->nexthdr, since pskb_may_pull() might invalidate hdr'; tel is recomputed from skb->data each iteration — the correctly-written analogue of the seed.
+    candidate: s05:net/sched/act_csum.c:506 status=safe; tcf_csum_ipv6() do-while loop refetches ip6xh = (void *)(skb_network_header(skb) + hl) after each pskb_may_pull (lines 509 and 515); the loop-condition pull at line 558 is followed by re-capture at the top of the next iteration; no stale dereference.
+    candidate: s05:net/xfrm/xfrm_policy.c:3401 status=safe; decode_session6() while-loop refetches nh = skb_network_header(skb) immediately after every pskb_may_pull inside the loop condition and body; exthdr is re-derived from the refetched nh before each use; correct pattern.
+    candidate: s05:net/ipv6/ip6_offload.c:54 status=safe; ipv6_gso_pull_exthdrs() refetches opth = (void *)skb->data after each pskb_may_pull (lines 51 and 58-59); first capture is used only to compute len before the second pull; no post-pull dereference of the first opth.
+    candidate: s05:net/netfilter/ipvs/ip_vs_core.c:1751 status=safe; ip_vs_in_icmp() cih (captured at lines 1631/1644 via skb_header_pointer) is read at line 1751 only in the non-ipip path; the pskb_pull() calls (lines 1707, 1732) are inside the ipip branch which jumps to out/consume_skb after, and cih is not dereferenced after any pull on any reachable path; the last cih->protocol/frag_off reads precede the first pskb_pull.
+    limitation: Static brace-matching scans over net/ found ~84 loops containing pskb pulls and 18 capture-before-pull/deref-after-pull pairs; only the strongest candidates were deeply read, so a same-shape bug in a less-promising file could be missed.
+    limitation: The mpls_multipath_hash finding is a read-only stale-pointer hypothesis: triggering requires a non-linear/cloned MPLS packet whose payload length forces pskb_may_pull to reallocate the head between the label-stack capture at line 174 and the payload reads at lines 202-215; no runtime reproducer or KASAN trace was produced to confirm reallocation actually occurs on this path.
+    limitation: net/batman-adv/network-coding.c packet1/packet2 uses after skb_linearize were classified safe by judgment (fresh stored clones make linearize a copy; stale reads alias the new allocation only in the shared case); this is reasoning, not a proven no-op.
+    limitation: l2tp_core.c loop interaction was left unresolved (not fully read) and is the highest-priority unexamined area of this branch.
+    limitation: Search was confined to net/ (protocol RX/TX paths); drivers/, net/mac80211 internal helpers beyond the two candidates, and fs/ packet parsers were not covered.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i017.json
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794432276826
+  created_at: 1794431517375
+  concluded_at: 1794432276826
+- id: i002
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=rx-pull-stale-hdr; Search only snapshots/s01 and never open any other snapshot. Direct structural/API analogue of the seed: receive-path protocol parsers (net/* *_rcv, *_recv, *_do_rcv, *_rx handlers) that capture a header pointer with skb_header_pointer() or a direct skb->data cast, then call pskb_may_pull()/pskb_pull()/pskb_pull_reserve()/__pskb_pull_tail()/skb_linearize() in the same function scope, and afterwards read or write through the stale pointer without refetching — the pep_get_sb() pattern where ph stayed live across pskb_may_pull(skb, ph->sb_len) and was then read via ph->sb_type and written via ph->sb_len -= 2. Flag cases where the pull length itself comes from the attacker-controlled header. For each candidate record exact file:function:line evidence (pointer capture, reallocating pull, every post-pull dereference); if none, record an evidence-backed negative of what was searched. Save a structured artifact for snapshot s01 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794653605151
+  created_at: 1794436691679
+  concluded_at: null
+- id: i003
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=tx-cow-head-realloc; Search only snapshots/s01 and never open any other snapshot. Lifetime/ownership analogue on transmit and edit paths: tunnel xmit handlers, neighbor/ndisc output, netfilter mangle and targets, encapsulation, header push/pull edits, and similar code that caches a pointer into skb head/data or into network/MAC/private headers and then calls a helper documented to reallocate or replace the head buffer — skb_cow_head(), skb_cow(), skb_unclone(), skb_share_check(), pskb_expand_head(), skb_linearize() — and dereferences the old pointer afterwards without refetching from skb->data; pskb_expand_head() frees the old head, so every pre-call pointer is a use-after-free. Record exact file:function:line evidence (capture, reallocating call, stale use) for each candidate, or an evidence-backed negative. Save a structured artifact for snapshot s01 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794653605153
+  created_at: 1794436691680
+  concluded_at: null
+- id: i004
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=loop-parser-stale-state; Search only snapshots/s01 and never open any other snapshot. Equivalent data-flow invariant in a different shape: variable-length record/TLV/option/attribute parse loops and ''get next record'' helpers where pskb_may_pull()/pskb_pull()/__pskb_pull_tail()/skb_linearize() executes inside the loop body or inside a per-iteration helper while pointer, cursor, offset, or length state captured before the pull (outer scope or earlier iteration) stays live and is dereferenced in a later iteration or after the helper returns — the seed''s pep_get_sb() is exactly such a helper. Distinguish from single-pass parsers: the stale state here crosses an iteration or call boundary. Record exact file:function:line evidence of the captured state, the interior pull, and the stale dereference, or an evidence-backed negative. Save a structured artifact for snapshot s01 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691680
+  concluded_at: null
+- id: i005
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=gro-frag-stale-ptr; Search only snapshots/s01 and never open any other snapshot. Cross-subsystem GRO/segmentation/frag-list analogue: *_gro_receive/*_gro_complete handlers, GSO segmenters, and frag-list walkers that hold pointers into per-packet headers — skb_gro_header_pointer()/skb_gro_header_slow() results, gro network-header pointers, pointers into frag-list or skb_shinfo data — across skb_gro_pull(), pskb_may_pull() over frag lists, skb_gro_receive(), or other head-relocation/frag-consumption, and dereference them afterwards without re-fetching via skb_gro_header_fast()/skb_gro_header_slow(). Record exact file:function:line evidence (capture, relocating call, stale use) for each candidate or an evidence-backed negative of what was searched. Save a structured artifact for snapshot s01 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691681
+  concluded_at: null
+- id: i006
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=rx-pull-stale-hdr; Search only snapshots/s02 and never open any other snapshot. Direct structural/API analogue of the seed: receive-path protocol parsers (net/* *_rcv, *_recv, *_do_rcv, *_rx handlers) that cache a header pointer via skb_header_pointer() or a direct skb->data cast before pskb_may_pull()/pskb_pull()/__pskb_pull_tail()/skb_linearize() and then read or write through that stale pointer after the pull without refetching, as in pep_get_sb() where ph outlived pskb_may_pull(skb, ph->sb_len). Watch for non-linear skb handling and for pulls whose length argument is itself read from the untrusted header. Record exact file:function:line evidence — pointer capture, reallocating pull, every post-pull dereference — or an evidence-backed negative of what was searched. Save a structured artifact for snapshot s02 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691681
+  concluded_at: null
+- id: i007
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=tx-cow-head-realloc; Search only snapshots/s02 and never open any other snapshot. Transmit/edit-path ownership analogue: tunnel xmit, neighbor output, netfilter mangle/targets, encapsulation, and header-edit helpers that store a pointer into skb head/data or protocol headers and then invoke skb_cow_head()/skb_cow()/skb_unclone()/skb_share_check()/pskb_expand_head()/skb_linearize() — any of which may free and replace skb->head — and afterwards use the stored pointer instead of refetching from skb->data. The broken invariant is identical to the seed: dereferencing a pointer into a buffer that a later call may reallocate or free. Record exact file:function:line evidence (capture, reallocating call, stale use) per candidate or an evidence-backed negative. Save a structured artifact for snapshot s02 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691682
+  concluded_at: null
+- id: i008
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=loop-parser-stale-state; Search only snapshots/s02 and never open any other snapshot. State-transition analogue: TLV/option/record parse loops and next-record helpers where a pull or linearize (pskb_may_pull(), pskb_pull(), __pskb_pull_tail(), skb_linearize(), or a fetch inside a helper) happens inside the loop body or helper while pointer/offset/length state captured earlier remains live across the boundary and is dereferenced in a later iteration or after the helper returns — the exact shape of the seed''s pep_get_sb() use-after-free. Hunt iterators whose local header pointer crosses a may_pull and helpers that both pull and leave outer-scope pointers stale. Record exact file:function:line evidence or an evidence-backed negative. Save a structured artifact for snapshot s02 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691682
+  concluded_at: null
+- id: i009
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=rx-pull-stale-hdr; Search only snapshots/s03 and never open any other snapshot. Direct structural/API analogue of the seed: receive-path protocol parsers (net/* *_rcv, *_recv, *_do_rcv, *_rx handlers) that capture a header pointer via skb_header_pointer() or a direct skb->data cast, call pskb_may_pull()/pskb_pull()/__pskb_pull_tail()/skb_linearize() to linearize, and then dereference the pre-pull pointer (read or write) without refetching — the pep_get_sb() UAF shape. Also check parsers that pull a variable amount derived from the packet itself and then keep using an earlier header pointer. Record exact file:function:line evidence (capture, reallocating pull, post-pull uses) or an evidence-backed negative of what was searched. Save a structured artifact for snapshot s03 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691683
+  concluded_at: null
+- id: i010
+  sources:
+  - origin
+  - f001
+  target_fact: f002
+  description: 'SNAPSHOT=s03; BRANCH=tx-cow-head-realloc; Search only snapshots/s03 and never open any other snapshot. Lifetime/ownership analogue on TX/edit paths: xmit handlers, neighbor output, netfilter mangle/target code, encapsulation, and header-rewrite helpers that cache pointers into skb head/data, network header, MAC header, or private headers across skb_cow_head()/skb_cow()/skb_unclone()/skb_share_check()/pskb_expand_head()/skb_linearize() calls that can free and reallocate skb->head, then write or read through the stale pointer without refetching. Remember pskb_expand_head() frees the old data area. Record exact file:function:line evidence (capture, reallocation, stale use) per candidate or an evidence-backed negative. Save a structured artifact for snapshot s03 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794438318035
+  created_at: 1794436691683
+  concluded_at: 1794438318035
+- id: i011
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=loop-parser-stale-state; Search only snapshots/s03 and never open any other snapshot. Loop/helper stale-state analogue: variable-length record, TLV, option, and attribute parse loops plus ''get next record'' helpers in which pskb_may_pull()/pskb_pull()/__pskb_pull_tail()/skb_linearize() runs inside the loop or helper while pointer, cursor, offset, or length state captured before the pull survives and is dereferenced afterwards — a state transition through freed slab memory exactly like the seed''s pep_get_sb(). Look for while-loops over options with cached header pointers and next_*() iterators that pull internally. Record exact file:function:line evidence of captured state, interior pull, and stale use, or an evidence-backed negative. Save a structured artifact for snapshot s03 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691684
+  concluded_at: null
+- id: i012
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=rx-pull-stale-hdr; Search only snapshots/s04 and never open any other snapshot. Direct structural/API analogue of the seed: receive-path protocol parsers (net/* *_rcv, *_recv, *_do_rcv, *_rx handlers) that capture a header pointer via skb_header_pointer() or a direct skb->data cast, invoke pskb_may_pull()/pskb_pull()/__pskb_pull_tail()/skb_linearize() (which may reallocate skb->head), and afterwards read or write the stale pointer without refetching — the pep_get_sb() pattern (ph live across pskb_may_pull(skb, ph->sb_len), then ph->sb_type read and ph->sb_len write). Include cases where the pull length derives from the attacker-controlled header. Record exact file:function:line evidence or an evidence-backed negative of what was searched. Save a structured artifact for snapshot s04 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691685
+  concluded_at: null
+- id: i013
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=tx-cow-head-realloc; Search only snapshots/s04 and never open any other snapshot. Ownership/lifetime analogue on transmit and edit paths: tunnel xmit, neighbor/ndisc, netfilter mangle and targets, encapsulation, and header-edit code that keeps a pointer into skb head/data or protocol headers alive across skb_cow_head()/skb_cow()/skb_unclone()/skb_share_check()/pskb_expand_head()/skb_linearize() — helpers documented to reallocate or free the head — and then dereferences it without refetching from skb->data. Same bug class as the seed with different helper names on the TX side. Record exact file:function:line evidence (capture, reallocating call, stale use) per candidate or an evidence-backed negative. Save a structured artifact for snapshot s04 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691685
+  concluded_at: null
+- id: i014
+  sources:
+  - origin
+  - f001
+  target_fact: f003
+  description: 'SNAPSHOT=s04; BRANCH=loop-parser-stale-state; Search only snapshots/s04 and never open any other snapshot. Cross-iteration stale-state analogue: record/TLV/option/attribute parse loops and get-next-record helpers where the pull (pskb_may_pull(), pskb_pull(), __pskb_pull_tail(), skb_linearize()) occurs inside the loop body or helper, while pointer/offset/length state captured before the pull is dereferenced after it — the seed''s pep_get_sb() is precisely this helper shape, so search for its structural equivalents regardless of protocol. Check helpers that both linearize and return or retain outer-scope pointers. Record exact file:function:line evidence of the captured state, interior pull, and stale use, or an evidence-backed negative. Save a structured artifact for snapshot s04 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794438649465
+  created_at: 1794436691686
+  concluded_at: 1794438649465
+- id: i015
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s05; BRANCH=rx-pull-stale-hdr; Search only snapshots/s05 and never open any other snapshot. Direct structural/API analogue of the seed: receive-path protocol parsers (net/* *_rcv, *_recv, *_do_rcv, *_rx handlers) that cache a header pointer via skb_header_pointer() or a direct skb->data cast before pskb_may_pull()/pskb_pull()/__pskb_pull_tail()/skb_linearize() and then dereference the stale pointer after the pull without refetching — the pep_get_sb() use-after-free shape where ph survived pskb_may_pull(skb, ph->sb_len). Include parsers whose pull length comes from the untrusted header bytes. Record exact file:function:line evidence (pointer capture, reallocating pull, every post-pull dereference) or an evidence-backed negative of what was searched. Save a structured artifact for snapshot s05 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691686
+  concluded_at: null
+- id: i016
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s05; BRANCH=tx-cow-head-realloc; Search only snapshots/s05 and never open any other snapshot. TX/edit-path lifetime analogue: xmit handlers, neighbor output, netfilter mangle/targets, encapsulation, and header-rewrite code that stores a pointer into skb head/data or protocol headers, then calls skb_cow_head()/skb_cow()/skb_unclone()/skb_share_check()/pskb_expand_head()/skb_linearize() (any may free and replace skb->head), and afterwards reads or writes the stored pointer without refetching. The invariant is the seed''s: never dereference a pointer into a buffer a later call may reallocate. Record exact file:function:line evidence (capture, reallocating call, stale use) per candidate or an evidence-backed negative. Save a structured artifact for snapshot s05 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794436691687
+  concluded_at: null
+- id: i017
+  sources:
+  - origin
+  - f001
+  target_fact: f004
+  description: 'SNAPSHOT=s05; BRANCH=loop-parser-stale-state; Search only snapshots/s05 and never open any other snapshot. Loop-parser stale-state analogue: variable-length record/TLV/option parse loops and next-record helpers where pskb_may_pull()/pskb_pull()/__pskb_pull_tail()/skb_linearize() executes inside the loop body or a called helper while pointer, cursor, offset, or length state captured earlier (outer scope or prior iteration) remains live and is dereferenced later — the exact mechanism of the seed''s pep_get_sb() use-after-free. Search protocol-independent: any iterator that pulls inside next_*() while callers hold header pointers qualifies. Record exact file:function:line evidence or an evidence-backed negative. Save a structured artifact for snapshot s05 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794438715059
+  created_at: 1794436691688
+  concluded_at: 1794438715059
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794431517282
+
+```
+
+### Current Intent
+```
+i007
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s02; BRANCH=tx-cow-head-realloc; Search only snapshots/s02 and never open any other snapshot. Transmit/edit-path ownership analogue: tunnel xmit, neighbor output, netfilter mangle/targets, encapsulation, and header-edit helpers that store a pointer into skb head/data or protocol headers and then invoke skb_cow_head()/skb_cow()/skb_unclone()/skb_share_check()/pskb_expand_head()/skb_linearize() — any of which may free and replace skb->head — and afterwards use the stored pointer instead of refetching from skb->data. The broken invariant is identical to the seed: dereferencing a pointer into a buffer that a later call may reallocate or free. Record exact file:function:line evidence (capture, reallocating call, stale use) per candidate or an evidence-backed negative. Save a structured artifact for snapshot s02 only.
+```
+

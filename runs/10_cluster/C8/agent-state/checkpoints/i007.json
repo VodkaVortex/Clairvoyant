@@ -1,0 +1,23 @@
+{
+  "intent_id": "i007",
+  "branch": "net-epidx",
+  "status": "complete",
+  "snapshot": "s02",
+  "phase": "final",
+  "notes": "Enumerated every .endpoint[...] access in drivers/net/usb/**, drivers/net/wireless/**, drivers/net/wwan (no matches) of snapshots/s02. Every USB-descriptor endpoint[] index is either (a) loop-bounded by desc.bNumEndpoints of the same altsetting, (b) guarded by an explicit bNumEndpoints comparison, or (c) taken only as an address whose NULL case is rejected immediately. Strongest near-miss qmi_wwan.c:674 (&info->control->cur_altsetting->endpoint[0] without bNumEndpoints check) is safe because the USB core leaves the endpoint array NULL for zero-endpoint altsettings (drivers/usb/core/config.c:561-565), &NULL[0] evaluates to NULL, and qmi_wwan.c:676 rejects !dev->status before any dereference; wdm_create (cdc-wdm.c:811-813) further validates the descriptor. hso.c:2773 remains unresolved (intr_endp NULL-check at assignment site unread). Result: bounded negative, no reportable finding.",
+  "candidates": [
+    {"path": "drivers/net/usb/qmi_wwan.c", "line": 674, "status": "safe"},
+    {"path": "drivers/net/usb/cdc-phonet.c", "line": 366, "status": "safe"},
+    {"path": "drivers/net/usb/r8152.c", "line": 1819, "status": "safe"},
+    {"path": "drivers/net/usb/cdc_ether.c", "line": 297, "status": "safe"},
+    {"path": "drivers/net/usb/usbnet.c", "line": 98, "status": "safe"},
+    {"path": "drivers/net/wireless/ath/ath9k/hif_usb.c", "line": 1230, "status": "safe"},
+    {"path": "drivers/net/wireless/realtek/rtlwifi/usb.c", "line": 333, "status": "safe"},
+    {"path": "drivers/net/usb/hso.c", "line": 2773, "status": "unresolved"},
+    {"path": "drivers/net/usb/ipheth.c", "line": 462, "status": "safe"},
+    {"path": "drivers/net/usb/sierra_net.c", "line": 681, "status": "safe"},
+    {"path": "drivers/net/wireless/intersil/orinoco/orinoco_usb.c", "line": 1614, "status": "safe"},
+    {"path": "drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c", "line": 6392, "status": "safe"}
+  ],
+  "timestamp": "2026-11-12"
+}

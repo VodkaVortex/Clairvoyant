@@ -1,0 +1,32 @@
+{
+  "intent_id": "i019",
+  "branch": "kind-callback-tb-gaps",
+  "snapshot": "s03",
+  "status": "complete",
+  "phase": "finalized",
+  "candidates": [
+    "drivers/net/vxlan.c:3975=safe",
+    "drivers/net/bonding/bond_netlink.c:158=safe",
+    "drivers/net/geneve.c:1410=safe",
+    "drivers/net/macsec.c:3792=safe",
+    "net/8021q/vlan_netlink.c:104=safe",
+    "net/bridge/br_netlink.c:1165=safe",
+    "net/ipv4/ip_gre.c:1378=safe",
+    "net/ipv6/ip6_gre.c:2300=safe",
+    "net/ipv6/ip6_tunnel.c:2058=safe",
+    "net/ipv6/sit.c:1658=safe",
+    "net/ipv4/ipip.c:503=safe",
+    "net/ipv4/ip_vti.c:573=safe",
+    "net/xfrm/xfrm_interface.c:662=safe",
+    "drivers/net/ethernet/qualcomm/rmnet/rmnet_config.c:290=safe",
+    "drivers/infiniband/ulp/ipoib/ipoib_netlink.c:67=safe",
+    "drivers/net/caif/caif_hsi.c:1332=safe",
+    "net/caif/chnl_net.c:484=safe",
+    "net/netfilter/nft_tunnel.c:79=safe"
+  ],
+  "findings": 0,
+  "notes": [
+    "Bounded negative: every per-kind callback read (vxlan_nl2conf, bond/geneve/macsec/vlan/br/tunnel-family changelinks, xfrmi, rmnet, ipoib, caif_hsi, chnl_net, nft_tunnel_get_init) guards every consumed data[]/tb[] slot individually or via an explicit !data early-out; nft_tunnel_get_init in s03 carries the corrected || guard (unlike s01).",
+    "Final artifact written to agent-state/findings/i019.json with findings=[] and 18 classified candidates (16 safe + listed unresolved surfaces in limitations)."
+  ]
+}

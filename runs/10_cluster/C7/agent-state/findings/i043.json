@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "intent_id": "i043",
+  "branch": "tasklet-napi-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": ["s14"],
+  "findings": [
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/ethernet/ti/cpmac.c",
+      "start": 727,
+      "end": 734,
+      "quote": "\tspin_lock(&priv->rx_lock);\n\tcpmac_clear_rx(priv->dev);\n\tspin_unlock(&priv->rx_lock);",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency, not attacker data - any received frame (or a host-error interrupt) drives cpmac_irq -> napi_schedule(&priv->napi) (drivers/net/ethernet/ti/cpmac.c:798-800), so cpmac_poll runs in NET_RX softirq; a MAC host-error/overflow condition (rx code != 15, reachable via remote traffic or hardware fault) makes cpmac_check_status schedule the reset_work worker (schedule_work at 540/771). SOFTIRQ SIDE: cpmac_poll (netif_napi_add(dev, &priv->napi, cpmac_poll, 64) at 1130) takes spin_lock(&priv->rx_lock) plainly at 420 (unlock 505/533). PROCESS SIDE: cpmac_hw_error workqueue worker (INIT_WORK(&priv->reset_work, cpmac_hw_error) at 990) takes the SAME priv->rx_lock with plain spin_lock at 732 and calls cpmac_clear_rx(dev) which walks/frees every RX descriptor ring slot under the lock, a non-trivial hold window. MISSING GUARANTEE: plain spin_lock only disables preemption, not bottom halves; no spin_lock_bh()/local_bh_disable() and no _irqsave at either site. UNSAFE USE: while the kworker holds rx_lock, a NET_RX softirq on the same CPU runs cpmac_poll, spins on rx_lock, and the preempted holder can never resume -> soft lockup / RCU stall / permanent RX+reset stall, the exact tasklet/NAPI-softirq analogue of the ks7010 seed. COUNTEREVIDENCE CHECKED: all four rx_lock acquisitions in the file (420, 505-533 poll, 732 worker, plus init at 1133) were enumerated - every one is plain spin_lock, so the file has no BH/irq-disable discipline anywhere for this lock, i.e. mixed-discipline counterevidence is absent but so is any protection; napi_disable is only reached inside the poll's fatal-error path (528-536), not before the worker runs, and cpmac_stop's cancel_work_sync (1030) does not help the running case. Same mechanism was already confirmed high-confidence in sibling snapshot s12 (f040) and medium in s10 (f041); line numbers in this s14 tree are 727-734 (worker) and 413-420 (poll), shifted ~10 lines versus siblings. No runtime reproducer was built (tree has no .config/headers); static classification only.",
+      "conclusion": "cpmac_hw_error workqueue worker takes priv->rx_lock with plain spin_lock (732) while NAPI cpmac_poll takes the same lock under NET_RX softirq (420), so a same-CPU softirq can spin forever against the preempted worker (soft-lockup/DoS)."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/ethernet/silan/sc92031.c",
+      "start": 1088,
+      "end": 1103,
+      "quote": "\tspin_lock(&priv->lock);\n\n\tpriv->tx_timeouts++;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency - TX hang plus ordinary traffic; sc92031_start_xmit stalls the queue, the dev_watchdog timer fires, and its ndo_tx_timeout handler runs while the RX/TX tasklet remains schedulable. SOFTIRQ SIDE: hardirq handler sc92031_interrupt (tasklet_schedule(&priv->tasklet) at 895) -> sc92031_tasklet takes spin_lock(&priv->lock) plainly at 843 and runs _sc92031_tx_tasklet/_sc92031_rx_tasklet under TASKLET softirq. PROCESS SIDE: sc92031_tx_timeout (netdev_ops ndo_tx_timeout) takes the same priv->lock with plain spin_lock at 1096 (this tree's numbering; sibling snapshots s03/s10 use 1081-1096) and performs a full chip reset _sc92031_reset under it. The watchdog context: dev_watchdog is a timer_list (net/sched/sch_generic.c:432), so ndo_tx_timeout itself runs from call_timer_fn in TIMER_SOFTIRQ - technically the timer branch - but the same lock is ALSO taken plainly by process-context code and the tasklet side is TASKLET_SOFTIRQ, which is this branch's shape; the mixed discipline is proven by 13 sibling sites on the SAME lock using spin_lock_bh (918, 1024, 1059, 1080, 1136, 1250, 1270, 1297, 1328, 1375, 1529, 1555), so the driver knows the lock is softirq-shared and 843/949/1096 are the inconsistent plain sites. MISSING GUARANTEE: no spin_lock_bh at 1096/843. Same mechanism already reported high-confidence in s03 (f039) and medium in s10 (f041). COUNTEREVIDENCE: 949 is sc92031_start_xmit (NET_TX softirq context, plain lock acceptable there as it cannot deadlock against itself on the same CPU); the deadlock pair needs the tasklet to fire on the same CPU as the timeout holder, which requires an RX/TX interrupt during the timeout window - plausible but unproven at runtime; hence medium confidence.",
+      "conclusion": "sc92031_tx_timeout takes priv->lock with plain spin_lock (1096) while the ISR-scheduled RX/TX tasklet takes the same lock in softirq (843); the missing spin_lock_bh lets the tasklet spin forever against the preempted timeout holder on one CPU (soft-lockup/DoS)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 4625,
+      "status": "safe",
+      "reason": "mwl8k_tx_poll tasklet body uses spin_lock_bh(&priv->tx_lock) (4634) and mwl8k_rx_poll takes no lock at all (rxq_process/rxq_refill are lock-free); the tasklet-softirq side therefore has correct BH discipline; stream_lock has no tasklet-side plain acquirer (that lock belongs to the xmit branch, reported by i015)."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+      "line": 30,
+      "status": "safe",
+      "reason": "The i015-unresolved resp_lock candidate was re-evaluated for NAPI/poll reachability as this intent required: qtnf_trans_signal_cmdresp (resp_lock, plain, trans.c:87) is only called from qtnf_trans_handle_rx_ctl_packet <- qtnf_pcie_control_rx_callback <- qtnf_shm_ipc_irq_work, which is an INIT_WORK workqueue work (shm_ipc.c:44-48), NOT the NAPI poll; qtnf_pcie_pearl_rx_poll only routes data frames via napi_gro_receive (pearl_pcie.c:724-730) and never calls the ctl-packet path; the qtnf reclaim tasklet uses spin_lock_irqsave(&priv->tx_reclaim_lock) (pearl_pcie.c:474) at every site. No softirq-context resp_lock acquirer exists, so the plain process-side sites cannot deadlock via this branch."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/ath/ath5k/base.c",
+      "line": 1126,
+      "status": "safe",
+      "reason": "Tasklet bodies take rxbuflock/txq->lock/txbuflock/block plainly (1551/1741/1775/2204), but the only plain process-context acquirer, ath5k_drain_tx_buffs (1126), runs strictly after ath5k_stop_tasklets/tasklet_kill in both callers (ath5k_reset 2845->2885, ath5k_stop path 2712-2718 after synchronize_irq); every other process user of these four locks uses spin_lock_bh (830, 1120, 1172, 2151, 2204's process twin) or spin_lock_irqsave (1529-1654), so no BH-enabled plain holder remains - discipline inconsistency only, matching sibling s03's medium ath5k note."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/ath/ath9k/htc_drv_txrx.c",
+      "line": 577,
+      "status": "safe",
+      "reason": "ath9k_tx_failed_tasklet takes tx_lock plainly at 577, but every process-context tx_lock site in ath9k_htc uses spin_lock_bh (58-99, 392-570, plus wmi.c:184-186); ath9k_rx_tasklet and ath9k_wmi_event_tasklet use spin_lock_irqsave throughout; so the softirq side is the plain one but no plain process holder exists - no seed-shape deadlock."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/usb/hso.c",
+      "line": 1235,
+      "status": "safe",
+      "reason": "hso_unthrottle_tasklet takes serial->serial_lock with spin_lock_irqsave (1235-1239) and all ~30 other serial_lock/net_lock sites use _irqsave/_irq; the only plain-ish pattern is the softirq side itself, which cannot deadlock against a plain process holder because none exists in this file."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/realtek/rtlwifi/ps.c",
+      "line": 80,
+      "status": "safe",
+      "reason": "rf_ps_lock is taken plainly in rtl_ps_set_rf_state/rtl_swlps_rf_sleep (ps.c 80/146/599) from process/work contexts and with spin_lock_irqsave in pci.c (1841-1863, rtl_pci_deinit) and rtl8188ee dm.c/hw.c - but none of those plain sites is the rtlwifi irq tasklet body: _rtl_pci_irq_tasklet -> _rtl_pci_tx_chk_waitq only touches waitq_lock, and it uses spin_lock_bh (pci.c ~497-505). rf_ps_lock has no tasklet-side acquirer, so no softirq-vs-holder spin window; the real rtl_lps_leave callers from the RX irq path defer to lps_change_work (schedule_work), which is workqueue, not softirq."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/ethernet/dlink/sundance.c",
+      "line": 1269,
+      "status": "safe",
+      "reason": "The two plain spin_lock(&np->lock) sites (1269, 1295) are inside the hardirq handler intr_handler (Tx-done descriptor reclaim); the rx_tasklet/tx_tasklet bodies (1072, 1330) take no lock; all process-context users of np->lock use spin_lock_irq/irqsave (898, 1006, 1668, 1679, 1823). Softirq side is lock-free, so no shared-lock deadlock of this branch's shape (the plain-in-hardirq pattern is branch4 territory, and the process side already uses irq-disable)."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/intel/iwlegacy/4965-mac.c",
+      "line": 1742,
+      "status": "safe",
+      "reason": "il4965_tx_skb takes sta_lock plainly at 1742 but only inside an outer spin_lock_irqsave(&il->lock) taken at 1684, so interrupts (and therefore the irq tasklet il4965_irq_tasklet, which itself uses spin_lock_irqsave(&il->lock) at 4373) are already disabled on that CPU; the 2388/2387 plain sta_lock->il->lock switch is reached with flags still held from an irqsave at 2344; 5385 uses spin_lock_irq. No BH-enabled plain holder of a tasklet-shared lock."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/broadcom/b43legacy/main.c",
+      "line": 1452,
+      "status": "safe",
+      "reason": "The single plain spin_lock(&dev->wl->irq_lock) site is in the hardirq top-half b43legacy_interrupt_handler (1445-1492); the tasklet bottom half b43legacy_interrupt_tasklet uses spin_lock_irqsave (see unlock_irqrestore at main.c ~1400) - so both irq_lock users disable interrupts; no plain process-context acquirer and no BH-enabled holder remain (the plain-in-hardirq issue alone is not this branch)."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/intel/ipw2x00/ipw2200.c",
+      "line": 10520,
+      "status": "safe",
+      "reason": "The single plain spin_lock(&priv->irq_lock) is in the hardirq top-half ipw_isr; ipw2100's plain low_lock (3352) is likewise in ipw2100_interrupt; the bottom-half tasklet/work sides use irqsave. Hardirq-context plain acquisition with an irq-disabled bottom half cannot produce this branch's softirq-vs-holder deadlock; at most it is a branch4 pattern already guarded by the top-half."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/ethernet/micrel/ksz884x.c",
+      "line": 5249,
+      "status": "unresolved",
+      "reason": "spin_lock(&hw_priv->hwlock) at 5249 sits in a tasklet-scheduling interrupt path (tasklet_schedule for rx/tx_proc_task at 5196/5265/5270, tasklet_init at 5455/5457); the session was ordered to stop before the rx_proc_task/tx_proc_task bodies and the process-context hwlock users (ethtool/ioctl/open) could be deep-read, so it is unproven whether the tasklet bodies take hwlock plainly and whether any process path holds it with BHs enabled.",
+      "conclusion": "Follow up: read ksz884x.c rx_proc_task/tx_proc_task bodies and enumerate every hwlock acquirer's context (tasklet vs ethtool/ioctl/workqueue) to decide whether a plain process holder pairs with a softirq spinner on hwlock."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/ethernet/natsemi/ns83820.c",
+      "line": 754,
+      "status": "unresolved",
+      "reason": "ns83820 has an ISR-scheduled rx_tasklet (rx_action, tasklet_init at 1944, tasklet_schedule at 1444) and plain spin_lock sites at 754 (misc_lock) and 1310 (tx_lock); the rx_action body and the contexts of those two plain sites were not read before the stop order, so it is unknown whether either lock is shared between a tasklet-context and a BH-enabled process-context acquirer.",
+      "conclusion": "Follow up: read ns83820 rx_action tasklet body and classify misc_lock (754) and tx_lock (1310) acquirers as process vs softirq context to test the BH-disable invariant."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/ath/carl9170/main.c",
+      "line": 263,
+      "status": "unresolved",
+      "reason": "carl9170_flush_ba takes tid_info->lock plainly in process context (main.c:263, per sibling fact f043) and carl9170's usb_tasklet exists (usb.c:886/1088); the TX/BA processing paths in tx.c/mac.c that could take tid_info->lock from a softirq-context callback were not traced in this session before the stop order.",
+      "conclusion": "Follow up: trace carl9170 tx.c/mac.c BA processing for a softirq-context acquisition of tid_info->lock to pair with the plain process-context acquisition in carl9170_flush_ba (main.c:263)."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/staging/rtl8188eu/hal/rtl8188eu_recv.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "The staging rtl tasklet files (rtl8188eu, rtl8192e/rtl_core.c, rtl8192u, rtl8712, rtl8723bs, wlan-ng hfa384x_usb.c/p80211netdev.c) were inventoried by grep (tasklet_init/tasklet_schedule present) but their tasklet bodies and lock pairings were not classified before the stop order; these drivers are known for heavy plain spin_lock use, so a tasklet-vs-process pair may exist there.",
+      "conclusion": "Follow up: read the staging rtl*/wlan-ng tasklet callback bodies and pair their locks against process-context (ioctl/SME/workqueue) plain spin_lock sites in the same files."
+    }
+  ],
+  "coverage_gaps": [
+    "Only drivers/net (wireless, ethernet, usb, wan, ppp) and drivers/staging tasklet/NAPI files were triaged; the remaining ~170 tasklet_init files under sound/, drivers/dma/, drivers/crypto/, drivers/mmc/, drivers/scsi/, drivers/media/ and drivers/tty/ were never read for a plain process-context partner lock.",
+    "NAPI poll functions were enumerated via netif_napi_add greps but only cpmac's poll (plus qtnfmac pearl/topaz polls reached via the resp_lock re-evaluation) was deep-read; NAPI polls of the many ethernet drivers with plain spin_lock (e.g. ns83820 tx_lock, ksz884x hwlock) were left unclassified.",
+    "Lock correlation was textual, by lock-expression base name per file; locks reached through differently named pointer aliases, container_of indirection, or per-queue lock arrays between softirq and process sites could not be matched automatically.",
+    "Only the tasklet callback body plus NAPI poll function and their same-file direct callees were treated as the softirq side; locks reached through deeper indirect calls (ops->, hw->, function-pointer tables, cross-file statics, rtlpriv->cfg->ops) were not resolved.",
+    "Process-context sites that disable BHs via local_bh_disable() nesting or via spin_lock_bh on an outer lock around a plain inner acquisition were only manually resolved for the classified candidates (e.g. iwlegacy 1684->1742); the full tree was not audited for that pattern."
+  ],
+  "limitations": [
+    "Both findings are static hypotheses; no runtime reproducer or lockdep run was possible because the snapshot tree lacks .config, generated headers and build support.",
+    "The cpmac deadlock window requires the NET_RX softirq and the hw_error worker to run on the same CPU with the worker's cpmac_clear_rx walk still inside the rx_lock critical section; scheduling alignment is plausible (softirq runs on the interrupt/worker CPU) but not measured.",
+    "The sc92031 finding is medium confidence because the plain process-side holder is ndo_tx_timeout invoked from the watchdog timer (TIMER_SOFTIRQ via call_timer_fn, net/sched/sch_generic.c:432-467) rather than a user task, and the same-CPU tasklet-vs-timeout alignment needs an RX/TX interrupt during the timeout window; a genuine process-context plain holder of priv->lock was not found (all use spin_lock_bh).",
+    "The search was stopped by directive before ksz884x, ns83820, carl9170 and the staging rtl*/wlan-ng tasklet bodies could be deep-read; their classifications remain unresolved rather than negative.",
+    "Sibling-snapshot conclusions (s12 f040, s10 f041, s03 f039) were used to prioritize cpmac and sc92031; line numbers were re-verified in this s14 tree, but cross-snapshot identity of the drivers means the same bug may already be recorded elsewhere in the cluster."
+  ]
+}

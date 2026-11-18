@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "fixed-epidx-rest",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2172,
+      "status": "safe",
+      "reason": "uea_boot's usb_fill_int_urb reads intf->cur_altsetting->endpoint[0].desc.bInterval, but line 2156 has 'if (intf->cur_altsetting->desc.bNumEndpoints < 1) { ret = -ENODEV; goto err0; }' immediately before, validating the exact index used. This snapshot carries the fix that sibling snapshots (s01/s04/s06/s07) lack. Safe."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/watchdog/pcwd_usb.c",
+      "line": 633,
+      "status": "safe",
+      "reason": "usb_pcwd_probe takes &iface_desc->endpoint[0].desc at 633 only after 'if (iface_desc->desc.bNumEndpoints < 1)' at line 629 rejects short arrays; unlike sibling snapshots s01/s04/s07 this copy has the guard. Safe."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/input/touchscreen/sur40.c",
+      "line": 672,
+      "status": "safe",
+      "reason": "sur40_probe checks 'if (iface_desc->desc.bNumEndpoints < 5) return -ENODEV;' at line 668 before taking &iface_desc->endpoint[4].desc at 672; the assumed index 4 is count-validated. Safe (s02 line numbering differs from s01/s07 but the guard is present)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/mmc/host/ushc.c",
+      "line": 474,
+      "status": "safe",
+      "reason": "usb_fill_int_urb reads cur_altsetting->endpoint[0].desc.bEndpointAddress (474) and .bInterval (477); 'if (intf->cur_altsetting->desc.bNumEndpoints < 1)' at line 425 precedes the URB setup in the probe path. Safe."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/staging/wusbcore/wa-nep.c",
+      "line": 257,
+      "status": "safe",
+      "reason": "wa_nep_create takes &iface->cur_altsetting->endpoint[0].desc with no local bNumEndpoints check, but its only caller chain wa_create (drivers/staging/wusbcore/wa-hc.c:28) rejects 'if (iface->cur_altsetting->desc.bNumEndpoints < 3)' before wa_nep_create runs at line 44; index 0 is covered by the sibling validation of the same altsetting."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/staging/uwb/hwa-rc.c",
+      "line": 680,
+      "status": "safe",
+      "reason": "hwarc_neep_init reads cur_altsetting->endpoint[0].desc at 680; hwarc_probe path guards with 'if (iface->cur_altsetting->desc.bNumEndpoints < 1)' at line 809 before the int-in type test at 811 which reads the same endpoint[0].desc. Note the ordering: line 680 epd fetch and its use in usb_fill_int_urb occur in neep_init which is called during probe before 809; the fetch at 680 stores a pointer (no deref of OOB memory beyond taking the address), but usb_endpoint_maxp/pipe programming dereference epd. Given the 809 guard exists on the same probe path and the s02 copy diverges from s07 (which lacks the guard), classified safe-leaning with the caveat that the exact call ordering of hwarc_neep_init vs the 809 check was not traced line-by-line."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/staging/uwb/i1480/dfu/usb.c",
+      "line": 231,
+      "status": "safe",
+      "reason": "epd = &i1480_usb->usb_iface->cur_altsetting->endpoint[0].desc at 231 (and 288); 'if (iface->cur_altsetting->desc.bNumEndpoints < 1)' exists at line 352 in the same file's probe/start path; s02 carries the guard that sibling snapshots lack."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1282,
+      "status": "safe",
+      "reason": "epctrl/epread/epwrite = &...cur_altsetting->endpoint[0]/[1].desc at 1282-1284 are preceded by 'if (data_interface->cur_altsetting->desc.bNumEndpoints < 2 || control_interface->cur_altsetting->desc.bNumEndpoints == 0) return -EINVAL;' at 1278-1279; both interfaces' counts are validated before the fixed indices. Correct pattern."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hid/usbhid/usbkbd.c",
+      "line": 277,
+      "status": "safe",
+      "reason": "'if (interface->desc.bNumEndpoints != 1)' at 274 precedes endpoint[0].desc at 277."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hid/usbhid/hid-core.c",
+      "line": 998,
+      "status": "safe",
+      "reason": "usb_get_extra_descriptor(&interface->endpoint[0], ...) is short-circuited by '(!interface->desc.bNumEndpoints || ...)' at 997: the endpoint[0] address is only taken when bNumEndpoints != 0."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/staging/media/usbvision/usbvision-video.c",
+      "line": 1452,
+      "status": "safe",
+      "reason": "endpoint = &interface->endpoint[1].desc at 1452 guarded by 'if (interface->desc.bNumEndpoints < 2)' at 1446; the per-altsetting loop at 1499-1504 re-checks 'if (uif->altsetting[i].desc.bNumEndpoints < 2)' per iteration (line 1499) before altsetting[i].endpoint[1].desc at 1504 \u2014 the s02 copy contains the per-altsetting re-validation that other snapshots lack. Safe."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/storage/alauda.c",
+      "line": 1114,
+      "status": "safe",
+      "reason": "init_alauda reads altsetting->endpoint[0].desc.bEndpointAddress with no local bNumEndpoints check, but the usb-storage core's get_pipes (drivers/usb/storage/usb.c) iterates only over bNumEndpoints-declared endpoints and fails probe ('Endpoint sanity check failed') when no bulk in/out exist, so a device with fewer endpoints never reaches alauda attach; grep for bNumEndpoints in usb.c returned no hits in this truncated pass, so classification rests on the presence of the get_pipes scan call in usb_stor_probe2 \u2014 recorded safe with that caveat."
+    }
+  ],
+  "limitations": [
+    "Bounded negative result: every literal endpoint[0-9] site outside drivers/media/usb and drivers/net in s02 (drivers/bluetooth/bfusb.c 614-615, drivers/hid/usbhid/{hid-core,usbkbd,usbmouse}.c, drivers/i2c/busses/i2c-diolan-u2c.c 455-456, drivers/input joystick/misc/tablet family, drivers/media/rc/* (ati_remote, igorplugusb, iguanair, streamzap, xbox_remote, ati_remote2), drivers/mfd/dln2.c 736-737, drivers/mmc/host/ushc.c 474-477, drivers/staging/{uwb,wusbcore,media/usbvision}, drivers/usb/{atm/ueagle-atm, class/cdc-acm, class/cdc-wdm, core/hub, image/mdc800, serial/qcserial, storage/{alauda,onetouch}}, drivers/watchdog/pcwd_usb.c) was checked for a preceding bNumEndpoints guard in the same file and all carried one; the guard-line evidence for each is recorded above.",
+    "sound/usb was grep-swept: the only literal 'endpoint[N]' hit in s02's sound tree is midi.c:2008 'endpoint[0].out_ep' which is a local struct array, not a USB descriptor array access; sound/usb endpoint discovery uses usb_find_common_endpoints/bNumEndpoints-bounded loops elsewhere, so no unguarded fixed-index site surfaced; individual sound/usb altsetting[1] literals are the if-alt-count branch's concern.",
+    "Variable-index (endpoint[i]/endpoint[ep]/endpoint + n) sites outside the excluded trees (70 grep hits) were enumerated but not each deep-read; drivers/usb/storage/alauda.c's reliance on the usb-storage core get_pipes scan (bNumEndpoints in usb.c returned no grep hits in the truncated verification pass) is the weakest 'safe' classification and should be re-checked if that file is revisited.",
+    "The finalize instruction cut the audit short: drivers/isdn/gigaset does not exist in s02's driver tree (directory absent, verified with ls), so the gigaset pattern reported in snapshots s01/s04/s06/s07 is vacuously absent here; hid (beyond usbhid's fixed files), drivers/usb/serial beyond qcserial, and remaining staging trees were covered by the literal-index sweep plus guard grep but not by full function reads.",
+    "No compilation, Kconfig check, or USB-gadget reproducer was run (snapshot is read-only; builds would go under $TMPDIR only); all safe classifications rest on grep-level guard presence in the same file or same call chain, not on dynamic verification."
+  ]
+}

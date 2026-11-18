@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "intent_id": "i019",
+  "branch": "terminator-write-off-by-one",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/ath/ath5k/debug.c",
+      "line": 614,
+      "status": "unresolved",
+      "reason": "ath5k debugfs write family (six handlers with buf[count] = '\\0' at lines 234/336/441/614/763/861, char buf[20]). Each shows the SAFE clamp primitive 'count = min_t(size_t, count, sizeof(buf) - 1)' before copy_from_user and buf[count] = '\\0', which keeps the terminator index <= 19 in bounds; however the 30-line context also contains a guard 'if (len > sizeof(buf))' (an off-by-one acceptance form: len == sizeof(buf) is accepted) whose len variable was not traced to its consuming index before the finalize directive. Likely safe (the -1 clamp is present), left as unresolved residue for follow-up rather than a reported finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/edac/versal_edac.c",
+      "line": 863,
+      "status": "reported",
+      "reason": "Known instance, cited not re-reported per intent: inject_data_ue_store, char buf[6] (line 854), len = min_t(size_t, count, sizeof(buf)) without -1 (line 859), copy_from_user(buf, data, len) (line 861), buf[len] = '\\0' (line 863) writes buf[6], one byte past the 6-byte stack array when count >= 6. Reported by intent i007 (fact f015, ASan harness 'stack-buffer-overflow WRITE of size 1')."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/edac/zynqmp_edac.c",
+      "line": 311,
+      "status": "reported",
+      "reason": "Known instance, cited not re-reported per intent: inject_ue_write, char buf[6] (line 299), len = min_t(size_t, count, sizeof(buf)) (line 307), copy_from_user(buf, data, len) (line 310), buf[len] = '\\0' (line 311) writes buf[6] out of bounds when count >= 6. Reported by intent i007 (fact f015)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/ocfs2/filecheck.c",
+      "line": 247,
+      "status": "safe",
+      "reason": "ocfs2_filecheck_args_get_long does memcpy(buffer, buf, count); buffer[count] = '\\0'; into char buffer[OCFS2_FILECHECK_ARGS_LEN=24], but the sole caller ocfs2_filecheck_args_parse (lines 271-283) rejects '(count < 1) || (count >= OCFS2_FILECHECK_ARGS_LEN)' before the copy, so count <= 23 and buffer[23] is the last in-bounds byte. The buffer arrives from a kobject attribute store (ocfs2_filecheck_store -> kattr->store, lines 122-138). Terminator index capped below the buffer size; no off-by-one."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/pktgen.c",
+      "line": 1387,
+      "status": "safe",
+      "reason": "pktgen proc writer: len = strn_len(&user_buffer[i], sizeof(target) - 1) bounds len to sizeof(field)-1 (or sizeof(buf)-1 for the 128-byte buf declared at line 960), then copy_from_user(buf, &user_buffer[i], len) and buf[len] = 0. strn_len stops at NUL/whitespace before maxlen, so len can never equal the destination size; all eight buf[len]=0 sites (1387/1407/1429/1452/1474/1495/1516/1536) share the same sizeof(...)-1 bound. In-bounds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/infiniband/hw/hfi1/fault.c",
+      "line": 194,
+      "status": "safe",
+      "reason": "data = kcalloc(datalen, ...) with datalen = 1280 (line 173), scnprintf bounded by 'datalen - size - 1' so size < datalen; data[size - 1] = '\\n' and data[size] = '\\0' are inside the allocation. Read-side formatter, not a usercopy terminator write; no off-by-one."
+    },
+    {
+      "snapshot": "s02",
+      "path": "security/apparmor/apparmorfs.c",
+      "line": 502,
+      "status": "safe",
+      "reason": "profile_remove: data = aa_simple_write_to_buffer(buf, size + 1, size, pos) allocates size+1 bytes (aa_loaddata_alloc -> kvzalloc(alloc_size)) and copies exactly size user bytes, then data->data[size] = 0 writes the extra allocated slot - the correct +1 terminator-slot primitive, documented by the comment ('1 extra byte is allocated and the copied data is null terminated')."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/scsi/scsi_proc.c",
+      "line": 80,
+      "status": "safe",
+      "reason": "proc_scsi_host_write rejects count > PROC_BLOCK_SIZE (= 3*1024 = 3072, define at line 42, check at line 71) and copies count bytes into a full PAGE_SIZE __get_free_page page. ->write_info callbacks therefore see len <= 3072 < 4096: no PAGE_SIZE-boundary off-by-one on this path in s02."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/scsi/wd33c93.c",
+      "line": 2021,
+      "status": "safe",
+      "reason": "buf[len] = '\\0' with len = count <= PROC_BLOCK_SIZE = 3072 into a PAGE_SIZE (4096) page: terminator index 3072 is in bounds. The other two ->write_info callbacks (imm.c:132 imm_write_info, ppa.c:132 ppa_write_info) write no terminator at all - their unterminated-parse issue is recorded under intent i008, not this branch."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/iommu/intel/debugfs.c",
+      "line": 697,
+      "status": "safe",
+      "reason": "dmar_perf_latency_write: char buf[64]; 'if (cnt > 63) cnt = 63;' clamps cnt to 63 before copy_from_user(&buf, ubuf, cnt) and buf[cnt] = 0 at index <= 63 = sizeof(buf)-1. Correct clamp."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/video/fbdev/via/viafbdev.c",
+      "line": 1470,
+      "status": "safe",
+      "reason": "odev_update: char buf[64]; rejects 'count < 1 || count > 63' so count <= 63 = sizeof(buf)-1 before copy_from_user(&buf[0], buffer, count) and buf[count] = '\\0'. In-bounds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sunrpc/cache.c",
+      "line": 1521,
+      "status": "safe",
+      "reason": "cache_flush: char tbuf[20]; 'if (*ppos || count > sizeof(tbuf)-1) return -EINVAL;' caps count at 19 before copy_from_user(tbuf, buf, count) and tbuf[count] = 0. Identical pattern at net/sunrpc/auth_gss/svcauth_gss.c:1420 (write_gssp, tbuf[20]). In-bounds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/power/qos.c",
+      "line": 388,
+      "status": "safe",
+      "reason": "cpu_latency_qos_write: 'if (count == sizeof(s32))' accepts exactly 4 bytes but copies with copy_from_user(&value, buf, sizeof(s32)) into s32 value - a fixed-size binary field with NO terminator write at all, so the equality acceptance has no terminator-index consequence. Same form at kernel/profile.c:440 (count == sizeof(int), copy into unsigned int multiplier)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/configfs/file.c",
+      "line": 195,
+      "status": "safe",
+      "reason": "fill_write_buffer: copied = copy_from_iter(buffer->page, SIMPLE_ATTR_SIZE - 1, from); buffer->page[copied] = 0. The copy is capped at SIMPLE_ATTR_SIZE-1, so copied <= SIMPLE_ATTR_SIZE-1 and the terminator lands on the last in-bounds byte of the order-0 page. Correct -1 cap."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/libfs.c",
+      "line": 1319,
+      "status": "safe",
+      "reason": "simple_attr write core: size = min(sizeof(attr->set_buf) - 1, len) before the iter copy and attr->set_buf[size] = '\\0'; the same -1 clamp appears in arch/powerpc/platforms/cell/spufs/file.c:120-125 (size = min(sizeof(attr->set_buf) - 1, len)). In-bounds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/debugfs.c",
+      "line": 133,
+      "status": "safe",
+      "reason": "All four sites (133/189/280/397) reject 'if (count >= sizeof(buf))' before copy_from_user(buf, user_buf, count), so count <= sizeof(buf)-1 and buf[count] = '\\0' (else branch of the trailing-'\\n' strip) is in-bounds. Same '>= sizeof(buf)' rejection family: drivers/net/wireless/mediatek/mt76/mt7915/debugfs.c 68/1073/1337 and mt7996 70/912, drivers/scsi/fnic/fnic_debugfs.c 152/509 ('cnt >= sizeof(buf)' with buf[64]), drivers/scsi/snic/snic_debugfs.c 120, kernel/trace/trace.c 5361/7096, trace_hwlat.c 694, trace_osnoise.c 2223, kernel/user_namespace.c 1234 (kbuf[8], 'count >= sizeof(kbuf)'), drivers/net/netdevsim/dev.c 259 (buf[10], 'count >= sizeof(buf)'), drivers/net/ethernet/intel/i40e/i40e_debugfs.c 1700 and ixgbe 83/166 (static bufs, 'count >= sizeof(...)'), drivers/pci/vgaarb.c 1175, kernel/time/test_udelay.c 112, kernel/sched/debug.c 138/182/233 (cnt > 63 / cnt > 15)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/misc/lkdtm/core.c",
+      "line": 247,
+      "status": "safe",
+      "reason": "lkdtm write paths reject 'if (count >= PAGE_SIZE)' before __get_free_page + copy_from_user(buf, user_buf, count) + buf[count] = '\\0' (lines 247 and 324); count <= PAGE_SIZE-1 keeps the terminator inside the page. Same PAGE_SIZE rejection at arch/alpha/kernel/srm_env.c:107. drivers/scsi/scsi_devinfo.c:732 writes buffer[length] = '\\0' only when 'length < PAGE_SIZE' and rejects length == PAGE_SIZE unless buffer[PAGE_SIZE-1] is already NUL - correct boundary handling."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/usb/misc/yurex.c",
+      "line": 460,
+      "status": "safe",
+      "reason": "yurex_write: 'count = min(sizeof(buffer) - 1, count);' with char buffer[16 + 1] before copy_from_user(buffer, user_buffer, count) and buffer[count] = 0 at index <= 16 = sizeof(buffer)-1. In-bounds. Bulk-verified -1-clamp family: arch/x86/mm/pkeys.c:152, arch/x86/mm/tlb.c:1327, drivers/hid/hid-picolcd_debugfs.c:48 (min(count, sizeof(buf)-1)), drivers/hid/hid-wiimote-debug.c:141 (min(15, s) with buf[16]), drivers/iio/industrialio-core.c:415, drivers/usb/chipidea/debug.c:88, drivers/platform/x86/toshiba_acpi.c:1490/1671/1742 (min(count, sizeof(cmd)-1), cmd[42]), drivers/platform/x86/intel/pmc/core.c:930 ('count > sizeof(buf) - 1' rejected), ath6kl/debug.c 8 sites, ath9k/debug.c:1221, ath10k/spectral.c:314, ath11k/spectral.c:311, ipw2x00 libipw_module.c:233, cxgb4_debugfs.c:674 (min(sizeof(s)-1, count)) and 1294 ('count > sizeof(s) - 1' rejected), kernel/dma/debug.c:760 (min(count, NAME_MAX_LEN-1)), hisilicon qm.c:3687 / hpre 888 / sec2 776 / zip 745 / debugfs.c:768 ('count >= LEN' rejected), habanalabs debugfs.c:495/558 ('count > sizeof(kbuf) - 1'), i40e_debugfs.c:776 (kzalloc(count + 1) then cmd_buf[count]), rvu_debugfs.c:1006 (memdup_user(buffer, count + 1)), wil6210 795/892/1951/2110 (kmalloc(len + 1)), lib/kstrtox.c:403/417 (min(count, sizeof(buf)-1)), i915 intel_hotplug.c 1040/1121 and intel_wm.c:304 ('len >= sizeof(tmp)' rejected), drm_debugfs.c:419, armada_debugfs.c:69, lsdc_crtc.c:647 ('len > sizeof(buf) - 1'), drivers/accel/habanalabs ('count > sizeof(kbuf)-1'), drivers/acpi/proc.c:103 (strbuf[5], 'count > 4'), rtas-proc.c:269 (buf[40], 'count > 39'), lpar.c:514/611 (buf[16], 'count > 15'), via-pmu.c:933 (tmp[33], 'count > 32'), smack/smackfs.c 493/1620/1687/1765/2201/2859 ('count >= sizeof(temp)' rejected), binfmt_elf.c:1524 / binfmt_elf_fdpic.c:1341 ('len >= ELF_PRARGSZ' rejected), adf_heartbeat_dbgfs.c:172 (buf[3], 'count != 2' rejected), security/apparmor/lsm.c:866 (args from kmalloc(size+1)), drivers/crypto/inside-secure and remaining pointer-form sites (rbd.c 6249/6502 kmemdup(len+1))."
+    }
+  ],
+  "limitations": [
+    "Bounded negative result: no NEW clamp-then-terminate off-by-one site beyond the already-known pair was found in s02. Sweep scope: 340 raw terminator-write matches (buf/count/len/size/cnt-family indices assigned 0 or '\\0') enumerated tree-wide in s02; 121 with a usercopy primitive within 30 preceding lines triaged by function-context bound analysis; every one enforces count >= sizeof(buf) rejection, a sizeof(...)-1 clamp, a +1-sized allocation, or has no terminator write at all.",
+    "Sites where the usercopy occurs farther than 30 lines before the terminator, is hidden inside a helper called from the writer, or where the terminator index is an unusual expression (loop counters, ptr-form writes - the 5 enumerated ptr-form sites are all kmemdup/kmalloc len+1 allocations and safe) could evade the window; ~200 memdup_user-family sites without adjacent terminator writes were covered by the i006/i009 sweeps, not re-audited here.",
+    "ath5k debugfs family (lines 234/336/441/614/763/861) is left unresolved: each handler prints the safe min_t(..., sizeof(buf) - 1) clamp, but the nearby 'if (len > sizeof(buf))' guard form was not traced to its consuming index before the finalize directive; likely safe, not confirmed.",
+    "min_t/clamp bulk-safety classification (ath/ath6kl/ath9k/ath10k/ath11k/toshiba/mediatek/mac80211/etc.) relied on the printed guard/clamp lines carrying an explicit -1 or >=-rejection; those files were not individually deep-read beyond those lines.",
+    "ioctl, compat_ioctl, io_uring, and module_param surfaces were covered only through the shared terminator-index grep families; the string-consumer side of those interfaces belongs to intents i009/i013/i017.",
+    "No kernel build or in-kernel KASAN run was executed (snapshot is read-only); classifications rest on line-level bound analysis of printed declarations, guards, and clamps. The known versal/zynqmp instances were ASan-verified in a userspace harness by intent i007 (fact f015)."
+  ]
+}

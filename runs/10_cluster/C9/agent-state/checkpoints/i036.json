@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "intent_id": "i036",
+  "branch": "unclamped-wire-count",
+  "snapshot": "s09",
+  "status": "finalized",
+  "progress": [
+    {"step": "init", "note": "checkpoint created; about to begin s09 unclamped-wire-count sweep"},
+    {"step": "candidate-probe", "note": "grep of known unclamped-count sites in s09: hci_event.c:7215 num_reports=*ptr; raid5-ppl.c:976/1151 entries_count consumers, 281 write-path cap; qaic_control.c:974 count store; ceph inode.c:476 nsplits; dlm member.c:117 rf_num_slots; usbip_common.c:473 unpatched seed store; stub_rx.c:379 sibling clamp; ldm.c:1247 size*num"},
+    {"step": "deep-read-hci", "note": "hci_store_wake_reason (7179-7246) read in full: u8 num_reports = *ptr at 7215 with no hci_ev_skb_pull/skb->len/min_len validation; num_reports!=0 gates deref of adv/direct_adv/ext_adv at ptr+1 and bacpy into persistent hdev->wake_addr/wake_addr_type; gate at 7193 (suspended && !wake_reason); call site 7491 in hci_event_packet before min_len dispatch; sibling hci_le_adv_report_evt validates per report via hci_le_ev_skb_pull at 6221"},
+    {"step": "deep-read-ppl", "note": "ppl_recover loop at 976 iterates le32_to_cpu(pplhdr->entries_count) with no clamp against PPL_HDR_MAX_ENTRIES; write path enforces cap at 281"},
+    {"step": "finalize", "note": "two findings reported (hci_event.c:7211-7238, raid5-ppl.c:976-998); seed usbip store recorded excluded-by-rule; qaic/ceph/dlm stores confirmed present but not deep-read in s09 this session"}
+  ],
+  "candidates": [
+    {"path": "net/bluetooth/hci_event.c", "line": 7215, "status": "reported"},
+    {"path": "drivers/md/raid5-ppl.c", "line": 976, "status": "reported"},
+    {"path": "drivers/usb/usbip/usbip_common.c", "line": 473, "status": "unresolved"},
+    {"path": "drivers/accel/qaic/qaic_control.c", "line": 974, "status": "unresolved"},
+    {"path": "fs/ceph/inode.c", "line": 476, "status": "unresolved"},
+    {"path": "fs/dlm/member.c", "line": 117, "status": "unresolved"},
+    {"path": "net/bluetooth/hci_event.c", "line": 6221, "status": "safe"},
+    {"path": "drivers/md/raid5-ppl.c", "line": 281, "status": "safe"},
+    {"path": "drivers/usb/usbip/stub_rx.c", "line": 379, "status": "safe"}
+  ],
+  "findings": [
+    {"path": "net/bluetooth/hci_event.c", "start": 7211, "end": 7238, "confidence": "medium"},
+    {"path": "drivers/md/raid5-ppl.c", "start": 976, "end": 998, "confidence": "medium"}
+  ]
+}

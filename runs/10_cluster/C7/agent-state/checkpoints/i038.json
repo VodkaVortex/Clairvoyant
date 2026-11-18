@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "intent_id": "i038",
+  "branch": "tasklet-napi-softirq-lock",
+  "snapshot": "s09",
+  "status": "finalizing",
+  "phase": "evidence_collected",
+  "verified": {
+    "fs_enet": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c: NAPI fs_enet_napi (def 89, netif_napi_add_weight 971, scheduled from hardirq fs_enet_interrupt request_irq:670 via napi_schedule_prep:322/__napi_schedule:331) takes plain spin_lock(&fep->tx_lock) at 101; xmit at 487 plain; process close fs_enet_close (def 691, .ndo_stop at 835) takes plain spin_lock(&fep->tx_lock) at 702 nested in spin_lock_irqsave(&fep->lock):701 (irqsave does NOT disable BH); napi_disable at 697 but free_irq only at 709 (after lock section); 0 spin_lock_bh in file",
+    "altera_tse": "drivers/net/ethernet/altera/altera_tse_main.c: NAPI tse_poll (netif_napi_add 1382, scheduled from hardirq altera_isr request_irq:924/933 via napi_schedule_prep:521/__napi_schedule:526) -> tse_tx_complete:482 takes plain spin_lock(&priv->tx_lock) at 435; process shutdown tse_shutdown (def 982, .ndo_stop 1027) takes plain spin_lock(&priv->tx_lock) at 1005 (after napi_disable:991, free_irq:1000-1001); xmit side uses spin_lock_bh(&priv->tx_lock) at 551 proving required discipline; only _bh site in file is 551"
+  },
+  "candidates": [
+    "s09:fs_enet tx_lock reported",
+    "s09:altera_tse tx_lock reported (low-mid confidence, window narrowed by napi_disable+free_irq ordering)"
+  ]
+}

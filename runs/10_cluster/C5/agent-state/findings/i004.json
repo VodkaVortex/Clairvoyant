@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "vm-shared-desc-rereads",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2878,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc_n(): each guest-writable descriptor-table entry is fetched exactly once into the stack local 'struct vring_desc desc' via vhost_get_desc(vq, &desc, i) -> vhost_copy_from_user(vq, desc, vq->desc + idx, sizeof(*desc)) (vhost.c:1579-1582); all validation (i >= vq->num at 2861, loop counter at 2866) and every use -- flags tests (2885, 2901), translate_desc(vhost64_to_cpu(vq, desc.addr), vhost32_to_cpu(vq, desc.len)) (2903-2904), log addr/len (2909-2910) -- consume only that local copy; the chain walk next_desc(vq, &desc) reads READ_ONCE(desc->next) on the local (vhost.c:2695). avail->idx and avail->ring[last_avail_idx] are each fetched once via get_user into __virtio16 locals (vhost_get_avail_idx vhost.c:1527-1545, vhost_get_avail_head 1554-1559) with the idx sanity check '(u16)(vq->avail_idx - vq->last_avail_idx) > vq->num' and the head check 'head >= vq->num' (2850-2853) applied to the same local; no second fetch of the shared location after validation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2703,
+      "status": "safe",
+      "reason": "get_indirect(): the indirect-table address/len are taken from the already-copied caller-local 'indirect' struct; the table is translated once and then each entry copied into a fresh stack local 'desc' by copy_from_iter_full(&desc, sizeof(desc), &from) (vhost.c:2743-2746); flags/addr/len are validated and used only from that local; the walk is bounded by count = len / sizeof desc computed from the local len, with ++found > count loop detection (2726-2729). No re-read of the guest indirect table between validation and use."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vringh.c",
+      "line": 332,
+      "status": "safe",
+      "reason": "__vringh_iov(): every descriptor is copied once into a local 'struct vring_desc desc' via copy(vrh, &desc, &descs[i], sizeof(desc)) where copy is copydesc_user (copy_from_user, vringh.c:613-617), copydesc_kern (memcpy) or the iotlb variant; rcheck() validation, iov_base/iov_len assignment (vringh.c:403-408) and the partial-range rewrite of desc.len/desc.addr (412-417) all operate on the local copy. __vringh_get_head (vringh.c:38-75) fetches avail->idx and avail->ring[i] once each via getu16 into u16 locals and validates 'head >= vrh->vring.num' on the same local before returning it. getu16_user uses a single get_user; the iotlb variant uses __get_user/READ_ONCE on a pinned bvec copy."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/net.c",
+      "line": 712,
+      "status": "safe",
+      "reason": "vhost_net_build_xdp(): the guest-supplied virtio_net_hdr is copied once from the already-translated descriptor iov into the kernel-private page-frag 'buf' by copy_from_iter(buf + pad - sock_hlen, len, from) (net.c:712-716); the subsequent multiple reads of gso->csum_start/csum_offset/hdr_len (net.c:717-733) are all from this private copy, and the clamp 'vhost16_to_cpu(vq, gso->hdr_len) > len' compares against the local len captured from the same single copy. No guest-visible memory is re-fetched after validation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/scsi.c",
+      "line": 1140,
+      "status": "safe",
+      "reason": "vhost_scsi_get_desc/vhost_scsi_get_req/vhost_scsi_handle_vq: descriptor chains are fetched once via vhost_get_vq_desc into vq->iov; vc->out_size/in_size are computed once (scsi.c:1165-1166) and reused for exp_data_len and data_iter; the virtio-scsi request header is copy_from_iter_full'd once into the stack struct v_req/v_req_pi (scsi.c:1216-1218), lun/target are validated on that local (*vc->lunp != 1 check, READ_ONCE(vs_tpg[*vc->target]) at 1229), and tag/task_attr/cdb/prot_bytes (1400-1428) are taken from the same local copy. The data path maps pinned pages (get_user_pages_fast) or copies via copy_page_from_iter from the iter, so a guest racing the descriptor buffer cannot swap an unvalidated length/addr into use."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vsock.c",
+      "line": 116,
+      "status": "safe",
+      "reason": "vhost_transport_do_send_pkt(): the host->guest direction copies out of kernel-owned skbs; the struct virtio_vsock_hdr lives in skb->head (include/linux/virtio_vsock.h:20-23 virtio_vsock_hdr returns skb->head) and is written by the host (hdr->len = cpu_to_le32(payload_len) at vsock.c:211, flags cleared/restored locally), not read from guest-shared memory; the destination iov comes from the once-fetched vhost_get_vq_desc chain and all writes go through copy_to_iter/skb_copy_datagram_iter bounded by the validated iov_len."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/virtio_net.c",
+      "line": 2272,
+      "status": "safe",
+      "reason": "receive_mergeable()/receive_mergeable_xdp()/xsk_append_merge_buffer(): the device-writable hdr->num_buffers field of the first buffer is read exactly once into a local ('int num_buf = virtio16_to_cpu(vi->vdev, hdr->num_buffers);' at 2272 and 2383, 'u32 num_buf = ...' at 1241) and the loop 'while (--num_buf)' consumes only that local; the second read of hdr->num_buffers appears solely inside pr_debug failure messages (2192, 2423-2424, 1190). Each follow-up buffer length is validated per-buffer by check_mergeable_len and the payload is copied into page-pool/frag pages, so no validated-then-re-read divergence reaches a security-sensitive use."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vdpa/vdpa_user/vduse_dev.c",
+      "line": 419,
+      "status": "safe",
+      "reason": "vduse_dev_write_iter(): the userspace (device-daemon) response is copy_from_iter'd once into the stack local 'struct vduse_dev_response resp' (vduse_dev.c:419-421); the reserved-bytes check is_mem_zero(resp.reserved) and the request_id lookup resp.request_id both use that local, and the local is then memcpy'd into the kernel msg. vduse_dev_read_iter (386) copies the kernel-owned msg->req out once. vmemdup_user at 2186 is a single copy for the config blob. No post-validation re-fetch of daemon-controlled memory."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vdpa.c",
+      "line": 355,
+      "status": "safe",
+      "reason": "vhost_vdpa_get_config()/vhost_vdpa_set_config(): the userspace vhost_vdpa_config header (off/len) is copy_from_user'd once into the kernel local 'config' (vdpa.c:364-365); vhost_vdpa_config_validate(v, &config) checks c->len == 0, c->off > size and c->len > size - c->off on that same local (vdpa.c:340-353), and the local config.off/config.len are what reach vdpa_get_config/vdpa_set_config and the buffer allocation. No second fetch of c->off/c->len from user memory occurs between validation and use."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/virtio/virtio_mem.c",
+      "line": 2846,
+      "status": "safe",
+      "reason": "virtio_mem_init(): device config fields are read once each via virtio_cread_le into vm-> fields (virtio_mem.c:2846-2856) and virtio_mem_init_hotplug (2535+) uses only the stored copies; there is no re-read of config between the dev_warn alignment/range checks and __request_mem_region(vm->addr, vm->region_size) -- the snapshot-into-driver-state pattern is exactly the invariant the seed demands. Note the checks themselves are warn-only, which is a device-trust issue, not a validate-then-re-fetch issue."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/tun.c",
+      "line": 1816,
+      "status": "safe",
+      "reason": "tun_get_user(): the userspace virtio_net_hdr is copied once into the stack struct virtio_net_hdr_v1_hash_tunnel hdr by __tun_vnet_hdr_get -> copy_from_iter_full(hdr, parsed_size, from) (tun_vnet.h:130-131), the csum_start/csum_offset/hdr_len arithmetic (tun_vnet.h:134-141) is performed on that kernel copy with the result clamped against the local iov_iter_count, and tun_vnet_hdr_tnl_to_skb(tun->flags, features, skb, &hdr) (tun.c:1816) consumes the same local; af_packet's virtio_net_hdr_to_skb callers likewise operate on stack copies. virtio_net_hdr_tnl_to_skb itself (include/linux/virtio_net.h:292-378) re-reads hdr fields repeatedly but always from a caller-owned kernel copy, and validates inner_nh/outer_th/inner_th before skb_set_*_header."
+    }
+  ],
+  "limitations": [
+    "Bounded to the vm-shared-desc-rereads branch in snapshots/s01: drivers/vhost/{vhost.c,vringh.c,net.c,scsi.c,vsock.c,vdpa.c}, drivers/vdpa (vduse_dev.c config/response paths, vhost_vdpa config), drivers/virtio (virtio_mem.c config, virtio_ring.c surveyed), drivers/net/virtio_net.c mergeable/xdp/xsk RX paths, drivers/net/tun.c + tun_vnet.h and include/linux/virtio_net.h header-to-skb conversion, and net/vmw_vsock/virtio_transport_common.c header consumers (recv_enqueue/seqpacket_dequeue/read_skb were read; they consume kernel skb->head copies, not guest-shared memory).",
+    "Not exhaustively audited: drivers/vhost/vringh.c iotlb/kern users outside the core walker (e.g. vringh_abuse debugging paths), vdpa vendor drivers (mlx5, ifcvf, pds, octeon_ep, solidrun, alibaba, vdpa_sim) config-ops, drivers/virtio/virtio_balloon.c and virtio_input.c, other paravirt guests (Xen/KVM hypercall structs, vmw_vmci), and callers of vringh_* outside drivers/vhost.",
+    "Conclusions are static single-fetch vs double-fetch analysis of the literal source; no runtime race reproducer or compiler-based double-fetch detector was run, so a short-window double fetch inside a large function not deeply read could have been missed.",
+    "The seed mechanism requires the second, unvalidated read to reach a security-sensitive sink; several safe-classified sites (e.g. pr_debug re-reads of hdr->num_buffers in virtio_net.c) do re-read shared memory but only for logging, which was treated as out of scope."
+  ]
+}

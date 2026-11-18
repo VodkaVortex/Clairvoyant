@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "tx-cow-head-realloc",
+  "execution_status": "complete",
+  "snapshots_checked": ["s05"],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "net/mac80211/wpa.c",
+      "start": 799,
+      "end": 818,
+      "quote": "struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: ieee80211_crypto_cs_encrypt() runs on the mac80211 TX path for locally generated or forwarded frames carrying a CS (mesh/protected) key; hdr is a raw pointer into skb->head captured at line 799 as a cast of skb->data. VIOLATED INVARIANT: pskb_expand_head(skb, iv_len, 0, GFP_ATOMIC) at line 812 executes whenever skb_headroom(skb) < iv_len (software IV path with no hw_key/PUT_IV_SPACE); pskb_expand_head() is documented in this same snapshot at net/core/skbuff.c:1481 ('All the pointers pointing into skb header may change and must be reloaded after call to this function') and with nhead=iv_len>0 it always allocates a new head buffer and frees the old one, so hdr becomes a pointer into freed slab memory. UNSAFE USE: line 815 reads hdrlen = ieee80211_hdrlen(hdr->frame_control) through the stale pre-expand pointer, and the resulting hdrlen is used at line 818 as the memmove length (memmove(pos, pos + iv_len, hdrlen)) that shifts the 802.11 header down in the new buffer — a stale-memory read whose value drives both a length (potential over/short copy if the freed memory is reused with different content) and the resulting frame layout that is then transmitted. Same single-function capture->head-realloc->stale-dereference shape as the seed's pep_get_sb() (ph captured, pskb_may_pull reallocates head, ph->sb_type/ph->sb_len used). COUNTEREVIDENCE: triggering requires the frame to arrive at this TX handler with less than iv_len headroom (path dependent; mac80211 usually reserves tx_headroom) or to be cloned; in that case the read result only selects hdrlen from a frame_control the sender itself supplied in most TX-side uses (locally generated frames), so exploit impact beyond a KASAN-detectable slab UAF read is unproven; the same pattern for a forwarded/mesh frame would read attacker-controlled freed bytes. No runtime reproducer was built."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/batman-adv/routing.c",
+      "start": 227,
+      "end": 238,
+      "quote": "icmph = (struct batadv_icmp_header *)skb->data;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: batadv_recv_my_icmp_packet() processes network-received batman-adv ICMP packets (registered handler for BATADV_ICMP) whose header bytes at skb->data are fully attacker-controlled by a mesh peer. VIOLATED INVARIANT: icmph is captured at line 227 as a cast of skb->data; skb_linearize(skb) at line 234 (ECHO_REPLY/DESTINATION_UNREACHABLE/TTL_EXCEEDED case) calls pskb_may_pull(skb, skb->len) and for a cloned or non-linear skb runs __pskb_pull_tail()/pskb_expand_head(), which frees and replaces skb->head (documented in this snapshot at net/core/skbuff.c:1481/1912); no refetch of icmph occurs. UNSAFE USE: line 237 passes the stale pre-linearize icmph to batadv_socket_receive_packet(icmph, skb->len), which copies sizeof(struct batadv_icmp_packet) from the potentially freed old head into the userspace-visible batman-adv ping socket queue — a read through freed slab memory whose bytes (including any padding/over-read beyond the original short head) become visible to unprivileged userspace: KASAN-detectable slab use-after-free read and potential info leak, same consequence class as the seed. COUNTEREVIDENCE: reachability of a cloned/non-linear ICMP skb at this point is path-dependent (batadv_check_management_packet linearizes for some entry paths but batadv_recv_icmp_packet's entry via batadv_recv_handler for BATADV_ICMP does not guarantee linearization before this function); if the skb is already linear and unshared, skb_linearize is a no-op. Same finding shape independently confirmed in sibling snapshot s02 by intent i007, establishing this as a recurring variant rather than a one-off. No runtime reproducer was produced."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/batman-adv/network-coding.c",
+      "start": 1113,
+      "end": 1169,
+      "quote": "packet1 = (struct batadv_unicast_packet *)nc_packet->skb->data;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: batadv_nc_code_packets() is reached from the batman-adv forward path (batadv_recv_unicast_packet -> batadv_route_unicast_packet -> batadv_send_skb_to_orig -> batadv_nc_skb_forward -> batadv_nc_skb_dst_search) and merges two network-received unicast packets, at least one of which is a stored skb_clone of an earlier sniffed/forwarded remote packet (batadv_nc_skb_store_for_decoding clones the RX skb); header bytes are attacker-controlled by mesh peers. VIOLATED INVARIANT: packet1 and packet2 are captured at lines 1113-1114 / 1124-1125 as casts of nc_packet->skb->data and skb->data; skb_linearize(skb_dest) and skb_linearize(skb_src) at line 1145 both execute while packet1/packet2 stay live. For the skb that is a clone (nc_packet->skb is a stored skb_clone), skb_linearize -> pskb_may_pull fails skb_cloned() -> pskb_expand_head() frees the shared old head and allocates a new one (net/core/skbuff.c:1481/1912), so the pointer into the old head is a use-after-free; for the fresh uncloned non-linear skb the pull may also realloc the head for lack of tailroom. UNSAFE USE: stale packet1 is dereferenced at line 1155 (coded_packet->ttl = packet1->ttl), 1159 (first_orig_dest = packet1->dest), 1161 (first_ttvn = packet1->ttvn), and stale packet2 at 1166 (second_orig_dest = packet2->dest), 1168 (second_ttl = packet2->ttl), 1169 (second_ttvn = packet2->ttvn) with no refetch — the freed-memory bytes are copied into a coded packet that is transmitted on the mesh. Same shape independently confirmed as the top finding of sibling snapshot s02 (intent i007), showing the bug persists across snapshots. COUNTEREVIDENCE: requires batman-adv network coding enabled (BATADV_TVLV_NC) and a coding opportunity between two concurrent unicast flows; no runtime KASAN reproducer was built."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/mac80211/tdls.c",
+      "start": 1924,
+      "end": 1940,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)skb->data;",
+      "confidence": "low",
+      "reason": "UNTRUSTED SOURCE: ieee80211_process_tdls_channel_switch() consumes skbs queued by the mac80211 RX path TDLS block (remote ETH_P_TDLS channel-switch frames processed in the tdls_chsw_work worker); frame bytes are attacker-controlled by any peer able to send a TDLS frame. VIOLATED INVARIANT: tf is captured at line 1924 as a cast of skb->data; skb_linearize(skb) at line 1934 ('we want to access the entire packet') calls pskb_may_pull(skb, skb->len) and for a non-linear skb (the RX side only pulled offsetof(struct ieee80211_tdls_data, u) bytes, the rest may remain in frags) runs __pskb_pull_tail/pskb_expand_head which frees and replaces the old head; tf is never refetched. UNSAFE USE: line 1940 reads tf->action_code through the stale pointer to dispatch between WLAN_TDLS_CHANNEL_SWITCH_REQUEST/RESPONSE handlers — a kernel state transition (TDLS channel-switch state machine entry) selected by possibly-freed slab memory, the exact structural duplicate of the seed's ph->sb_type read after pskb_may_pull. COUNTEREVIDENCE: requires the queued skb to still be non-linear after the RX-side partial pull (driver dependent); the stale read is a single byte whose result only selects between two handlers that re-parse the skb; impact beyond a KASAN-detectable UAF read is unproven. Same pattern confirmed in s01/s02/s03 siblings (intents i003/i006/i007/i010), establishing cross-snapshot persistence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "net/mac80211/wpa.c",
+      "line": 815,
+      "status": "reported",
+      "reason": "ieee80211_crypto_cs_encrypt(): hdr captured at 799 from skb->data; pskb_expand_head(skb, iv_len, 0, GFP_ATOMIC) at 812 reallocates/frees the head when headroom < iv_len; stale hdr->frame_control read at 815 produces hdrlen used as memmove length at 818. Raised as finding (medium)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/batman-adv/routing.c",
+      "line": 237,
+      "status": "reported",
+      "reason": "batadv_recv_my_icmp_packet(): icmph captured at 227; skb_linearize at 234; stale icmph handed to batadv_socket_receive_packet at 237 which copies header bytes from possibly-freed old head into the ping socket queue. Raised as finding (medium)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/batman-adv/network-coding.c",
+      "line": 1145,
+      "status": "reported",
+      "reason": "batadv_nc_code_packets(): packet1/packet2 captured at 1113-1114/1124-1125; skb_linearize of both skb_dest and skb_src at 1145 (cloned nc_packet->skb guarantees pskb_expand_head frees the shared head); stale packet1->ttl/dest/ttvn and packet2->dest/ttl/ttvn read at 1155-1169 without refetch. Raised as finding (medium)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/mac80211/tdls.c",
+      "line": 1940,
+      "status": "reported",
+      "reason": "ieee80211_process_tdls_channel_switch(): tf captured at 1924; skb_linearize at 1934 can free/replace the head for a non-linear skb; tf->action_code read at 1940 without refetch. Raised as finding (low)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/ip_tunnel_core.c",
+      "line": 91,
+      "status": "safe",
+      "reason": "The iptunnel_pmtud_build_icmp()/icmpv6() stale-iph pattern reported in s01 does not exist in s05: grep for 'iptunnel_pmtud_build_icmp' in s05 ip_tunnel_core.c is negative and the only pull calls are in __iptunnel_pull_header (91/99), where eh is captured AFTER the second pskb_may_pull and immediately used."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/ip_tunnel.c",
+      "line": 811,
+      "status": "safe",
+      "reason": "ip_md_tunnel_xmit/ip_tunnel_xmit: every inner_iph use (571, 612, 620, 683, 727, 793, 804) precedes the skb_cow_head calls at 626/811; after the cow the code only calls iptunnel_xmit with scalars (tos/ttl/df already extracted). No stale dereference."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/ip_gre.c",
+      "line": 607,
+      "status": "safe",
+      "reason": "ipgre_xmit: skb_cow_head at 607 precedes tnl_params = (const struct iphdr *)skb->data at 609 (capture after cow); erspan_fb_xmit uses fresh ip_hdr(skb)/ipv6_hdr(skb) accessor calls at 537-544 after its cow_head at 526; gre_tap_xmit/erspan_xmit capture nothing before their cow calls."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/seg6_iptunnel.c",
+      "line": 120,
+      "status": "safe",
+      "reason": "seg6_do_srh_encap: skb_cow_head at 120 runs before inner_hdr = ipv6_hdr(skb) at 125; seg6_do_srh_inline: cow_head at 181 before oldhdr = ipv6_hdr(skb) at 183; seg6_input/seg6_output cow_heads at 319/369 are not followed by any use of hdr captured at 332 (only fl6 fill before, dst_input/dst_output after). No stale dereference."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/calipso.c",
+      "line": 1332,
+      "status": "safe",
+      "reason": "calipso_skbuff_setattr: explicit refetch 'ip6_hdr = ipv6_hdr(skb); /* Reset as skb_cow() may have moved it */' at 1332 immediately after skb_cow at 1328, plus re-derivation at 1342; calipso_skbuff_delattr refetches at 1387 after its cow at 1383. Correct refetch discipline."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/sched/act_pedit.c",
+      "line": 314,
+      "status": "safe",
+      "reason": "tcf_pedit_act: skb_unclone(skb, GFP_ATOMIC) at 314 is the first statement after variable declaration; all header pointer/offset computation for the pedit write happens inside the key loop after the unclone. Same ordering in act_ipt.c:235."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/ipvlan/ipvlan_core.c",
+      "line": 619,
+      "status": "safe",
+      "reason": "ipvlan_xmit_mode_l2: skb_share_check at 608 never reallocates skb->head — when shared it returns skb_clone(skb), whose head buffer is the same allocation (same head pointer), and the original is freed; eth captured at 599 from eth_hdr(skb) therefore still points to valid (shared) memory for the eth->h_dest read at 619. Not a head-relocation case."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/xfrm/xfrm_ipcomp.c",
+      "line": 112,
+      "status": "safe",
+      "reason": "ipcomp_input: skb_linearize_cow at 112 executes before ipch = (void *)skb->data at 118 (capture-after-linearize); ipcomp_output's skb_linearize_cow at 178 precedes ipcomp_compress's start = skb->data at 139/caller flow. No capture-before-linearize in either function."
+    }
+  ],
+  "limitations": [
+    "All four findings are static-analysis hypotheses: no runtime reproducer or KASAN trace was produced; each requires the reallocation precondition (cloned or non-linear skb, or insufficient headroom for wpa.c) to hold at the specific call site, which is driver/path dependent and was not dynamically verified on s05.",
+    "The automated scan ($TMPDIR/scan.py) only recognized same-function pointer captures of the form 'type *var = <hdr expr>' and missed captures inside if/else branches (the batman-adv nc packet1/packet2 sites were found only by manually reading the sibling-intent files); pointers passed into helper functions, captured in outer loops, or derived via non-matching expressions may be missed, and no interprocedural analysis of helpers that realloc in a callee was done.",
+    "Only net/ and drivers/ .c files were scanned; arch/, fs/, and header-only/macro-generated call sites were not audited, and the ~40 ethernet-driver TX cow_head/linearize fallback sites (ena, i40e, ixgbe, mlx5, nfp, dpaa, etc.) were pattern-screened — they follow the linearize-before-memcpy-DMA pattern — but were not all line-by-line deep-read within the 12-candidate triage limit.",
+    "The mt7925 MCU event linearize site reported in s01/s03 siblings does not exist in s05 (no mt7925 directory; no skb_linearize anywhere under drivers/net/wireless/mediatek/mt76/), which was verified by directory listing and grep; other mt76-family or wireless driver event paths were not exhaustively audited.",
+    "tx.c pskb_expand_head sites (net/mac80211/tx.c:1969 ieee80211_skb_resize, rx.c:728/2280/3529) were pattern-screened (callers refetch headers after resize per the surrounding code shape seen in rx.c:2191 comment 'skb_linearize() might change the skb->data') but not all deep-read.",
+    "net/xfrm/xfrm_input.c skb_cow_head at 299 and skb_unclone at 235/272, net/ipv6/exthdrs.c pskb_expand_head at 242/423/578, ip6_gre.c cow_heads at 720/951, l2tp cow_heads, and nf_conntrack_sip/ip_vs_pe_sip linearize sites were read at function level and showed capture-after-realloc or no-crossing-pointer structure, but a full line-by-line audit of each was not completed before finalization."
+  ]
+}

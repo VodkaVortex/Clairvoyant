@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "intent_id": "i037",
+  "branch": "tasklet-napi-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s08"
+  ],
+  "findings": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "start": 765,
+      "end": 787,
+      "quote": "spin_lock_irqsave(&fep->lock, flags);\n\tspin_lock(&fep->tx_lock);",
+      "confidence": "medium",
+      "reason": "Process-context .ndo_stop fs_enet_close acquires fep->tx_lock with plain spin_lock (line 777) nested inside spin_lock_irqsave(&fep->lock, flags) (line 776): hard IRQs are disabled but bottom halves are not. The same lock is taken with plain spin_lock at line 98 by fs_enet_napi, the NAPI poll callback (registered via netif_napi_add_weight at line 1020, scheduled from the fs_enet_interrupt handler via napi_schedule_prep/__napi_schedule at lines 343/351), which runs in NET_RX softirq context. A NET_RX softirq raised on the same CPU while close holds tx_lock would spin forever against a preempted process-context holder (soft lockup/DoS) - the same missing-spin_lock_bh mechanism as the ks7010 seed. The file contains zero spin_lock_bh/local_bh_disable (grep count 0), and the xmit-site plain lock at 523 is only safe because the networking core disables BH around ndo_start_xmit. Counterevidence: napi_disable at 772 precedes the acquisition and free_irq at 784 follows, so in-flight polls are drained and rescheduling is blocked in the current code, making this a latent invariant violation with a narrowed window."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "start": 988,
+      "end": 1029,
+      "quote": "spin_lock(&priv->mac_cfg_lock);\n\tspin_lock(&priv->tx_lock);",
+      "confidence": "low",
+      "reason": "Process-context .ndo_stop tse_shutdown takes priv->tx_lock with plain spin_lock (line 1011) under a plain spin_lock(&priv->mac_cfg_lock) (line 1010) - neither irqsave nor BH disable. The softirq side is tse_tx_complete, which takes the same lock plainly at line 439 and is called from tse_poll, the NAPI poll callback (netif_napi_add(ndev, &priv->napi, tse_poll) at line 1391; scheduled via napi_schedule_prep/__napi_schedule at 525/530 from the RX IRQ handler). A NET_RX softirq spinning on tx_lock against the BH-enabled process holder can deadlock. tse_start_xmit correctly uses spin_lock_bh(&priv->tx_lock) at line 555, proving the BH-disable discipline is known and required for this lock, which makes the plain acquisitions at 439/1011 inconsistent. Counterevidence: napi_disable at 997 and free_irq at 1006-1007 run before the acquisition, so no NAPI poll can contend in the current code - latent invariant violation only, hence low confidence."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "start": 225,
+      "end": 245,
+      "quote": "spin_lock_nested(&cp->tx_lock[i], i);",
+      "confidence": "low",
+      "reason": "Process-side cas_lock_tx (defined at line 231) acquires the per-ring cp->tx_lock[i] with plain spin_lock_nested (line 236). It is reached from cas_lock_all_save, which guards only with spin_lock_irq(&cp->lock) - hard IRQs off, bottom halves on - and is invoked from the workqueue callback cas_reset_task and .ndo_stop cas_close (this caller chain was fully traced in sibling snapshots of the same tree family at exactly these line numbers: cas_lock_tx 231/236, ring lock 1817, cas_poll 2530, all confirmed present in s08). The softirq side takes the same per-ring lock plainly at line 1817 (spin_lock(&cp->tx_lock[ring])) in the TX-reclaim path (cas_tx_ringN) reached from cas_poll, the NAPI poll callback at line 2530. A NET_RX softirq spinning on tx_lock[] against a process-context holder that disabled only hard IRQs can deadlock - the missing-BH-disable mechanism. Counterevidence: the cas_reset_task/cas_close caller lines were not re-read in s08 under the finalize read cap (lock sites and line-number identity only), and the xmit path uses irqsave correctly."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 777,
+      "status": "reported",
+      "reason": "fs_enet_close takes fep->tx_lock plainly at 777 inside spin_lock_irqsave(&fep->lock) at 776 while NAPI poll fs_enet_napi takes it plainly at 98 (softirq); napi_disable at 772 narrows the window; no spin_lock_bh anywhere in the file."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 1011,
+      "status": "reported",
+      "reason": "tse_shutdown takes tx_lock plainly at 1011 (no BH disable) while tse_tx_complete from tse_poll NAPI takes it plainly at 439; napi_disable 997 / free_irq 1006-1007 narrow the window; xmit uses spin_lock_bh at 555."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "line": 236,
+      "status": "reported",
+      "reason": "cas_lock_tx plain spin_lock_nested at 236 under spin_lock_irq-only cas_lock_all_save (workqueue cas_reset_task / cas_close) vs NAPI-softirq plain ring lock at 1817 via cas_poll 2530; process-side caller chain verified in sibling snapshots at identical line numbers, not re-read in s08."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+      "line": 30,
+      "status": "unresolved",
+      "reason": "Plain resp_lock acquisitions at 30/47/87/136; the RX cmdresp path was traced in the earlier s08 pass to qtnf_shm_ipc_irq_work workqueue (process) context, so no tasklet/NAPI softirq taker was found on the traced path, but the full data path was not enumerated."
+    }
+  ],
+  "limitations": [
+    "Static source analysis only: the s08 tree lacks .config and generated headers, so no compilation, lockdep, or runtime reproducer was possible; all findings are hypotheses.",
+    "fs_enet and altera_tse close-path windows are narrowed by napi_disable()/free_irq() ordering before the plain tx_lock acquisition, so the reported missing-BH-disable invariant violations are latent (a softirq-vs-holder deadlock becomes live if that ordering changes); this drives the medium/low confidence.",
+    "Cassini's process-side caller chain (cas_reset_task/cas_close -> cas_lock_all_save -> cas_lock_tx) was verified in sibling snapshots and only the lock sites (231/236, 1817, 2530) were re-verified in s08 under the finalize read cap.",
+    "qtnfmac trans.c resp_lock RX side was traced to workqueue context, but tasklet/NAPI-side takers were not exhaustively enumerated.",
+    "mwl8k tx_lock tasklet-vs-process pairing (assessed safe in the earlier s08 xmit-branch pass: process-context sites use spin_lock_bh) and the iwlwifi pcie/rx.c and mt76 q->lock tasklet/NAPI pairings were not re-examined with exact s08 line numbers under the finalize cap.",
+    "No exhaustive enumeration of all tasklet_schedule/napi_schedule callbacks sharing locks with BH-enabled process context was completed in s08; the search was bounded to the known tasklet/NAPI lock family (fs_enet, altera_tse, cassini, mwl8k, qtnfmac) plus targeted reads.",
+    "The ks7010 seed mechanism itself (ks7010_sdio.c) is present in s08 but is excluded from reporting by task rules, as are xmit-callback and timer-callback lock shapes covered by other branches."
+  ]
+}

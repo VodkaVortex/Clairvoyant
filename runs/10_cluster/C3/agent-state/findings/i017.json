@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "kind-callback-tb-gaps",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_api.c",
+      "line": 1237,
+      "status": "safe",
+      "reason": "Dispatch core verified, not a gap: qdisc_create() calls err = ops->init(sch, tca[TCA_OPTIONS], extack) and qdisc_change() calls sch->ops->change(sch, tca[TCA_OPTIONS], extack) both unconditionally (tca[TCA_OPTIONS] is optional in rtm_tca_policy, tb[TCA_ACT_OPTIONS] likewise in tcf_action_policy), so a NULL opt CAN reach each per-kind callback; every callback actually read handles it. This site is where the invariant must be enforced by the callee."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/act_api.c",
+      "line": 944,
+      "status": "safe",
+      "reason": "tcf_action_init_1 passes tb[TCA_ACT_OPTIONS] (optional { .type = NLA_NESTED } in tcf_action_policy, act_api.c:846-853) straight to a_o->init() with no core-side presence check (act_api.c:944-948), but every action init read (tcf_bpf_init act_bpf.c:290 'if (!nla) return -EINVAL;', tcf_ife_init act_ife.c:483, tcf_nat_init act_nat.c:48, tcf_police_init act_police.c:58) rejects nla==NULL before nla_parse_nested_deprecated. Note nla_parse_nested_deprecated itself would deref NULL opt, so the callee guard is the only protection and it is present in all read actions."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_taprio.c",
+      "line": 1401,
+      "status": "safe",
+      "reason": "taprio_change: mqprio = nla_data(tb[TCA_TAPRIO_ATTR_PRIOMAP]) only under 'if (tb[TCA_TAPRIO_ATTR_PRIOMAP])' (1397-1401); the NULL-able local is then passed to taprio_parse_mqprio_opt which explicitly handles 'if (!qopt && !dev->num_tc) return -EINVAL;' and returns early when dev->num_tc already set, and to taprio_mqprio_cmp which begins 'if (!mqprio || ...) return -1;' after which mqprio is nulled; later 'if (mqprio)' guards all derefs (1477-1485). No NULL deref."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_cbq.c",
+      "line": 1178,
+      "status": "safe",
+      "reason": "cbq_init/cbq_change_class: cbq_opt_parse rejects opt==NULL (1127-1130) and parses tb[] under cbq_policy (1120-1128, entries typed .len but not required); cbq_init then enforces 'if (!tb[TCA_CBQ_RTAB] || !tb[TCA_CBQ_RATE])' (1173-1176) before r = nla_data(tb[TCA_CBQ_RATE]) at 1178 and qdisc_get_rtab(r, tb[TCA_CBQ_RTAB]) at 1180; cbq_change_class mirrors this with 'if (!tb[TCA_CBQ_WRROPT] || !tb[TCA_CBQ_RATE] || !tb[TCA_CBQ_LSSOPT])' (1564) before uses, and the qdisc_get_rtab call at 1512-1513 is under 'if (tb[TCA_CBQ_RATE])' with qdisc_get_rtab itself NULL-safe. Correct connectives throughout."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_gred.c",
+      "line": 669,
+      "status": "safe",
+      "reason": "gred_change: 'if (opt == NULL) return -EINVAL;' (631), nested parse under gred_policy, then a correct '||' requirement 'if (tb[TCA_GRED_PARMS] == NULL || tb[TCA_GRED_STAB] == NULL)' (655-659) plus mutual-exclusion checks before ctl = nla_data(tb[TCA_GRED_PARMS]) (669) and stab = nla_data(tb[TCA_GRED_STAB]) (670); tb[TCA_GRED_VQ_LIST] only reaches gred_vqs_validate under 'if (tb[TCA_GRED_VQ_LIST])'. No unguarded slot."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_netem.c",
+      "line": 963,
+      "status": "safe",
+      "reason": "netem_change guards 'if (opt == NULL) return -EINVAL;' (960-961) before qopt = nla_data(opt) at 963 and parse_attr() at 964; parse_attr computes nested_len = nla_len(nla) - NLA_ALIGN(len) and rejects negative; get_loss_clg/get_dist_table consume tb[] slots only under their own 'if (tb[TCA_NETEM_LOSS/DIST/SLOT_DIST])' tests (977-1001). No unguarded slot."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_htb.c",
+      "line": 1021,
+      "status": "safe",
+      "reason": "htb_init: 'if (!opt) return -EINVAL;' (1008-1009), nested parse under htb_policy, explicit 'if (!tb[TCA_HTB_INIT]) return -EINVAL;' (1019-1020) before gopt = nla_data(tb[TCA_HTB_INIT]) at 1021; TCA_HTB_DIRECT_QLEN read under its own if. Correct."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_sfq.c",
+      "line": 626,
+      "status": "safe",
+      "reason": "sfq_init only calls sfq_change(sch, opt) under 'if (opt)' (751-754), and sfq_change derefs opt via nla_data(opt) at 626 with an immediate opt->nla_len bounds check at 630; sch_sfq's qdisc ops carry .init = sfq_init, so a NULL TCA_OPTIONS never reaches sfq_change."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_mqprio.c",
+      "line": 163,
+      "status": "safe",
+      "reason": "mqprio_init: 'if (!opt || nla_len(opt) < sizeof(*qopt)) return -EINVAL;' (158-159) before qopt = nla_data(opt) at 163; the nested parse_attr run only when len > 0 and every TCA_MQPRIO_MODE/SHAPER/MIN_RATE64/MAX_RATE64 use is individually 'if (tb[...])' guarded (179-200)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_fifo.c",
+      "line": 68,
+      "status": "safe",
+      "reason": "fifo_init branches on 'if (opt == NULL)' and reads nla_data(opt) only in the else with an nla_len(opt) < sizeof(*ctl) check (67-71); same pattern in plug_init/plug_change (sch_plug.c 136-140, 167-171)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/act_bpf.c",
+      "line": 290,
+      "status": "safe",
+      "reason": "tcf_bpf_init: 'if (!nla) return -EINVAL;' (290-291) before nested parse; 'if (!tb[TCA_ACT_BPF_PARMS]) return -EINVAL;' (299-300) before nla_data at 302; the is_bpf/is_ebpf alternative selection uses a correct at-least-one-plus-mutual-exclusion form 'if ((!is_bpf && !is_ebpf) || (is_bpf && is_ebpf)) return -EINVAL' (331-334). Same shape verified in act_ife.c (483, 495-497), act_nat.c (48, 58-59), act_police.c (58-59, 78-82 with qdisc_get_rtab's internal tab==NULL check)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/gtp.c",
+      "line": 668,
+      "status": "safe",
+      "reason": "gtp_newlink: 'if (!data[IFLA_GTP_FD0] && !data[IFLA_GTP_FD1]) return -EINVAL;' is an intentional at-least-one idiom (a GTP device needs at least one encapsulation socket); the guard does not need to prove either slot individually because gtp_encap_enable (836-877) wraps every consumed slot in its own presence test (FD0 at 845, FD1 at 853, ROLE at 867), and PDP_HASHSIZE at 674 is likewise individually guarded with a default. gtp_link_ops registers no .validate, but the callee-side checks cover all slots."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/hsr/hsr_netlink.c",
+      "line": 41,
+      "status": "safe",
+      "reason": "hsr_newlink: rejects !data (40-43) and requires each slave individually with early returns ('if (!data[IFLA_HSR_SLAVE1]) ... return -EINVAL' 44-48, SLAVE2 52-56) before the nla_get_u32 uses at 47/55; MULTICAST_SPEC and VERSION are optional with if/else defaults. Correct per-attribute guards; hsr_link_ops has no .changelink."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_prio.c",
+      "line": 231,
+      "status": "safe",
+      "reason": "prio_init requires 'if (!opt) return -EINVAL;' (237-238) before delegating to prio_tune which length-checks 'nla_len(opt) < sizeof(*qopt)' before nla_data(opt) (187-188); multiq_init/sch_multiq.c (244-248) and hfsc/sch_hfsc.c (1394, 1433: 'if (opt == NULL || nla_len(opt) < sizeof(*qopt))') follow the same pattern; sch_atm.c atm_tc_change (222: opt NULL check; 232: !tb[TCA_ATM_FD]), sch_dsmark.c dsmark_init (355: !opt; 373: !tb[TCA_DSMARK_INDICES]), sch_cbs/etf/choke/red (all 'if (!opt)/opt == NULL' plus per-slot !tb[PARMS/STAB] checks) verified safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/sch_cake.c",
+      "line": 2681,
+      "status": "safe",
+      "reason": "cake_init calls cake_change only under 'if (opt)' (2681-2685) and cake_change begins 'if (!opt) return -EINVAL;' (2532-2533); every TCA_CAKE_* slot consumed afterwards is individually 'if (tb[...])' guarded (NAT 2541, BASE_RATE64 2553, DIFFSERV_MODE 2557, WASH 2561, FLOW_MODE 2565, ATM 2570+)."
+    }
+  ],
+  "limitations": [
+    "Bounded negative for the surfaces read end-to-end in this session: the rtnl_link_ops kinds hsr (net/hsr/hsr_netlink.c) and gtp (drivers/net/gtp.c) were read function-by-function, and the net/sched qdisc init/change callbacks of sch_fifo, sch_plug, sch_cbs, sch_gred, sch_red, sch_atm, sch_dsmark, sch_etf, sch_choke, sch_netem, sch_htb, sch_prio, sch_mqprio, sch_multiq, sch_hfsc, sch_sfq, sch_cake, sch_taprio and sch_cbq were read, plus the action init callbacks of act_bpf, act_ife, act_nat and act_police and the tcf_idr_check_alloc/tcf_idr_create index allocation core; all guarded the slots they consume.",
+    "rtnl_link_ops kinds enumerated (rtnl_link_ops grep, 57 files) but NOT deep-read in this session remain unaudited for this branch on s01: vxlan, geneve, macsec, bonding, ipvlan/ipvtap, macvlan/macvtap, vrf, veth, team, tun, ppp, dummy, ifb, nlmon, vsockmon, netdevsim, rocker, virt_wifi, wireguard-less set, batman-adv, bridge, 8021q vlan, caif (caif_hsi.c, chnl_net.c), rmnet, can (dev/vcan/vxcan), infiniband ipoib, ip_gre/erspan, ipip, ip_vti, ip6_gre, ip6_tunnel, ip6_vti, sit, xfrm_interface, openvswitch internal dev, ieee802154 6lowpan, mlx5 tc_tun; sibling-snapshot audits (facts f016/f018/f017 for s02/s03) found these families guarded or validate-gated, but s01 line-by-line confirmation was not completed before the finalize directive.",
+    "net/sched per-filter-kind cls_*.c ->change() callbacks (cls_api.c:2104 passes the whole tca[] table to tp->ops->change) and the remaining action init callbacks (act_connmark, act_csum, act_ct, act_ctinfo, act_gact, act_ipt/xt, act_mirred, act_mpls, act_pedit, act_sample, act_simple, act_skbedit, act_skbmod, act_tunnel_key, act_vlan) were not read in this session.",
+    "nf_tables expression/type ->init() callbacks beyond the already-reported nft_tunnel.c instance (fact f013) were not re-audited in this session; the nft_ct, nft_meta and other expression parsers were covered by prior s01 artifacts (f014) only for the helper-parameter form, not the per-kind tb[]-gap form.",
+    "No compilation or runtime reproducer was run (read-only snapshot, no top-level Makefile/Kconfig); all conclusions rest on exact source reading of guard, policy table, and nla_data/nla_len/nla_parse_nested_deprecated semantics (include/net/netlink.h).",
+    "Reachability context: tc (RTM_NEWQDISC/RTM_NEWACTION) and rtnl newlink/changelink dispatch require CAP_NET_ADMIN in the governing user namespace (net/sched/sch_api.c:1424 'if (!netlink_ns_capable(skb, net->user_ns, CAP_NET_ADMIN)) return -EPERM;' and rtnetlink's rtnl_link admin checks), which an unprivileged local user can satisfy by creating a user namespace that owns a network namespace; module autoload via request_module('sch_%s'/'act_%s'/'rtnl-link-%s') is available in the dispatch cores, so the audited callbacks are reachable in that trust model when the modules are loadable."
+  ]
+}

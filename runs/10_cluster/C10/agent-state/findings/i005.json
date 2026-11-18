@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "ioctl-sock-usercopy-string",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "start": 98,
+      "end": 107,
+      "quote": "buffer = vmemdup_user(buf, lbuf);\n\tif (IS_ERR(buffer))\n\t\treturn -ENOMEM;\n\n\trc = sscanf(buffer, \"%x %x %x %x %x %x %x\", &slct, &oflw, &chn, &rsc, &anc,",
+      "confidence": "high",
+      "reason": "Untrusted source: debugfs control file drivers/s390/cio/cio_inject.c 'crw_inject' (0200, registered via debugfs_create_file at line 166); attacker controls both lbuf (write length) and full buffer contents. Violated invariant: vmemdup_user(buf, lbuf) at line 98 allocates exactly lbuf bytes with NO NUL terminator slot and NO length cap on lbuf in crw_inject_write (lines 85-98) and no memchr/memdup_user_nul/strndup_user anywhere in the function or file. Unsafe use: sscanf(buffer, ...) with 7 '%x' conversions at lines 102-103 is a C-string consumer that scans until NUL, reading past the lbuf-sized allocation whenever the user data contains no NUL byte (e.g. '1 1 1 1 1 1 ' without trailing NUL/newline-NUL); the same buffer is later freed with kvfree. Counterevidence checked: no memdup_user_nul/strndup_user call sites in this file; no explicit buffer[lbuf] = 0; lbuf not clamped (contrast with yurex_write and proc_scsi_write, both of which enforce an in-bounds terminator). This is a direct structural analogue of the seed (scsi bfa bfad_debugfs regrd: memdup_user then sscanf without NUL), reached through the debugfs/char-device write fops channel named in this branch. Impact: out-of-bounds heap read (KASAN slab-OOB) when sscanf scans past the allocation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 315,
+      "end": 319,
+      "quote": "kern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &len);",
+      "confidence": "high",
+      "reason": "Untrusted source: drivers/net/ethernet/brocade/bna debugfs regrd write fops (bnad_debugfs_write_regrd, lines 301-359); user controls nbytes and buffer contents. Violated invariant: memdup_user(buf, nbytes) at line 315 allocates exactly nbytes bytes with no terminator slot; grep of the whole file shows no memdup_user_nul, no strndup_user, and no kern_buf[n]=0 assignment. Unsafe use: sscanf(kern_buf, \"%x:%x\", &addr, &len) at line 319 scans until NUL and can read past the nbytes-sized allocation when the user write contains no NUL byte. The identical pattern repeats in bnad_debugfs_write_regwr at line 375 (memdup_user(buf, nbytes)) followed by sscanf(kern_buf, \"%x:%x\", &addr, &val) at line 379. Counterevidence checked: no length cap on nbytes before the memdup_user call, no memchr validation, and bna_reg_offset_check runs only after the sscanf has already consumed the buffer. This is the same Brocade BFA code family as the seed (scsi bfa bfad_debugfs), with the same bug the seed commit 13d0cecb4626 fixed by switching to memdup_user_nul. Impact: OOB heap read via sscanf."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "start": 174,
+      "end": 184,
+      "quote": "cmd_buf = memdup_user(buf, count);\n\tif (IS_ERR(cmd_buf))\n\t\treturn PTR_ERR(cmd_buf);\n\n\tmodule = ice_find_module_by_dentry(pf, dentry);\n\tif (module < 0) {\n\t\tdev_info(dev, \"unknown module\\n\");\n\t\treturn -EINVAL;\n\t}\n\n\tcnt = sscanf(cmd_buf, \"%s\", user_val);",
+      "confidence": "high",
+      "reason": "Untrusted source: ice driver debugfs module fw-log write fops (ice_debugfs_module_write, lines 161-207), debugfs-controlled, attacker supplies count and contents. Violated invariant: memdup_user(buf, count) at line 174 allocates exactly count bytes (count clamped to <=8 at line 167 but the clamp does NOT guarantee a NUL: a write of exactly 8 non-NUL bytes leaves an 8-byte allocation with no terminator); no memdup_user_nul/strndup_user/memchr in the file. Unsafe use: sscanf(cmd_buf, \"%s\", user_val) at line 184 scans until whitespace/NUL, reading past the allocation when no NUL was copied; a secondary unbounded-write hazard exists since %s into char user_val[16] has no field-width limit. The same bug shape repeats at lines 260/264 (nr_messages_write), 335/339 (enable_write), and 431/435 (log_size_write), all memdup_user(buf, count) followed by sscanf(cmd_buf, \"%s\", user_val). Counterevidence checked: the *ppos != 0 || count > 8 clamp bounds only the allocation size, not termination; upstream fixed this exact site by switching to memdup_user_nul. Impact: OOB heap read via sscanf \"%s\" scan past an 8-byte allocation (plus stack overflow potential of user_val[16] if the terminator is found late and the scanned token exceeds 15 chars)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "fs/xfs/xfs_ioctl.c",
+      "line": 523,
+      "status": "safe",
+      "reason": "xfs_attrmulti_attr_set memdup_user(ubuf, len) result is consumed as a binary xattr value with explicit valuelen (args.value/args.valuelen into xfs_attr_change), never parsed as a C string; the strlen at lines 499/516 applies to `name` which is obtained via strndup_user(uname, MAXNAMELEN) in xfs_ioc_attrmulti_one (line ~540), so termination is guaranteed."
+    },
+    {
+      "snapshot": "s01",
+      "path": "fs/btrfs/ioctl.c",
+      "line": 232,
+      "status": "safe",
+      "reason": "All memdup_user'd btrfs_ioctl_vol_args/vol_args_v2 buffers are validated by btrfs_check_ioctl_vol_args_path (line 230-235) or btrfs_check_ioctl_vol_args2_subvol_name (237-242), which require memchr(vol_args->name, 0, sizeof(...)) != NULL, i.e. an in-bounds NUL, before any strcmp/strchr/strlen use (lines 1167, 2504-2511, 2761, 2822)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/hid/usbhid/hiddev.c",
+      "line": 594,
+      "status": "safe",
+      "reason": "hiddev_ioctl copy_from_user calls copy fixed-size structs (sizeof(struct hiddev_field_info) etc.) consumed as binary fields; strlen is applied only to kernel-generated strings (hid->name, hid->uniq, driver names) in the string-report ioctls, never to user-copied bytes."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/ipvs/ip_vs_ctl.c",
+      "line": 3036,
+      "status": "safe",
+      "reason": "do_ip_vs_get_ctl copies copylen = get_arglen[CMDID(cmd)] bytes into a fixed stack array with *len >= copylen check; strscpy/strlen operate on kernel-side mcfg.mcast_ifn arrays and constant version string, not on user-copied data."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/misc/yurex.c",
+      "line": 434,
+      "status": "safe",
+      "reason": "yurex_write uses char buffer[16 + 1], clamps count = min(sizeof(buffer) - 1, count), and explicitly sets buffer[count] = 0 after copy_from_user (line 451), so simple_strtoull(data, NULL, 0) operates on a guaranteed-terminated buffer."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/scsi/scsi_proc.c",
+      "line": 417,
+      "status": "safe",
+      "reason": "proc_scsi_write copies into a full page and terminates in-bounds: if (length < PAGE_SIZE) { end = buffer + length; *end = '\\0'; } else requires *end at PAGE_SIZE-1 to be NUL; each simple_strtoul is additionally guarded by p/p+1 < end pointer checks."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 1002,
+      "status": "safe",
+      "reason": "rvu_dbg_qsize_write allocates memdup_user(buffer, count + 1) and sets cmd_buf[count] = '\\0' at line 1006 before strchr/strsep parsing; parse_cmd_buffer_ctx likewise null-terminates its cmd_buf."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_debugfs.c",
+      "line": 751,
+      "status": "unresolved",
+      "reason": "i40e_dbg_command_write and i40e_dbg_netdev_ops_write use copy_from_user into a 256-byte stack buffer with a count clamp and a memset of the tail before copy; the term_hint flag fired but exact clamp/termination per handler was not fully re-verified line-by-line before the audit was stopped; flagged for follow-up rather than classified."
+    },
+    {
+      "snapshot": "s01",
+      "path": "mm/huge_memory.c",
+      "line": 3585,
+      "status": "unresolved",
+      "reason": "split_huge_pages_write copy_from_user + sscanf/strsep in a /proc write handler; likely out of this branch's ioctl/sockopt scope and expected to terminate its buffer, but not verified in detail before the audit was stopped."
+    }
+  ],
+  "limitations": [
+    "The programmatic scan (all .c files outside tools/Documentation/samples/rust/scripts) enumerated 283 functions containing both a usercopy primitive and a string op (231 after excluding memdup_user_nul/strndup_user users); only the highest-scoring subset was read line-by-line, so lower-ranked unexamined functions in funcs.json remain unreviewed.",
+    "ioctl/sockopt-specific sweeps (compat_ioctl, setsockopt optval parsers, nla_data/nla_string netlink attributes without NLA_NUL_STRING) were planned but only partially executed via the general scan; netlink attribute policies were not audited one-by-one.",
+    "Findings are hypotheses backed by structural source evidence (allocation-size-equals-user-length, absent terminator, C-string consumer); no runtime KASAN reproducer was compiled or run in this read-only snapshot workspace.",
+    "The ice_debugfs %s-into-user_val[16] secondary stack-overflow aspect was noted but not separately verified with a bound analysis of sysfs_match_string consumption."
+  ]
+}

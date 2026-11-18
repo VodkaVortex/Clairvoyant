@@ -1,0 +1,466 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-058cbee52ccd
+  status: active
+  created_at: 1794386830010
+  reason:
+    worker: linux-variant-reason
+    trigger: facts=5 hints=1 open_intents=30 changes=facts:4->5
+    started_at: 1794391264041
+    last_heartbeat_at: 1794391759046
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/public. Seed: staging: ks7010: disable bh on tx_dev_lock. The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'MECHANISM PROFILE — context-mismatched spinlock (missing bottom-half disable). UNTRUSTED SOURCE: not attacker-supplied data but attacker-influenced concurrency triggers — any packet/event that executes the device''s softirq-context callback (ndo_start_xmit under NET_TX softirq, timer-driven xmit) while a process-context path (workqueue worker, ioctl, open/firmware/SME request) holds the same lock on that CPU; local or remote traffic and timer expiry are enough to align both sides. MISSING GUARANTEE: lock-context discipline — a spinlock reachable from softirq/timer context must be acquired with spin_lock_bh()/local_bh_disable() at every process-context site; plain spin_lock() only disables preemption, not bottom halves, so a softirq can run on the same CPU between lock and unlock. UNSAFE USE: process call chain (worker -> driver helper -> hw_tx/enqueue) holds the plain-acquired lock, then a softirq on the same CPU spins forever trying to take that same lock while the holder can never resume — a self-deadlock. CONSEQUENCE: softirq/soft-lockup on one CPU, RCU stall and watchdog splats, device TX stall, repeatable denial of service. The invariant generalizes one level up: a lock shared with a hardirq handler needs irqsave/irq-disable at non-irq sites. Seed (staging ks7010 tx_dev_lock, workqueue xmit path vs xmit callback) is a demonstration only and must never be reported. BRANCHES: branch1=xmit-softirq-lock: in net/wireless/staging drivers, find lock objects taken with plain spin_lock in process/workqueue-context helpers (hw-tx, request, firmware, ioctl paths) that are also acquired in code reachable from ndo_start_xmit or TX-completion callbacks that can run under NET_TX/NET_RX softirq — the exact seed shape; branch2=timer-dwork-softirq-lock: find locks acquired inside timer_list, hrtimer, or delayed_work callback bodies (timer softirq context) that are also taken with plain spin_lock from process-context paths (workers, ioctls, open/close, config), yielding softirq-vs-holder deadlock; branch3=tasklet-napi-softirq-lock: find locks shared between process-context code and tasklet_schedule''d functions or NAPI poll / other NET softirq callbacks where the process side uses plain spin_lock instead of spin_lock_bh (excluding xmit and timer callbacks covered by branches 1-2); branch4=hardirq-shared-lock: the interrupt-level analog of the same invariant — locks acquired inside hardirq handlers (request_irq / non-threaded part of request_threaded_irq) that are taken with plain spin_lock (no spin_lock_irqsave/irq) in process or softirq context, allowing the hardirq to preempt and spin on a lock the preempted context can never release.'
+- id: f002
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i015.json; branch=xmit-softirq-lock; snapshots=s14; missing=s01,s02,s03,s04,s05,s06,s07,s08,s09,s10,s11,s12,s13; findings=1; unresolved=1; execution_status=complete
+    finding 1: s14:drivers/net/wireless/marvell/mwl8k.c:1981-2040 confidence=medium; source quote='spin_lock(&priv->stream_lock);'; reason=Softirq-side chain: mwl8k_tx (ieee80211_ops .tx, drivers/net/wireless/marvell/mwl8k.c:4676, called by mac80211 __ieee80211_tx->drv_tx from ndo_start_xmit/ieee80211_subif_start_xmit or from tx dequeue under NET_TX softirq) -> mwl8k_txq_xmit (line 4690) -> spin_lock(&priv->stream_lock) at lines 1982/2046/2069 with no bottom-half disable, while the same function takes priv->tx_lock with spin_lock_bh (lines 2054/2115) proving this xmit path is expected to run with BH enabled. Process/workqueue-side chains taking the same stream_lock plainly: mwl8k_watchdog_ba_handle worker (mwl8k_watchdog_ba_events, line 3822, queued from the hardirq handler at line 4605 via ieee80211_queue_work) and mwl8k_cmd_set_new_stn_del (line 4152, reached from sta_remove -> mwl8k_sta_remove under wiphy mutex in process context), plus mwl8k_ampdu_action (line 5445) from cfg80211/mac80211 process context. With a worker (or user task) holding stream_lock, a NET_TX softirq on the same CPU executing mwl8k_txq_xmit spins on stream_lock forever while the preempted holder can never run -> soft lockup/RCU stall/TX stall DoS, the exact seed mechanism (missing spin_lock_bh on a lock shared between process and xmit softi...
+    candidate: s14:drivers/staging/ks7010/ks7010_sdio.c:398 status=safe; This is the seed demonstration itself (spin_lock(&priv->tx_dev.tx_dev_lock) in ks_wlan_hw_tx); explicitly excluded from reporting per instructions.
+    candidate: s14:drivers/net/wireless/quantenna/qtnfmac/trans.c:30 status=unresolved; ctl_node->resp_lock taken with plain spin_lock at trans.c:30/47/87/136; qtnfmac bus locks (tx_lock, tx_reclaim_lock, irq_lock) all use spin_lock_irqsave, but whether any resp_lock site is reachable from TX softirq was not fully traced before the search was halted.
+    candidate: s14:drivers/staging/wilc1000/wilc_wlan.c:45 status=safe; All wilc->txq_spinlock acquisitions use spin_lock_irqsave (wilc_wlan.c:45,64,82,146,194,338,354); no plain spin_lock sites on the shared tx queue lock.
+    candidate: s14:drivers/net/wireless/rsi/rsi_91x_main.c:326 status=safe; Only spin_lock_init for ps_lock found; no plain spin_lock acquisitions in rsi_91x_main.c/rsi_91x_core.c.
+    limitation: Bounded search: only drivers/net/wireless, drivers/staging wireless trees (wilc1000, rtl*, wlan-ng, vt665x) and drivers/net/usb were ranked by plain-spin_lock density; full-mac softirq reachability analysis was completed only for mwl8k, qtnfmac, wilc1000 and rsi.
+    limitation: qtnfmac trans.c resp_lock softirq reachability was not concluded (unresolved candidate).
+    limitation: iwlwifi pcie/rx.c and hostap had high plain spin_lock counts but were not analyzed before the intent was stopped; these are mac80211/fullmac drivers where .tx handlers run under NET_TX softirq and merit a follow-up pass.
+    limitation: The mwl8k finding is a static hypothesis: no runtime reproducer was built because the kernel tree lacks .config/headers for building the driver standalone.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i015.json
+- id: f003
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i004.json; branch=xmit-softirq-lock; snapshots=s03; missing=s01,s02,s04,s05,s06,s07,s08,s09,s10,s11,s12,s13,s14; findings=2; unresolved=3; execution_status=complete
+    finding 1: s03:drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c:761-768 confidence=high; source quote='spin_lock(&fep->tx_lock); (*fep->ops->stop)(dev); spin_unlock(&fep->tx_lock);'; reason=Lock fs_enet_private.tx_lock is shared between softirq and process context with the process side missing bottom-half disable (exact seed shape). UNTRUSTED TRIGGER: any packet/event that runs the driver's NAPI poll under NET_RX softirq, plus any ifconfig down / device close. SOFTIRQ SIDE: fs_enet_interrupt (request_irq at line 733, fs_enet-main.c) -> __napi_schedule(&fep->napi) (line 352) -> fs_enet_napi (NAPI poll, line 86) takes the SAME tx_lock with plain spin_lock at fs_enet-main.c:99 and completes TX descriptors while holding it (unlock at line 188). PROCESS SIDE: fs_enet_stop (net_device close path, line ~755) runs in process context and takes the SAME fep->tx_lock with plain spin_lock at fs_enet-main.c:765 after napi_disable(); note the open path fs_enet_open calls napi_enable BEFORE request_irq, and close calls napi_disable before taking tx_lock, which closes most of the window; however fs_enet_start_xmit (ndo_start_xmit, line 484) also takes the same plain spin_lock at line 523 in NET_TX softirq context. COUNTEREVIDENCE CHECKED: (a) napi_disable() in fs_enet_stop waits for an in-flight fs_enet_napi poll to finish, so the NAPI-vs-close pairing is normally serialized befor...
+    finding 2: s03:drivers/net/ethernet/cisco/enic/enic_main.c:659-659 confidence=low; source quote='spin_lock(&enic->wq_lock[txq_map]);'; reason=enic wq_lock[] is taken with plain spin_lock both in enic_hard_start_xmit (ndo_start_xmit, NET_TX softirq; the file itself comments 'process context with BHs disabled, or BH' at line 629) and in enic_wq_service (line 231) which runs from enic_poll / enic_poll_msix_wq NAPI callbacks (NET_RX softirq) via vnic_cq_service (lines 1299, 1439). A NET_TX softirq holder on one CPU can be interrupted by a NET_RX softirq that spins on the same wq_lock. No spin_lock_bh on wq_lock anywhere (only devcmd_lock/rfs_h.lock use _bh, showing the driver knows the pattern). This is softirq-vs-softirq rather than the seed's process-vs-softirq shape, and net_tx_action/net_rx_action both run from do_softirq on the same CPU, so the holder (also a softirq) can still be preempted by the other softirq type - the exact scenario spin_lock_bh exists to prevent. Classified low confidence: deadlock requires both softirq types ready on the same CPU with the TX holder not yet finished; reported as a hypothesis only.
+    candidate: s03:drivers/staging/ks7010/ks7010_sdio.c:374 status=safe; Exact seed bug (ks7010 tx_dev_lock plain spin_lock in ks_wlan_hw_tx, callers include workqueue hostif_sme_work chain and xmit ks_wlan_start_xmit) IS present unpatched in s03, but the seed must never be reported per instructions. Excluded from findings.
+    candidate: s03:drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c:765 status=reported; Reported: process-context plain spin_lock(&fep->tx_lock) in fs_enet_stop while NAPI poll fs_enet_napi takes same lock at line 99; napi_disable before the lock narrows the window but the invariant (softirq-shared lock needs _bh at process sites) is violated with no spin_lock_bh in the file.
+    candidate: s03:drivers/net/ethernet/cisco/enic/enic_main.c:231 status=reported; Reported low confidence: wq_lock plain spin_lock in NAPI-serviced enic_wq_service vs same plain lock in enic_hard_start_xmit; softirq-vs-softirq variant of the missing-BH-disable invariant.
+    candidate: s03:drivers/net/ethernet/faraday/ftgmac100.c:715 status=safe; tx_lock plain sites are ftgmac100_tx_complete_packet (NAPI poll, NET_RX softirq) and ftgmac100_xmit (ndo_start_xmit, NET_TX softirq). NO process-context plain acquisition exists (only spin_lock_init at 1363); tx_pending reset in open is outside any race with NAPI since IRQ is requested after. Softirq-vs-softirq window exists but no process-context holder, so the seed's holder-can-never-resume shape is absent; not reported for this branch.
+    candidate: s03:drivers/net/ethernet/faraday/ftmac100.c:621 status=safe; Identical twin of ftgmac100: both plain tx_lock sites are softirq (NAPI poll tx_complete at 621, ndo xmit at 654); no process-context site. Same conclusion.
+    candidate: s03:drivers/net/ethernet/micrel/ks8851.c:940 status=safe; ks8851_start_xmit plain spin_lock(&ks->statelock) at 940 is itself the NET_TX softirq side; the other site at 1025 (set_rx_mode) runs under netif_addr_lock_bh (BH disabled) via __dev_set_rx_mode; IRQ handler ks8851_irq (threaded, request_threaded_irq line 1544) uses only mutex; no process-context plain lock that a softirq can spin against.
+    candidate: s03:drivers/net/wireless/wl3501_cs.c:1128 status=safe; Plain spin_lock(&this->lock) at 1128 is inside hardirq handler wl3501_interrupt; every other site (390,434,1233,1263,1317,1345,1639 incl. hard_start_xmit at 1317 and open at 1345) uses spin_lock_irqsave, which excludes both hard and soft interrupts. Branch-4 shape, not violated.
+    candidate: s03:drivers/net/wireless/intel/ipw2x00/ipw2100.c:3352 status=safe; Plain spin_lock(&priv->low_lock) at 3352 is inside hardirq handler ipw2100_interrupt itself; all process-context sites use spin_lock_irqsave (743,1750,1877,1888,1971,3229,3402,5810,5829,5968,6008). Branch-4 shape not violated here.
+    limitation: Search bounded to snapshot s03 only, as required; other snapshots not inspected.
+    limitation: The literal seed bug (ks7010 tx_dev_lock, drivers/staging/ks7010/ks7010_sdio.c:374) is present unpatched in s03 but excluded from findings per the never-report-the-seed rule.
+    limitation: Static analysis only: lock-context pairing was established from source reading; no runtime reproduction, lockdep run, or compile was performed, so exploitability (especially for the softirq-vs-softirq enic case and the napi_disable-narrowed fs_enet window) is unproven.
+    limitation: Three candidates (mvneta pp->lock process sites, ixgbe fdir_perfect_lock process sites, bcm63xx_enet tx_lock) remain unresolved; their softirq-side lock acquisition paths were not traced before the finalize deadline.
+    limitation: Candidate enumeration covered drivers/net and drivers/net/wireless plus staging drivers with ndo_start_xmit; drivers outside net/ (e.g. non-net spinlock users reachable from softirq) were not exhaustively enumerated.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i004.json
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794387510424
+  created_at: 1794386830060
+  concluded_at: 1794387510424
+- id: i002
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=xmit-softirq-lock; Search only snapshots/s01 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s01 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759808
+  created_at: 1794388219308
+  concluded_at: null
+- id: i003
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=xmit-softirq-lock; Search only snapshots/s02 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s02 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759608
+  created_at: 1794388219310
+  concluded_at: null
+- id: i004
+  sources:
+  - f001
+  target_fact: f003
+  description: 'SNAPSHOT=s03; BRANCH=xmit-softirq-lock; Search only snapshots/s03 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s03 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391264038
+  created_at: 1794388219310
+  concluded_at: 1794391264038
+- id: i005
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=xmit-softirq-lock; Search only snapshots/s04 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s04 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759454
+  created_at: 1794388219311
+  concluded_at: null
+- id: i006
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s05; BRANCH=xmit-softirq-lock; Search only snapshots/s05 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s05 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759634
+  created_at: 1794388219312
+  concluded_at: null
+- id: i007
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s06; BRANCH=xmit-softirq-lock; Search only snapshots/s06 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s06 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759744
+  created_at: 1794388219312
+  concluded_at: null
+- id: i008
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s07; BRANCH=xmit-softirq-lock; Search only snapshots/s07 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s07 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759070
+  created_at: 1794388219313
+  concluded_at: null
+- id: i009
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s08; BRANCH=xmit-softirq-lock; Search only snapshots/s08 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s08 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794388219314
+  concluded_at: null
+- id: i010
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s09; BRANCH=xmit-softirq-lock; Search only snapshots/s09 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s09 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759337
+  created_at: 1794388219314
+  concluded_at: null
+- id: i011
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s10; BRANCH=xmit-softirq-lock; Search only snapshots/s10 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s10 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759745
+  created_at: 1794388219315
+  concluded_at: null
+- id: i012
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s11; BRANCH=xmit-softirq-lock; Search only snapshots/s11 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s11 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759618
+  created_at: 1794388219316
+  concluded_at: null
+- id: i013
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s12; BRANCH=xmit-softirq-lock; Search only snapshots/s12 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s12 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759332
+  created_at: 1794388219316
+  concluded_at: null
+- id: i014
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s13; BRANCH=xmit-softirq-lock; Search only snapshots/s13 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s13 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759804
+  created_at: 1794388219317
+  concluded_at: null
+- id: i015
+  sources:
+  - f001
+  target_fact: f002
+  description: 'SNAPSHOT=s14; BRANCH=xmit-softirq-lock; Search only snapshots/s14 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s14 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794390187756
+  created_at: 1794388219317
+  concluded_at: 1794390187756
+- id: i016
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s01 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s01 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759346
+  created_at: 1794388219318
+  concluded_at: null
+- id: i017
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s02 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s02 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759771
+  created_at: 1794388219318
+  concluded_at: null
+- id: i018
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s03 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s03 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794391759020
+  created_at: 1794390975985
+  concluded_at: null
+- id: i019
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s04 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s04 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975986
+  concluded_at: null
+- id: i020
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s05; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s05 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s05 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975987
+  concluded_at: null
+- id: i021
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s06; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s06 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s06 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975989
+  concluded_at: null
+- id: i022
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s07; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s07 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s07 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975991
+  concluded_at: null
+- id: i023
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s08; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s08 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s08 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975992
+  concluded_at: null
+- id: i024
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s09; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s09 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s09 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975994
+  concluded_at: null
+- id: i025
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s10; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s10 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s10 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975996
+  concluded_at: null
+- id: i026
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s11; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s11 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s11 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975997
+  concluded_at: null
+- id: i027
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s12; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s12 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s12 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390975999
+  concluded_at: null
+- id: i028
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s13; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s13 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s13 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390976000
+  concluded_at: null
+- id: i029
+  sources:
+  - f001
+  - f002
+  target_fact: null
+  description: 'SNAPSHOT=s14; BRANCH=timer-dwork-softirq-lock; Search only snapshots/s14 and no other snapshot. Hunt the timer-softirq analogue of the seed''s missing-BH-disable invariant: lock objects acquired inside timer-softirq-context callback bodies (timer_list function callbacks, hrtimer handlers, delayed_work timer-expiry callbacks, including watchdog/retry/scan timers in the mwl8k, qtnfmac, wilc1000 and rsi drivers already mapped in this snapshot) that are also taken with plain spin_lock() rather than spin_lock_bh() or local_bh_disable() from process-context paths such as workqueue workers, ioctls, open/close, configuration and firmware requests, so a timer softirq firing on the same CPU spins on a lock the preempted holder can never release. For every candidate record the lock name, the timer-callback-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s14 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390976002
+  concluded_at: null
+- id: i030
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=tasklet-napi-softirq-lock; Search only snapshots/s01 and no other snapshot. Hunt the tasklet/NAPI-softirq analogue of the seed''s missing-BH-disable invariant: lock objects shared between process-context code (workqueue workers, ioctls, open/close, configuration and firmware request handlers) and code that executes in TASKLET or NET softirq context — tasklet_schedule/tasklet_hi_schedule callback bodies, NAPI poll functions reached via napi_schedule, or other NET_RX/NET_TX softirq callbacks — where the process-context side takes the lock with plain spin_lock() instead of spin_lock_bh()/local_bh_disable(), so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, denial of service). Exclude xmit-callback and timer-callback paths already covered by the xmit-softirq-lock and timer-dwork-softirq-lock branches. For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s01 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390976004
+  concluded_at: null
+- id: i031
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=tasklet-napi-softirq-lock; Search only snapshots/s02 and no other snapshot. Hunt the tasklet/NAPI-softirq analogue of the seed''s missing-BH-disable invariant: lock objects shared between process-context code (workqueue workers, ioctls, open/close, configuration and firmware request handlers) and code that executes in TASKLET or NET softirq context — tasklet_schedule/tasklet_hi_schedule callback bodies, NAPI poll functions reached via napi_schedule, or other NET_RX/NET_TX softirq callbacks — where the process-context side takes the lock with plain spin_lock() instead of spin_lock_bh()/local_bh_disable(), so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, denial of service). Exclude xmit-callback and timer-callback paths already covered by the xmit-softirq-lock and timer-dwork-softirq-lock branches. For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s02 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390976005
+  concluded_at: null
+- id: i032
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=tasklet-napi-softirq-lock; Search only snapshots/s03 and no other snapshot. Hunt the tasklet/NAPI-softirq analogue of the seed''s missing-BH-disable invariant: lock objects shared between process-context code (workqueue workers, ioctls, open/close, configuration and firmware request handlers) and code that executes in TASKLET or NET softirq context — tasklet_schedule/tasklet_hi_schedule callback bodies, NAPI poll functions reached via napi_schedule, or other NET_RX/NET_TX softirq callbacks — where the process-context side takes the lock with plain spin_lock() instead of spin_lock_bh()/local_bh_disable(), so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, denial of service). Exclude xmit-callback and timer-callback paths already covered by the xmit-softirq-lock and timer-dwork-softirq-lock branches. For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s03 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390976007
+  concluded_at: null
+- id: i033
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=tasklet-napi-softirq-lock; Search only snapshots/s04 and no other snapshot. Hunt the tasklet/NAPI-softirq analogue of the seed''s missing-BH-disable invariant: lock objects shared between process-context code (workqueue workers, ioctls, open/close, configuration and firmware request handlers) and code that executes in TASKLET or NET softirq context — tasklet_schedule/tasklet_hi_schedule callback bodies, NAPI poll functions reached via napi_schedule, or other NET_RX/NET_TX softirq callbacks — where the process-context side takes the lock with plain spin_lock() instead of spin_lock_bh()/local_bh_disable(), so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, denial of service). Exclude xmit-callback and timer-callback paths already covered by the xmit-softirq-lock and timer-dwork-softirq-lock branches. For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s04 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794390976008
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794386830010
+
+```
+
+### Current Intent
+```
+i009
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s08; BRANCH=xmit-softirq-lock; Search only snapshots/s08 and no other snapshot. Hunt the exact seed shape: a driver spinlock taken with plain spin_lock() (missing spin_lock_bh or local_bh_disable) in process-context or workqueue-context code (xmit workers, hw-tx/enqueue helpers, firmware, ioctl, open, SME/request handlers) where the same lock object is also acquired on a path reachable from ndo_start_xmit or TX-completion callbacks that run under NET_TX/NET_RX softirq, so a softirq on the same CPU spins forever against a holder that can never resume (soft-lockup, RCU stall, TX-stall denial of service). For every candidate record the lock name, the softirq-side and process-side call chains with file:line, and the missing bottom-half-disable guarantee; the staging ks7010 tx_dev_lock seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s08 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.
+```
+

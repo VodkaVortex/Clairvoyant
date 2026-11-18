@@ -1,0 +1,58 @@
+{
+  "intent_id": "i017",
+  "branch": "if-alt-count",
+  "snapshot": "s04",
+  "status": "finalizing",
+  "updated_at": "2026-11-12T03:44:27",
+  "candidates": [
+    {
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "line": 320,
+      "status": "reported",
+      "reason": "stv06xx_isoc_init/isoc_nego index actconfig->intf_cache[0]->altsetting[1] (lines 320,333) with no num_altsetting>=2 check in the file (grep: only the two altsetting[1] lines, zero num_altsetting references); OOB read/write of endpoint[0].desc.wMaxPacketSize in the kzalloc'd usb_interface_cache flex array at VIDIOC_STREAMON"
+    },
+    {
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "line": 2653,
+      "status": "reported",
+      "reason": "sd_isoc_init/sd_isoc_nego same pattern: intf_cache[0]->altsetting[1] (2653,2676) with no num_altsetting/bNumEndpoints validation in file; wMaxPacketSize patched then usb_set_interface(...,1)"
+    },
+    {
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "line": 1443,
+      "status": "safe",
+      "reason": "model-index branch indexes actconfig->interface[usbvision_device_data[model].interface] without a bNumInterfaces check (ifnum branch at 1444-1445 has it), but all 67 model entries in s04's usbvision-cards.c are .interface==-1 or ==0; triggering requires interface[0] to be NULL i.e. a 0-interface config, which usbcore does not allocate (config->interface array is kzalloc'd with nintf entries and config 0 interfaces is rejected at enumeration); with nintf>=1 interface[0] is always non-NULL"
+    },
+    {
+      "path": "drivers/media/usb/em28xx/em28xx-audio.c",
+      "line": 763,
+      "status": "safe",
+      "reason": "em28xx_audio_urb_init checks intf->num_altsetting <= alt before altsetting[alt] use and loops i < altsetting[alt].desc.bNumEndpoints; correct runtime re-validation"
+    },
+    {
+      "path": "drivers/media/usb/em28xx/em28xx-cards.c",
+      "line": 3429,
+      "status": "safe",
+      "reason": "ifnum is only used for logging/dev fields; endpoint scan loops ep < altsetting[i].desc.bNumEndpoints (3481)"
+    },
+    {
+      "path": "drivers/usb/serial/ftdi_sio.c",
+      "line": 1886,
+      "status": "safe",
+      "reason": "actconfig->interface[0]/[1] used only as pointer identity comparison (1886,1922-1923); NULL entries only make comparison false, no dereference"
+    },
+    {
+      "path": "drivers/usb/serial/usb-serial.c",
+      "line": 832,
+      "status": "safe",
+      "reason": "interface != actconfig->interface[0] guard, then iface_desc = interface[0]->cur_altsetting only when equal, so interface[0] is the already-bound non-NULL probed interface"
+    },
+    {
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 850,
+      "status": "safe",
+      "reason": "core stream-on: intf = usb_ifnum_to_if(..., gspca_dev->iface) where iface was validated non-NULL at probe (gspca_probe binds to intf); alt selection uses build_isoc_ep_tb loop over actual altsettings and intf->num_altsetting>1 guard at 890 before usb_set_interface; the unguarded altsetting[1] uses are inside the stv06xx/xirlink_cit subdriver hooks (reported separately)"
+    }
+  ],
+  "notes": "s04 tree scanned. usbvision/stv06xx patterns from prior facts reproduce in s04. Core config.c parser warns but accepts bNumInterfaces=n (even 0) configs."
+}

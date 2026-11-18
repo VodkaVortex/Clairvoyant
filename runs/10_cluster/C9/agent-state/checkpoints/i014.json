@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "alloc-multiply-overflow",
+  "status": "started",
+  "snapshot": "s04",
+  "notes": "Initial checkpoint before first search. Invariant: 32-bit multiply (count*element-size / count+offset / count<<shift) in plain int/unsigned from an untrusted (wire/ioctl/disk) count, passed to kmalloc/kzalloc/vmalloc/kmemdup/devm_kzalloc (not kcalloc/array_size/struct_size), followed by an element-indexed copy/recv/memcpy loop trusting the original count -> truncated product under-allocates -> heap overflow. Seed (usbip_recv_iso) never reportable.",
+  "planned_queries": [
+    "narrow-typed 'size/len = count * sizeof' assignments",
+    "allocator calls with inline raw multiply in size argument",
+    "count << shift sizing into allocators",
+    "endianness-decoded count stores near multiplies",
+    "fsl_hypervisor-style ioctl truncation chains",
+    "usbip seed presence check (excluded-by-rule)"
+  ],
+  "candidates": []
+}

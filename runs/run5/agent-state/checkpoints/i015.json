@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "tx-csum-invariant",
+  "status": "complete",
+  "snapshot": "s02",
+  "progress": "FINAL. Finding: net/packet/af_packet.c tpacket_snd() lines 2671-2723 — vnet_hdr points directly into mmap'd TPACKET TX ring (vnet_hdr = data at 2672), validated by __packet_snd_vnet_parse at 2676 (csum_start+csum_offset+2 vs hdr_len, hdr_len vs tp_len), then independently re-read by virtio_net_hdr_to_skb at 2719 and virtio_net_hdr_set_proto at 2723 after tpacket_fill_skb at 2695 — no READ_ONCE, no private copy, no lock spanning both fetches. Safe (validated): tun.c:1762 (stack copy), tap.c:650 (stack copy), af_packet.c packet_snd:2916 (stack copy), virtio_net.h:54 + skbuff.c:4396 skb_partial_csum_set (single fetch into locals, u32 bounds check vs skb_headlen). Final artifact written to agent-state/findings/i015.json.",
+  "candidates": [
+    {"path": "net/packet/af_packet.c", "line": 2719, "status": "reported", "reason": "shared-ring vnet_hdr validated at 2676, re-read at 2719"},
+    {"path": "include/linux/virtio_net.h", "line": 54, "status": "safe"},
+    {"path": "net/core/skbuff.c", "line": 4396, "status": "safe"},
+    {"path": "drivers/net/tun.c", "line": 1762, "status": "safe"},
+    {"path": "drivers/net/tap.c", "line": 650, "status": "safe"},
+    {"path": "net/packet/af_packet.c", "line": 2916, "status": "safe"},
+    {"path": "drivers/net/virtio_net.c", "line": 1024, "status": "safe"}
+  ]
+}

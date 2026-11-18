@@ -1,0 +1,349 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-22ba97ea9cc1
+  status: active
+  created_at: 1794453350498
+  reason:
+    worker: linux-variant-reason
+    trigger: facts=4 hints=1 open_intents=15 changes=facts:3->4
+    started_at: 1794455561488
+    last_heartbeat_at: 1794455999492
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/public. Seed: xsk: cache csum_start/csum_offset to fix TOCTOU in xsk_skb_metadata(). The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'MECHANISM PROFILE. Untrusted source: fields residing in memory shared with and concurrently writable by an untrusted party (in the seed, the AF_XDP TX metadata area inside the userspace-mapped UMEM buffer; generalized: userspace-mapped buffers, guest/device-shared rings, DMA-mapped descriptors writable by the peer). Missing guarantee: single-fetch/validated-value-identity — the kernel reads the shared field more than once, using one read for bounds/validation and a distinct read for the actual use, with no READ_ONCE-into-local snapshot, so the validated value and the consumed value can differ. Unsafe use/state transition: the second, unvalidated read flows into a security-sensitive sink (skb->csum_start/csum_offset + CHECKSUM_PARTIAL in the seed), whose value is later trusted by checksum/offload code as already validated. Consequence: out-of-bounds memory access (read or write) in the TX/checksum-computation path, i.e., kernel memory disclosure or corruption triggered by a racing userspace writer. Key transferable invariant: for any value fetched from shared/writable memory, the copy that passed validation must be bit-identical to the copy that is used. Seed is demonstration-only, never reportable. BRANCHES: branch1=xsk-umem-rereads — within net/xdp and drivers'' AF_XDP TX-completion/metadata paths, find any UMEM-resident field (descriptors addr/len/options, tx_metadata request fields, flags) that is read twice or consumed without a single cached read (validate-then-use on shared memory in the same subsystem but different fields/paths than the seed); branch2=uapi-double-fetch — syscall/ioctl/setsockopt/netlink handler paths where the same user memory location (length, count, pointer, union member) is fetched twice via get_user/copy_from_user/peek so validation and use can diverge under a racing writer; branch3=vm-shared-desc-rereads — virtio/vhost/vdpa/paravirt paths where guest- or device-writable descriptor tables, config space, or packet headers are read multiple times (once checked, once used) or trusted across re-reads without snapshotting; branch4=csum-partial-consumer-trust — sinks of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, turning any inconsistently-validated producer into an OOB access.'
+- id: f002
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i006.json; branch=xsk-umem-rereads; snapshots=s02; missing=s01,s03,s04; findings=0; unresolved=1; execution_status=complete
+    candidate: s02:net/xdp/xsk_queue.h:193 status=safe; xskq_validate_desc() snapshots the userspace-shared TX descriptor exactly once via '*desc = READ_ONCE(ring->desc[idx]);' into a local struct xdp_desc; xskq_is_valid_desc(q, desc) (lines 172-184) validates addr < q->size and chunk containment on that same local copy, and every consumer (xsk_generic_xmit in net/xdp/xsk.c:233-259, xsk_umem_consume_tx in net/xdp/xsk.c:180-191) uses the returned local desc.addr/desc.len. No second read of ring->desc[idx] exists anywhere in the tree (grep for 'ring...
+    candidate: s02:net/xdp/xsk_queue.h:96 status=safe; xskq_validate_addr() fetches the FQ descriptor once with '*addr = READ_ONCE(ring->desc[idx]) & q->chunk_mask;' then validates via xskq_is_valid_addr(q, *addr); consumers (__xsk_rcv/xsk_generic_rcv in net/xdp/xsk.c:63-84 and 133-148, i40e_alloc_buffer_zc i40e_xsk.c:343-359, ixgbe_alloc_buffer_zc ixgbe_xsk.c:325-341) all use the single validated local 'addr'/'handle' for xdp_umem_get_data/xdp_umem_get_dma. No re-fetch of the shared FQ slot between validation and use.
+    candidate: s02:net/xdp/xsk.c:173 status=safe; xsk_umem_consume_tx() obtains a fully validated local 'struct xdp_desc desc' from xskq_peek_desc(), then passes only local copies to drivers: '*dma = xdp_umem_get_dma(umem, desc.addr); *len = desc.len;'. Drivers (i40e_xmit_zc i40e_xsk.c:738-784, ixgbe_xmit_zc ixgbe_xsk.c:628-675) consume only the returned dma/len values and never touch the shared TX ring directly (grep confirms no 'ring->desc' access in i40e_xsk.c/ixgbe_xsk.c).
+    candidate: s02:net/xdp/xsk.c:233 status=safe; xsk_generic_xmit() iterates with 'while (xskq_peek_desc(xs->tx, &desc))' using the local validated desc snapshot; len = desc.len and addr = desc.addr (lines 249-257) feed skb allocation, xdp_umem_get_data, and skb_store_bits from the same validated copy.
+    candidate: s02:include/uapi/linux/if_xdp.h:97 status=unresolved; The UAPI defines 'struct xdp_desc { __u64 addr; __u32 len; __u32 options; }' with an 'options' field residing in the userspace-mapped shared TX ring, but grep for 'options' across all of net/xdp returns nothing and no driver reads it, so there is no validate-then-use divergence site in this snapshot; it is the seed-relevant shared field with no consumer here. Left unresolved because the broader tree outside net/xdp/intel-xsk drivers was not exhaustively grepped for indirect descriptor parsing.
+    limitation: This snapshot (s02) is an early AF_XDP tree (xsk.c is 796 lines, pre-xsk_buff/pre-TX-metadata): xsk_skb_metadata(), struct xsk_tx_metadata, XDP_TXMD_FLAGS_CHECKSUM, tx_metadata_len, and tx_sw_csum do not exist anywhere in the tree, so the seed's exact mechanism cannot be present; the negative result is specific to the UMEM-field reread invariant, not a proof about later kernels.
+    limitation: Search bounded to the AF_XDP surface: all of net/xdp/, include/net/xdp_sock.h, include/uapi/linux/if_xdp.h, and the two driver consumers present in s02 (drivers/net/ethernet/intel/i40e/i40e_xsk.c, drivers/net/ethernet/intel/ixgbe/ixgbe_xsk.c). Only these drivers reference the exported xsk_umem_* TX/FQ APIs in this tree.
+    limitation: Related invariants not audited under this branch: whether desc.len (u32) can exceed chunk_size_nohr in the TX path (xskq_is_valid_desc checks addr<size and chunk containment but not len against chunk size in s02), and any non-AF_XDP double-fetch sites in s02 — those belong to intents i007-i009.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i006.json
+- id: f003
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i012.json; branch=vm-shared-desc-rereads; snapshots=s03; missing=s01,s02,s04; findings=0; unresolved=1; execution_status=complete
+    candidate: s03:drivers/vhost/vhost.c:2881 status=safe; vhost_get_vq_desc_n(): guest-writable descriptor table is fetched via vhost_get_desc(vq, &desc, i) (vhost.c:2881) which copies the whole struct vring_desc once into a stack local via vhost_copy_from_user (vhost.c:1582-1586). All subsequent uses -- flags checks (2895, 2903), translate_desc(vhost64_to_cpu(vq, desc.addr), vhost32_to_cpu(vq, desc.len)) (2905-2906), log entries, and next_desc() chain walking -- consume only the local copy 'desc'; next_desc() even uses READ_ONCE(desc->next) on the ...
+    candidate: s03:drivers/vhost/vhost.c:2716 status=safe; get_indirect(): indirect descriptor table is first translated (translate_desc of indirect->addr/len from the already-copied caller-local 'indirect' struct) and then read with copy_from_iter_full(&desc, sizeof(desc), &from) into a fresh local per iteration (vhost.c:~2743-2747); flags/addr/len of each indirect desc are used only from that local. Guest cannot cause validated-vs-used divergence here.
+    candidate: s03:drivers/vhost/vringh.c:332 status=safe; __vringh_iov(): each guest descriptor is copied once into local 'struct vring_desc desc' (vringh.c:332 'err = copy(vrh, &desc, &descs[i], sizeof(desc))'), and all validation plus use -- rcheck(len/addr), iov_base/iov_len assignment (403-408), partial-split rewriting of desc.len/desc.addr (412-417), chained next index (419-420), i >= desc_max bounds check (434) -- operate exclusively on that local copy. __vringh_get_head() fetches avail->idx and avail->ring[i] once each via getu16 into locals ...
+    candidate: s03:drivers/vhost/vdpa.c:355 status=safe; vhost_vdpa_get_config()/vhost_vdpa_set_config(): vhost_vdpa_config is copy_from_user'd once into a local 'config' (off/len), validated against device config size in vhost_vdpa_config_validate (vdpa.c:340-352) using the same local, and the same local values are then used for vdpa_get_config/vdpa_set_config and copy_to_user/vmemdup_user. Buffer contents are copied into a kernel-local buf before use. No double fetch of c->len/c->off from user memory.
+    candidate: s03:drivers/vdpa/vdpa_user/vduse_dev.c:361 status=safe; vduse_dev_read_iter()/vduse_dev_write_iter(): responses are copied once via copy_from_iter into a local 'struct vduse_dev_response resp', reserved bytes validated (is_mem_zero) on the local, and request_id lookup uses the same local; requests dequeued to userspace are memcpy'd from kernel-owned msg->req. vduse_vdpa_get_config (vduse_dev.c:813-827) clamps offset/len against dev->config_size before memcpy from kernel-private config memory, which is not directly guest-shared (userspace daemon wr...
+    candidate: s03:drivers/vhost/net.c:692 status=safe; vhost_net_build_xdp(): the virtio_net_hdr gso fields (csum_start/csum_offset/hdr_len) are read from a private kernel buffer 'buf' that was filled by copy_from_iter from the already-translated descriptor iov (net.c:724 copied = copy_from_iter(...)); the header validation at net.c:731-746 reads gso->csum_start/csum_offset multiple times, but from the kernel-private copy where re-reads cannot diverge from a validated value in a security-relevant way beyond the same benign inconsistency noted in ...
+    candidate: s03:drivers/net/virtio_net.c:2275 status=unresolved; receive_mergeable()/receive_mergeable_xdp() read hdr->num_buffers from the device-DMA'd buffer once into local num_buf (virtio_net.c:2275 'int num_buf = virtio16_to_cpu(vi->vdev, hdr->num_buffers);') and loop with the local; a second read of hdr->num_buffers only feeds a pr_debug after failure. Device-controlled buffer contents are otherwise length-checked per-buffer (check_mergeable_len, len - vi->hdr_len). The single-fetch pattern is followed, and RX buffers are not concurrently guest-mutab...
+    limitation: Bounded to the vm-shared-desc-rereads branch in snapshots/s03: drivers/vhost/*, drivers/vdpa/*, drivers/virtio/*, drivers/net/virtio_net.c, and net/vmw_vsock/virtio_transport_common.c header-consumer patterns; other subsystems (e.g. drivers/xen, KVM paravirt structs, sparse mmap-based vdpa sim) were not exhaustively audited.
+    limitation: drivers/vhost/vsock.c and net/vmw_vsock/virtio_transport_common.c were only surveyed via grep for vhost_get_vq_desc/copy_from_iter call sites; a full read of their header-field validation was not completed before the finalize directive.
+    limitation: No runtime race reproducer was built: conclusions rest on static single-fetch vs double-fetch analysis of the literal source, per the report-as-hypothesis standard.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i012.json
+- id: f004
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i013.json; branch=csum-partial-consumer-trust; snapshots=s03; missing=s01,s02,s04; findings=1; unresolved=0; execution_status=complete
+    finding 1: s03:drivers/net/ethernet/sun/sunvnet_common.c:1152-1200 confidence=medium; source quote='int offset = start + nskb->csum_offset;'; reason=Untrusted source: skb->csum_start/skb->csum_offset originate from user-controllable CHECKSUM_PARTIAL producers (AF_XDP TX metadata xsk_skb_metadata(), virtio_net_hdr via tpacket_fill_skb/tun, packet sockets); s03's skbuff.h (lines 171-176) documents that the stack, not drivers, must validate these values. Violated invariant: in vnet_skb_shape(), nskb->csum_offset is copied unvalidated from the incoming skb (line 1153) and start = skb_checksum_start_offset(skb) (line 1157) is used with no check that start + csum_offset + 2 <= skb_headlen(skb); the only guard on the whole copy path is a bounds-safe skb_copy_bits() for the header copy. Unsafe use: offset = start + nskb->csum_offset (line 1159) is used as a raw pointer write *(__sum16 *)(skb->data + offset) = 0 (line 1169) into the ORIGINAL skb's linear data before skb_copy_and_csum_bits, i.e., a kernel write at an attacker-influenced offset derived solely from the unvalidated pair, with no headlen validation anywhere in vnet_skb_shape() or its caller sunvnet_start_xmit_common() (which calls skb_checksum_help-equivalents only via vnet_fullcsum_* AFTER shaping). Counterevidence checked: net/core/dev.c skb_checksum_help() (lines 3594-...
+    candidate: s03:net/xdp/xsk.c:969 status=safe; Seed demonstration in its FIXED form: csum_start/csum_offset are READ_ONCE into locals (lines 980-981), validated (lines 983-985), and the same locals assigned to skb (987-988). Single-fetch invariant intact; excluded per instructions.
+    candidate: s03:net/core/dev.c:3569 status=safe; skb_checksum_help() validates offset = skb_checksum_start_offset(skb) against skb_headlen (line 3597-3598, WARN_ONCE 'offset (%d) >= skb_headlen()') and re-validates offset + skb->csum_offset + sizeof(__sum16) against headlen (line 3605-3609) before the *(__sum16*) write; consumer is defensive.
+    candidate: s03:net/core/skbuff.c:3935 status=safe; skb_copy_and_csum_dev() has BUG_ON(csstart > skb_headlen(skb)) guarding csstart, and csstuff = csstart + csum_offset (line 3955) writes into the driver's own destination buffer 'to' sized by the device ring, not into skb; callers (via-rhine, sc92031, 8139too, ep93xx, ec_bhf, ksz884x) use fixed device tx buffers; residual risk is csum_offset pushing past 'to' size but the validated-equals-used invariant on the shared-memory side is not violated here.
+    candidate: s03:include/linux/skbuff.h:5378 status=safe; lco_csum() reads *(__sum16 *)(csum_start + skb->csum_offset) without local headlen validation, but all callers in s03 (gre_build_header in include/net/gre.h:137, udp_v4_check/udp_v6_check paths in net/ipv4/udp.c:1080, net/ipv6/ip6_checksum.c:80) are reached after stack encapsulation code that either sets csum_start/csum_offset itself (gre.h:140-141 sets them right after) or after skb_cow_head/pskb_may_pull of the L4 header; the untrusted-producer-to-this-sink chain was not demonstrated withou...
+    candidate: s03:drivers/net/ethernet/freescale/fec_main.c:464 status=safe; fec_enet_clear_csum() writes *(__sum16 *)(skb->head + skb->csum_start + skb->csum_offset) = 0 with no headlen check, but this is the documented driver checksum-offload contract (skbuff.h lines 168-176 put validation duty on the stack); the FEC driver is reached only via the stack TX path (ip_output etc.) where the stack sets csum_start/csum_offset itself. No untrusted-producer path to this line was identified in s03, so the violated-invariant leg is unproven (residual uncertainty noted in lim...
+    candidate: s03:net/core/skbuff.c:2841 status=safe; pskb_trim_rcsum_slow() checks offset + sizeof(__sum16) > hdlen and returns -EINVAL; validated.
+    candidate: s03:net/ipv4/fou_core.c:1004 status=safe; __gue_build_header REMCSUM path checks csum_start < hdrlen and only builds header bytes pd[0]/pd[1]; no memory access at csum_start+csum_offset.
+    candidate: s03:net/netfilter/ipvs/ip_vs_xmit.c:1069 status=safe; ipvs GUE encap mirrors fou_core: checks csum_start < hdrlen, writes only into the freshly pushed GUE private header.
+    limitation: Bounded search: only skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL consumers reachable via grep in snapshots/s03 were triaged (13 candidates); exotic indirect consumers (BPF helpers writing then reading csum fields, per-driver firmware descriptor formats beyond fec/sun/xilinx/sun-sun drivers spot-checked) were not exhaustively proven safe.
+    limitation: The reported sunvnet_common.c finding depends on an untrusted producer (AF_XDP metadata, virtio_net_hdr from a VM/container via veth+tun, or packet socket) reaching a sunvnet (SPARC LDOM) transmit path; the code path is architecturally plausible but the full end-to-end producer-to-driver route was not executed, so confidence is medium.
+    limitation: fec_main.c:464 writes at skb->head + csum_start + csum_offset without any headlen check and was classified safe only on the assumption that only the validated stack TX path reaches FEC; a route from skb_checksum_help-bypassing untrusted producers to fec_enet_clear_csum was not disproven, only not found.
+    limitation: lco_csum() (include/linux/skbuff.h:5385) dereferences csum_start + csum_offset with no local validation in all callers; classified safe because observed callers set or pre-pull the header first, but a caller reachable with stale unvalidated values would violate the invariant.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i013.json
+- id: f005
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i015.json; branch=uapi-double-fetch; snapshots=s04; missing=s01,s02,s03; findings=0; unresolved=2; execution_status=complete
+    candidate: s04:kernel/signal.c:4425 status=safe; sys_rt_sigaction() copies the whole struct sigaction from user memory once via copy_from_user(&new_sa.sa, act, sizeof(new_sa.sa)) into kernel struct new_sa and passes only the kernel copy to do_sigaction(); there is no second fetch of *act before use, so no validate/use divergence (lines 4425-4430).
+    candidate: s04:fs/xattr.c:574 status=safe; setxattr_copy() copies the user xattr name once into ctx->kname->name via strncpy_from_user and all later consumers (do_setxattr/vfs_setxattr) read the kernel copy; the apparent duplicate copy_from_user hits from the scanner are two independent syscall entry points, not a double fetch of the same location.
+    candidate: s04:drivers/scsi/hpsa.c:6537 status=unresolved; hpsa_big_passthru_ioctl() fetches the fixed BIG_IOCTL_Command_struct header once (copy_from_user at drivers/scsi/hpsa.c:6662) and then loops copy_from_user(buff[sg_used], data_ptr, sz) per SG chunk; sz/left are kernel copies, but the per-iteration user data_ptr advance walks user-controlled buffer contents and post-completion copy_to_user/err_info paths re-read user memory; cannot fully rule out a validate/use divergence on the same user locations within the time window, but no single field i...
+    candidate: s04:net/ethtool/ioctl.c:116 status=safe; ethtool ioctl handlers copy each struct from useraddr once (e.g. copy_from_user(&cmd, useraddr, sizeof(cmd)) then copy_from_user(features, useraddr, sizeof(features))) into distinct kernel structures; the repeated useraddr fetches are sequential reads of different offsets of the user blob, not a second fetch of a previously validated field, and all decisions use the kernel copies.
+    candidate: s04:drivers/input/misc/uinput.c:422 status=safe; uinput_ioctl_handler copies setup/ff structs from arg/buffer once into kernel locals before validation and use; the multiple copy_from_user calls are for different commands (UI_DEV_SETUP vs force-feedback upload/erase), each single-fetch into a local.
+    candidate: s04:net/ipv4/ip_sockglue.c:769 status=safe; ip_setsockopt() fetches each optval variant (mreq/greq/gsf/msf/val) once into a kernel local and validates/uses the local; compat paths (gr32/gf32) fetch once as well; no re-fetch of the same user location after validation.
+    candidate: s04:fs/userfaultfd.c:978 status=safe; userfaultfd ioctl handlers use copy_from_user into kernel structs (uffdio_copy/zeropage/register/wake) with deliberately partial copies to exclude the 'copy' field; each user location is fetched once and kernel copies are used; copy_to_user of results is a distinct direction.
+    candidate: s04:drivers/xen/privcmd.c:418 status=safe; privcmd mmapbatch ioctls fetch struct m once per ioctl variant; the two copy_from_user calls belong to separate PRIVCMD_MMAPBATCH and PRIVCMD_MMAPBATCH_V2 cases, each single-fetch into kernel struct before use.
+    limitation: The scan was a whole-tree static heuristic over ~126KB of raw candidate functions (persisted scan output) matching multiple get_user/copy_from_user-family calls per function with a shared user pointer token; only the ten highest-signal candidates above were deeply read, covering the largest kernel-subsystem hit clusters (signal, xattr, uapi setsockopt, ioctls, uinput, aio, userfaultfd, hpsa, ethtool).
+    limitation: Remaining unexamined hit clusters from the same scan include arch/*/kernel/signal*.c sigreturn frame multi-fetches (sigframe parsing in arch/m68k, arch/mips, arch/s390, arch/powerpc, etc.), drivers/vhost/vhost.c, net/sctp/socket.c, net/ipv6/ip6mr.c, drivers/comedi/comedi_fops.c, and sound/pci/emu10k1/emufx.c; each has multiple copy_from_user calls but was not deeply read within this intent's budget.
+    limitation: tools/testing/selftests/* hits were excluded as userspace test code, not kernel attack surface.
+    limitation: No runtime reproducer or compiler-based double-fetch detector was run; classification relies on manual reading of fetch sites and use sites, so a short-window double fetch inside a large function could have been missed.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i015.json
+- id: f006
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i017.json; branch=csum-partial-consumer-trust; snapshots=s04; missing=s01,s02,s03; findings=1; unresolved=1; execution_status=complete
+    finding 1: s04:net/core/skbuff.c:3522-3546 confidence=medium; source quote='if (skb->ip_summed == CHECKSUM_PARTIAL) { long csstuff = csstart + skb->csum_offset; *((__sum16 *)(to + csstuff)) = csum_fold(csum); }'; reason=skb_copy_and_csum_dev() is a CHECKSUM_PARTIAL consumer that writes the folded checksum to to + (csstart + skb->csum_offset) with no re-validation of skb->csum_start/skb->csum_offset against skb headroom/headlen or the destination buffer size; the only guard is BUG_ON(csstart > skb_headlen(skb)) for csum_start, and csum_offset is entirely unchecked. Invariant: any producer that sets CHECKSUM_PARTIAL without calling skb_partial_csum_set (e.g., a shared-memory TOCTOU producer like the seed's xsk_skb_metadata, or another buggy TX path) yields an skb whose csum_offset can be up to 65535 while headlen is small, so csstuff up to ~headlen+65535 is written past the end of 'to'. Callers (drivers/net/ethernet/realtek/8139too.c:1731, via/via-rhine.c:1800, cirrus/ep93xx_eth.c:350, silan/sc92031.c:957, micrel/ksz884x.c:4795, ec_bhf.c:291) pass fixed-size driver TX bounce buffers as 'to', so the OOB write lands in adjacent driver memory. Counterevidence checked: skb_checksum_help (net/core/dev.c) and pskb_trim_rcsum_slow (net/core/skbuff.c:2494) both re-validate; this function does not. Reachability requires an inconsistently-validated producer on the same skb, which this branch's premise supp...
+    candidate: s04:net/core/skbuff.c:2494 status=safe; pskb_trim_rcsum_slow computes offset = skb_checksum_start_offset(skb) + skb->csum_offset and rejects offset + sizeof(__sum16) > hdlen before proceeding; re-validation present.
+    candidate: s04:net/core/dev.c:3260 status=safe; skb_checksum_help re-validates with WARN_ON_ONCE(offset >= skb_headlen) and WARN_ON_ONCE(offset + sizeof(__sum16) > skb_headlen) and uses skb_ensure_writable.
+    candidate: s04:net/core/dev.c:3634 status=safe; skb_csum_hwoffload_help only compares csum_offset against tcphdr/udphdr check offsets to pick feature fallback; no memory access on the value.
+    candidate: s04:net/core/skbuff.c:5215 status=safe; skb_partial_csum_set is the canonical validating producer: rejects csum_start > U16_MAX or start+off+2 > skb_headlen.
+    candidate: s04:net/core/filter.c:3673 status=safe; __bpf_skb_min_len uses csum_start+csum_offset+2 only as a minimum-length hint for BPF load/store clamping, never as a dereference offset.
+    candidate: s04:net/ipv4/fou_core.c:989 status=safe; GUE remcsum encoding checks csum_start >= hdrlen and writes start/off into the tunnel option header; remote end re-derives offsets.
+    candidate: s04:net/netfilter/ipvs/ip_vs_xmit.c:1055 status=safe; IPVS GUE encap uses same guarded csum_start >= hdrlen pattern; values go into packet bytes, not kernel offsets.
+    candidate: s04:net/hsr/hsr_forward.c:136 status=safe; csum_start adjusted by +/- HSR_HLEN symmetric with skb_push/pull; no use as unchecked kernel memory offset.
+    limitation: No in-snapshot inconsistently-validated CHECKSUM_PARTIAL producer was proven; the skb_copy_and_csum_dev finding is conditional on such a producer reaching a legacy NIC TX path via one of its six callers, so exploitability is unproven (medium confidence hypothesis).
+    limitation: Driver descriptor-field consumers (gve, chelsio, hns3, ionic, ef100, xilinx, myri10ge, smsc95xx, enic, cassini, niu, sungem, sunhme, alx/atl1*, e1000*, igb*, ixgbe*, skge, sky2, bcmsysport, genet, macb, fec, funeth, ibmveth, ath6kl, iwlwifi) were triaged by reading the value flow but not every line of every driver; values there only populate hardware descriptors so no kernel-memory offset use is expected.
+    limitation: GRO/GSO segment copy paths (net/core/skbuff.c:4478/4570 SKB_GSO_CB csum_start, net/ipv4/tcp_offload.c, udp_offload.c, gre_offload.c, sctp offload/output, tls_device_fallback.c, nf_synproxy/nf_reject/ip_vs_core/nf_nat_proto producers) set csum fields from skb header pointers themselves, so they were treated as consistent-by-construction and not exhaustively re-audited for intermediate mutation.
+    limitation: mac80211 tx.c ofs = skb_checksum_start_offset(skb) path and fcoe/fnic/snic were not deeply read (counted in the file list but not triaged).
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i017.json
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794453480455
+  created_at: 1794453350580
+  concluded_at: 1794453480455
+- id: i002
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=xsk-umem-rereads; Search only snapshots/s01. Within net/xdp and AF_XDP-capable driver TX-completion and metadata paths, find UMEM-resident fields (xsk descriptor addr/len/options, tx_metadata request fields, flags) that are fetched from the userspace-mapped shared memory more than once, or consumed without a single READ_ONCE-into-local snapshot, so the validated copy and the used copy can diverge under a racing userspace writer. Exclude the seed demonstration itself (xsk_skb_metadata csum_start/csum_offset caching). Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999802
+  created_at: 1794454019781
+  concluded_at: null
+- id: i003
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=uapi-double-fetch; Search only snapshots/s01. Find syscall/ioctl/setsockopt/netlink (including compat) handler paths where the same user-memory location (a length, count, pointer, or union member) is fetched twice via get_user/copy_from_user/peek-style double fetches so validation and use can diverge under a concurrent userspace writer, violating the seed's single-fetch/validated-value-identity invariant. Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999804
+  created_at: 1794454019782
+  concluded_at: null
+- id: i004
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=vm-shared-desc-rereads; Search only snapshots/s01. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794454019783
+  concluded_at: null
+- id: i005
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=csum-partial-consumer-trust; Search only snapshots/s01. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999806
+  created_at: 1794454019784
+  concluded_at: null
+- id: i006
+  sources:
+  - f001
+  target_fact: f002
+  description: SNAPSHOT=s02; BRANCH=xsk-umem-rereads; Search only snapshots/s02. Within net/xdp and AF_XDP-capable driver TX-completion and metadata paths, find UMEM-resident fields (xsk descriptor addr/len/options, tx_metadata request fields, flags) that are fetched from the userspace-mapped shared memory more than once, or consumed without a single READ_ONCE-into-local snapshot, so the validated copy and the used copy can diverge under a racing userspace writer. Exclude the seed demonstration itself (xsk_skb_metadata csum_start/csum_offset caching). Save a structured artifact for s02 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455561485
+  created_at: 1794454019785
+  concluded_at: 1794455561485
+- id: i007
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=uapi-double-fetch; Search only snapshots/s02. Find syscall/ioctl/setsockopt/netlink (including compat) handler paths where the same user-memory location (a length, count, pointer, or union member) is fetched twice via get_user/copy_from_user/peek-style double fetches so validation and use can diverge under a concurrent userspace writer, violating the seed's single-fetch/validated-value-identity invariant. Save a structured artifact for s02 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999809
+  created_at: 1794454019786
+  concluded_at: null
+- id: i008
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=vm-shared-desc-rereads; Search only snapshots/s02. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s02 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999812
+  created_at: 1794454019787
+  concluded_at: null
+- id: i009
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=csum-partial-consumer-trust; Search only snapshots/s02. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s02 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999813
+  created_at: 1794454019788
+  concluded_at: null
+- id: i010
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=xsk-umem-rereads; Search only snapshots/s03. Within net/xdp and AF_XDP-capable driver TX-completion and metadata paths, find UMEM-resident fields (xsk descriptor addr/len/options, tx_metadata request fields, flags) that are fetched from the userspace-mapped shared memory more than once, or consumed without a single READ_ONCE-into-local snapshot, so the validated copy and the used copy can diverge under a racing userspace writer. Exclude the seed demonstration itself (xsk_skb_metadata csum_start/csum_offset caching). Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999816
+  created_at: 1794454019789
+  concluded_at: null
+- id: i011
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=uapi-double-fetch; Search only snapshots/s03. Find syscall/ioctl/setsockopt/netlink (including compat) handler paths where the same user-memory location (a length, count, pointer, or union member) is fetched twice via get_user/copy_from_user/peek-style double fetches so validation and use can diverge under a concurrent userspace writer, violating the seed's single-fetch/validated-value-identity invariant. Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999819
+  created_at: 1794454019790
+  concluded_at: null
+- id: i012
+  sources:
+  - f001
+  target_fact: f003
+  description: SNAPSHOT=s03; BRANCH=vm-shared-desc-rereads; Search only snapshots/s03. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455889754
+  created_at: 1794454019791
+  concluded_at: 1794455889754
+- id: i013
+  sources:
+  - f001
+  target_fact: f004
+  description: SNAPSHOT=s03; BRANCH=csum-partial-consumer-trust; Search only snapshots/s03. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s03 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455918789
+  created_at: 1794454019792
+  concluded_at: 1794455918789
+- id: i014
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=xsk-umem-rereads; Search only snapshots/s04. Within net/xdp and AF_XDP-capable driver TX-completion and metadata paths, find UMEM-resident fields (xsk descriptor addr/len/options, tx_metadata request fields, flags) that are fetched from the userspace-mapped shared memory more than once, or consumed without a single READ_ONCE-into-local snapshot, so the validated copy and the used copy can diverge under a racing userspace writer. Exclude the seed demonstration itself (xsk_skb_metadata csum_start/csum_offset caching). Save a structured artifact for s04 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999823
+  created_at: 1794454019793
+  concluded_at: null
+- id: i015
+  sources:
+  - f001
+  target_fact: f005
+  description: SNAPSHOT=s04; BRANCH=uapi-double-fetch; Search only snapshots/s04. Find syscall/ioctl/setsockopt/netlink (including compat) handler paths where the same user-memory location (a length, count, pointer, or union member) is fetched twice via get_user/copy_from_user/peek-style double fetches so validation and use can diverge under a concurrent userspace writer, violating the seed's single-fetch/validated-value-identity invariant. Save a structured artifact for s04 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455945206
+  created_at: 1794454019794
+  concluded_at: 1794455945206
+- id: i016
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=vm-shared-desc-rereads; Search only snapshots/s04. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s04 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455999827
+  created_at: 1794454019795
+  concluded_at: null
+- id: i017
+  sources:
+  - f001
+  target_fact: f006
+  description: SNAPSHOT=s04; BRANCH=csum-partial-consumer-trust; Search only snapshots/s04. Find consumers of skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL (software checksum helpers, tunnel/encapsulation copy paths, forwarding) that perform memory access or field arithmetic on those values without re-validating them against skb headroom/length, so any inconsistently validated producer becomes an out-of-bounds read or write. Save a structured artifact for s04 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794455970047
+  created_at: 1794454019795
+  concluded_at: 1794455970047
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794453350498
+
+```
+
+### Current Intent
+```
+i004
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s01; BRANCH=vm-shared-desc-rereads; Search only snapshots/s01. In virtio/vhost/vdpa/paravirt paths, find guest- or device-writable descriptor tables, virtio config space, or packet headers that are read multiple times (once checked, once used) or trusted across re-reads without snapshotting into a local, letting a racing guest or device substitute an unvalidated value into a security-sensitive use. Save a structured artifact for s01 recording execution_status, candidate file/function evidence, or a concrete evidence-backed negative result.
+```
+

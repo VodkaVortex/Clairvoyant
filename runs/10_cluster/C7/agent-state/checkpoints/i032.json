@@ -1,0 +1,14 @@
+{
+  "intent_id": "i032",
+  "branch": "tasklet-napi-softirq-lock",
+  "status": "final-artifact-written",
+  "snapshot": "s03",
+  "findings": [
+    "drivers/net/ethernet/silan/sc92031.c:1096-1107 high: sc92031_tx_timeout plain spin_lock(&priv->lock) vs ISR-scheduled RX/TX tasklet taking same lock in softirq (sc92031.c:843, tasklet_schedule at :895); all other sites use spin_lock_bh",
+    "drivers/net/wireless/ath/ath5k/base.c:2200-2211 medium: SWBA beacontq tasklet takes ah->block with plain spin_lock (:2204) while process users use spin_lock_bh (base.c:2151, mac80211-ops.c:303)",
+    "drivers/net/usb/rtl8150.c:435-437 low: read_bulk_callback plain spin_lock(&dev->rx_pool_lock) vs spin_lock_irq siblings; both sides softirq so no deadlock"
+  ],
+  "safe": ["sundance np->lock (plain only in hardirq)", "ksz884x hwlock", "ks8842 adapter->lock", "cxgb q->lock (softirq-only users)", "liquidio glist_lock (outer _bh held)", "ipw2200/ipw2100 (plain only in hardirq)", "rt2x00 irqmask_lock", "smc91x lp->lock (tasklet uses irqsave macro)", "rtlwifi pci tasklets", "ks7010 (seed only; rx tasklet takes no lock)"],
+  "unresolved": ["hso.c serial_lock softirq-side plain users", "mwl8k.c stream_lock (maps to xmit branch)"],
+  "artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i032.json"
+}

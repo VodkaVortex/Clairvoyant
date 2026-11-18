@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "csum-partial-consumer-trust",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/freescale/fec_main.c",
+      "start": 326,
+      "end": 340,
+      "quote": "\t*(__sum16 *)(skb->head + skb->csum_start + skb->csum_offset) = 0;",
+      "confidence": "medium",
+      "reason": "fec_enet_clear_csum() is a TX-path consumer of skb->csum_start/skb->csum_offset on CHECKSUM_PARTIAL skbs (line 329). It performs an unconditional 16-bit kernel-memory WRITE at the raw address skb->head + csum_start + csum_offset (line 337) with no bounds validation of csum_start/csum_offset against skb headroom/headlen anywhere in the function or its callers (called at lines 453 and 691 in the fec TX and TSO submit paths). Per the branch invariant, any producer that sets skb->csum_start/csum_offset without proper validation (the seed's xsk_skb_metadata TOCTOU is exactly such a producer - validated copy != used copy) makes this sink an out-of-bounds write into adjacent slab memory. Counterevidence/uncertainty: this driver is a pure consumer, not itself a double-fetch; whether an skb with attacker-controlled unvalidated csum fields can actually reach fec_start_xmit depends on the producer, and the seed's own fix (READ_ONCE caching) lives in net/xdp/xsk.c which is outside this function's file, so impact is contingent on a producer path; hence medium confidence as a downstream trust sink of the exact seed mechanism."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/core/dev.c",
+      "line": 2886,
+      "status": "safe",
+      "reason": "skb_checksum_help() guards both uses: BUG_ON(offset >= skb_headlen(skb)) after skb_checksum_start_offset(), and BUG_ON(offset + sizeof(__sum16) > skb_headlen(skb)) before writing the folded csum at skb->data + offset. Memory access is bounds-checked, so it re-validates rather than trusting."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/skbuff.c",
+      "line": 4396,
+      "status": "safe",
+      "reason": "skb_partial_csum_set() validates u32 csum_start/csum_end against U16_MAX and skb_headlen before setting skb->csum_start/csum_offset and CHECKSUM_PARTIAL; skb_checksum_setup()/skb_checksum_setup_ip() (lines 4437-4643) also pull and validate headers before use. These are the correct validation pattern."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/fou.c",
+      "line": 926,
+      "status": "safe",
+      "reason": "GUE remote-checksum TX path checks csum_start < hdrlen before using, and the values are only written into the GUE header as __be16 fields (pd[0], pd[1]); no dereference derived from csum_start/csum_offset."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/hsr/hsr_forward.c",
+      "line": 108,
+      "status": "safe",
+      "reason": "create_stripped_skb/create_tagged_skb only adjust skb->csum_start by -HSR_HLEN/+HSR_HLEN to match the exact headroom change from __pskb_copy; arithmetic stays consistent with headroom, no memory access."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/can/gw.c",
+      "line": 367,
+      "status": "safe",
+      "reason": "cgw_hops() reuses skb->csum_start as a hop counter for CAN frames, but it is guarded by BUG_ON(skb->ip_summed != CHECKSUM_UNNECESSARY), so it never operates on CHECKSUM_PARTIAL skbs and only compares, never dereferences."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/tun.c",
+      "line": 1763,
+      "status": "safe",
+      "reason": "tun_get_user() enforces tun16 csum_start + csum_offset + 2 <= hdr_len on the vnet header before calling skb_partial_csum_set(); validation and use go through the single validated path. Same pattern in drivers/net/tap.c:651 and drivers/vhost/net.c:683."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 2419,
+      "status": "safe",
+      "reason": "tpacket vnet_hdr path validates __virtio16 csum_start + csum_offset + 2 <= vlan_hlen before use, single fetch via struct copy."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/skbuff.c",
+      "line": 1293,
+      "status": "safe",
+      "reason": "skb headers adjust path only shifts csum_start by off together with headroom change; no dereference. GSO copy paths (3623, 3711) propagate csum_start into SKB_GSO_CB consistently."
+    }
+  ],
+  "limitations": [
+    "Driver-wide sweep of drivers/net for raw csum_start/csum_offset consumers was grep-based and covered all listed files (bcmsysport, igb, ixgbe, cassini, sungem, sunhme, ll_temac, xilinx_axienet, skge, sunvnet); these were inspected at grep level only - they program the values into TX descriptor fields for hardware rather than dereferencing memory in the kernel, but were not all read line-by-line.",
+    "The fec_main.c finding is contingent on a producer that injects unvalidated csum_start/csum_offset; no standalone PoC was compiled since the snapshot lacks a buildable kernel Makefile/config and the producer-side race is the seed's own (already-fixed upstream) mechanism.",
+    "net/ipv4/tcp_offload.c, net/sctp/output.c, net/netfilter/ipvs/ip_vs_core.c, netfilter SYNPROXY/NAT csum_start writers were classified at grep level as producers (setting csum_start from computed header pointers), not consumers performing unvalidated memory access, and were not each read in full."
+  ]
+}

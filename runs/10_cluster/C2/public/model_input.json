@@ -1,0 +1,15 @@
+{
+  "seed": {
+    "hexsha": "07718be265680dcf496347d475ce1a5442f55ad7",
+    "one_line_summary": "mptcp: Fix out of bounds when parsing TCP options",
+    "vulnerability_summary": "mptcp_get_options parses TCP options in a loop. When length is 1 and opcode is not EOL or NOP, it reads the opsize byte without checking length >= 2, causing a one-byte out-of-bounds read.",
+    "vulnerability_pattern": "Option parser loops over variable-length fields, consuming an opcode byte before verifying sufficient remaining length for subsequent size byte, violating length-bound invariant.",
+    "patch": "commit 07718be265680dcf496347d475ce1a5442f55ad7\nAuthor: Alice Mikityanska <alice.kernel@fastmail.im>\nDate:   Thu Jun 10 19:40:30 2021 +0300\n\n    mptcp: Fix out of bounds when parsing TCP options\n    \n    The TCP option parser in mptcp (mptcp_get_options) could read one byte\n    out of bounds. When the length is 1, the execution flow gets into the\n    loop, reads one byte of the opcode, and if the opcode is neither\n    TCPOPT_EOL nor TCPOPT_NOP, it reads one more byte, which exceeds the\n    length of 1.\n    \n    This fix is inspired by commit 9609dad263f8 (\"ipv4: tcp_input: fix stack\n    out of bounds when parsing TCP options.\").\n    \n    Cc: Young Xiao <92siuyang@gmail.com>\n    Fixes: cec37a6e41aa (\"mptcp: Handle MP_CAPABLE options for outgoing connections\")\n    Signed-off-by: Maxim Mikityanskiy <maximmi@nvidia.com>\n    Reviewed-by: Mat Martineau <mathew.j.martineau@linux.intel.com>\n    Signed-off-by: David S. Miller <davem@davemloft.net>\n\ndiff --git a/net/mptcp/options.c b/net/mptcp/options.c\nindex 6b825fb3fa83..9b263f27ce9b 100644\n--- a/net/mptcp/options.c\n+++ b/net/mptcp/options.c\n@@ -356,6 +356,8 @@ void mptcp_get_options(const struct sk_buff *skb,\n \t\t\tlength--;\n \t\t\tcontinue;\n \t\tdefault:\n+\t\t\tif (length < 2)\n+\t\t\t\treturn;\n \t\t\topsize = *ptr++;\n \t\t\tif (opsize < 2) /* \"silly options\" */\n \t\t\t\treturn;\n"
+  },
+  "snapshots": [
+    "s01",
+    "s02",
+    "s03"
+  ],
+  "task": "Find other instances of the seed mechanism in independent Linux source snapshots."
+}

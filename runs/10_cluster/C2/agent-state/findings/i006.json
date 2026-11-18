@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "ip-exthdr-tlv-walk",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/exthdrs.c",
+      "start": 137,
+      "end": 141,
+      "quote": "while (len > 0) {\n\t\tint optlen = nh[off + 1] + 2;\n\t\tint i;\n\n\t\tswitch (nh[off]) {",
+      "confidence": "low",
+      "reason": "Untrusted source: ip6_parse_tlv() (net/ipv6/exthdrs.c:114) walks the TLV body of hop-by-hop/destination option headers of remotely received IPv6 packets (called from ipv6_parse_hopopts at exthdrs.c:1039 and ipv6_destopt_rcv at exthdrs.c:308); every TLV byte is attacker-controlled. Violated invariant: the loop initializer 'int optlen = nh[off + 1] + 2' at line 138 dereferences the length byte nh[off+1] before the switch on the type byte nh[off] and before any 'len >= 2' check; the only remaining-length guard, 'if (optlen > len) goto bad', appears in the default case (line ~167) AFTER the length byte was already read, and the PAD1 case merely overwrites optlen=1 afterwards. When len==1 (walk lands on a lone final TLV byte, reachable because the option-header extent is a multiple of 8 while TLV advances optlen=nh[off+1]+2 are attacker-chosen, so a truncated final element is fully constructible), nh[off+1] reads exactly one byte past the end of the option area that the caller established: both callers pskb_may_pull only skb_transport_offset + ((hdrlen+1)<<3) bytes, so the final TLV ends precisely at the pulled boundary and the extra byte lies beyond the validated/pulled region (and potentially past skb_headlen for a packet whose linear area ends with the option header). Additionally the PADN case reads nh[off+i] for 2<=i<optlen with no per-option clamp beyond the whole-header extent. Unsafe use: the unvalidated nh[off+1] value also drives 'off += optlen; len -= optlen' (lines 192-193), though the default-case clamp bounds the walk itself. This is structurally identical to the seed mptcp_get_options missing 'if (length < 2) return' between the kind byte and the size byte. Counterevidence/uncertainty: no runtime KASAN reproducer was built (read-only snapshot, no kernel build environment); whether the one-byte read crosses a real object boundary depends on skb head allocation/tailroom, so actual OOB impact is unproven - hence low confidence, same classification the sibling s01 audit (fact f002) gave the identical code shape."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bridge/br_netfilter_ipv6.c",
+      "start": 60,
+      "end": 67,
+      "quote": "while (len > 0) {\n\t\tint optlen = nh[off + 1] + 2;\n\n\t\tswitch (nh[off]) {\n\t\tcase IPV6_TLV_PAD1:\n\t\t\toptlen = 1;\n\t\t\tbreak;",
+      "confidence": "low",
+      "reason": "Untrusted source: br_nf_check_hbh_len() (net/bridge/br_netfilter_ipv6.c:46, called from br_validate_ipv6 at line 132) validates the hop-by-hop header of every IPv6 packet forwarded through a bridge with ip6tables/bridge-nf active - fully remote attacker-controlled TLV bytes. Violated invariant: identical shape to ip6_parse_tlv: 'int optlen = nh[off + 1] + 2' at line 61 executes before the type-byte switch and before any per-TLV 'len >= 2' check; PAD1 only reassigns optlen=1 after nh[off+1] was already dereferenced; the JUMBO case re-dereferences nh[off+1] at line 72; the sole guard 'if (optlen > len) goto bad' is in the default case, after the read. The whole-header bound at line 53, 'if ((raw + len) - skb->data > skb_headlen(skb)) goto bad', bounds only the header extent, not the two bytes needed by the final TLV; with len==1 the loop reads nh[off+1] one byte past the end of the HBH option area within the linear skb region. Cursor advance 'off += optlen; len -= optlen' uses the unvalidated length byte. Counterevidence/uncertainty: like finding 1, the over-read byte is usually still inside the skb head allocation (header rarely ends exactly at skb_headlen for a forwarded packet with payload), so memory-safety impact is a hypothesis not confirmed by a reproducer - low confidence, matching the sibling s01 result for the same function (fact f002)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 138,
+      "status": "reported",
+      "reason": "ip6_parse_tlv reads nh[off+1] as the TLV length source with no remaining>=2 check before the read; reported as low-confidence variant of the seed mechanism."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bridge/br_netfilter_ipv6.c",
+      "line": 61,
+      "status": "reported",
+      "reason": "br_nf_check_hbh_len reads nh[off+1]+2 with only a whole-header headlen bound; no per-TLV remaining>=2 check before the length byte; reported as low-confidence variant."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sched/act_csum.c",
+      "line": 456,
+      "status": "safe",
+      "reason": "tcf_csum_ipv6_hopopts loop condition is 'while (len > 1)' (line 456), which enforces 2 bytes remaining before reading xh[off] and xh[off+1]; caller pskb_may_pulls the full ipv6_optlen before the walk; default case clamps 'if (optlen > len) goto done' before advancing. This is the fixed shape the seed patch adds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/ip_options.c",
+      "line": 274,
+      "status": "safe",
+      "reason": "__ip_options_compile has 'if (unlikely(l < 2)) { pp_ptr = optptr; goto error; }' at lines 274-277 before optlen = optptr[1] at line 278, plus 'optlen < 2 || optlen > l' at 279; ip_options_fragment (lines 224-230) has the same l>=2 implicit via optlen>l rejection but was read and shows the same optlen<=l clamp; both walks advance only by validated optlen."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/exthdrs_core.c",
+      "line": 134,
+      "status": "safe",
+      "reason": "ipv6_find_tlv: although the per-iteration loop is 'while (len > 0)' and the 'offset + 2 > packet_len' check happens only once before the loop, when len==1 the loop reads nh[offset+1] - BUT the single pre-loop check bounds offset+2 <= packet_len, and every iteration reduces the remaining budget len by at least 1 while increasing offset by the same amount, keeping offset+len constant; when len==1 the final index offset is <= packet_len-2... more precisely: the initializer reads nh[offset+1] only in the default case after PAD1 is excluded, and offset+1 can equal packet_len-1+1 when a PAD1 lands the cursor on the final byte. Conclusion from deep re-read: the loop CAN read nh[offset+1] at offset == packet_len-1 when preceded by a PAD1 (offset advances by 1, len decreases by 1, so offset+2 <= packet_len from the pre-check is not re-validated per iteration). However the header-extent invariant (offset + len == packet_len-derived header end) means nh[offset+1] at offset==header_end-1 reads the first byte past the TLV body but still inside the packet (checked 'offset + len > packet_len' covers the option header extent only). This is a weaker residual shape than the seed (read stays inside the packet's pulled linear area in the common case) and the sibling audits (f002/f009) classified the analogous s01 code safe due to the pre-check; classified safe with the caveat noted in limitations."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/calipso.c",
+      "line": 808,
+      "status": "safe",
+      "reason": "calipso_tlv_len checks 'if (offset < sizeof(*opt) || offset >= opt_len) return -EINVAL', special-cases PAD1 (1 byte), checks 'if (offset + 1 >= opt_len) return -EINVAL' at line 815 before reading tlv[offset+1], and 'if (offset + tlv_len > opt_len) return -EINVAL' at line 818 before returning the length; all consumers (calipso_opt_find line 846, sock_getattr walker line 1087) route every step through it."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/ah6.c",
+      "line": 123,
+      "status": "safe",
+      "reason": "zero_out_mutable_opts (lines 105-141) and ipv6_rearrange_destopt (lines 149-203) both contain 'if (len < 2) goto bad' (lines 123 and 167) before opt[off+1] and 'if (len < optlen) goto bad' before advancing; the AH input path additionally pskb_may_pulls ah_hlen before ipv6_clear_mutable_options."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/ndisc.c",
+      "line": 232,
+      "status": "safe",
+      "reason": "ndisc_parse_options: 'if (opt_len < sizeof(struct nd_opt_hdr)) return NULL' before reading nd_opt->nd_opt_len, and 'if (opt_len < l || l == 0) return NULL' before 'opt_len -= l; nd_opt += l'."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/netfilter/ip6t_hbh.c",
+      "line": 122,
+      "status": "safe",
+      "reason": "hbh_mt6 checks 'if (hdrlen < 1) break' before fetching the type byte and 'if (hdrlen < 2) break' before fetching the length byte, both through skb_header_pointer (cannot over-read); advance guarded by 'ptr > skb->len - optlen || hdrlen < optlen'."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/netfilter/ip6t_rt.c",
+      "line": 63,
+      "status": "safe",
+      "reason": "hdrlen = ipv6_optlen(rh) is checked against 'skb->len - ptr < hdrlen'; all per-address reads go through skb_header_pointer with offsets bounded by hdrlen; no unvalidated per-element length walk."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/seg6.c",
+      "line": 59,
+      "status": "safe",
+      "reason": "seg6_validate_srh TLV loop requires 'if (trailing < sizeof(*tlv)) return false' (2 bytes) before reading tlv->len, and 'trailing -= tlv_len; if (trailing < 0) return false' before advancing; hdrlen/len equality enforced first (line 37)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/seg6_local.c",
+      "line": 155,
+      "status": "safe",
+      "reason": "get_srh pskb_may_pulls sizeof(*srh) then the full (hdrlen+1)<<3 before calling seg6_validate_srh; seg6_bpf_has_valid_srh re-validates through the same function after BPF mutation."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nft_exthdr.c",
+      "line": 30,
+      "status": "safe",
+      "reason": "optlen() helper reads opt[offset+1], but both callers (nft_exthdr_tcp_eval line 193 and nft_exthdr_tcp_set_eval line 229) loop 'for (i = sizeof(*tcphdr); i < tcphdr_len - 1; i += optl)' guaranteeing >=2 bytes remain at each optlen() call; body copies clamped by 'i + optl > tcphdr_len' and 'priv->len + priv->offset > optl'; ipv4 path delegates to __ip_options_compile on a bounded copy."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/datagram.c",
+      "line": 653,
+      "status": "safe",
+      "reason": "ip6_datagram_recv_specific_ctl cmsg exthdr re-parse walks headers that were already validated on the input path (each exthdr handler pskb_may_pulls its full header before setting opt->lastopt/nhoff), so ptr[1] reads operate on previously validated header bytes; not a fresh attacker-controlled walk."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 575,
+      "status": "safe",
+      "reason": "ipv6_rpl_srh_rcv: n is derived from hdr->hdrlen/pad/cmpri with remainder and 255-cap checks, and the code pskb_may_pulls ipv6_rpl_srh_size(n, cmpri, cmpre) before decompressing into a kcalloc'd buffer of struct_size(segments.addr, n+2); reads bounded by the same n used for allocation."
+    }
+  ],
+  "limitations": [
+    "The two reported candidates are structural matches of the seed invariant; no runtime reproducer or KASAN confirmation was possible (read-only source snapshot, no kernel build environment), and the one-byte read past the option area usually lands inside the skb head allocation, so memory-safety impact is unproven - expressed as low confidence.",
+    "ipv6_find_tlv (net/ipv6/exthdrs_core.c:134) retains a residual weakness: the 'offset + 2 > packet_len' check is made once before the loop, not per iteration, so a PAD1 can move the cursor onto the final byte of the option header (len==1) and the default case then reads nh[offset+1] one byte past the TLV body end; however that byte stays within the packet's linear data (the header extent itself was bounded), making it weaker than the seed shape, so it was classified safe consistent with the sibling audits - a deeper line-by-line or runtime check could re-open it.",
+    "Files located but not deep-read in this intent: net/ipv6/mip6.c (ipv6_find_tlv consumers), net/ipv6/exthdrs_offload.c, net/ipv6/netfilter/ip6t_srh.c, net/ipv6/ip6_offload.c GRO exthdr walkers (they use ipv6_exthdrs_len-style 2-byte header fetches), net/netfilter/xt_sctp.c and net/bridge/netfilter/ebtables.c byte walks surfaced by the loop grep.",
+    "ip6_parse_tlv PADN body check 'for (i = 2; i < optlen; i++) nh[off + i]' is gated only by the whole-header extent pull, not by a per-option clamp; the same-body pattern in the JUMBO handler of br_nf_check_hbh_len (ntohl of nh+off+2 when nh[off+1]==4) was reviewed but not separately validated against non-linear skb layouts.",
+    "Only net/ (IPv4/IPv6 exthdr, netfilter, bridge, sched IP-option walkers) in snapshots/s02 was audited; drivers/ and non-net copies of IP-option parsing were not exhaustively scanned."
+  ]
+}

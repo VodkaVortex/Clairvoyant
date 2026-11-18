@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "repo": "/mnt/raid/home/yangshuangning/linux",
+  "seed": {
+    "hexsha": "07718be265680dcf496347d475ce1a5442f55ad7",
+    "one_line_summary": "mptcp: Fix out of bounds when parsing TCP options",
+    "vulnerability_summary": "mptcp_get_options parses TCP options in a loop. When length is 1 and opcode is not EOL or NOP, it reads the opsize byte without checking length >= 2, causing a one-byte out-of-bounds read.",
+    "vulnerability_pattern": "Option parser loops over variable-length fields, consuming an opcode byte before verifying sufficient remaining length for subsequent size byte, violating length-bound invariant.",
+    "patch": "commit 07718be265680dcf496347d475ce1a5442f55ad7\nAuthor: Alice Mikityanska <alice.kernel@fastmail.im>\nDate:   Thu Jun 10 19:40:30 2021 +0300\n\n    mptcp: Fix out of bounds when parsing TCP options\n    \n    The TCP option parser in mptcp (mptcp_get_options) could read one byte\n    out of bounds. When the length is 1, the execution flow gets into the\n    loop, reads one byte of the opcode, and if the opcode is neither\n    TCPOPT_EOL nor TCPOPT_NOP, it reads one more byte, which exceeds the\n    length of 1.\n    \n    This fix is inspired by commit 9609dad263f8 (\"ipv4: tcp_input: fix stack\n    out of bounds when parsing TCP options.\").\n    \n    Cc: Young Xiao <92siuyang@gmail.com>\n    Fixes: cec37a6e41aa (\"mptcp: Handle MP_CAPABLE options for outgoing connections\")\n    Signed-off-by: Maxim Mikityanskiy <maximmi@nvidia.com>\n    Reviewed-by: Mat Martineau <mathew.j.martineau@linux.intel.com>\n    Signed-off-by: David S. Miller <davem@davemloft.net>\n\ndiff --git a/net/mptcp/options.c b/net/mptcp/options.c\nindex 6b825fb3fa83..9b263f27ce9b 100644\n--- a/net/mptcp/options.c\n+++ b/net/mptcp/options.c\n@@ -356,6 +356,8 @@ void mptcp_get_options(const struct sk_buff *skb,\n \t\t\tlength--;\n \t\t\tcontinue;\n \t\tdefault:\n+\t\t\tif (length < 2)\n+\t\t\t\treturn;\n \t\t\topsize = *ptr++;\n \t\t\tif (opsize < 2) /* \"silly options\" */\n \t\t\t\treturn;\n"
+  },
+  "scope": "cluster",
+  "mode": "historical",
+  "reference": "8d3ae59288f1e7d58d76558a6ee96d533bc5019f",
+  "dataset_sha256": "1685839d3f8af7db9e735df1717f737a9a9e79b8f3598f5ded67f97f8388de29",
+  "snapshots": {
+    "s01": "986e54cd685e8166bc8b4f4c47de44709e541510",
+    "s02": "07718be265680dcf496347d475ce1a5442f55ad7",
+    "s03": "d6d8cd2db236a9dd13dbc2d05843b3445cc964b5"
+  },
+  "targets": [
+    {
+      "hexsha": "7e5a206ab686f098367b61aca989f5cdfa8114a3",
+      "title": "tcp: don't read out-of-bounds opsize",
+      "cluster": "rootcause-curated-c2",
+      "origin": "root_cause_cluster",
+      "snapshot": "s01",
+      "parent": "986e54cd685e8166bc8b4f4c47de44709e541510",
+      "units": [
+        {
+          "path": "net/ipv4/tcp_input.c",
+          "ranges": [
+            [
+              3871,
+              3875
+            ]
+          ],
+          "functions": [
+            {
+              "name": "tcp_parse_md5sig_option",
+              "start": 3866,
+              "end": 3896
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "ba91c49dedbde758ba0b72f57ac90b06ddf8e548",
+      "title": "sch_cake: Fix out of bounds when parsing TCP options and header",
+      "cluster": "rootcause-curated-c2",
+      "origin": "root_cause_cluster",
+      "snapshot": "s02",
+      "parent": "07718be265680dcf496347d475ce1a5442f55ad7",
+      "units": [
+        {
+          "path": "net/sched/sch_cake.c",
+          "ranges": [
+            [
+              946,
+              946
+            ],
+            [
+              969,
+              969
+            ],
+            [
+              1106,
+              1106
+            ]
+          ],
+          "functions": [
+            {
+              "name": "cake_get_tcphdr",
+              "start": 901,
+              "end": 951
+            },
+            {
+              "name": "cake_get_tcpopt",
+              "start": 953,
+              "end": 984
+            },
+            {
+              "name": "cake_tcph_may_drop",
+              "start": 1077,
+              "end": 1145
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "cfe770220ac2dbd3e104c6b45094037455da81d4",
+      "title": "netfilter: x_tables: guard option walkers against 1-byte tail reads",
+      "cluster": "rootcause-curated-c2",
+      "origin": "root_cause_cluster",
+      "snapshot": "s03",
+      "parent": "d6d8cd2db236a9dd13dbc2d05843b3445cc964b5",
+      "units": [
+        {
+          "path": "net/netfilter/xt_dccp.c",
+          "ranges": [
+            [
+              65,
+              65
+            ],
+            [
+              68,
+              68
+            ]
+          ],
+          "functions": [
+            {
+              "name": "dccp_find_option",
+              "start": 33,
+              "end": 79
+            }
+          ]
+        },
+        {
+          "path": "net/netfilter/xt_tcpudp.c",
+          "ranges": [
+            [
+              62,
+              63
+            ]
+          ],
+          "functions": [
+            {
+              "name": "tcp_find_option",
+              "start": 34,
+              "end": 67
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "evaluation_note": "Historical location recovery, not exploit confirmation. Snapshot mode does not measure historical recall."
+}

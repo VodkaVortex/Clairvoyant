@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "unclamped-wire-count",
+  "snapshot": "s04",
+  "status": "complete",
+  "candidates": [
+    {
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 392,
+      "status": "unresolved",
+      "note": "ret_submit unpack stores wire count unclamped; sibling stub_rx.c:372-377 clamps; consumer usbip_recv_iso:579-638 (int size = np*sizeof(*iso) -> kzalloc -> np-loop). Seed mechanism verbatim in s04 -> excluded from findings per seed rule."
+    },
+    {
+      "path": "drivers/usb/usbip/stub_rx.c",
+      "line": 372,
+      "status": "safe",
+      "note": "cmd_submit number_of_packets bounds-checked (<0 or > DIV_ROUND_UP(tbuflen,maxp)) before usb_alloc_urb at :460."
+    },
+    {
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 706,
+      "status": "safe",
+      "note": "usbip_recv_xbuff clamps size > urb->transfer_buffer_length before recv."
+    },
+    {
+      "path": "drivers/usb/usbip/vhci_rx.c",
+      "line": 77,
+      "status": "unresolved",
+      "note": "reply-direction entry usbip_pack_pdu(RET_SUBMIT) stores unclamped count; seed instance, excluded by rule."
+    }
+  ],
+  "findings": [],
+  "coverage": "only drivers/usb/usbip verified in s04; rest of snapshot parsers not swept per finalize directive"
+}

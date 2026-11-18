@@ -1,0 +1,21 @@
+{
+  "intent_id": "i006",
+  "branch": "alloc-multiply-overflow",
+  "status": "in_progress",
+  "snapshot": "s02",
+  "notes": "Strongest candidate so far: drivers/virt/fsl_hypervisor.c ioctl_memcpy — param.count is u64 from copy_from_user (FSL_HV_IOCTL_MEMCPY, requires /dev/fsl-hv access); num_pages = (param.count + lb_offset + PAGE_SIZE-1) >> PAGE_SHIFT stored in unsigned int (truncates 64->32), then kmalloc(num_pages * sizeof(struct fh_sg_list)=32 + 31) computed in 32-bit unsigned int; consuming loop for(i=1;i<num_pages;i++) writes sg_list[i].{source,target,size} into the undersized heap buffer. Need to verify product overflow conditions: num_pages must exceed 2^27/... to overflow the product (num_pages*32 as u32 wraps when num_pages > 2^27). count u64 -> num_pages = count>>12 (u32 truncation of 64-bit shift result). E.g. count = 0x100000000 (4GB) gives num_pages = 0x100000 -> product 0x2000000 (32MB) fine; count = 0x800000000000 -> num_pages low bits... (count>>12) truncated to u32; to get num_pages = 2^29 need count >= 2^41; product num_pages*32 = 2^34 wraps to 0 -> kmalloc(31) succeeds, loop writes 2^29*32 bytes -> heap overflow. Also num_pages itself is truncated from 64-bit shift, so kmalloc/pages sizes disagree with get_user_pages_fast count (num_pages int param too). Candidates classified below.",
+  "candidates": [
+    {"path": "drivers/virt/fsl_hypervisor.c", "line": 236, "status": "reported", "reason": "u64 ioctl count -> u32 num_pages via >>PAGE_SHIFT truncation, then 32-bit num_pages*sizeof(fh_sg_list) to kmalloc, loop writes num_pages entries"},
+    {"path": "net/sched/ematch.c", "line": 333, "status": "safe", "reason": "nmatches is __u16 so nmatches*24K max 12MB, no 32-bit overflow"},
+    {"path": "fs/nfsd/nfs4xdr.c", "line": 1937, "status": "safe", "reason": "opcnt clamped to NFSD_MAX_OPS_PER_COMPOUND=16 before kzalloc(opcnt*sizeof)"},
+    {"path": "drivers/virt/vboxguest/vboxguest_utils.c", "line": 660, "status": "safe", "reason": "parm_count <= VMMDEV_HGCM_MAX_PARMS checked before u32 multiply"},
+    {"path": "drivers/firmware/qemu_fw_cfg.c", "line": 646, "status": "unresolved", "reason": "count u32 from device fw_cfg DMA read, size_t product cannot overflow, kmalloc fails for huge; loop indexes count entries in device-filled buffer; device-trusted not wire-untrusted"},
+    {"path": "sound/soc/codecs/tas571x.c", "line": 187, "status": "safe", "reason": "len is size_t from driver-defined numcoef constants (5 coefficients)"},
+    {"path": "drivers/infiniband/hw/vmw_pvrdma/pvrdma_mr.c", "line": 213, "status": "safe", "reason": "max_num_sg > PVRDMA_MAX_FAST_REG_PAGES(128) rejected; int size computed before check but max 128*8=1KB"},
+    {"path": "drivers/media/v4l2-core/v4l2-ioctl.c", "line": 3043, "status": "safe", "reason": "check_array_args clamps blocks<=256, count<=V4L2_CID_MAX_CTRLS, length<=VIDEO_MAX_PLANES before array_size"},
+    {"path": "net/netfilter/xt_hashlimit.c", "line": 291, "status": "safe", "reason": "size u32 from userspace cfg but vmalloc(sizeof+sizeof*size) - 64-bit size_t arithmetic via sizeof; userspace root-only iptables; cfg->size up to 4G*8B=32GB vmalloc fails; loop hlist_head init bounded"},
+    {"path": "net/netfilter/x_tables.c", "line": 1326, "status": "safe", "reason": "size = sizeof(void*)*stacksize*2u in size_t; stacksize from validated ruleset"},
+    {"path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c", "line": 338, "status": "safe", "reason": "len > UINT_MAX>>2 rejected before len<<2"},
+    {"path": "drivers/scsi/bfa/bfad_debugfs.c", "line": 279, "status": "safe", "reason": "len > (UINT_MAX>>2) rejected before kzalloc(len<<2)"}
+  ]
+}

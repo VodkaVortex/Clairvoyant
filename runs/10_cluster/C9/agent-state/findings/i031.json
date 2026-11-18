@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "intent_id": "i031",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s08"],
+  "findings": [
+    {
+      "snapshot": "s08",
+      "path": "net/bluetooth/hci_event.c",
+      "start": 7254,
+      "end": 7279,
+      "quote": "u8 num_reports = *ptr;",
+      "confidence": "medium",
+      "reason": "Untrusted source: hci_store_wake_reason() (net/bluetooth/hci_event.c:7222) parses the HCI event skb whose payload is controller/virtual-controller supplied; on any virtual or remote HCI transport (VHCI, HCI-over-UART, BT-USB) the event payload crosses a trust boundary from a peer endpoint, matching the seed's remote-endpoint attacker. Violated invariant (unclamped wire count with asymmetric validation): the LE meta branch at lines 7254-7258 fetches the wire count raw, 'u8 num_reports = *ptr;' (line 7258), with NO hci_ev_skb_pull(), no skb->len check, and no min_len check of any kind, while every sibling handler of the same event family validates the wire count against the actual received length first: hci_le_adv_report_evt (line 6225) pulls each report via hci_le_ev_skb_pull(..., sizeof(*info)) and hci_le_ev_skb_pull(..., info->length + 1) per iteration, hci_le_ext_adv_report_evt (line 6309) does the same, hci_le_direct_adv_report_evt (line 6645) gates on hci_le_ev_skb_pull(..., flex_array_size(ev, info, ev->num)) before iterating, and the shared dispatchers enforce min_len (hci_le_meta_evt line 7169 'if (skb->len < subev->min_len) return;' and hci_event_func line 7468 hci_ev_skb_pull) - only this wake-reason mirror path reads the count and the following report structures with no length validation. Entry precondition is weak: hci_event_packet() (line 7489) checks only 'skb->len < sizeof(*hdr)' (2-byte HCI event header) before skb_pull(HCI_EVENT_HDR_SIZE) (line 7531) and the call at line 7534, so a truncated LE meta event reaches the *ptr fetch. Unsafe use: a non-zero num_reports (line 7263) is used as proof that at least one complete report structure follows - adv/direct_adv/ext_adv = (void *)(ptr + 1) (lines 7264-7266) are immediately dereferenced by bacpy(&hdev->wake_addr, &adv->bdaddr) / hdev->wake_addr_type = adv->bdaddr_type (lines 7270-7279), reading struct hci_ev_le_advertising_info fields past the end of a truncated skb and storing the OOB-read bytes into persistent kernel state hdev->wake_addr/wake_addr_type; the *ptr fetch itself (line 7258) reads past skb->data when the LE meta event is a single byte (subevent only), and the HCI_EV_CONN_REQUEST/HCI_EV_CONN_COMPLETE branches (lines 7248-7253) likewise dereference conn_request/conn_complete = (void *)skb->data with no length check. Reachability is restricted to a suspended adapter receiving its first event while hdev->wake_reason is unset (line 7236 'if (!hdev->suspended || hdev->wake_reason) goto unlock;'), so the realistic attacker is a malicious or compromised controller/virtual HCI peer; impact is a bounded OOB read into persistent hdev state, not the seed's heap-overflow write. Counterevidence checked: hci_rx_work/hci_event_packet perform no payload minimum beyond the 2-byte event header before the call; the sibling adv-report handlers all validate (listed above); no other consumer of num_reports exists in this function."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 473,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim and UNPATCHED in s08: usbip_pack_ret_submit unpack stores 'urb->number_of_packets = rpdu->number_of_packets;' (line 473) with no clamp; usbip_recv_iso computes 'int size = np * sizeof(*iso);' (line 665, np = urb->number_of_packets line 664) then kzalloc(size) and a per-element loop; USBIP_MAX_ISO_PACKETS (usbip_common.h:130) is enforced only on the CMD_SUBMIT sibling direction (stub_rx.c:379-381 'if (pdu->u.cmd_submit.number_of_packets < 0 || pdu->u.cmd_submit.number_of_packets > USBIP_MAX_ISO_PACKETS)') - the exact asymmetric-validation signature. Excluded from findings per the seed-never-reportable rule; recorded only to document snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 6225,
+      "status": "safe",
+      "reason": "hci_le_adv_report_evt consumes the same controller-supplied wire count but validates it: the while(ev->num--) loop pulls each report with hci_le_ev_skb_pull(hdev, skb, HCI_EV_LE_ADVERTISING_REPORT, sizeof(*info)) and hci_le_ev_skb_pull(..., info->length + 1), breaking on failure - the enforcing sibling path that demonstrates hci_store_wake_reason's missing check."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 6645,
+      "status": "safe",
+      "reason": "hci_le_direct_adv_report_evt gates the fixed-stride report loop with hci_le_ev_skb_pull(hdev, skb, HCI_EV_LE_DIRECT_ADV_REPORT, flex_array_size(ev, info, ev->num)) before iterating ev->num entries - count cross-checked against the received skb length; second enforcing sibling."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 7169,
+      "status": "safe",
+      "reason": "hci_le_meta_evt dispatch validates 'if (skb->len < subev->min_len)' before pulling and invoking the subevent handler; the vulnerability is only in hci_store_wake_reason, which runs earlier in hci_event_packet (line 7534) before this validation."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/usbip/stub_rx.c",
+      "line": 379,
+      "status": "safe",
+      "reason": "Enforcing sibling of the excluded seed family: CMD_SUBMIT direction clamps the wire count to [0, USBIP_MAX_ISO_PACKETS] (stub_rx.c:379-381) before usb_alloc_urb; asymmetric-validation evidence, not itself vulnerable."
+    }
+  ],
+  "limitations": [
+    "The finalize directive halted the audit after deep-reading the HCI event family and confirming the seed usbip state; the planned broad sweep of other s08 deserialization entry points (netlink nla_parse handlers across drivers/net, fs/ceph mdsmap/snapmap counts, fs/cifs reply parsers, ksmbd, 9p, nbd, io_uring, HID/NCI descriptor parsers, netfilter/nft count attributes) was only enumerated, not deep-read, so an additional unclamped-wire-count variant elsewhere in s08 cannot be ruled out.",
+    "The reported finding's reachability is restricted to a suspended adapter receiving its first event while hdev->wake_reason is unset (hci_event.c:7236); a real controller normally emits well-formed events, so the realistic attacker is a malicious/compromised controller or virtual HCI transport peer (VHCI/UART/USB), weaker than the seed's arbitrary remote network endpoint.",
+    "Impact is bounded to an OOB read into persistent hdev->wake_addr/wake_addr_type state: num_reports never sizes an allocation, and whether the stored wake_addr bytes are later exposed to userspace (e.g. mgmt API) was not traced before finalization; confidence is medium for the invariant violation and lower for end-to-end information disclosure.",
+    "The first attempt of the tree-wide regex sweep for wire count stores returned zero hits due to pattern over-constraint; the negative result over the rest of the tree is therefore only enumerated-level (directory presence of fs/ceph, fs/cifs confirmed), not evidence-backed, and the structured sweep was not re-run after the finalize directive.",
+    "No compilation, static analysis, or runtime reproducer was performed (assigned snapshot is read-only; all generated artifacts belong under $TMPDIR and none were needed for this source-level analysis); all line numbers come from direct numbered awk/sed reads of snapshots/s08 verified in this session."
+  ]
+}

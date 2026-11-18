@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "intent_id": "i002",
+  "snapshot": "s01",
+  "status": "complete",
+  "findings": [
+    {
+      "path": "include/net/xdp_sock_drv.h",
+      "start": 276,
+      "end": 280,
+      "confidence": "medium",
+      "summary": "__xsk_buff_get_metadata() validates shared-memory meta->flags once then returns the raw UMEM-resident pointer; downstream xsk_tx_metadata_request() (include/net/xdp_sock.h:178-181) re-fetches flags and csum_start/csum_offset from the same user-writable memory without READ_ONCE/local copy/lock, so the consumed offsets can differ from the validated state."
+    }
+  ],
+  "candidates_final": [
+    {"path": "net/xdp/xsk.c", "line": 761, "status": "safe", "reason": "seed function xsk_skb_metadata, never reportable"},
+    {"path": "net/xdp/xsk_queue.h", "line": 246, "status": "safe", "reason": "single struct-copy by value; validation on local copy"},
+    {"path": "drivers/net/ethernet/mellanox/mlx5/core/en/xsk/tx.c", "line": 102, "status": "safe", "reason": "callback ignores offsets"},
+    {"path": "include/net/libeth/xsk.h", "line": 167, "status": "safe", "reason": "callback discards offsets"},
+    {"path": "drivers/net/ethernet/intel/igc/igc_main.c", "line": 3077, "status": "reported", "reason": "consumption site of the reported finding; igc lacks tmo_request_checksum so only launch_time reaches driver code"}
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "unchecked-tb-deref",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nft_tunnel.c",
+      "start": 79,
+      "end": 95,
+      "quote": "\tif (!tb[NFTA_TUNNEL_KEY] &&\n\t    !tb[NFTA_TUNNEL_DREG])\n\t\treturn -EINVAL;\n\n\tpriv->key = ntohl(nla_get_be32(tb[NFTA_TUNNEL_KEY]));",
+      "confidence": "high",
+      "reason": "Untrusted source: an NFT_MSG_NEWRULE nfnetlink message is fully attacker-controlled; nfnetlink_rcv() enforces only netlink_net_capable(skb, CAP_NET_ADMIN) (net/netfilter/nfnetlink.c:555), which an unprivileged local user satisfies by creating a user namespace that owns a network namespace (same trust model as the seed's GENL_UNS_ADMIN_PERM); the nft_tunnel expression type is also module-autoloadable via nft_expr_type_get/request_module (nf_tables_api.c:2413-2444). Violated invariant (no guard and no policy entry covers the exact attribute index): the expression's tb[] comes from nla_parse_nested_deprecated(info->tb, type->maxattr, tb[NFTA_EXPR_DATA], nft_tunnel_policy, NULL) (nf_tables_api.c:2425-2427), and nft_tunnel_policy (nft_tunnel.c:66-70) types NFTA_TUNNEL_KEY and NFTA_TUNNEL_DREG as plain { .type = NLA_U32 } with no required semantics, so either slot stays NULL when omitted. The only presence guard, at lines 79-81, joins the two negated tests with && instead of ||, so it rejects only when BOTH are absent; it therefore proves presence of neither attribute individually. Unsafe uses: line 83 nla_get_be32(tb[NFTA_TUNNEL_KEY]) dereferences the KEY slot unconditionally (nla_get_be32 reads through nla_data(attr) = attr + NLA_HDRLEN, so a NULL attr faults at offset 4), and line 95 nft_parse_register(tb[NFTA_TUNNEL_DREG]) immediately evaluates nla_get_be32(attr) (nf_tables_api.c:7564) on the DREG slot. A message whose NFTA_EXPR_DATA contains NAME=\"tunnel\" plus exactly one of KEY/DREG passes the guard and NULL-dereferences the other slot. Consequence: kernel NULL-pointer-dereference oops (local DoS) from unprivileged userns input. Counterevidence checked: no other presence check between guard and uses; the MODE slot at 97 is correctly if-guarded; sibling policies (nft_tunnel_ip_policy etc., lines 157-253) correctly guard their required entries with 'if (!tb[...]) return -EINVAL;'. Flagged as live for this branch by the i002 limitation note (fact f005)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 421,
+      "end": 431,
+      "quote": "\tif (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))\n\t\treturn -EINVAL;\n\n\tif (!edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID])\n\t\treturn -EINVAL;\n\n\tv0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace MAC802154_HWSIM_CMD_NEW_EDGE generic-netlink doit message; the op is registered with .flags = GENL_UNS_ADMIN_PERM and .validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP (hwsim_nl_ops, lines 604-609), satisfiable by an unprivileged user via user-namespace CAP_NET_ADMIN. Violated invariant for this branch: nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]) at line 431 has NO covering check for that exact index -- the only guard (421-423) is the &&-joined negated-presence form that rejects only when BOTH RADIO_ID and RADIO_EDGE are absent, and the family policy hwsim_genl_policy marks [MAC802154_HWSIM_ATTR_RADIO_ID] = { .type = NLA_U32 } (line 580) with no required flag, so the genl core never enforces its presence. A NEW_EDGE message that supplies MAC802154_HWSIM_ATTR_RADIO_EDGE but omits RADIO_ID passes the guard and line 431 dereferences the NULL slot (nla_get_u32 reads through nla_data(attr) = attr + NLA_HDRLEN). Consequence: NULL-pointer-dereference oops (local DoS). Counterevidence checked: policy table lines 579-582 (no required entries), ops flags at 604-609, no intervening check between the guard and line 431; the seed function hwsim_del_edge_nl (483-494) is the never-reportable instance. Cross-reported by the sibling and-presence-guard (i002/f005) and nested-parse-null-arg (i004/f009) branches for the same file in this snapshot; the tb-deref aspect at line 431 is the subject of this branch."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 531,
+      "end": 544,
+      "quote": "\tif (!edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID] &&\n\t    !edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI])\n\t\treturn -EINVAL;\n\n\tv0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);\n\tv1 = nla_get_u32(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID]);\n\tlqi = nla_get_u8(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI]);",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace MAC802154_HWSIM_CMD_SET_EDGE generic-netlink doit (hwsim_nl_ops entry for SET_EDGE, GENL_UNS_ADMIN_PERM, GENL_DONT_VALIDATE_STRICT|GENL_DONT_VALIDATE_DUMP). Two uncovered slot dereferences of the seed mechanism in hwsim_set_edge_lqi(): (1) the outer guard at 531-533 is again the &&-joined negated form, so a message carrying RADIO_EDGE but omitting MAC802154_HWSIM_ATTR_RADIO_ID passes with info->attrs[RADIO_ID] == NULL (policy line 580: plain NLA_U32, not required) and line 542 'v0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);' dereferences the NULL slot; symmetrically a message carrying RADIO_ID only feeds the NULL RADIO_EDGE slot to nla_parse_nested_deprecated at 535 (nested-parse aspect recorded by sibling branch i004). (2) Even when both outer attributes are present, the inner guard at 538-540 is ALSO &&-joined over edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID] and edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI] (hwsim_edge_policy lines 376-377 type them plain NLA_U32/NLA_U8, no required flag), so a nested RADIO_EDGE payload containing exactly one of the two passes, and lines 543-544 dereference the absent inner slot with nla_get_u32/nla_get_u8. Consequence: NULL-pointer-dereference oops (local DoS) from an attacker-crafted message. Counterevidence checked: hwsim_edge_policy 375-378, hwsim_genl_policy 579-582, ops flags 616-621; no other presence checks precede 542-544; the fixed hwsim_del_edge_nl sibling is the seed instance and not reportable."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nft_tunnel.c",
+      "line": 83,
+      "status": "reported",
+      "reason": "nft_tunnel_get_init: tb[NFTA_TUNNEL_KEY] dereferenced by nla_get_be32 at 83 with no covering check -- guard 79-81 is &&-inverted over KEY/DREG and nft_tunnel_policy (66-70) types both plain NLA_U32, optional; reachable via NFT_MSG_NEWRULE after netlink_net_capable(CAP_NET_ADMIN) at net/netfilter/nfnetlink.c:555 (userns-satisfiable)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nft_tunnel.c",
+      "line": 95,
+      "status": "reported",
+      "reason": "Same function: nft_parse_register(tb[NFTA_TUNNEL_DREG]) at 95 dereferences the DREG slot via nla_get_be32(attr) (nf_tables_api.c:7560-7572) with no covering check; a DATA payload with KEY present and DREG omitted passes the 79-81 guard."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 431,
+      "status": "reported",
+      "reason": "hwsim_new_edge_nl: nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]) uncovered by the &&-inverted guard at 421-423; policy entry (580) plain NLA_U32 non-required; NEW_EDGE op is GENL_UNS_ADMIN_PERM + GENL_DONT_VALIDATE_STRICT."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 542,
+      "status": "reported",
+      "reason": "hwsim_set_edge_lqi: nla_get_u32(info->attrs[RADIO_ID]) at 542 uncovered by the inverted && guard at 531-533; policy 580 plain NLA_U32."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 543,
+      "status": "reported",
+      "reason": "hwsim_set_edge_lqi inner pair: edge_attrs[ENDPOINT_ID] (543) and edge_attrs[LQI] (544) dereferenced after the second &&-inverted guard at 538-540; hwsim_edge_policy 376-377 plain NLA_U32/NLA_U8, no required flag."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 493,
+      "status": "safe",
+      "reason": "hwsim_del_edge_nl is the seed vulnerability instance (commit 0303b30375df) and is never reportable by rule; in this snapshot it still carries the pre-fix && guard at 483-484 with the NULL nested parse at 487 and nla_get_u32(RADIO_ID) at 493."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/mac80211_hwsim.c",
+      "line": 3281,
+      "status": "safe",
+      "reason": "hwsim_tx_info_frame_received_nl: correct ||-of-negations guard at 3274-3279 covers ADDR_TRANSMITTER/FLAGS/COOKIE/SIGNAL/TX_INFO before every use (3281, 3282, 3305, 3328)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/mac80211_hwsim.c",
+      "line": 3415,
+      "status": "safe",
+      "reason": "hwsim_cloned_frame_received_nl: ||-of-negations guard at 3357-3361 covers ADDR_RECEIVER/FRAME/RX_RATE/SIGNAL before 3415-3416; FREQ use at 3401 is inside 'if (info->attrs[HWSIM_ATTR_FREQ])'."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/seg6.c",
+      "line": 101,
+      "status": "safe",
+      "reason": "seg6_genl_sethmac: correct ||-of-negations guard at 96-99 proves HMACKEYID/SECRETLEN/ALGID present before nla_get_u32/u8 at 101-103."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/hsr/hsr_netlink.c",
+      "line": 255,
+      "status": "safe",
+      "reason": "hsr_get_node_status: 'na = info->attrs[HSR_A_IFINDEX]; if (!na) goto invalid;' at 247-249 before the nla_get_u32 at 255; hsr_get_node_list uses the identical check at 376-379 before 381."
+    },
+    {
+      "snapshot": "s01",
+      "path": "kernel/taskstats.c",
+      "line": 497,
+      "status": "safe",
+      "reason": "cmd_attr_pid/cmd_attr_tgid are only dispatched by taskstats_user_cmd when info->attrs[TASKSTATS_CMD_ATTR_PID]/[TGID] is non-NULL (lines 546-549); cgroupstats guards its FD attr at 399-400 before nla_get_u32 at 403."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/fou.c",
+      "line": 684,
+      "status": "unresolved",
+      "reason": "parse_fou_config nla_get sites enumerated (684, 700, 705, 708, 743, 754) but their enclosing presence guards and the fou genl policy were not read within this intent's finalize budget; per-attribute NULL coverage unverified."
+    }
+  ],
+  "limitations": [
+    "The direct-deref scan is bounded to literal 'nla_get_*(info->attrs[N])' (391 hits) and 'nla_data/nla_len(info->attrs[N])' (266 hits) forms across 242 files; dereferences routed through intermediate locals (e.g. attr = info->attrs[N]; nla_get_u32(attr)) or helper parameters were not exhaustively traced.",
+    "net/wireless/nl80211.c (128 nla_get + 182 nla_data hits) was not re-read handler-by-handler in this branch; it was only spot-checked via sibling-branch evidence (f009/f010) and could still contain an uncovered slot in a rarely-used command.",
+    "tb[]-local rtnetlink dereferences (RTM_* doit/changelink/dumpit) belong to the sibling i005 branch; the mpls_valid_fib_dump_req CONFIG_INET=n gap (net/mpls/af_mpls.c:2118, nla_get_u32(tb[i]) at i==RTA_OIF with no NULL check) is cross-referenced there rather than duplicated here.",
+    "net/netlabel/*, net/nfc/netlink.c, net/l2tp/l2tp_netlink.c, net/ncsi/ncsi-netlink.c, net/batman-adv/netlink.c, net/core/devlink.c, net/core/drop_monitor.c, net/ieee802154/nl-mac.c, nl-phy.c, nl802154.c, drivers/net/gtp.c, drivers/block/nbd.c, net/wimax/op-reset.c and op-state-get.c nla_get sites were enumerated by file but not individually read; op-msg.c/op-rfkill.c NULL-check idiom suggests the same family pattern but was not verified for those two files.",
+    "net/ipv4/fou.c parse sites remain unresolved (see candidate list); no policy cross-check was completed for them.",
+    "No compilation or runtime reproducer was run (read-only snapshot, no top-level Makefile/.config); NULL-deref conclusions rest on reading the guards, the non-required nla_policy entries, the GENL_DONT_VALIDATE_STRICT / netlink_net_capable enforcement points, and nla_get_*/nla_parse_nested_deprecated semantics (reads through nla_data(attr) = attr + NLA_HDRLEN).",
+    "nft_tunnel reachability additionally requires the nft_tunnel module (autoloadable) and CAP_NET_ADMIN over a user-namespace-owned netns (net/netfilter/nfnetlink.c:555), the same trust model as the seed's GENL_UNS_ADMIN_PERM ops; impact is characterized as local DoS (kernel oops), with no privilege-escalation path demonstrated."
+  ]
+}

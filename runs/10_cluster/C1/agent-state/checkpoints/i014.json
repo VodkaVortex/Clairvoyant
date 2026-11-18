@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "firmware-table-divisor",
+  "phase": "finalizing",
+  "snapshot": "s01",
+  "timestamp": "2026-11-11T23:55:54.299301+00:00",
+  "invariant": "denominator = f(untrusted_firmware_or_device_value) where f applies unchecked fixed-width scaling (mult/shift/add/sub/cast) before '/' or '%', while validation (if any) checks only f's input, not f's output at the exact division width; zero or wrapped-to-zero denominator from VBIOS/powerplay tables, ACPI, SMBIOS, EDID, DT properties, EEPROM",
+  "search_state": {
+    "queries_executed": [
+      "grep edid-> ... '/' (drivers/) -> no variable-denominator division on EDID fields",
+      "counts: of_property_read_ 4516 sites, acpi_evaluate 632 sites in drivers/ (breadth noted)",
+      "grep ppatomctrl/ppatomfwctrl/process_pptables*/vega10_processpptables for variable-denominator divisions -> none",
+      "grep swsmu pptable-> divisions -> temperature-limit scaling and FanMaximumRpm reads, no firmware-derived divisor",
+      "grep radeon_atombios.c/atom.c divisions -> radeon_atombios.c:3714 voltage_step division found (candidate); atom.c:694 guarded by src!=0 (safe)"
+    ],
+    "candidates_classified": [
+      {
+        "path": "drivers/gpu/drm/radeon/radeon_atombios.c",
+        "line": 3714,
+        "function": "radeon_atom_round_to_true_voltage",
+        "status": "reported",
+        "note": "voltage_step is u16 read straight from ATOM BIOS VoltageObjectInfo table (formula->usVoltageStep, optionally (x+1)/2); used directly as divisor with no nonzero check; callers rv6xx_step_sw_voltage (rv6xx_dpm.c:1272) pass return-through so a zero step yields divide-by-zero oops during DPM voltage stepping"
+      },
+      {
+        "path": "drivers/gpu/drm/radeon/atom.c",
+        "line": 694,
+        "function": "atom_op_div",
+        "status": "safe",
+        "note": "src != 0 checked immediately before dst/src and dst%src; generic divisor guard present"
+      }
+    ],
+    "candidates_pending": []
+  }
+}

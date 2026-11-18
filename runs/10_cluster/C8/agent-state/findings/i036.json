@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "intent_id": "i036",
+  "branch": "fixed-epidx-rest",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s09"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2156,
+      "status": "safe",
+      "reason": "The f009 interrupt-URB bInterval pattern is patched in s09: 'if (intf->cur_altsetting->desc.bNumEndpoints < 1) { ret = -ENODEV; goto err0; }' at lines 2156-2159 immediately precedes the read of intf->cur_altsetting->endpoint[0].desc.bInterval at line 2172, passed as the last argument of usb_fill_int_urb (call site 2169). This is the only bNumEndpoints reference in the file; remaining altsetting uses (528/536-537 module-param arrays, 1276 firmware check, 2495/2622 bInterfaceNumber reads) do not index the endpoint array."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "Vacuously absent: drivers/isdn does not exist in s09; a find over the whole snapshot for '*gigaset*' matches only drivers/media/rc/keymaps/rc-siemens-gigaset-rc20.c, an RC keymap unrelated to the ISDN driver. The f009-unresolved endpoint[0]/endpoint[1] reads therefore have no corresponding code in this snapshot (same situation as s02, fact f023)."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/input/touchscreen/sur40.c",
+      "line": 670,
+      "status": "safe",
+      "reason": "Guard 'if (iface_desc->desc.bNumEndpoints < 5) return -ENODEV;' at lines 666-667 immediately precedes 'endpoint = &iface_desc->endpoint[4].desc;' at line 670, which is further validated against TOUCH_ENDPOINT. The f019 fixed-index endpoint[4] pattern is fixed in s09."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/watchdog/pcwd_usb.c",
+      "line": 632,
+      "status": "safe",
+      "reason": "Guard 'if (iface_desc->desc.bNumEndpoints < 1) return -ENODEV;' at lines 628-629 immediately precedes 'endpoint = &iface_desc->endpoint[0].desc;' at line 632; the descriptor is additionally validated with usb_endpoint_is_int_in() at 634 before usb_rcvintpipe uses bEndpointAddress at 641."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/mmc/host/ushc.c",
+      "line": 423,
+      "status": "safe",
+      "reason": "Probe opens with 'if (intf->cur_altsetting->desc.bNumEndpoints < 1) return -ENODEV;' at lines 423-424 before any endpoint[0].desc access; this covers the f022 site located around lines 475/478 in older snapshots."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1353,
+      "status": "safe",
+      "reason": "Guards present: 'data_interface->cur_altsetting->desc.bNumEndpoints < 2 || control_interface->cur_altsetting->desc.bNumEndpoints == 0' at lines 1353-1354, plus '== 3' at 1274 and '!= 3' at 1320, bound the endpoint[] fixed-index reads in acm_probe. Matches the guarded classification in sibling facts."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/uwb/hwa-rc.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "Vacuously absent: the whole drivers/uwb tree does not exist in s09, so the f019 hwa-rc.c endpoint[0] and i1480/dfu/usb.c fixed-index reads (lines ~245/302 in older snapshots) have no corresponding code."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/wusbcore/wa-nep.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "Vacuously absent: drivers/usb/wusbcore does not exist in s09 (wusbcore was removed upstream), so the f022 wa-nep.c endpoint[2] reads have no corresponding code."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/staging/media/usbvision/usbvision-core.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "Vacuously absent: drivers/staging/media in s09 contains only atomisp, av7110, deprecated, imx, ipu3, ipu7, max96712, meson, sunxi, tegra-video - no usbvision, so the f019 usbvision endpoint reads have no corresponding code."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/atm/speedtch.c",
+      "line": 843,
+      "status": "safe",
+      "reason": "Loop-form read '&desc->endpoint[i].desc' at line 843 with i bounded by desc->desc.bNumEndpoints (grep-level evidence, consistent with sibling facts f002/f018 which classified this loop form safe); drivers/usb/atm/xusbatm.c line 47 uses the same bounded-loop form over alt->endpoint[j]."
+    }
+  ],
+  "limitations": [
+    "Line-by-line audit was performed only for ueagle-atm.c; sur40.c, pcwd_usb.c, ushc.c, and cdc-acm.c were classified by bNumEndpoints-guard grep plus targeted line reads of the guard/read window, not a full audit of every endpoint[] use in each file.",
+    "The broad fixed-epidx-rest sweep was not completed in this session: drivers/usb/{serial,storage,misc,gadget,host,early,core-embedded}, sound/usb, drivers/hid, drivers/input (beyond sur40), drivers/iio, and remaining staging USB consumers outside drivers/media/usb and drivers/net were not systematically enumerated for fixed-index endpoint[k].desc reads.",
+    "s09 is a modern tree (rust/, accel/, ipu7, devm_mmc_alloc_host present): the historical f009/f019/f022 sites are either patched or their drivers removed; driver absence here is snapshot-specific and carries no cross-snapshot conclusion.",
+    "No compilation, static analyzer, or reproducer was executed; all classifications rest on static source evidence only."
+  ]
+}

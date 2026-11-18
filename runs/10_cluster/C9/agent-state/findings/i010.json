@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 240,
+      "quote": "num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: ioctl FSL_HV_IOCTL_MEMCPY on /dev/fsl-hv copies a fully userspace-controlled u64 param.count via copy_from_user (line 165); the only validation (lines 218-220) is that count is nonzero and that count + lb_offset + PAGE_SIZE - 1 does not exceed U64_MAX, i.e. only a 64-bit overflow check. Missing guarantee: num_pages is declared 'unsigned int' (line 156) and assigned '(param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT' (line 221) - the 64-bit sum is truncated to 32 bits with no clamp, and the allocation size 'num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1' (lines 239-240, element size 32 bytes per struct fh_sg_list in arch/powerpc/include/asm/fsl_hcalls.h:341-346) is a plain 32-bit unsigned multiply with no kcalloc/array_size/overflow check. Unsafe use: the fill loop 'for (i = 1; i < num_pages; i++)' (line 274) writes sg_list[i].source/.target/.size/.reserved (lines 277-288) into the kmalloc'ed buffer for every num_pages entries while kmalloc received only the wrapped 32-bit product; e.g. param.count near 2^41 + adjustment yields num_pages = 2^29, whose 32-bit product 2^29*32 = 2^34 wraps to 0, so kmalloc(sizeof(*sg_list)-1 = 31) succeeds and the loop writes gigabytes past the heap buffer; the pages[] kcalloc at line 229 is likewise sized by the same truncated count and get_user_pages_fast is then called with the raw num_pages. This is the seed's exact mechanism (truncated count-derived size to allocator + element-indexed loop still trusting the original count) under a userspace ioctl trust boundary instead of a network PDU; the earlier kmalloc_array/kcalloc-based candidates were verified safe, leaving this the strongest unclamped count*size chain in the searched region. Counter-evidence checked: the 64-bit addition itself is guarded (lines 218-220); the truncation happens in the assignment to the 32-bit lvalue, which no check covers. Exploitability bounds: /dev/fsl-hv is a root-owned (0600) misc device on Freescale e500/e500mc powerpc only, so the practical attacker is a privileged local process; no runtime reproducer was run because the snapshot tree is read-only (conclusions from source reading and arithmetic)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/can/bcm.c",
+      "line": 359,
+      "status": "safe",
+      "reason": "unsigned int datalen = head->nframes * op->cfsiz in bcm_send_to_user: the multiply is 32-bit but every producer path clamps nframes first - TX_SETUP at bcm.c:935 ('if (msg_head->nframes < 1 || msg_head->nframes > MAX_NFRAMES) return -EINVAL', MAX_NFRAMES=256) and RX_SETUP at bcm.c:1124 ('if (msg_head->nframes > MAX_NFRAMES + 1) return -EINVAL'); op->nframes can only be <= 257 and cfsiz is MHSIZ-bounded (CAN_MTU/CANFD_MRU), so the product cannot overflow and the alloc_skb + skb_put_data(skb, frames, datalen) copy is bounded by the same clamped count stored at op->nframes."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/s390/cio/vfio_ccw_cp.c",
+      "line": 514,
+      "status": "safe",
+      "reason": "int idal_len = idaw_nr * sizeof(*idaws) is computed in 32-bit int, but the allocation is kcalloc(idaw_nr, sizeof(*idaws)) (line 519, overflow-checked allocator) and idal_len only feeds vfio_dma_rw(vdev, ..., idal_len, false) whose size is an int that cannot wrap: idaw_nr derives from ccw_count_idaws -> idal_nr_words/idal_2k_nr_words over ccw->count (max 65535 bytes, 16-bit field) so idaw_nr <= 64 and the product <= 512."
+    },
+    {
+      "snapshot": "s03",
+      "path": "fs/nfsd/nfs4proc.c",
+      "line": 2243,
+      "status": "safe",
+      "reason": "buf = kmalloc(count << 2, GFP_KERNEL): count = 4 + (verify->ve_attrlen >> 2) where ve_attrlen is an NFS wire u32 but is bounded by the READ_BUF-based decode to at most PAGE_SIZE-ish per-pagelist remainder (and ve_attrlen & 3 is rejected at line 2236), so count stays small and the shift cannot reach bit 30; consuming encoder is bounded by the same count."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/infiniband/hw/qib/qib_verbs.c",
+      "line": 838,
+      "status": "safe",
+      "reason": "phdr = kmalloc(tx->hdr_dwords << 2, GFP_ATOMIC): hdr_dwords = plen + 1 where plen is the locally computed PBC payload length derived from the packet length fields already validated against the IB LRH/BTH header and mtu earlier in qib_verbs_send; it is not a raw peer-supplied count, and the DMA length uses the same expression."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/xe/xe_guc_capture.c",
+      "line": 374,
+      "status": "safe",
+      "reason": "drmm_kzalloc(drm, num_regs * sizeof(struct __guc_mmio_reg_descr), GFP_KERNEL): num_regs is derived from static driver register tables and bitmap_weight() over the GT fuse mask (total at line 440), not from any peer/GuC wire field; the GuC-wire NUM_MMIO_ENTRIES path at lines 1307-1312 is separately clamped to guc->capture->max_mmio_per_node before the consuming while (numregs--) copy into node->reginfo[].regs."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wan/pc300too.c",
+      "line": 395,
+      "status": "safe",
+      "reason": "card->buff_offset = card->n_ports * sizeof(pkt_desc) * (card->tx_ring_buffers + card->rx_ring_buffers): n_ports is fixed at 1/2 by PCI device id and ring buffer counts are derived from sca_detect_ram()-probed RAM size clamped by MAX_TX_BUFFERS; the product is a RAM offset used to program the card, computed from locally detected constants, not an untrusted count; only reachable at driver probe with the physical card present."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 665,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim present in s03 ('int size = np * sizeof(*iso);' at usbip_common.c:665 with kzalloc(size) and the np-iteration recv loop, np from the RET_SUBMIT wire field stored unclamped at line 473). Excluded from reporting per the explicit seed rule (usbip/recv_iso/number_of_packets must never be the finding itself); recorded so a later worker can decide snapshot-local seed presence. USBIP_MAX_ISO_PACKETS is enforced only on the CMD_SUBMIT direction (stub_rx.c:381-384), matching the seed's asymmetric validation."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/infiniband/sw/siw/siw_verbs.c",
+      "line": 388,
+      "status": "safe",
+      "reason": "vmalloc_user(num_sqe * sizeof(struct siw_sqe)) and the sibling vmalloc_user(num_rqe * sizeof(struct siw_rqe)) (line 421): the multiply operands are size_t-promoted inside a 64-bit vmalloc argument, and num_sqe/num_rqe come from the locally checked ib_qp_cap against SIW_MAX_SGE/q-size limits before the copy loops; a 64-bit product cannot wrap and oversized requests fail the allocation rather than truncating."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/xfrm/xfrm_user.c",
+      "line": 648,
+      "status": "safe",
+      "reason": "kmalloc(sizeof(*p) + (ualg->alg_key_len + 7) / 8, GFP_KERNEL): alg_key_len is a u32 netlink field but the expression is computed in the 64-bit size_t argument of kmalloc and xfrm state algorithms reject key lengths > XFRMA_ALG_KEY_MAX checks downstream (and practically by the crypto API), so no narrow-type truncation exists; listed as a multiply-adjacent parse site examined."
+    },
+    {
+      "snapshot": "s03",
+      "path": "fs/btrfs/tree-log.c",
+      "line": 3608,
+      "status": "safe",
+      "reason": "ins_data = kmalloc(count * sizeof(u32) + nr * sizeof(struct btrfs_key), ...): count and nr are derived from the on-disk/dir locally computed index ranges in the same function batch (batch.nr bounded by log batch constants) and the products are computed in size_t before kmalloc; the consuming copy loops iterate the same locally bounded counts. Multiplier-into-allocator sites in fs/btrfs and fs/xfs were computed in 64-bit or from constants in every site read."
+    }
+  ],
+  "limitations": [
+    "The sweep was bounded to allocator-adjacent arithmetic found by six search families: 'int X = Y * sizeof' narrow-typed assignments, allocator-call arguments containing '* sizeof' or '<< n', narrow-typed size/len variable declarations, memcpy_from_msg length arithmetic in net/socket families, wan/ethernet ring-offset multiplies, and a Python AST-style scan of count-named variables with multiply/shift expressions within 8 lines of an allocator call (8 hits, all classified). Multiply sites in arch/, mm/ internals, tools/, and staging with trusted kernel-derived counts were only spot-checked, not exhaustively audited.",
+    "The reported fsl_hypervisor finding is a source-level hypothesis: no runtime reproducer or static-analyzer run was performed (the snapshot tree is read-only); the wrapped-allocation scenario requires param.count chosen so that (count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT truncates into a small 32-bit num_pages (e.g. count near 2^41), and exploitation additionally requires get_user_pages_fast to pin num_pages pages and access to the root-owned /dev/fsl-hv misc device on Freescale powerpc, so real-world impact is limited to a privileged local attacker on that platform.",
+    "Unexamined candidate families that could hide further same-mechanism variants in s03: krealloc-based receive paths (iscsi target AHS buffer), net/sched ematch nmatches, fs/ceph xattr 'int size = 4 + ci->i_xattrs.count*(4+4)', drivers/firmware/qemu_fw_cfg count*sizeof(struct fw_cfg_file), drivers/net/ethernet adminq reply allocations, and HID/NCI descriptor sizing - these were only enumerated by sweep output, not deep-read to their consuming loops.",
+    "The seed usbip chain is present unpatched in s03 (usbip_common.c:665) and is excluded from findings by the seed-never-reportable rule; it is recorded as an unresolved candidate for a later worker to decide snapshot-local seed presence, and the rest of this artifact deliberately reports only a different-location variant."
+  ]
+}

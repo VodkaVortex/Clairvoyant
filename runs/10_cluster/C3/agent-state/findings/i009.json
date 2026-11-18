@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "rtnl-doit-attr-gaps",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_main.c",
+      "start": 12774,
+      "end": 12776,
+      "quote": "\tbr_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC);\n\n\tnla_for_each_nested(attr, br_spec, rem) {",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace RTM_SETLINK (PF_BRIDGE) netlink message; IFLA_AF_SPEC is policy-optional (net/core/rtnetlink.c ifla_policy line 1869: [IFLA_AF_SPEC] = { .type = NLA_NESTED }, no NLA_F_NET...required flag; nlmsg_find_attr returns NULL when absent). rtnl_bridge_setlink (net/core/rtnetlink.c:4886-4921) guards its own br_spec with 'if (br_spec)' but then forwards the raw nlh to dev->netdev_ops->ndo_bridge_setlink(dev, nlh, flags, extack) on the BRIDGE_FLAGS_SELF path (line 4920). Violated invariant: i40e_ndo_bridge_setlink (i40e_main.c:12762-12777) fetches br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC) at line 12774 and passes it to nla_for_each_nested(attr, br_spec, rem) at line 12776 with NO 'if (!br_spec)' guard \u2014 unlike sibling drivers bnxt.c:12461, be_main.c:4982, ixgbe_main.c:9898, mlx5 en_main.c:4536 which all have it. Unsafe use: nla_for_each_nested expands to nla_for_each_attr(pos, nla_data(nla), nla_len(nla), rem) (include/net/netlink.h:1931-1932), dereferencing NULL br_spec. Consequence: NULL-pointer dereference oops (local DoS) from an attacker-crafted RTM_SETLINK message that includes IFLA_BRIDGE_FLAGS=BRIDGE_FLAGS_SELF but omits IFLA_AF_SPEC, targeting an i40e PF VSI (vsi->seid == pf->vsi[pf->lan_vsi]->seid passes the EOPNOTSUPP gate). Counterevidence checked: all other ndo_bridge_setlink implementors and both rtnl_bridge_* dispatchers guard the attribute before use."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/intel/ice/ice_main.c",
+      "start": 6651,
+      "end": 6653,
+      "quote": "\tbr_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC);\n\n\tnla_for_each_nested(attr, br_spec, rem) {",
+      "confidence": "high",
+      "reason": "Same mechanism: ice_bridge_setlink (ice_main.c:6636-6653) fetches br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC) at line 6651 and passes it directly to nla_for_each_nested(attr, br_spec, rem) at line 6653 with no NULL check. nla_for_each_nested dereferences its nesting attribute via nla_data()/nla_len() (include/net/netlink.h:1931-1932), so br_spec == NULL from an attacker-crafted RTM_SETLINK/PF_BRIDGE message (IFLA_AF_SPEC is optional in ifla_policy; the rtnl_bridge_setlink dispatcher at net/core/rtnetlink.c:4920 forwards raw nlh to ndo_bridge_setlink for BRIDGE_FLAGS_SELF) causes a NULL-pointer dereference oops. Counterevidence checked: of the six nlmsg_find_attr(IFLA_AF_SPEC) consumers in this snapshot only i40e (line 12774) and ice (line 6651) lack the 'if (!br_spec) return -EINVAL;' guard; bnxt, be2net, ixgbe, mlx5 and both rtnl_bridge_* dispatchers guard it."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/core/rtnetlink.c",
+      "line": 4886,
+      "status": "safe",
+      "reason": "rtnl_bridge_setlink(): br_spec guarded by 'if (br_spec)' before nla_for_each_nested; final memcpy(nla_data(attr),...) runs only under 'if (have_flags)' which implies attr was set by the guarded loop."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/rtnetlink.c",
+      "line": 4963,
+      "status": "safe",
+      "reason": "rtnl_bridge_dellink(): identical guarded structure; the only ndo_bridge_dellink implementor (bridge br_dellink, br_netlink.c:1046-1050) returns 0 when afspec is absent."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt.c",
+      "line": 12460,
+      "status": "safe",
+      "reason": "bnxt_bridge_setlink(): 'if (!br_spec) return -EINVAL;' at lines 12461-12462 before nla_for_each_nested."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/emulex/benet/be_main.c",
+      "line": 4981,
+      "status": "safe",
+      "reason": "be_ndo_bridge_setlink(): 'if (!br_spec) return -EINVAL;' at lines 4982-4983 before nla_for_each_nested."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_main.c",
+      "line": 9897,
+      "status": "safe",
+      "reason": "ixgbe_ndo_bridge_setlink(): 'if (!br_spec) return -EINVAL;' at lines 9898-9899 before nla_for_each_nested."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/en_main.c",
+      "line": 4535,
+      "status": "safe",
+      "reason": "mlx5e_bridge_setlink(): 'if (!br_spec) return -EINVAL;' at lines 4536-4537 before nla_for_each_nested."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bridge/br_netlink.c",
+      "line": 990,
+      "status": "safe",
+      "reason": "br_setlink(): protinfo/afspec jointly guarded ('if (!protinfo && !afspec) return 0') and each use re-checks presence ('if (p && protinfo)', 'if (afspec) err = br_afspec(...)'), so neither NULL reaches nla_parse_nested_deprecated/nla_get_u8."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/neighbour.c",
+      "line": 1809,
+      "status": "safe",
+      "reason": "neigh_delete(): dst_attr = nlmsg_find_attr(..., NDA_DST) immediately checked with 'if (!dst_attr) ... goto out' before any nla_len/nla_data use."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/s390/net/qeth_l2_main.c",
+      "line": 791,
+      "status": "safe",
+      "reason": "qeth_l2_bridge_setlink(): iterates top-level attrs with nlmsg_for_each_attr and gates bp_tb[] usage behind has_protinfo ('if (!has_protinfo) return 0'); IFLA_PROTINFO only parsed when present."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/rtnetlink.c",
+      "line": 2871,
+      "status": "unresolved",
+      "reason": "do_setlink()/rtnl_setlink tb[] consumption (IFLA_* slots are optional in ifla_policy by default) was only pattern-surveyed; the per-kind rtnl_link_ops changelink sweep across ~60 kind files was not completed within this intent's bounds and is left to the tb[]-audit branch."
+    }
+  ],
+  "limitations": [
+    "Only the RTM_SETLINK/RTM_DELLINK bridge attribute paths driven by nlmsg_find_attr were fully audited (all six IFLA_AF_SPEC consumer sites plus the rtnl_bridge_setlink/dellink dispatchers); the ~60 rtnl_link_ops per-kind newlink/changelink handlers were pattern-grepped but not individually read, so a tb[]-slot gap inside a specific kind's changelink could remain unreported here.",
+    "Whether an unprivileged user without CAP_NET_ADMIN can reach the rtnl_bridge_setlink doit dispatch in this snapshot (netlink_rcv_skb -> rtnetlink_rcv_msg permission path) was not re-verified line-by-line; the NULL-deref itself is unconditional once the handler is entered.",
+    "The two reported findings require the corresponding NIC driver (i40e or ice) with a device in the vulnerable state (e.g., i40e PF VSI); impact on such hardware is a static hypothesis, not a runtime reproduction.",
+    "br_setlink's legacy-binary compat path (protinfo without NLA_F_NESTED) reads nla_get_u8(protinfo) after an nla_len check \u2014 read as safe, but not compile-tested."
+  ]
+}

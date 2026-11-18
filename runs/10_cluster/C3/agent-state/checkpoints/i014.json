@@ -1,0 +1,19 @@
+{
+  "intent_id": "i014",
+  "branch": "helper-param-null-deref",
+  "snapshot": "s01",
+  "status": "complete",
+  "note": "Finalized as bounded negative: all prioritized helper-parameter surfaces traced; every unguarded callee covered by caller-side presence test or in-helper check. nfqnl_ct_parse closest analogue classified safe.",
+  "candidates": [
+    "nfqnl_ct_parse: caller nfqnl_recv_verdict gates the whole helper on 'if (nfqa[NFQA_CT])' (1203-1206) and the helper NULL",
+    "ctnetlink_parse_tuple dereferences cda[type] via nla_parse_nested_deprecated with no NULL check (line 1156), but every c",
+    "ctnetlink_parse_help passes attr straight into nla_parse_nested_deprecated with no NULL check, but both callers cover th",
+    "nfnetlink_parse_nat_proto passes attr to nla_parse_nested_deprecated unguarded, but its only caller nfnetlink_parse_nat ",
+    "ctnetlink_parse_zone is NULL-tolerant by construction: it dereferences attr only inside 'if (attr)' (1112/1115), and its",
+    "nft_ct_timeout_parse_policy passes attr into nla_parse_nested_deprecated unguarded, but its sole caller nft_ct_timeout_o",
+    "nft_ct_get_init/nft_ct_set_init dereference tb[NFTA_CT_KEY] (lines 395, 548) with no in-function NULL check, but the exp",
+    "br_parse_vlan_tunnel_info passes attr into nla_parse_nested_deprecated unguarded, but its only caller br_afspec (net/bri",
+    "parse_nla_bpf passes attrs[SEG6_LOCAL_BPF] into nla_parse_nested_deprecated unguarded, but the dispatcher parse_nla_acti",
+    "parse_nl_config wraps every attribute dereference in its own 'if (info->attrs[FOU_ATTR_*])' test (AF 684, PORT 700, IPPR"
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "ioctl-sock-usercopy-string",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "start": 98,
+      "end": 103,
+      "quote": "\tbuffer = vmemdup_user(buf, lbuf);\n\tif (IS_ERR(buffer))\n\t\treturn -ENOMEM;\n\n\trc = sscanf(buffer, \"%x %x %x %x %x %x %x\", &slct, &oflw, &chn, &rsc, &anc,\n\t\t    &erc, &rsid);",
+      "confidence": "high",
+      "reason": "Untrusted source: crw_inject_write (debugfs 'crw_inject' node, mode 0200, registered at drivers/s390/cio/cio_inject.c:166) copies attacker-supplied bytes of attacker-chosen length lbuf via vmemdup_user(buf, lbuf), which allocates exactly lbuf bytes and copies lbuf bytes with NO NUL terminator and no lbuf+1 slot. Violated invariant: the validated copy size equals the used size, so the buffer is not guaranteed to contain any NUL byte. Unsafe use: sscanf(buffer, \"%x %x %x %x %x %x %x\", ...) immediately scans buffer as a C string; glibc/kernel vsscanf skips leading whitespace then consumes non-whitespace characters until NUL, reading past the end of the lbuf allocation when the attacker supplies exactly lbuf non-NUL bytes (e.g. write(fd, \"1 0 0 0 0 0 0\", 13)). Impact: out-of-bounds heap read (KASAN slab-OOB, info leak/crash), the same consequence class as the seed bfa bug. Counterevidence checked: no memdup_user_nul/strndup_user/count+1 terminator anywhere between copy and use (lines 98-103); the only guard is the static_branch cio_inject_enabled gate which does not bound lbuf or add a terminator; kvfree happens only after sscanf. Guard-page PoC under $TMPDIR confirmed sscanf('%s') faults reading past a 4-byte unterminated heap buffer placed flush against PROT_NONE. s390-only and requires the inject debugfs gate enabled, which bounds practical reachability; expressed as confidence high on mechanism, not exploitability."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "start": 174,
+      "end": 184,
+      "quote": "\tcmd_buf = memdup_user(buf, count);\n\tif (IS_ERR(cmd_buf))\n\t\treturn PTR_ERR(cmd_buf);\n\n\tmodule = ice_find_module_by_dentry(pf, dentry);\n\tif (module < 0) {\n\t\tdev_info(dev, \"unknown module\\n\");\n\t\treturn -EINVAL;\n\t}\n\n\tcnt = sscanf(cmd_buf, \"%s\", user_val);",
+      "confidence": "high",
+      "reason": "Untrusted source: ice_debugfs_module_write (debugfs fwlog 'modules/<name>' file, mode 0600, registered at drivers/net/ethernet/intel/ice/ice_debugfs.c:618) copies attacker data via memdup_user(buf, count) allocating exactly count bytes with no NUL terminator, after only a *ppos==0 and count>8 rejection. Violated invariant: no check guarantees an in-bounds NUL; allocation size equals user length exactly. Unsafe use: cnt = sscanf(cmd_buf, \"%s\", user_val) treats cmd_buf as a C string; with count==8 non-NUL bytes the scan reads past the 8-byte allocation before any whitespace/NUL is found. Identical pattern repeats at lines 260-264 (nr_messages, count<=4), 335-339 (enable, count<=2), and 431-435 (log_size, count<=5) in the same file, all memdup_user exact-size then sscanf('%s', user_val) with no terminator. Impact: out-of-bounds heap read (KASAN slab-OOB) same class as seed; the small count caps bound the overread to within the same slab object in most configurations, so severity is lower than the seed, but the invariant violation and OOB read mechanism are identical. Counterevidence checked: no memdup_user_nul/strndup_user or cmd_buf[count]='\\0' anywhere in these four handlers; sysfs_match_string/kstrtos16/kstrtobool run only after sscanf has already overread. Root-only debugfs (0600) bounds reachability."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 315,
+      "end": 319,
+      "quote": "\tkern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &len);",
+      "confidence": "high",
+      "reason": "Untrusted source: bnad_debugfs write regrd handler copies attacker bytes of attacker-chosen nbytes via memdup_user (exactly nbytes, no terminator) and immediately runs sscanf(kern_buf, \"%x:%x\", ...). This is a structural twin of the seed scsi/bfa bfad_debugfs regrd bug (same Brocade driver family, same memdup_user+sscanf shape, no memdup_user_nul/strndup_user/+1 slot present at lines 315-319), present in snapshot s04. The same pattern repeats in bnad_debugfs_write_regwr at lines 375-379 (memdup_user then sscanf \"%x:%x\"). Violated invariant: allocation size equals user length with no guaranteed in-bounds NUL; sscanf scans until NUL past the allocation end when the user supplies all non-NUL bytes. Impact: OOB heap read (KASAN slab-OOB), identical mechanism and consequence to the seed commit 13d0cecb4626. Counterevidence checked: no terminator primitive between copy and use in either handler; rc<2 and len bounds checks run only after sscanf. Note: strictly a debugfs branch shape rather than ioctl/sockopt, recorded here because it surfaced during the ioctl/usercopy sweep of s04; the seed subsystem itself (drivers/scsi/bfa) is present in s04 unfixed at line 253-257 but is not reportable per task rules."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/scsi/bfa/bfad_debugfs.c",
+      "line": 253,
+      "status": "safe",
+      "reason": "Seed file itself exists in s04 (memdup_user at line 253 then sscanf at 257) but is the demonstration location, explicitly not reportable; listed only as triaged context."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 1002,
+      "status": "safe",
+      "reason": "Allocates memdup_user(buffer, count + 1) and sets cmd_buf[count] = '\\0' at line 1006 before strchr/strsep at lines 1008/1015, so the C-string invariant is enforced; rejected with concrete terminator evidence."
+    },
+    {
+      "snapshot": "s04",
+      "path": "fs/btrfs/ioctl.c",
+      "line": 2803,
+      "status": "safe",
+      "reason": "BTRFS_IOC_DEV_WAIT/replace ioctl copies a fixed-size struct (memdup_user(arg, sizeof(*vol_args)), not an attacker-length string) and the strcmp at 2803 runs only after btrfs_check_ioctl_vol_args_path(vol_args) validated the embedded name is NUL-terminated in-bounds at line 2799; no attacker-chosen-length unterminated string use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/s390/cio/cio_inject.c",
+      "line": 102,
+      "status": "reported",
+      "reason": "vmemdup_user(buf, lbuf) then sscanf(\"%x x7\") with no terminator slot; reported in findings."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 184,
+      "status": "reported",
+      "reason": "Four handlers (lines 174/184, 260/264, 335/339, 431/435) use memdup_user exact-size then sscanf(\"%s\") with no NUL; reported in findings."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 319,
+      "status": "reported",
+      "reason": "bfa-seed twin: memdup_user exact-size then sscanf at lines 315-319 and 375-379, no memdup_user_nul/strndup_user; reported in findings."
+    }
+  ],
+  "limitations": [
+    "Search was bounded to the ioctl/sockopt/netlink/char-dev-write branch plus the cross-cutting memdup_user/vmemdup_user string-consumer sweep over snapshots/s04 only (211 memdup_user + vmemdup_user call sites screened for string ops within 8 lines); a full ioctl-handler audit of every copy_from_user site was not completed before finalization.",
+    "The cio_inject and ice_debugfs findings require debugfs access (0200/0600 root-only nodes; cio additionally needs the cio_inject static branch enabled), so practical reachability is root-gated; the invariant violation and OOB-read mechanism are established, exploit impact beyond KASAN-class slab overread is not proven.",
+    "ice_debugfs overread distance is bounded by the count<=8/4/2/5 caps, which usually keeps the read inside the same kmalloc slab object; KASAN-configured kernels still report it as slab-OOB.",
+    "Guard-page/ASan confirmation was done with a userspace model of sscanf('%s') scanning past an unterminated exact-size allocation, not an in-kernel run on s04, and the sscanf implementation-dependent exact read granularity past the redzone was not measured.",
+    "Netlink nla_data/nla_string policy handling in s04 was not separately audited before finalization."
+  ]
+}

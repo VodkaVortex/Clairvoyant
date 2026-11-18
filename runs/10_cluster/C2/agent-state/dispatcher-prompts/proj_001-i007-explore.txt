@@ -1,0 +1,229 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-07718be26568
+  status: active
+  created_at: 1794460614146
+  reason: null
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C2/public. Seed: mptcp: Fix out of bounds when parsing TCP options. The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'MECHANISM PROFILE (seed: mptcp_get_options TCP-option walk OOB read; demo only, never reportable). Untrusted source: remotely attacker-controlled bytes forming a variable-length option/TLV chain inside a packet header (TCP options of an incoming segment; generally any packet-derived TLV/IE buffer). Missing guarantee: the parser loop consumes a discriminator/opcode byte and adjusts its remaining-length bookkeeping, but never enforces the invariant that at least 2 bytes remain before dereferencing the next byte as the field-size (opsize); pointer advance and length bookkeeping diverge from the true buffer bounds. Unsafe use/state transition: with remaining==1 the loop reads the opcode, then executes ''opsize = *ptr++'' past the end of the option area; sibling shapes read a size byte but then use it without clamping to remaining bytes, driving larger over-reads or memcpy overruns. Security-relevant consequence: out-of-bounds read of packet-adjacent memory (info leak / KASAN-detectable crash), plus potential wider OOB reads/copies from an unvalidated size field. Canonical fix shape: guard ''if (length < 2) return'' before each dependent read, and clamp any size field to remaining length before copying/advancing. BRANCHES: branch1=tcp-optwalk-len2=audit every in-tree TCP-option walk (net/ipv4/tcp_input.c tcp_parse_options and its callers, net/ipv6/syncookies.c, net/mptcp sub-option loops, net/dccp option parsing, TCP MD5/AO/fastopen option handling) for a missing remaining>=2 check between consuming the kind byte and reading the length byte, including off-by-one bookkeeping in the EOL/NOP fast path; branch2=ip-exthdr-tlv-walk=audit IP-layer variable-length header walkers (IPv4 IPOPT loops, IPv6 hop-by-hop/destination-option and other exthdr TLV iteration in net/ipv6, IP-option helpers in net/core) for the same step: consume a type byte then read a length byte without confirming 2 bytes remain, or advance the cursor by an unvalidated element length; branch3=l2-wireless-ie-tlv=audit L2/wireless information-element and TLV parsers (cfg80211/mac80211 802.11 IE walks, radiotap, Bluetooth EIR/AD/SDP/AMP attribute loops) where an element-id byte is consumed and the length byte or body is read when fewer than 2 bytes remain, or traversal advances by an unvalidated element length; branch4=optsize-body-clamp=audit network option parsers that read a size byte but use it unclamped: memcpy, pointer advance, or get_unaligned of ''size'' bytes without a ''size <= remaining'' guard, so a truncated final option over-reads past the buffer end.'
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794460799297
+  created_at: 1794460614258
+  concluded_at: 1794460799297
+- id: i002
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=tcp-optwalk-len2; Search only snapshots/s01: audit every in-tree TCP-option walk (net/ipv4/tcp_input.c tcp_parse_options and its callers, net/ipv6/syncookies.c, net/mptcp sub-option loops, net/dccp option parsing, TCP MD5/AO/fastopen option handling) for a missing remaining>=2 check between consuming the kind byte and reading the length byte, including off-by-one EOL/NOP fast-path bookkeeping; report concrete source evidence for each candidate or a negative result and save a structured artifact for s01 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794460905230
+  created_at: 1794460905216
+  concluded_at: null
+- id: i003
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=tcp-optwalk-len2; Search only snapshots/s02: audit every in-tree TCP-option walk (net/ipv4/tcp_input.c tcp_parse_options and its callers, net/ipv6/syncookies.c, net/mptcp sub-option loops, net/dccp option parsing, TCP MD5/AO/fastopen option handling) for a missing remaining>=2 check between consuming the kind byte and reading the length byte, including off-by-one EOL/NOP fast-path bookkeeping; report concrete source evidence for each candidate or a negative result and save a structured artifact for s02 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794460905230
+  created_at: 1794460905217
+  concluded_at: null
+- id: i004
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=tcp-optwalk-len2; Search only snapshots/s03: audit every in-tree TCP-option walk (net/ipv4/tcp_input.c tcp_parse_options and its callers, net/ipv6/syncookies.c, net/mptcp sub-option loops, net/dccp option parsing, TCP MD5/AO/fastopen option handling) for a missing remaining>=2 check between consuming the kind byte and reading the length byte, including off-by-one EOL/NOP fast-path bookkeeping; report concrete source evidence for each candidate or a negative result and save a structured artifact for s03 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794460905231
+  created_at: 1794460905218
+  concluded_at: null
+- id: i005
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=ip-exthdr-tlv-walk; Search only snapshots/s01: audit IP-layer variable-length header walkers (IPv4 IPOPT loops, IPv6 hop-by-hop/destination-option and other exthdr TLV iteration in net/ipv6, IP-option helpers in net/core) for the pattern of consuming a type byte then reading a length byte without confirming 2 bytes remain, or advancing the cursor by an unvalidated element length; report concrete source evidence for each candidate or a negative result and save a structured artifact for s01 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794460905233
+  created_at: 1794460905219
+  concluded_at: null
+- id: i006
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=ip-exthdr-tlv-walk; Search only snapshots/s02: audit IP-layer variable-length header walkers (IPv4 IPOPT loops, IPv6 hop-by-hop/destination-option and other exthdr TLV iteration in net/ipv6, IP-option helpers in net/core) for the pattern of consuming a type byte then reading a length byte without confirming 2 bytes remain, or advancing the cursor by an unvalidated element length; report concrete source evidence for each candidate or a negative result and save a structured artifact for s02 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794460905220
+  concluded_at: null
+- id: i007
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=ip-exthdr-tlv-walk; Search only snapshots/s03: audit IP-layer variable-length header walkers (IPv4 IPOPT loops, IPv6 hop-by-hop/destination-option and other exthdr TLV iteration in net/ipv6, IP-option helpers in net/core) for the pattern of consuming a type byte then reading a length byte without confirming 2 bytes remain, or advancing the cursor by an unvalidated element length; report concrete source evidence for each candidate or a negative result and save a structured artifact for s03 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794460905221
+  concluded_at: null
+- id: i008
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=l2-wireless-ie-tlv; Search only snapshots/s01: audit L2/wireless information-element and TLV parsers (cfg80211/mac80211 802.11 IE walks, radiotap, Bluetooth EIR/AD/SDP/AMP attribute loops) where an element-id byte is consumed and the length byte or body is read when fewer than 2 bytes remain, or traversal advances by an unvalidated element length; report concrete source evidence for each candidate or a negative result and save a structured artifact for s01 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794460905222
+  concluded_at: null
+- id: i009
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=l2-wireless-ie-tlv; Search only snapshots/s02: audit L2/wireless information-element and TLV parsers (cfg80211/mac80211 802.11 IE walks, radiotap, Bluetooth EIR/AD/SDP/AMP attribute loops) where an element-id byte is consumed and the length byte or body is read when fewer than 2 bytes remain, or traversal advances by an unvalidated element length; report concrete source evidence for each candidate or a negative result and save a structured artifact for s02 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794460905222
+  concluded_at: null
+- id: i010
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=l2-wireless-ie-tlv; Search only snapshots/s03: audit L2/wireless information-element and TLV parsers (cfg80211/mac80211 802.11 IE walks, radiotap, Bluetooth EIR/AD/SDP/AMP attribute loops) where an element-id byte is consumed and the length byte or body is read when fewer than 2 bytes remain, or traversal advances by an unvalidated element length; report concrete source evidence for each candidate or a negative result and save a structured artifact for s03 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794460905223
+  concluded_at: null
+- id: i011
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=optsize-body-clamp; Search only snapshots/s01: audit network option parsers that read a size byte but then use it unclamped: memcpy, pointer advance, or get_unaligned of ''size'' bytes without a ''size <= remaining'' guard, so a truncated final option over-reads past the buffer end; report concrete source evidence for each candidate or a negative result and save a structured artifact for s01 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794460905224
+  concluded_at: null
+- id: i012
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=optsize-body-clamp; Search only snapshots/s02: audit network option parsers that read a size byte but then use it unclamped: memcpy, pointer advance, or get_unaligned of ''size'' bytes without a ''size <= remaining'' guard, so a truncated final option over-reads past the buffer end; report concrete source evidence for each candidate or a negative result and save a structured artifact for s02 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794460905224
+  concluded_at: null
+- id: i013
+  sources:
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=optsize-body-clamp; Search only snapshots/s03: audit network option parsers that read a size byte but then use it unclamped: memcpy, pointer advance, or get_unaligned of ''size'' bytes without a ''size <= remaining'' guard, so a truncated final option over-reads past the buffer end; report concrete source evidence for each candidate or a negative result and save a structured artifact for s03 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794460905225
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794460614146
+
+```
+
+### Current Intent
+```
+i007
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s03; BRANCH=ip-exthdr-tlv-walk; Search only snapshots/s03: audit IP-layer variable-length header walkers (IPv4 IPOPT loops, IPv6 hop-by-hop/destination-option and other exthdr TLV iteration in net/ipv6, IP-option helpers in net/core) for the pattern of consuming a type byte then reading a length byte without confirming 2 bytes remain, or advancing the cursor by an unvalidated element length; report concrete source evidence for each candidate or a negative result and save a structured artifact for s03 only.
+```
+

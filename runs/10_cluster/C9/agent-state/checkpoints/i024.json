@@ -1,0 +1,18 @@
+{
+  "intent_id": "i024",
+  "branch": "error-unwind-poisoned-count",
+  "snapshot": "s06",
+  "status": "finalized",
+  "progress": "Finalized per directive. Reported: s06 drivers/accel/qaic/qaic_control.c:973-1006 - decode_message stores device le32 reply count unclamped into shared manage_msg (poisoning store line 974), every loop failure exit returns without reset, and qaic_manage_ioctl:1340-1347 exports the poisoned count to userspace on the -ECANCELED error path; request-direction sibling qaic_manage:1252-1255 enforces the clamp the reply direction omits (asymmetric validation). Confidence low: consuming loop internally bounds-checked against msg_hdr_len, impact is state poisoning + device-controlled count propagation, not proven memory corruption. Seed usbip chain present unpatched in s06 (usbip_common.c:473/664-665, stub_rx.c:379 clamp) recorded as excluded-by-rule unresolved. gve num_event_counters store (gve_adminq.c:1081) safe: no consuming loop located. dm-era, dm-zoned, ubi fastmap, bnxt, ixgbe_e610 confirmed present but not deep-read (limitations).",
+  "candidates": [
+    {"path": "drivers/accel/qaic/qaic_control.c", "line": 974, "status": "reported"},
+    {"path": "drivers/usb/usbip/usbip_common.c", "line": 664, "status": "unresolved"},
+    {"path": "drivers/usb/usbip/stub_rx.c", "line": 379, "status": "safe"},
+    {"path": "drivers/accel/qaic/qaic_control.c", "line": 1252, "status": "safe"},
+    {"path": "drivers/accel/qaic/qaic_control.c", "line": 1406, "status": "safe"},
+    {"path": "drivers/net/ethernet/google/gve/gve_adminq.c", "line": 1081, "status": "safe"}
+  ],
+  "findings": [
+    {"path": "drivers/accel/qaic/qaic_control.c", "start": 973, "end": 1006, "confidence": "low"}
+  ]
+}

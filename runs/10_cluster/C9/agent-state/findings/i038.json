@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "intent_id": "i038",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": ["s09"],
+  "findings": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "start": 204,
+      "end": 214,
+      "quote": "u16 gb_msg_len = le16_to_cpu(gb_frame->hdr.size);",
+      "confidence": "medium",
+      "reason": "Peer-trusted-transport invariant violation, verified from source in snapshots/s09 only. UNTRUSTED SOURCE: hdlc_rx_greybus_frame() (drivers/greybus/gb-beagleplay.c:204-214) parses a Greybus message delivered by the remote peer MCU over the serdev UART/HDLC link (ADDRESS_GREYBUS dispatch in hdlc_rx_frame(), line 367-368); the attacker is the remote endpoint of this virtual-bus protocol, the seed's threat model without sharing the seed's subsystem. MISSING LOCAL LIMIT CHECK: the peer-controlled 16-bit header field is extracted at line 208 (gb_msg_len = le16_to_cpu(gb_frame->hdr.size)) and passed verbatim as the delivered length to greybus_data_rcvd() at line 213, while the locally known real frame length -- len = bg->rx_buffer_len - 4 computed by hdlc_rx_frame() at line 357 from the CRC-validated (line 349-352) accumulated frame and passed in as the 'len' parameter at line 368 -- is never used inside hdlc_rx_greybus_frame: gb_msg_len is never compared to len, to the fixed u8 rx_buffer[MAX_RX_HDLC] member (MAX_RX_HDLC = 1 + RX_HDLC_PAYLOAD(256) + CRC_LEN, gb-beagleplay.c:23-25, array at line 83), or to any kernel-known maximum for this RX path. ASYMMETRIC VALIDATION: the same driver clamps the mirror TX direction at gb-beagleplay.c:602 ('if (le16_to_cpu(msg->header->size) > RX_HDLC_PAYLOAD) return -E2BIG'), but the RX path applies no such bound. The downstream validation is vacuous for this caller: gb_connection_recv() (drivers/greybus/operation.c:1026-1063) re-reads msg_size = le16_to_cpu(header.size) at line 1048 from the very same peer-supplied bytes it was handed as size and only tests 'if (size < msg_size)' (line 1049) -- for the beagleplay caller size == msg_size by construction, so the check can never fire. UNSAFE USE: gb_operation_create_incoming() performs 'memcpy(operation->request->header, data, size);' (operation.c:651), copying peer-declared size bytes (up to 65535) out of the fixed 259-byte rx_buffer member of struct gb_beagleplay into the freshly allocated request message -- a heap OOB source read past the accumulated frame, with the destination bounded only by hd->buffer_size_max (operation.c:366-379)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 213,
+      "status": "reported",
+      "reason": "greybus_data_rcvd(bg->gb_hd, cport_id, (u8 *)&gb_frame->hdr, gb_msg_len) delivers the raw peer le16 hdr.size as the message length; the caller-supplied locally known length (len = rx_buffer_len - 4, line 357, passed at line 368) is ignored inside hdlc_rx_greybus_frame; part of the reported finding."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/greybus/operation.c",
+      "line": 1049,
+      "status": "reported",
+      "reason": "Vacuous downstream validation: gb_connection_recv re-reads msg_size from the same peer bytes it was handed as size (line 1048), so 'if (size < msg_size)' cannot fire for the beagleplay caller; the validated value is not independent of the used value. Part of the reported finding."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/greybus/operation.c",
+      "line": 651,
+      "status": "reported",
+      "reason": "Consuming copy: memcpy(operation->request->header, data, size) in gb_operation_create_incoming copies peer-declared size bytes from the fixed 259-byte rx_buffer into the heap request message; source over-read past the accumulated frame. Part of the reported finding."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 602,
+      "status": "safe",
+      "reason": "TX-direction sibling enforces a local limit: 'if (le16_to_cpu(msg->header->size) > RX_HDLC_PAYLOAD) return dev_err_probe(&hd->dev, -E2BIG, ...)' before hdlc_tx_frames; the asymmetric-validation evidence that the same driver checks the size on transmit but not on the mirror receive path (lines 208/213)."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/greybus/es2.c",
+      "line": 844,
+      "status": "safe",
+      "reason": "The urb->actual_length completion-metadata target specifically named by the intent was deep-read: cport_in_callback (es2.c:813-854) gates 'if (urb->actual_length < sizeof(*header))' (line 834) before greybus_data_rcvd(hd, cport_id, urb->transfer_buffer, urb->actual_length) (lines 844-845); actual_length is HCI-set and cannot exceed transfer_buffer_length (buffers allocated by es2 itself at ES2_GBUF_MSG_SIZE_MAX), so the delivered length is locally bounded -- greybus_data_rcvd is safe with a bounded caller; the unbounded deliverer is only gb-beagleplay. arpc_in_callback similarly gates 'if (urb->actual_length < sizeof(*resp))' at line 1046."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 399,
+      "status": "safe",
+      "reason": "hdlc_rx() byte-collection loop guards every store with 'if (bg->rx_buffer_len < MAX_RX_HDLC)' before writing rx_buffer[rx_buffer_len] (lines 399-401), so serdev RX accumulation into the fixed buffer is range-checked; the unchecked propagation happens only at lines 208/213 via gb_msg_len."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/greybus/operation.c",
+      "line": 987,
+      "status": "safe",
+      "reason": "Response direction is locally bounded: message_size = sizeof(*header) + message->payload_size (line 986) with size > message_size rejected as -EMSGSIZE (987-992) and short responses either truncated to size - sizeof(*header) under gb_operation_short_response_allowed or rejected (993-1002); payload ignored on bad status. The mirror weakness is only in the request/incoming direction fed by the beagleplay deliverer."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep halted by the finalize directive: only the greybus transport family in s09 was deep-read (gb-beagleplay.c hdlc_rx_frame/hdlc_rx_greybus_frame/hdlc_rx, es2.c cport_in_callback/arpc_in_callback, operation.c gb_connection_recv/gb_connection_recv_response/gb_operation_create_incoming/gb_operation_message_alloc); other peer/virtual transports present in the tree (9p trans_fd/virtio/rdma/xen/usbg, nbd and rnbd, vhost/vringh, virtio_rpmsg, qcom_glink native/smem/rpm, hv balloon/kvp/fcopy/snapshot vmbus channels, HID transports, xen-blkfront/back, mctp, remote admin-queue reply handlers in gve/ixgbe/bnxt) were enumerated by directory listing only and not deep-read in this session, so an additional on-branch variant in those cannot be ruled out.",
+    "Impact of the reported finding is bounded to a heap OOB read: the memcpy destination is allocated from the same peer-declared size and capped by hd->buffer_size_max (operation.c:366-379), so no OOB write was identified; the over-read source is the fixed 259-byte rx_buffer member of struct gb_beagleplay, so exposure depends on adjacent heap layout, and whether the copied bytes reach userspace (greybus protocol responses, debugfs) was not traced.",
+    "Reachability requires a malicious or compromised CC1352 peer MCU sending a Greybus frame whose hdr.size exceeds the actual HDLC frame payload; the frame is CRC-validated (crc_ccitt, gb-beagleplay.c:349-352) but the peer computes the CRC too, so the CRC is not a trust boundary.",
+    "No compilation, static analysis, or runtime reproducer was performed (read-only snapshot; the transport requires a serdev UART peer MCU); all line numbers come from direct numbered source reads of snapshots/s09 verified in this session (lines 204-214, 343-373, 399-405, 602, 813-854, 1046, 1026-1063, 651, 986-1002, 366-379).",
+    "The seed usbip path is present unpatched in s09 (usbip_common.c:473 unclamped RET_SUBMIT store, per fact f034) and is excluded from findings per the seed-never-reportable rule; it was not re-examined in this session."
+  ]
+}

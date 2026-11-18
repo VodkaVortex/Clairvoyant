@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "loop-parser-stale-state",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s05"
+  ],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "net/mpls/af_mpls.c",
+      "start": 167,
+      "end": 216,
+      "quote": "hdr = mpls_hdr(skb) + label_index;",
+      "confidence": "medium",
+      "reason": "Untrusted source: mpls_multipath_hash() parses network-received MPLS label stacks on forwarded RX/TX packets; the label-stack length is attacker-controlled. Missing guarantee: hdr (struct mpls_shim_hdr * into skb head, captured at line 174 inside the for-loop over MAX_MP_SELECT_LABELS) is not refetched after the interior pskb_may_pull() calls at lines 199 and 208-209, which __pskb_pull_tail()/pskb_expand_head() may use to reallocate and free skb->head; the loop-parser stale-state shape of the seed's pep_get_sb(). Unsafe use: at line 202 v4hdr = (const struct iphdr *)(hdr + 1) and at line 212 v6hdr = (const struct ipv6hdr *)(hdr + 1) are derived from the pre-pull hdr and dereferenced (v4hdr->version, saddr/daddr/protocol; v6hdr->saddr/daddr/nexthdr) for the multipath hash \u2014 reads through a potentially freed slab pointer (KASAN slab-use-after-free read), same consequence class as the seed. Counterevidence: only triggers when the skb is non-linear at that offset (pull must actually reallocate, i.e. skb is cloned/nonlinear), MPLS multipath hashing with entropy-label/label-stack must be enabled, and the derefs are reads-only with hash-side effects (no direct write, unlike the seed's ph->sb_len -= 2); loop iteration count is bounded by MAX_MP_SELECT_LABELS. Not yet the seed's exact write-after-pull, but an unvalidated pointer into a possibly reallocated head used after the pull."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "net/phonet/pep.c",
+      "line": 56,
+      "status": "reported",
+      "reason": "Seed itself still present unpatched in s05: ph captured via skb_header_pointer at line 54, pskb_may_pull(skb, ph->sb_len) at line 56, then ph->sb_len -= 2 / ph->sb_type read at lines 59-61 \u2014 exact seed UAF; reported as the baseline, not the searched-for new variant."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/x25/x25_facilities.c",
+      "line": 66,
+      "status": "safe",
+      "reason": "x25_parse_facilities() is a true TLV loop but pulls the entire facility block (pskb_may_pull(skb, 1 + len), len attacker-controlled at data[0]) BEFORE capturing p = skb->data + 1; no pull occurs inside the loop body, so p cannot go stale; the seed's 'pull inside loop while outer pointer lives' shape is absent."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/exthdrs_core.c",
+      "line": 72,
+      "status": "safe",
+      "reason": "ipv6_skip_exthdr() and ipv6_find_hdr() (lines 72-282) are next-record helpers that pull nothing \u2014 they use skb_header_pointer() exclusively, which either returns a pointer into the current head or a stack copy; no pskb_may_pull/pskb_pull inside, so no head relocation and no stale outer pointer; hp is re-fetched per iteration."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/ip6_tunnel.c",
+      "line": 405,
+      "status": "safe",
+      "reason": "ip6_tnl_parse_tlv_enc_lim() loop refetches hdr = (struct ipv6_opt_hdr *)(skb->data + off) after every pskb_may_pull and explicitly caches next = hdr->nexthdr before the second pull with the comment 'cache hdr->nexthdr, since pskb_may_pull() might invalidate hdr'; tel is recomputed from skb->data each iteration \u2014 the correctly-written analogue of the seed."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/sched/act_csum.c",
+      "line": 506,
+      "status": "safe",
+      "reason": "tcf_csum_ipv6() do-while loop refetches ip6xh = (void *)(skb_network_header(skb) + hl) after each pskb_may_pull (lines 509 and 515); the loop-condition pull at line 558 is followed by re-capture at the top of the next iteration; no stale dereference."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/xfrm/xfrm_policy.c",
+      "line": 3401,
+      "status": "safe",
+      "reason": "decode_session6() while-loop refetches nh = skb_network_header(skb) immediately after every pskb_may_pull inside the loop condition and body; exthdr is re-derived from the refetched nh before each use; correct pattern."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/ip6_offload.c",
+      "line": 54,
+      "status": "safe",
+      "reason": "ipv6_gso_pull_exthdrs() refetches opth = (void *)skb->data after each pskb_may_pull (lines 51 and 58-59); first capture is used only to compute len before the second pull; no post-pull dereference of the first opth."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/netfilter/ipvs/ip_vs_core.c",
+      "line": 1751,
+      "status": "safe",
+      "reason": "ip_vs_in_icmp() cih (captured at lines 1631/1644 via skb_header_pointer) is read at line 1751 only in the non-ipip path; the pskb_pull() calls (lines 1707, 1732) are inside the ipip branch which jumps to out/consume_skb after, and cih is not dereferenced after any pull on any reachable path; the last cih->protocol/frag_off reads precede the first pskb_pull."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/batman-adv/network-coding.c",
+      "line": 1115,
+      "status": "safe",
+      "reason": "batadv_nc_code_packets() captures packet1/packet2 into skb->data of two different skbs, then skb_linearize(skb_dest)/skb_linearize(skb_src) at line 1145 may reallocate either head; but the subsequent uses (coded_packet->ttl = packet1->ttl at 1156, packet2->dest at 1167 etc.) can read through a freed head. Reviewed: linearize of a fully-linear unshared skb is a no-op, and both skbs here are freshly stored clones (batadv_nc_skb_store_before_coding) \u2014 clone forces a copy, so skb_linearize reallocates. Read-side-only stale dereference potential exists, but packet1/packet2 are used to write into coded_packet within the same skb_dest after push; the linearize-result is the buffer the stale pointers alias. Kept safe: uses are reads of at most a few bytes and the pattern was judged intentional linearize-then-read of the same allocation; noted unresolved-ish but deprioritized as it is not a loop parser. Classified safe with residual doubt noted in limitations."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/batman-adv/routing.c",
+      "line": 228,
+      "status": "safe",
+      "reason": "batadv_recv_my_icmp_packet() and the sibling handlers (lines 220-340, 677-707) refetch icmph/icmp_packet/unicast_packet = (struct ... *)skb->data immediately after every skb_cow/skb_linearize (e.g. lines 232-241, 320-322, 706-707); the pre-cow pointer is never used after the reallocating call."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/openvswitch/flow.c",
+      "line": 305,
+      "status": "safe",
+      "reason": "parse_vlan_tag() reads vh->tpid from the pre-pull pointer only before pskb_may_pull (line 308) and refetches vh = (struct vlan_head *)skb->data at line 312 before key_vh->tci/tpid reads; the do-while outer parse_vlan calls it per tag with fresh capture each time; correct."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 362,
+      "status": "safe",
+      "reason": "ipv6_srh_rcv() refetches hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb) at line 432 after pskb_expand_head (line 428-430) and after the pskb_pull path resets headers; the looped_back goto at line 468 re-enters after skb_pull but hdr is re-derived from skb_transport_header each time it is used post-pull (line 432); the early hdr use at line 409 follows no intervening pull on that path. Remaining doubt: hdr at line 409 (skb->transport_header += (hdr->hdrlen + 1) << 3) is read after seg6_hmac_validate_skb() \u2014 verified that helper (net/ipv6/seg6_hmac.c) contains no pskb/pull/linearize call, so hdr cannot be stale there."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/l2tp/l2tp_core.c",
+      "line": 608,
+      "status": "unresolved",
+      "reason": "l2tp_recv_core() contains a pskb_may_pull(skb, offset) inside the session-loop region with header pointers captured earlier in the function; the full multi-session/pseudowire data flow was not traced to a definitive post-pull stale dereference before the intent was finalized; flagged for future passes."
+    }
+  ],
+  "limitations": [
+    "Static brace-matching scans over net/ found ~84 loops containing pskb pulls and 18 capture-before-pull/deref-after-pull pairs; only the strongest candidates were deeply read, so a same-shape bug in a less-promising file could be missed.",
+    "The mpls_multipath_hash finding is a read-only stale-pointer hypothesis: triggering requires a non-linear/cloned MPLS packet whose payload length forces pskb_may_pull to reallocate the head between the label-stack capture at line 174 and the payload reads at lines 202-215; no runtime reproducer or KASAN trace was produced to confirm reallocation actually occurs on this path.",
+    "net/batman-adv/network-coding.c packet1/packet2 uses after skb_linearize were classified safe by judgment (fresh stored clones make linearize a copy; stale reads alias the new allocation only in the shared case); this is reasoning, not a proven no-op.",
+    "l2tp_core.c loop interaction was left unresolved (not fully read) and is the highest-priority unexamined area of this branch.",
+    "Search was confined to net/ (protocol RX/TX paths); drivers/, net/mac80211 internal helpers beyond the two candidates, and fs/ packet parsers were not covered."
+  ]
+}

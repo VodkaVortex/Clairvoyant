@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "tcp-optwalk-len2",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4531,
+      "status": "safe",
+      "reason": "tcp_parse_options main walk: between consuming the kind byte (opcode = *ptr++) and the length byte (opsize = *ptr++ at line 4558) there is an explicit 'if (length < 2) return;' at line 4556; EOL returns, NOP decrements length before continue, so NOP bookkeeping is exact (one byte consumed, one byte decremented). opsize<2 and opsize>length both bail before ptr += opsize-2. No missing remaining>=2 check."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4487,
+      "status": "safe",
+      "reason": "tcp_parse_mss_option has the same 'if (length < 2) return mss;' guard at line 4504 before opsize = *ptr++; NOP path length-- is exact; opsize>length rejects partial options before ptr advance."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mptcp/options.c",
+      "line": 359,
+      "status": "safe",
+      "reason": "mptcp_get_options contains the exact seed-fix guard: 'if (length < 2) return;' at line 386 between 'opcode = *ptr++' (line 378) and 'opsize = *ptr++' (line 388); NOP decrements length by exactly 1 per byte consumed; opsize<2 and opsize>length both return. The seed vulnerability shape is fixed in this tree."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4721,
+      "status": "safe",
+      "reason": "tcp_do_parse_auth_options (TCP MD5/AO walk): default case reads 'opsize = *ptr++' with no literal length<2 check, but the loop condition is 'while (length >= minlen)' where minlen is TCPOLEN_MD5SIG (18) or sizeof(struct tcp_ao_hdr)+1 (>=19); after one opcode byte is consumed at least minlen-1 >= 17 bytes remain, so the second byte read is always in bounds; opsize<2 || opsize>length rejects before advance."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_synproxy_core.c",
+      "line": 29,
+      "status": "safe",
+      "reason": "synproxy_parse_options has 'if (length < 2) return true;' at line 54 before 'opsize = *ptr++'; additionally length<0 is rejected and the whole option area is fetched via skb_header_pointer with a 40-byte stack buffer, so no OOB."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_synproxy_core.c",
+      "line": 199,
+      "status": "safe",
+      "reason": "synproxy_tstamp_adjust walk checks 'optoff + 1 == optend || optoff + op[1] > optend || op[1] < 2' before using the length byte, equivalent remaining>=2 semantics."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_conntrack_proto_tcp.c",
+      "line": 335,
+      "status": "safe",
+      "reason": "tcp_options() ('Simplified tcp_parse_options routine') has 'if (length < 2) return;' at line 364; tcp_sack() at line 426 likewise; both copy options into a fixed (15*4-sizeof(tcphdr)) stack buffer via skb_header_pointer, bounding reads."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/sched/sch_cake.c",
+      "line": 1016,
+      "status": "safe",
+      "reason": "cake_get_tcpopt ('inspired by tcp_parse_options') has 'if (length < 2) break;' at line 1030 before opsize read; second walk at line 1169 also guarded; opsize<2 || opsize>length rejects partial options."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/syncookies.c",
+      "line": 151,
+      "status": "safe",
+      "reason": "cookie_v6_check calls tcp_parse_options (guarded upstream); no independent option walk. Same for net/ipv4/syncookies.c:378 and net/ipv4/tcp_minisocks.c callers."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/xt_TCPMSS.c",
+      "line": 36,
+      "status": "safe",
+      "reason": "optlen() reads opt[offset] and opt[offset+1]; callers bound the loop: tcpmss_mangle_packet iterates 'for (i = sizeof(struct tcphdr); i <= tcp_hdrlen - TCPOLEN_MSS; i += optlen(opt, i))' and validates len>=tcp_hdrlen first, so i+1 < tcp_hdrlen always holds when optlen reads two bytes; TCPOPTSTRIP and nft_exthdr use 'i < tcp_hdrlen - 1' / 'i < tcphdr_len - 1' before optlen(), and reject i+optl > tcp_hdrlen."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 426,
+      "status": "safe",
+      "reason": "tcp_accecn_process_option re-fetches the saved AccECN option via skb_transport_header + rx_opt.accecn (an offset saved by tcp_parse_options only for a fully in-bounds option) and guards with WARN_ON_ONCE on the kind byte; optlen derived from ptr[1]-2 of the validated option; indirect but bounded by the same validated header area."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/dccp/options.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "not present in this snapshot: net/dccp does not exist in snapshots/s03, so DCCP option parsing could not be audited here."
+    }
+  ],
+  "limitations": [
+    "Bounded by the grep/rg surface actually enumerated in this session: doff-based option-length computations in net/, TCPOPT_NOP/TCPOPT_EOL/TCPOPT_MSS/opsize references under net/ and tools/, and direct callers of tcp_parse_options/tcp_parse_mss_option/mptcp_get_options/tcp_do_parse_auth_options; other subsystems embedding private copies of TCP-header option walks (e.g. out-of-tree-looking code under drivers/ or arch-specific network stacks) were not exhaustively scanned.",
+    "net/dccp is absent from s03, so DCCP option parsing cannot be classified in this tree.",
+    "BPF selftests under tools/testing/selftests/bpf that implement TCP-header-option walkers were noted by grep but not line-by-line audited; they are test programs, not kernel attack surface."
+  ]
+}

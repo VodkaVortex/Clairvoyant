@@ -1,0 +1,16 @@
+{
+  "intent_id": "i018",
+  "branch": "gro-frag-stale-ptr",
+  "snapshot": "s02",
+  "status": "complete",
+  "step": "final artifact written",
+  "artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i018.json",
+  "findings": 1,
+  "finding_1": "s02:net/ipv4/udp_offload.c:26-46 __skb_udp_tunnel_segment: uh = udp_hdr(skb) captured at line 26; pskb_may_pull(skb, tnl_hlen) at line 33 can __pskb_pull_tail->pskb_expand_head and free skb->head; stale uh->len read at line 43 and uh->check read at line 46; per-segment refetch only at line 116; stale-derived 'partial' written into every segment's uh->check at lines 133-140. Medium confidence.",
+  "classified_candidates": {
+    "reported": ["net/ipv4/udp_offload.c:33"],
+    "safe": ["net/core/dev.c:4723 napi_frags_skb", "net/ipv4/tcp_offload.c:189 tcp_gro_receive", "net/ipv4/udp_offload.c:252 udp_gro_receive", "net/ipv6/ip6_offload.c:176 ipv6_gro_receive", "net/ipv4/gre_offload.c:142 gre_gro_receive", "net/ipv4/fou.c:329 gue_gro_receive", "drivers/net/vxlan.c:551 vxlan_gro_receive", "drivers/net/geneve.c:418 geneve_gro_receive", "net/8021q/vlan.c:637 vlan_gro_receive (+ net/ethernet/eth.c:413 eth_gro_receive)", "net/ipv4/af_inet.c:1311 inet_gro_receive", "net/core/skbuff.c:3169 skb_segment frag-list walker + tcp_gso_segment refetch"],
+    "unresolved": []
+  },
+  "searched": "all *_gro_receive/*_gro_complete handlers in net/ and drivers/net (vxlan, geneve are the only driver users of gro header helpers), GSO segmenters (inet_gso_segment, ipv6_gso_segment, udp4_ufo/udp6_ufo, tcp_gso_segment, skb_udp_tunnel_segment, skb_segment), GRO core (dev.c dev_gro_receive/napi_frags_skb/gro_pull_from_frag0, netdevice.h helpers), frag-list walkers (ip6_frag_queue, nf_ct_frag6_queue/gather, strp_recv)"
+}

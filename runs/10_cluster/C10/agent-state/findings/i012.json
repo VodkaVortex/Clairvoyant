@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "proc-config-write-unterminated",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "arch/um/kernel/exitcode.c",
+      "start": 46,
+      "end": 52,
+      "quote": "size = min(count, sizeof(buf));\n\tif (copy_from_user(buf, buffer, size))\n\t\treturn -EFAULT;\n\n\ttmp = simple_strtol(buf, &end, 0);\n\tif ((*end != '\\0') && !isspace(*end))",
+      "confidence": "medium",
+      "reason": "Untrusted source: /proc/exitcode write syscall (proc_create(\"exitcode\", 0600, NULL, &exitcode_proc_ops) at line 70, exitcode_proc_write at lines 39-56); the writer controls count and all buffer bytes. Violated invariant: buf is char buf[sizeof(\"nnnnn\\0\")] == 7 bytes (line 42); size = min(count, sizeof(buf)) permits size == 7, and copy_from_user(buf, buffer, 7) fills every byte of the 7-byte stack array with no +1 terminator slot, no buf[size] = 0, and no count < sizeof(buf) rejection. Unsafe use: simple_strtol(buf, &end, 0) scans the buffer as a NUL-terminated C string, reading buf[7] one byte past the 7-byte stack array when the user writes 7 non-NUL digit bytes; the following if ((*end != '\\0') && !isspace(*end)) dereferences that out-of-bounds byte. Consequence: 1-byte stack out-of-bounds read (KASAN stack-OOB; info leak of one adjacent stack byte / crash) - the same root cause as the seed (exactly-sized usercopy of attacker-chosen length followed by a C-string parser with no terminator). Counterevidence checked: full handler read (lines 39-56), no memset, no terminator write, no tighter bound anywhere; the correct sibling pattern exists in this snapshot at drivers/acpi/proc.c:98-103 (count clamped to 4 into strbuf[5] then strbuf[count]='\\0'). Reachability limited to CONFIG_UML builds and the 0600 root-gated proc entry, matching the seed's root-only debugfs trust boundary; impact is a single OOB byte, hence medium confidence."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/imm.c",
+      "start": 136,
+      "end": 138,
+      "quote": "if ((length > 5) && (strncmp(buffer, \"mode=\", 5) == 0)) {\n\t\tdev->mode = simple_strtoul(buffer + 5, NULL, 0);",
+      "confidence": "medium",
+      "reason": "Untrusted source: write(2) to /proc/scsi/imm/<host> reaches proc_scsi_host_write (drivers/scsi/scsi_proc.c:64-87), which copies count user bytes (bounded only by PROC_BLOCK_SIZE = 3*1024 at scsi_proc.c:42/71) into a freshly __get_free_page'd PAGE_SIZE page with NO terminator write (copy at scsi_proc.c:80, raw (page, count) handed to shost->hostt->write_info at line 82); imm.c:1107 wires .write_info = imm_write_info, so the caller controls length and every byte. Violated invariant: the validated region is exactly `length` bytes but the buffer is never NUL-terminated - nothing writes buffer[length] = '\\0' in proc_scsi_host_write or in imm_write_info (function read in full, lines 132-142) - so the C-string invariant does not hold past the user bytes. Unsafe use: simple_strtoul(buffer + 5, NULL, 0) consumes the page as a NUL-terminated string; after 'mode=' plus length-5 digit bytes with no NUL, the digit scan continues past the validated count into the uninitialized page tail (up to PAGE_SIZE - length bytes of stale kernel memory) until a non-digit byte is found, and in the worst case (uninitialized tail entirely ASCII digits) walks past the end of the 4096-byte page allocation - heap out-of-bounds read; the resulting value, partly derived from uninitialized kernel memory, is stored into dev->mode. This is the seed's exact invariant (usercopy of attacker-chosen length, no terminator slot, C-string consumer) under a /proc write path. Counterevidence checked: the leading strncmp(buffer, \"mode=\", 5) is length-bounded and safe; no terminator exists anywhere between the copy and simple_strtoul; the sibling wd33c93_write_info in this snapshot does terminate (buf[len] = '\\0' at drivers/scsi/wd33c93.c:2019, in-bounds because len <= 3072 < PAGE_SIZE), proving the fix primitive and that termination was required. Medium confidence because the unconditional defect is parsing uninitialized bytes beyond the validated length, while the page-crossing overread requires the stale tail to be all digits."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/ppa.c",
+      "start": 137,
+      "end": 143,
+      "quote": "if ((length > 5) && (strncmp(buffer, \"mode=\", 5) == 0)) {\n\t\tx = simple_strtoul(buffer + 5, NULL, 0);\n\t\tdev->mode = x;\n\t\treturn length;\n\t}\n\tif ((length > 10) && (strncmp(buffer, \"recon_tmo=\", 10) == 0)) {\n\t\tx = simple_strtoul(buffer + 10, NULL, 0);",
+      "confidence": "medium",
+      "reason": "Untrusted source: same /proc/scsi/ppa/<host> write path - proc_scsi_host_write (drivers/scsi/scsi_proc.c:64-87) copies count <= 3*1024 attacker bytes into a PAGE_SIZE page with no terminator and passes the raw (page, count) to ->write_info; ppa.c:993 wires .write_info = ppa_write_info. Violated invariant: ppa_write_info (lines 132-148 read in full) never NUL-terminates the buffer, so the string invariant holds only for the first `length` bytes. Unsafe use: two simple_strtoul sites (buffer+5 at line 138 for 'mode=', buffer+10 at line 143 for 'recon_tmo=') scan digit characters past the validated length through the uninitialized page tail until a non-digit/NUL is hit; the parsed value - which can incorporate uninitialized kernel-memory bytes - is stored to dev->mode / dev->recon_tmo and the recon_tmo value is additionally emitted via printk (line 145), a direct unbounded-memory-to-log information disclosure path; worst case the scan runs off the 4096-byte page (heap OOB read). Counterevidence checked: no buf[length]='\\0' anywhere in the callback or in the scsi_proc.c copy path; strncmp prefixes are length-bounded and safe; wd33c93 sibling terminates correctly, confirming the missing-primitive classification. Same medium-confidence caveat as imm.c: the guaranteed defect is consumption beyond the validated count, the page-boundary crossing is the worst case."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/imm.c",
+      "line": 137,
+      "status": "reported",
+      "reason": "imm_write_info: simple_strtoul(buffer + 5, NULL, 0) on the unterminated page handed over by proc_scsi_host_write; reported as finding 2."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/ppa.c",
+      "line": 138,
+      "status": "reported",
+      "reason": "ppa_write_info: simple_strtoul at lines 138/143 on the same unterminated proc page; reported as finding 3."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_proc.c",
+      "line": 80,
+      "status": "reported",
+      "reason": "proc_scsi_host_write copies count (<= 3*1024) user bytes into a PAGE_SIZE page with no terminator and passes raw (page, count) to ->write_info callbacks; this is the untrusted source and missing-terminator context for the imm/ppa findings. Callbacks that terminate themselves (wd33c93) are safe; those that parse without terminating (imm, ppa) are not."
+    },
+    {
+      "snapshot": "s03",
+      "path": "arch/um/kernel/exitcode.c",
+      "line": 50,
+      "status": "reported",
+      "reason": "copy_from_user fills the full 7-byte stack array (size = min(count, sizeof(buf)) with no -1) and simple_strtol then reads buf[7] OOB; reported as finding 1."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/wd33c93.c",
+      "line": 2019,
+      "status": "safe",
+      "reason": "wd33c93_write_info explicitly writes buf[len] = '\\0' before the strncmp/simple_strtoul loop; len <= PROC_BLOCK_SIZE = 3072 < PAGE_SIZE, so the terminator write is in-bounds and all parsing runs on a terminated buffer."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_proc.c",
+      "line": 424,
+      "status": "safe",
+      "reason": "proc_scsi_write: for length < PAGE_SIZE writes *end = '\\0' at buffer+length, else requires buffer[PAGE_SIZE-1] to already be NUL (goto out otherwise); every simple_strtoul is additionally guarded by p/end pointer checks."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_devinfo.c",
+      "line": 733,
+      "status": "safe",
+      "reason": "proc_scsi_devinfo_write writes buffer[length] = '\\0' when length < PAGE_SIZE and rejects length == PAGE_SIZE unless buffer[PAGE_SIZE-1] is already NUL before scsi_dev_info_list_add_str parses it."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_debug.c",
+      "line": 6437,
+      "status": "safe",
+      "reason": "scsi_debug_write_info copies minLen = min(length, 15) into char arr[16] and writes arr[minLen] = '\\0' before sscanf(arr, \"%d\", &opts); terminated and bounded."
+    },
+    {
+      "snapshot": "s03",
+      "path": "fs/configfs/file.c",
+      "line": 195,
+      "status": "safe",
+      "reason": "fill_write_buffer copies at most SIMPLE_ATTR_SIZE-1 bytes and writes buffer->page[copied] = 0 with an explicit 'terminate it by \\0' comment, so every configfs ->store_* callback in this snapshot receives a NUL-terminated buffer; the 53 CONFIGFS_ATTR files' sscanf/simple_strtoul sites therefore operate on terminated input."
+    },
+    {
+      "snapshot": "s03",
+      "path": "arch/alpha/kernel/srm_env.c",
+      "line": 107,
+      "status": "safe",
+      "reason": "srm_env_proc_write rejects count >= PAGE_SIZE and writes buf[count] = '\\0' after copy_from_user; callback_setenv receives a terminated buffer."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/xt_recent.c",
+      "line": 599,
+      "status": "safe",
+      "reason": "recent_mt_proc_write clamps size to sizeof(buf) and uses strnchr(c, size, ':') plus in4_pton/in6_pton with the explicit remaining `size` bound; no unbounded C-string consumer."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/acpi/proc.c",
+      "line": 103,
+      "status": "safe",
+      "reason": "acpi_system_write_wakeup_device clamps count to 4 into strbuf[5] and writes strbuf[count] = '\\0' before sscanf(strbuf, \"%s\", str); reference-correct pattern."
+    },
+    {
+      "snapshot": "s03",
+      "path": "kernel/sched/psi.c",
+      "line": 1530,
+      "status": "safe",
+      "reason": "psi_write uses buf_size = min(nbytes, sizeof(buf)) with nbytes >= 1 enforced, then writes buf[buf_size - 1] = '\\0' - always in-bounds - before psi_trigger_create."
+    }
+  ],
+  "limitations": [
+    "The proc sweep covered the 32 proc_ops .proc_write files that contain copy_from_user/memdup_user (all read or line-verified: srm_env, xt_recent, psi, cifs_debug, via-pmu, libipw, pnpbios, ntfs3, pktgen, cache.c, svcauth_gss, scsi_proc, scsi_devinfo, scsi_debug, exitcode, acpi/proc, plus arch handlers); proc writers using simple_write_to_buffer or other helpers were not individually audited.",
+    "The imm/ppa findings rest on structural evidence: the unconditional defect is that simple_strtoul consumes the uninitialized page tail beyond the validated count (uninitialized-memory-to-dev->mode/recon_tmo and to the ppa printk at line 145), while the page-boundary (heap OOB) overread is the worst case requiring the stale tail to be all digit bytes; no runtime PoC or KASAN run was executed in this read-only snapshot.",
+    "The exitcode finding is limited to CONFIG_UML builds and the 0600 root-gated /proc/exitcode entry, with a 1-byte stack OOB read; the snapshot tree was not compiled for UML.",
+    "configfs coverage relies on the fs/configfs/file.c fill_write_buffer terminator guarantee (page[copied] = 0) plus inspection of the sscanf/simple_strtoul call sites in the 53 CONFIGFS_ATTR files; ->store callbacks that copy user data again inside helpers were not exhaustively traced, and securityfs/tracefs writers were verified only at their direct copy_from_user/memdup_user_nul sites (all of which terminate or use memdup_user_nul).",
+    "Not deeply read: drivers/scsi/arm/powertec.c set_proc_info (same family as cumana_2, which uses fixed-length strncmp only), aic7xxx ahc_proc_write_seeprom/ahd_proc_write_seeprom, and sound/core/info.c per-entry c.text.write callbacks beyond snd_ctl_elem_init_enum_names (verified strnlen-bounded); these remain unclassified residue.",
+    "Debugfs-write variants in s03 (bnad_debugfs.c, ice_debugfs.c, cio_inject.c, qedf_debugfs.c, rvu_debugfs.c) are covered by intent i010's artifact and were not re-reported under this proc/configfs branch; the tree-wide 204-site memdup_user scan surfaced no additional proc/configfs/configfs-adjacent string-consumer sites beyond those already classified."
+  ]
+}

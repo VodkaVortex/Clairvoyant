@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "intent_id": "i021",
+  "branch": "if-alt-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s05"],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/hid/wacom_sys.c",
+      "start": 2178,
+      "end": 2190,
+      "quote": "hdev1 = usb_get_intfdata(usbdev->config->interface[1]);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: usbdev->config->interface[] is the actconfig interface-pointer array sized solely by the device-declared bNumInterfaces at enumeration (usbcore recomputes nintf from the parsed descriptor stream and accepts configurations with fewer interfaces than the driver's device model assumes, warning only); a physically attacker-controlled USB gadget spoofing a Wacom wireless-receiver PID can present a configuration with only 1 or 2 interfaces. MISSING GUARANTEE: wacom_wireless_work indexes usbdev->config->interface[1] at line 2178 and interface[2] at line 2184 with hardcoded assumed indexes; grep verified this session shows bNumInterfaces occurs ZERO times in wacom_sys.c and ZERO times in wacom_wac.c, so no code path validates config->desc.bNumInterfaces > 2 before either access. UNSAFE USE: the fetched pointers are immediately passed to usb_get_intfdata() (deref of &intf->dev to fetch per-interface driver data) and then chain-dereferenced: hid_get_drvdata(hdev1)->wacom_wac at 2179-2180 and wacom_release_resources(wacom1) at 2181; same chain for interface[2] at 2184-2187. For a shrunken config this is a NULL or uninitialized-slot pointer dereference in kernel work-queue context. TRIGGER: the work is scheduled from device-supplied wireless HID reports (wacom_wac.c:2539 and 2547 wacom_schedule_work(wacom, WACOM_WORKER_WIRELESS)), so a malicious gadget controls both enumeration and the trigger report. COUNTEREVIDENCE: genuine Wacom wireless receivers enumerate 3 interfaces, so exploitation requires ID spoofing by a physically attacker-controlled gadget; whether out-of-range slots are NULL or garbage depends on usbcore allocation details. Same mechanism class as seed (assumed index into descriptor-declared-length array), different driver and level (interface vs endpoint)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "start": 318,
+      "end": 350,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: usb_host_config.intf_cache[] and its per-interface altsetting[] flex array are built solely from configuration descriptors a physically attacker-controlled USB gadget presents at enumeration; a gadget spoofing a Logitech stv06xx device_table VID/PID can declare num_altsetting == 1 (single altsetting). MISSING GUARANTEE: stv06xx_isoc_init (line 318, indexing at 324) and stv06xx_isoc_nego (line 331, indexing at 333) take actconfig->intf_cache[0]->altsetting[1] with a literal 1; grep verified this session returns ZERO num_altsetting occurrences in stv06xx.c, so no check that intf_cache[0]->num_altsetting >= 2 exists (the altsetting-count half of this statement is this branch's ownership; the co-located endpoint[0] half with zero bNumEndpoints occurrences is already reported by fact f014 for s05). UNSAFE USE: isoc_init WRITES alt->endpoint[0].desc.wMaxPacketSize (325-326) and isoc_nego reads it (334) and writes it again (342) before usb_set_interface(gspca_dev->dev, gspca_dev->iface, 1) at 348; for num_altsetting == 1 the altsetting[1] element does not exist in the kzalloc'd usb_interface_cache allocation, giving an OOB read/write past the flex array at first stream start. The hooks are invoked from the gspca core (gspca.c:856-857 isoc_init at VIDIOC_STREAMON, gspca.c:961-962 isoc_nego on the ENOSPC retry path) BEFORE any core-side alt selection validates altsetting 1. COUNTEREVIDENCE: the core's own alt handling (build_isoc_ep_tb/alt_xfer) iterates only actual altsettings and never touches intf_cache; no other code path in the file guards the literal index."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "start": 2650,
+      "end": 2694,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];",
+      "confidence": "medium",
+      "reason": "Same copied pattern as stv06xx. UNTRUSTED SOURCE: actconfig->intf_cache[0]->altsetting[1] is descriptor-derived at enumeration from an attacker-controlled gadget presenting a CIT/ibmcam device_table ID; num_altsetting is device-chosen. MISSING GUARANTEE: sd_isoc_init (line 2639, indexing at 2657) and sd_isoc_nego (line 2663, indexing at 2680) use the literal altsetting[1] index; grep verified this session returns ZERO num_altsetting occurrences in xirlink_cit.c, so num_altsetting >= 2 is never validated (endpoint[0] half already reported by fact f014). UNSAFE USE: isoc_init writes alt->endpoint[0].desc.wMaxPacketSize at 2658, isoc_nego reads it at 2681 and writes it at 2688 before usb_set_interface(gspca_dev->dev, gspca_dev->iface, 1) at 2690; a single-altsetting gadget yields OOB access past the usb_interface_cache flex array at first VIDIOC_STREAMON (gspca.c:856-857/961-962 hooks fire unconditionally when registered). COUNTEREVIDENCE: the file's other alt accessor cit_get_packet_size (line 1452) uses usb_altnum_to_altsetting and is NULL-checked (verified this session), showing safe patterns exist nearby but do not guard these hooks. Confidence medium rather than high because some supported CIT models negotiate via bulk paths, though the isoc hooks fire from the same unguarded core call sites."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "start": 1448,
+      "end": 1456,
+      "quote": "interface = &dev->actconfig->interface[usbvision_device_data[model].interface]->altsetting[0];",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: dev->actconfig->interface[] length is the device-supplied bNumInterfaces; a malicious gadget matching usbvision's device_table can declare fewer interfaces than the per-model hardcoded index assumes. MISSING GUARANTEE: the model-driven branch at 1448 indexes actconfig->interface[usbvision_device_data[model].interface] (per-model assumed index) with no bNumInterfaces check and then unconditionally dereferences ->altsetting[0]; the sibling ifnum branch at 1450 explicitly validates 'ifnum < dev->actconfig->desc.bNumInterfaces' (1450-1451), proving the required check exists in the same function and was omitted from the model-index path. UNSAFE USE: interface->desc.bNumEndpoints is read at 1456 immediately after, so a shrunken interface array yields a NULL/garbage pointer dereference during probe (device plug-in). TRIGGERABILITY: grep verified this session that all model entries in usbvision-cards.c have .interface == 0 (20 entries) or -1 (47 entries), so the only index used is 0, and config->interface[0] exists whenever the configuration parsed with at least one interface (which usbcore requires to accept a config); triggering therefore requires a config usbcore accepts with zero parsed interfaces (warning-only condition) - the direction of the missing check is certain (sibling branch has it), runtime reachability with in-tree models is not, hence medium confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/serial/qcserial.c",
+      "line": 233,
+      "status": "safe",
+      "reason": "altsetting[1] access at line 234 is gated by 'if (serial->interface->num_altsetting == 2)' at 233 with explicit >2 (235) and ==1 (243) branches; the altsetting-count is validated before the index is used."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/serial/sierra.c",
+      "line": 174,
+      "status": "safe",
+      "reason": "The sierra alt-switch path gates on 'serial->interface->num_altsetting == 2' at line 174 before using altsetting state; no literal altsetting[N] indexing without a count check exists in the file (grep verified this session)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/usb/cdc_ncm.c",
+      "line": 848,
+      "status": "safe",
+      "reason": "cdc_ncm MBIM alt switching (lines 848, 850, 868) is performed exclusively via usb_set_interface(), which the usb core validates against the parsed descriptor set (num_altsetting), and the file contains no literal altsetting[N] indexing (grep verified this session); no unvalidated altsetting-count assumption on this path."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 2061,
+      "status": "safe",
+      "reason": "intf2 = dev->actconfig->interface[i] at line 2061 (grep hit this session) sits inside the core loop bounded by dev->actconfig->desc.bNumInterfaces (loop construct verified in sibling snapshots s01/s07 and the same source line in s05); interface index is bounded by the same descriptor-declared count that sized the array."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/em28xx/em28xx-cards.c",
+      "line": 3603,
+      "status": "safe",
+      "reason": "Directly verified this session: 'for (i = 0; i < udev->config->desc.bNumInterfaces; i++) { struct usb_interface *uif = udev->config->interface[i]; ... }' at 3602-3603 - loop index bounded by the descriptor-declared count that sized the array; altsetting[0] access is structurally in-bounds (every interface has altsetting 0)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/serial/ftdi_sio.c",
+      "line": 1885,
+      "status": "safe",
+      "reason": "actconfig->interface[0]/[1] appear only in pointer-equality comparisons (1885, 1921-1922, grep verified this session); a short interface array yields NULL which merely makes the comparison false - no dereference of an unvalidated index."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/serial/usb-serial.c",
+      "line": 830,
+      "status": "safe",
+      "reason": "iface_desc = dev->actconfig->interface[0]->cur_altsetting at 832 is guarded by 'if (interface != dev->actconfig->interface[0])' at 830; the dereference happens only when interface IS interface[0], i.e. the non-NULL interface currently being probed."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/atm/xusbatm.c",
+      "line": 59,
+      "status": "safe",
+      "reason": "xusbatm_find_intf (59) and the unbind path (153) iterate 'for (i = 0; i < usb_dev->actconfig->desc.bNumInterfaces; i++)' with NULL checks on the interface pointer and usb_altnum_to_altsetting for the altsetting (grep hits this session); module params drive the altsetting numbers and the core usb_set_interface validates them."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2209,
+      "status": "safe",
+      "reason": "Interface/altsetting levels structurally in-bounds for this branch: interface[0] exists for any configuration usbcore accepted and altsetting[0] always exists; uea_bind's only interface-level check is ifnum != UEA_INTR_IFACE_NO(0) rejected at 2540 (grep this session). The endpoint[0].desc.bInterval read at 2209 without a bNumEndpoints check is the endpoint-level form owned by the fixed-epidx-rest branch (i020), not if-alt-count."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/dvb-usb/m920x.c",
+      "line": 131,
+      "status": "safe",
+      "reason": "m920x_init_ep NULL-checks the usb_altnum_to_altsetting(intf, 1) result at 131-134 (verified this session); the m920x_i2c.../cold path at 474 compares the result to NULL ('*cold = (alt == NULL) ? 1 : 0') without dereferencing it."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/dvb-usb/friio.c",
+      "line": 423,
+      "status": "safe",
+      "reason": "Verified this session: 'if (intf->num_altsetting < GL861_ALTSETTING_COUNT) return -ENODEV;' at 424-425 precedes the usb_altnum_to_altsetting call at 426 whose result is NULL-checked at 427-430 - altsetting count validated before alt lookup."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/pwc/pwc-if.c",
+      "line": 381,
+      "status": "safe",
+      "reason": "Verified this session: usb_ifnum_to_if(udev, 0) result NULL-checked (381-382), usb_altnum_to_altsetting result NULL-checked ('if (!idesc) return -EIO;' at 383-384), and the subsequent endpoint scan at 385-389 is bounded by 'i < idesc->desc.bNumEndpoints'; both altsetting lookup and endpoint index are validated."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/media/usb/gspca/ov519.c",
+      "line": 3468,
+      "status": "safe",
+      "reason": "usb_altnum_to_altsetting(intf, sd->gspca_dev.alt) at 3468 and 3593 (grep this session); the alt index is core-selected by the gspca alt table built from actual altsettings and the lookup result is NULL-checked (per fact f014's s05 analysis of these same lines); no literal altsetting[N] index in the file's own code."
+    }
+  ],
+  "limitations": [
+    "sound/usb contains no set_alt handlers in this snapshot (grep -rln 'set_alt' over sound/usb returned no files this session), so the intent's named sound/usb set_alt consumer class is vacuously clean; however the fixed altsetting[1] literal sites in sound/usb (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c, enumerated by prior sibling facts) were not deep-read in this pass and remain unexamined residuals.",
+    "The stv06xx.c and xirlink_cit.c findings conflate two gaps in one statement: the unvalidated altsetting[1] index (this branch, reported here) and the unvalidated endpoint[0] index (media-epidx branch, already reported by fact f014 for s05); the two reports overlap on the same source lines and must be deduplicated at merge time.",
+    "No compilation, Kconfig check, or USB-gadget reproducer was run (read-only snapshot; builds would go under $TMPDIR only); all findings are static source hypotheses supported by exact line reads and grep-verified absence of bNumInterfaces/num_altsetting guards (zero occurrences in each reported file).",
+    "wacom_wireless_work triggering requires a WACOM_DEVICETYPE_WL_MONITOR wireless-receiver model plus a spoofed gadget presenting a wireless HID status report with fewer than 3 interfaces; whether out-of-range config->interface[] slots are NULL or garbage depends on usbcore allocation details, so impact is crash-class, not a demonstrated write primitive.",
+    "The usbvision model-index finding is triggerability-constrained: all 67 in-tree model entries use .interface == 0 (20) or -1 (47) (grep-verified this session), so exploitation requires a configuration usbcore accepts with zero parsed interfaces; the missing check itself is certain (sibling ifnum branch at 1450-1451 has it).",
+    "drivers/media/usb V4L2 VIDIOC_S_ALT handlers beyond gspca/pwc/friio/m920x (e.g. uvc, cpia2, zr364xx set-alt paths) were covered at the usb_altnum_to_altsetting/num_altsetting grep level (all NULL-checked or count-gated as classified) but not each deep-read line-by-line; the core usb_set_interface validates alt numbers against the parsed descriptor set for the remainder.",
+    "cdc_ncm's post-switch endpoint consumption belongs to the net-epidx branch (i019, fact f010 already swept drivers/net/usb in s05) and was not re-audited here."
+  ]
+}

@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "firmware-table-divisor",
+  "snapshot": "s03",
+  "status": "complete",
+  "updated_at": "2026-11-12T08:51:55",
+  "plan": [
+    "Q1: radeon VBIOS voltage_step / voltage-field divisors (s01 sibling finding radeon_atombios.c:3714)",
+    "Q2: nouveau bios volt pwm_freq/pwm_range divisors (s04 sibling finding gk104.c:59)",
+    "Q3: do_div/div_u64/div64_u64 across drm/amd, drm/radeon, drm/nouveau, drm/i915",
+    "Q4: direct divisions by bios/pptable/table struct fields in drm firmware parsers",
+    "Q5: EDID-derived divisor sweep (drm_edid.c, drm_modes.c, amd/display freesync/modules)",
+    "Q6: bounded ACPI/SMBIOS/EEPROM do_div sweep + deferred candidates from i008 (smu7_thermal.c:280, legacy si_dpm.c:6722, r600_dpm.c fh/fl)"
+  ],
+  "deferred_from_i008_or_siblings": [
+    "s03 drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c:280 (powerplay-table u8-derived RPM limits gate user speed before 8*speed division)",
+    "s03 drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c:6722 (VBIOS thermal-controller u8 fan_min_rpm/fan_max_rpm)",
+    "r600_dpm.c fh/fl divisor provenance (s04 sibling left unresolved)"
+  ],
+  "candidates": [
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 59,
+      "status": "reported",
+      "reason": "gk104_volt_set: div = 27648000 / bios->pwm_freq with pwm_freq = nvbios_rd32(...)/1000 from VBIOS volt table 0x50 (bios/volt.c:110); no nonzero check; raw 1..999 truncates to 0 divisor. Gated only by nvbios_volt_parse success and gpio PWM mode."
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 60,
+      "status": "reported",
+      "reason": "same function: DIV_ROUND_UP((uv - bios->base) * div, bios->pwm_range); pwm_range raw rd32 from VBIOS (volt.c:111) with no nonzero validation."
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 48,
+      "status": "unresolved",
+      "reason": "gk104_volt_get: divisor div = nvkm_rd32(0x20340) register read unvalidated; hardware-sourced rather than table-sourced; whether it can read 0 pre-set not verified."
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/radeon_atombios.c",
+      "line": 3714,
+      "status": "reported",
+      "reason": "radeon_atom_round_to_true_voltage divides (nominal_voltage - min_voltage) by voltage_step, u16 copied verbatim (or (step+1)/2) from VBIOS VoltageObjectInfo ATOM_VOLTAGE_FORMULA; no nonzero check; only fetch-success checked at 3705."
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/rv6xx_dpm.c",
+      "line": 1294,
+      "status": "unresolved",
+      "reason": "rv6xx_step_sw_voltage while-loop uses the same unvalidated voltage_step as increment; step==0 with differing rounded voltages = infinite loop; adjacent to the division, same untrusted source."
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "line": 6515,
+      "status": "reported",
+      "reason": "si_thermal_setup_fan_table: t_diff1 = adev->pm.dpm.fan.t_med - t_min (raw u16 VBIOS ATOM_PPLIB fan table, legacy_dpm.c:243-248, no ordering/zero check); slope = (50 + (16*duty100*pwm_diff)/t_diff1)/100 divides by firmware-derived t_diff1 which is 0 when usTMed==usTMin or wraps via unsigned subtraction when t_med<t_min."
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/si_dpm.c",
+      "line": 5999,
+      "status": "reported",
+      "reason": "identical pattern in radeon si_thermal_setup_fan_table; t_diff1/t_diff2 from r600_parse_extended_power_table raw le16 VBIOS fields (r600_dpm.c:894-896), unchecked."
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/ci_dpm.c",
+      "line": 960,
+      "status": "reported",
+      "reason": "identical pattern in ci_thermal_setup_fan_table (lines 960-961), same unchecked VBIOS fan-table temperature fields."
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/therm/fanpwm.c",
+      "line": 71,
+      "status": "unresolved",
+      "reason": "nvkm_fanpwm_set: divs /= fan->base.bios.pwm_freq where pwm_freq = nvbios_rd32(bios/fan.c:90) & 0xffffff from VBIOS, guarded only by 'if (fan->base.bios.pwm_freq)' at line 67 so 0 is excluded; nonzero VBIOS value cannot wrap to 0 here (divs starts >=1 and /= only reduces); safe from zero but note left unresolved pending pwm_clock return value check."
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "line": 280,
+      "status": "unresolved",
+      "reason": "user-input branch (seed pattern) but gate values ulMinRPM/ulMaxRPM are firmware-derived (processpptables.c ucFanMinRPM*100 u8): ulMaxRPM==0 (fanless table) rejects every speed>0 at line 272, so 8*speed wrap unreachable for user input; firmware-dependent."
+    },
+    {
+      "path": "drivers/gpu/drm/amd/amdgpu/atom.c",
+      "line": 694,
+      "status": "safe",
+      "reason": "atom_op_div/atom_op_div32 both guard 'if (src != 0)' before dividing firmware interpreter operands."
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/r600_dpm.c",
+      "line": 227,
+      "status": "safe",
+      "reason": "r600_calculate_at explicitly rejects fl==0||fh==0||fl>fh at line 224 before k=(100*fh)/fl; divisor validated at division width."
+    }
+  ],
+  "findings": [
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "start": 52,
+      "end": 66,
+      "confidence": "medium"
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/radeon_atombios.c",
+      "start": 3694,
+      "end": 3718,
+      "confidence": "medium"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "start": 6509,
+      "end": 6516,
+      "confidence": "medium"
+    },
+    {
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "start": 38,
+      "end": 49,
+      "confidence": "low"
+    }
+  ],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C1/agent-state/findings/i016.json"
+}

@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "intent_id": "i029",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": ["s07"],
+  "findings": [
+    {
+      "snapshot": "s07",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "start": 204,
+      "end": 214,
+      "quote": "u16 gb_msg_len = le16_to_cpu(gb_frame->hdr.size);",
+      "confidence": "medium",
+      "reason": "Peer-trusted-transport invariant violation, verified from source in snapshots/s07 only. UNTRUSTED SOURCE: hdlc_rx_greybus_frame() (drivers/greybus/gb-beagleplay.c:204-214) parses a Greybus message delivered by the remote peer MCU over the serdev UART/HDLC link (ADDRESS_GREYBUS dispatch in hdlc_rx_frame(), line 449-450); the attacker is the remote endpoint of this virtual-bus protocol, the seed's threat model without sharing the seed's subsystem. MISSING LOCAL LIMIT CHECK: the peer-controlled 16-bit header field is extracted at line 208 (gb_msg_len = le16_to_cpu(gb_frame->hdr.size)) and passed verbatim as the delivered length to greybus_data_rcvd() at line 213, while the locally known real frame length -- len = bg->rx_buffer_len - 4 computed by hdlc_rx_frame() at line 439 from the CRC-validated (line 431-435) accumulated frame and passed in as the 'len' parameter at line 450 -- is never used inside hdlc_rx_greybus_frame: gb_msg_len is never compared to len, to rx_buffer (fixed u8[258] at line 83, MAX_RX_HDLC = 1 + RX_HDLC_PAYLOAD(256) + CRC_LEN at lines 23-25), or to any kernel-known maximum. The downstream validation is vacuous for this caller: greybus_data_rcvd() (connection.c:76-92) forwards to gb_connection_recv() (operation.c:1027-1066), which re-reads msg_size = le16_to_cpu(header.size) from the very same peer-supplied bytes (line 1049) and only tests 'if (size < msg_size)' (line 1050) -- for this caller size == msg_size by construction, so the check can never fail: the validated value is not independent of the used value. UNSAFE USE: with gb_msg_len > len the request-direction path gb_operation_create_incoming() (operation.c:631-656) computes request_size = size - sizeof(header) from the peer field, allocates the message buffer via gb_operation_message_alloc (bounded only by hd->buffer_size_max, operation.c:357-373) and memcpy(operation->request->header, data, size) at operation.c:652 copies peer-declared size bytes out of the fixed 258-byte rx_buffer past the end of the accumulated frame -- an OOB read of up to hd->buffer_size_max (u16-clamped at hd.c) bytes from the struct gb_beagleplay heap object; the response-direction path memcpy(message->buffer, data, size) (operation.c:1012) is additionally capped by message_size = sizeof(*header) + message->payload_size (line 987-988), so the request direction is the under-bounded one. Counterevidence checked: hdlc_rx() (line 481-483) and cc1352_bootloader_rx (line 620-633) do bound every byte store into rx_buffer with 'rx_buffer_len < MAX_RX_HDLC' / 'count > sizeof(bg->rx_buffer) - rx_buffer_len' guards, so the serdev accumulation itself is safe and the unchecked propagation happens only at line 208/213; es2.c:830-841 (the sibling greybus host driver) demonstrates the API is safe with a bounded caller since urb->actual_length <= transfer_buffer_length by the HCI contract. Impact is a heap OOB read into a freshly allocated message buffer (no OOB write was identified on this chain: the destination is always allocated from the same peer size and capped by hd->buffer_size_max), the peer MCU being attacker-controlled or compromised firmware."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s07",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 213,
+      "status": "reported",
+      "reason": "Peer-field source of the reported finding: greybus_data_rcvd(bg->gb_hd, cport_id, (u8 *)&gb_frame->hdr, gb_msg_len) where gb_msg_len is the raw le16 hdr.size from the remote MCU's HDLC-framed Greybus message and the caller-supplied real length (hdlc_rx_frame line 439/450, len = rx_buffer_len - 4) is ignored."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/greybus/operation.c",
+      "line": 1050,
+      "status": "reported",
+      "reason": "Vacuous downstream validation: gb_connection_recv re-reads msg_size from the same peer bytes it was handed as size (line 1049), so 'if (size < msg_size)' cannot fire for the beagleplay caller; validated value not independent of used value. Part of the reported finding."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/greybus/operation.c",
+      "line": 652,
+      "status": "reported",
+      "reason": "Consuming copy of the reported finding: memcpy(operation->request->header, data, size) in gb_operation_create_incoming copies peer-declared size bytes from the fixed 258-byte rx_buffer into the request message buffer; destination bounded by hd->buffer_size_max, source over-read past the accumulated frame."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/greybus/es2.c",
+      "line": 840,
+      "status": "safe",
+      "reason": "cport_in_callback (es2.c:818-844) passes urb->transfer_buffer/urb->actual_length to greybus_data_rcvd; actual_length is set by the host controller and cannot exceed transfer_buffer_length (buffers kmalloc'd ES2_GBUF_MSG_SIZE_MAX by es2 itself), and the >= sizeof(*header) minimum is enforced at line 830, so the delivered length is locally bounded -- the sibling host driver demonstrating greybus_data_rcvd is safe with a bounded caller."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1349,
+      "status": "safe",
+      "reason": "The unballoon range_count loop (balloon_down, lines 1340-1352) iterates the host-supplied req->range_count over req->range_array[], but vmbus_recvpacket (line 1490-1491) copies the whole packet into the static __u8 recv_buffer[HV_HYP_PAGE_SIZE] (line 493) with recvlen <= HV_HYP_PAGE_SIZE enforced by hv_ringbuffer_read, so range_count walking beyond PAGE_SIZE/sizeof(union dm_mem_page_range) reads only within the same 4096-byte static buffer (in-bounds .bss, garbage but not OOB); the free_balloon_pages PFN misuse remains a host-trust concern but is not a peer-length-crossing-buffer-bound violation of this branch's invariant (the host peer is the vmbus contract party). Classified safe for this intent's invariant; the same code was reported in other snapshots under the appropriate branch."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/rpmsg/qcom_glink_native.c",
+      "line": 920,
+      "status": "safe",
+      "reason": "qcom_glink_rx_data (lines 899-1013) validates peer chunk_size against 'avail < sizeof(hdr) + chunk_size' (line 923) where qcom_glink_rx_avail() is transport-defined; for the smem transport glink_smem_rx_avail (qcom_glink_smem.c:63+) derives avail from SMEM head/tail written by the remote peer -- the same peer-writable-bound weakness recorded as reported in s02/s05. However in s07 the strongest structural gap was checked and the intent was finalized before a full deep-read of the s07 smem instance could be completed; treated as safe-for-this-report because the finding is already captured on this branch for other snapshots and this session did not verify an s07-specific divergence. Kept as a bounded limitation."
+    },
+    {
+      "snapshot": "s07",
+      "path": "net/9p/trans_virtio.c",
+      "line": 146,
+      "status": "safe",
+      "reason": "req_done() stores the peer-set used-ring len into req->rc.size (line 146) only as a non-zero flag to schedule the callback; the actual response parse is bounded by p9 client msize negotiation (client.c) and p9_parse_header's pdu->size != r_size rejection, and handle_rerror (trans_virtio.c:379-397) clamps req->rc.size to P9_ZC_HDR_SZ before the page copy. Peer length cross-checked against locally known limits."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/block/nbd.c",
+      "line": 872,
+      "status": "safe",
+      "reason": "nbd_handle_reply (line 872+) resolves the peer 'handle' through blk_mq tag/cookie validation and delivers read data only into the kernel-built request's bvec segments via sock_xmit/iov_iter with per-segment bv_len bounds; no peer-supplied length sizes an allocation or loop (s07 struct nbd_reply carries only magic/error/handle)."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/virtio_net.c",
+      "line": 1241,
+      "status": "safe",
+      "reason": "receive_mergeable consumes peer num_buf = virtio16_to_cpu(hdr->num_buffers) (line 1241); the while(--num_buf) loops (1184, 1782) are bounded by virtqueue_get_buf availability, per-buffer len is checked against the locally known truesize before use, and frag counts roll over to a new skb at MAX_SKB_FRAGS; xsk_append_merge_buffer (1760+) decrements the same locally tracked num_buf. Peer count cross-checked against local limits; no peer-length-sized allocation."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: peer/virtual-transport handlers deep-read in s07 were the greybus family (gb-beagleplay.c, es2.c, connection.c, operation.c), hv_balloon.c dispatch, 9p trans_virtio req_done/handle_rerror, nbd reply handling, and virtio_net receive_mergeable; qcom_glink_native.c/qcom_glink_smem.c were read structurally (chunk_size validation at line 923, intentless kmalloc(chunk_size + left_size) at line 952, smem head/tail bound source) but the s07-specific smem instance was not deep-read to a conclusion before the finalize directive, and vhost/vringh, 9p trans_fd/trans_rdma/trans_xen/trans_usbg, rpmsg virtio/mtk/qcom_smd, mctp, ntb, xen pvcalls, ceph/cifs/smb reply parsers, and ethernet admin-queue reply handlers were only enumerated by directory/grep listing, not deep-read.",
+    "The reported finding's impact is bounded: the over-read is out of the fixed 258-byte rx_buffer member of struct gb_beagleplay into adjacent heap (destination capped by hd->buffer_size_max), and no OOB write was identified on this chain; whether the copied bytes are exfiltrated back to userspace via greybus protocol responses or debugfs was not traced to individual protocol request handlers; confidence is medium for the invariant violation and lower for end-to-end information disclosure.",
+    "No runtime reproducer or compilation was performed (read-only snapshot; the transport requires a serdev UART peer MCU); the chain was verified by direct source reads of the cited lines in snapshots/s07 only, with the rx_buffer bounds (lines 23-25, 83, 481-483, 620-633) and the downstream gb_connection_recv/gb_operation_create_incoming copies re-verified line-by-line.",
+    "The hv_balloon free_balloon_pages PFN misuse (host-chosen PFNs to pfn_to_page/__free_page without pfn_valid) is a host-trust concern in s07 but was classified safe for this branch's invariant (range_count walks within the static PAGE_SIZE recv_buffer); it was reported on this branch for other snapshots by earlier intents and is not re-reported here to avoid duplication without a stronger s07-specific divergence."
+  ]
+}

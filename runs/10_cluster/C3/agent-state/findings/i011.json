@@ -1,0 +1,228 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "unchecked-tb-deref",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 421,
+      "end": 431,
+      "quote": "if (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))\n\t\treturn -EINVAL;",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace-supplied MAC802154_HWSIM_CMD_NEW_EDGE generic-netlink doit message (registered drivers/net/ieee802154/mac802154_hwsim.c:605-610 with .flags = GENL_UNS_ADMIN_PERM and .validate = GENL_DONT_VALIDATE_STRICT|GENL_DONT_VALIDATE_DUMP), so the attribute presence set is fully attacker-chosen and only uns-admin (user-namespace CAP_NET_ADMIN) reachable. Violated validated-equals-used invariant: the presence guard at lines 421-423 in hwsim_new_edge_nl() joins the two negated presence tests with && instead of ||, so it rejects only when BOTH MAC802154_HWSIM_ATTR_RADIO_ID and MAC802154_HWSIM_ATTR_RADIO_EDGE are absent; a message carrying RADIO_EDGE but omitting RADIO_ID passes validation with info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] == NULL. The family policy hwsim_genl_policy (lines 579-583) types RADIO_ID as plain { .type = NLA_U32 } and RADIO_EDGE as plain { .type = NLA_NESTED } with no required/validation_data coverage, and the op sets GENL_DONT_VALIDATE_STRICT, so the genl core never enforces RADIO_ID presence \u2014 no other check covers that exact index. Unsafe use for THIS branch: line 431 'v0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);' dereferences the NULL slot (nla_get_u32 reads *(u32 *)nla_data(NULL), i.e. offset NLA_HDRLEN from NULL) -> NULL-pointer-dereference oops from the attacker-crafted NEW_EDGE message. The sibling slot is equally uncovered: line 425 passes info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] (NULL when only RADIO_ID is omitted) straight into nla_parse_nested_deprecated, which dereferences it via nla_len()/nla_data() (that nested-parse aspect is the same defect already recorded by intents i010/i012; the nla_get_u32(RADIO_ID) use at 431 is the distinct unchecked-tb-deref instance reported here). Counterevidence checked: the corrected sibling hwsim_del_edge_nl (the seed instance, lines 476-494) uses '||' at lines 483-484 and checks edge_attrs[ENDPOINT_ID] at 490 before uses at 493-494, showing the required idiom; no intervening check exists between the guard at 421-423 and the uses at 425/431. Consequence: local DoS (kernel NULL-deref oops) from unprivileged-user-namespace-reachable netlink input; no privilege-escalation path demonstrated."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 531,
+      "end": 544,
+      "quote": "if (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))\n\t\treturn -EINVAL;\n\n\tif (!edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID] &&\n\t    !edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI])\n\t\treturn -EINVAL;\n\n\tv0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);\n\tv1 = nla_get_u32(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID]);\n\tlqi = nla_get_u8(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI]);",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace-supplied MAC802154_HWSIM_CMD_SET_EDGE generic-netlink doit message (registered at lines 617-622 with .flags = GENL_UNS_ADMIN_PERM, GENL_DONT_VALIDATE_STRICT|GENL_DONT_VALIDATE_DUMP). Violated invariant (validated != used): hwsim_set_edge_lqi() has TWO unchecked-slot dereferences of the same mechanism. (1) Outer: the guard at lines 531-533 is the &&-joined negated-presence form, so a message carrying MAC802154_HWSIM_ATTR_RADIO_EDGE but omitting MAC802154_HWSIM_ATTR_RADIO_ID passes with info->attrs[RADIO_ID] == NULL (hwsim_genl_policy lines 580-581 type it plain NLA_U32, not required), and line 542 'v0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);' dereferences the NULL slot; symmetrically, a message carrying RADIO_ID but omitting RADIO_EDGE passes the guard and line 535 feeds the NULL RADIO_EDGE slot to nla_parse_nested_deprecated (nested-parse aspect already recorded by i010/i012). (2) Inner: even when both outer attributes are present, the second guard at lines 538-540 is again &&-joined over edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID] and edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI], so a nested RADIO_EDGE payload containing exactly one of them passes, and lines 543-544 unconditionally dereference BOTH slots via nla_get_u32/nla_get_u8 \u2014 e.g. a message with ENDPOINT_ID present and LQI absent gives nla_get_u8(edge_attrs[LQI]) == nla_get_u8(NULL), a second NULL-deref instance inside the same function that no other intent recorded. Unsafe use: each of lines 542, 543, 544 can dereference a slot whose presence was never proven (outer policy non-required; inner hwsim_edge_policy likewise does not mark ENDPOINT_ID/LQI required). Counterevidence checked: the seed-fixed sibling hwsim_del_edge_nl uses '||' at 483-484 and a single-attr check at 490; hwsim_get_radio_nl (299-301) and hwsim_del_radio_nl (187-190) use correct single-attribute presence checks. Consequence: kernel NULL-pointer-dereference oops (local DoS) from unprivileged-user-namespace-reachable genl input; runtime reproduction not performed."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 431,
+      "status": "reported",
+      "reason": "hwsim_new_edge_nl: nla_get_u32(info->attrs[RADIO_ID]) at 431 has no covering check \u2014 the only guard (421-423) is the &&-inverted presence test and the policy entry (580) is plain NLA_U32, non-required; a NEW_EDGE message with RADIO_EDGE present and RADIO_ID absent passes and crashes at 431."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 542,
+      "status": "reported",
+      "reason": "hwsim_set_edge_lqi: nla_get_u32(info->attrs[RADIO_ID]) at 542 uncovered by the inverted && guard (531-533); plus the inner && guard (538-540) leaves edge_attrs[ENDPOINT_ID] (543) and edge_attrs[LQI] (544) dereferenceable while absent."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 483,
+      "status": "safe",
+      "reason": "hwsim_del_edge_nl is the seed instance (never reportable); in this snapshot it already uses the corrected '||' guard at 483-484 and checks edge_attrs[ENDPOINT_ID] at 490 before uses at 493-494."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 190,
+      "status": "safe",
+      "reason": "hwsim_del_radio_nl checks !attrs[RADIO_ID] (187-188) before nla_get_u32 at 190; hwsim_get_radio_nl likewise at 299-301 \u2014 correct single-attribute guards."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/mac80211_hwsim.c",
+      "line": 3703,
+      "status": "safe",
+      "reason": "hwsim_cloned_frame_received_nl guards all four consumed attrs (ADDR_RECEIVER/FRAME/RX_RATE/SIGNAL) with ||-of-negations at 3642-3647 before nla_data/nla_len/nla_get_u32 at 3648-3704; FREQ use at 3689 is inside if (info->attrs[HWSIM_ATTR_FREQ])."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/mac80211_hwsim.c",
+      "line": 3613,
+      "status": "safe",
+      "reason": "hwsim_tx_info_frame_received_nl guards ATTR_ADDR_TRANSMITTER/FLAGS/COOKIE/SIGNAL/TX_INFO with ||-of-negations at 3555-3561 before the nla_data/nla_get_u32/nla_get_u64 uses at 3562-3613."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/l2tp/l2tp_netlink.c",
+      "line": 537,
+      "status": "safe",
+      "reason": "All tunnel/session create/delete/modify/get handlers require the consumed attributes with ||-of-negations guards (e.g. tunnel_create 189-212 checks CONN_ID/PEER_CONN_ID/PROTO_VERSION/ENCAP_TYPE; session_create 533-560 checks CONN_ID/SESSION_ID/PEER_SESSION_ID/PW_TYPE) before nla_get_*; optional attrs (COOKIE/PEER_COOKIE/IFNAME/RECV_SEQ/...) are individually if-guarded and cookies length-checked <= 8."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ncsi/ncsi-netlink.c",
+      "line": 625,
+      "status": "safe",
+      "reason": "set_package_mask requires IFINDEX+PACKAGE_MASK, set_channel_mask requires IFINDEX+PACKAGE_ID+CHANNEL_MASK, send_cmd requires IFINDEX+PACKAGE_ID+CHANNEL_ID+DATA, all with ||-of-negations before the nla_get_*/nla_len/nla_data uses; optional CHANNEL_ID and MULTI_FLAG are individually guarded (nla_get_flag is NULL-safe)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/hsr/hsr_netlink.c",
+      "line": 302,
+      "status": "safe",
+      "reason": "hsr_get_node_status checks !attrs[HSR_A_IFINDEX] and !attrs[HSR_A_NODE_ADDR] individually (295-300) before nla_get_u32/nla_data at 302/330/341; hsr_get_node_list checks HSR_A_IFINDEX."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/target/target_core_user.c",
+      "line": 382,
+      "status": "safe",
+      "reason": "tcmu_genl_cmd_done requires CMD_STATUS and DEVICE_ID with ||-of-negations (378-381) before nla_get_u32/nla_get_s32 at 382-383; set_features reads SUPP_KERN_CMD_REPLY only inside if (info->attrs[...]) at 438-439; ops carry GENL_ADMIN_PERM."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/seg6.c",
+      "line": 111,
+      "status": "safe",
+      "reason": "seg6_genl_sethmac requires HMACKEYID/SECRETLEN/ALGID with ||-of-negations (106-109) before nla_get_u32/u8 at 111-113; SECRET presence checked at 135 before nla_data at 141; seg6_genl_set_tunsrc checks DST at 182 before nla_data at 183."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/gtp.c",
+      "line": 914,
+      "status": "safe",
+      "reason": "gtp_genl_new_pdp requires VERSION/LINK/PEER_ADDRESS/MS_ADDRESS (1056-1061) plus version-specific TID+FLOW (V0) or I_TEI+O_TEI (V1) before ipv4_pdp_fill (912-935) and gtp_pdp_add consume them; del/get handlers require VERSION and gtp_find_pdp_by_link presence-tests each slot (nla[GTPA_LINK]/MS_ADDRESS/TID/I_TEI) individually before nla_get_*."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/block/nbd.c",
+      "line": 1779,
+      "status": "safe",
+      "reason": "nbd_genl_connect requires SOCKS and SIZE_BYTES (1803-1808) and every other attr (SIZE/BLOCK_SIZE/TIMEOUT/DEAD_CONN/SERVER_FLAGS/CLIENT_FLAGS) is if (info->attrs[...])-guarded before nla_get_u64; disconnect/reconfigure require INDEX (2000-2004, 2073-2077); handlers check netlink_capable(skb, CAP_SYS_ADMIN)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ieee802154/nl802154.c",
+      "line": 1260,
+      "status": "safe",
+      "reason": "PID/NETNS_FD uses at 1260-1264 sit in if/else-if presence branches; set_channel (961-964), min_be/max_be (1141-1143), lbt (1220), ackreq (1245), cca_mode/opt (984-996), cca_ed_level (1015-1017), tx_power (1037-1039) all require the consumed attr with ||-of-negations before nla_get_*; sec params individually if-guarded (1397-1426)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ieee802154/nl-phy.c",
+      "line": 211,
+      "status": "safe",
+      "reason": "ieee802154_add_iface checks PHY_NAME presence (168-169) before nla_data at 177; DEV_NAME and DEV_TYPE/HW_ADDR uses are inside if (info->attrs[...]) guards (180-183, 202-213); same pattern in ieee802154_del_iface (279-280)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netlabel/netlabel_cipso_v4.c",
+      "line": 86,
+      "status": "safe",
+      "reason": "netlbl_cipsov4_add requires DOI and MTYPE with ||-of-negations (409-411) before the switch on nla_get_u32(MTYPE) at 414; TAGLST nested use in add_common is reached only from add_std/add_pass/add_local which NULL-check TAGLST first; list requires DOI (453-455) before nla_get_u32 at 478."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netlabel/netlabel_calipso.c",
+      "line": 80,
+      "status": "safe",
+      "reason": "netlbl_calipso_add requires DOI and MTYPE (100-102) before the switch at 109; add_pass's DOI use at 80 is downstream of that guard; list/remove require DOI (285-287, ~291) before nla_get_u32."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netlabel/netlabel_mgmt.c",
+      "line": 90,
+      "status": "safe",
+      "reason": "netlbl_mgmt_add requires DOMAIN and PROTOCOL (425-427) and adddef requires PROTOCOL plus the addr/mask xor-consistency tests (549-557) before netlbl_mgmt_add_common dereferences PROTOCOL at 90; DOMAIN/CV4DOI/CLPDOI/FAMILY/IPV4ADDR/... uses in add_common are each inside if (info->attrs[...]) or case guards (91-131, 155-190)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netlabel/netlabel_unlabeled.c",
+      "line": 815,
+      "status": "safe",
+      "reason": "ACPTFLG read at 815 is inside if (info->attrs[NLBL_UNLABEL_A_ACPTFLG]) at 814; staticadd/staticremove/list require IFACE plus the addr/mask xor guards (893-908, 944-956, 990-1002) before nla_data; netlbl_unlabel_addrinfo_get branches on which addr family attrs are present."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/drop_monitor.c",
+      "line": 1239,
+      "status": "safe",
+      "reason": "net_dm_alert_mode_set returns early when !attrs[ALERT_MODE] (1256-1257) before net_dm_alert_mode_get_from_info's nla_get_u8 at 1239; trunc_len/queue_len setters each check !attrs[...] first (1276-1278, 1284-1286)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/batman-adv/netlink.c",
+      "line": 728,
+      "status": "safe",
+      "reason": "batadv_netlink_tp_meter_start requires ORIG_ADDRESS and TPMETER_TEST_TIME (718-723) before nla_data/nla_get_u32 at 726-728; tp_meter_cancel requires ORIG_ADDRESS (769-771); mesh/hardif/vlan getters (1163-1260) each check the single consumed attr before nla_get_*."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/smc/smc_pnet.c",
+      "line": 565,
+      "status": "safe",
+      "reason": "smc_pnet_del checks !attrs[SMC_PNETID_NAME] (562-563) before nla_data at 565; smc_pnet_get likewise (643-645); smc_pnet_add -> smc_pnet_enter requires tb[SMC_PNETID_NAME] (484-486) before nla_data at 486."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/vdpa/vdpa.c",
+      "line": 435,
+      "status": "safe",
+      "reason": "vdpa dev_add/dev_del/dev_get doits each require VDPA_ATTR_DEV_NAME (427-429, 459-461, 534-536) before nla_data on that slot."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/team/team.c",
+      "line": 2294,
+      "status": "safe",
+      "reason": "team_nl_team_get returns NULL when !attrs[TEAM_ATTR_TEAM_IFINDEX] (2292-2293) before nla_get_u32 at 2294; callers fail with -EINVAL."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/wireless/pmsr.c",
+      "line": 286,
+      "status": "safe",
+      "reason": "pmsr start: TIMEOUT read at 286 is inside if (info->attrs[NL80211_ATTR_TIMEOUT]); MAC use at 288 likewise guarded; nested peers attribute is validated before iteration."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netlink/genetlink.c",
+      "line": 1032,
+      "status": "safe",
+      "reason": "ctrl_getfamily: FAMILY_ID and FAMILY_NAME reads at 1032/1040 are each inside if (info->attrs[...]) branches; policy CTRL_ATTR_FAMILY_ID U16 / NAME NUL_STRING with GENL_NAMSIZ-1 len."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/ila/ila_xlat.c",
+      "line": 110,
+      "status": "safe",
+      "reason": "parse_nl_config wraps every consumed attr (LOCATOR/LOCATOR_MATCH/CSUM_MODE/IDENT_TYPE/IFINDEX) in its own if (info->attrs[...]) before nla_get_u64/u8/s32."
+    }
+  ],
+  "limitations": [
+    "Coverage of the direct-deref surface is bounded to handlers where nla_get_*/nla_data/nla_len/nested-parse is applied directly to an info->attrs[N] slot (653 raw hits ranked and triaged; the highest-density files were read function-by-function); attribute values that first pass through intermediate locals or helpers were followed only in the files read.",
+    "net/wireless/nl80211.c (140 nla_get + 185 nla_data hits) was only spot-checked in this session (aided by the f010 audit of its post/pre_doit user_ptr plumbing); a per-handler line-by-line pass over every nl80211 doit was not completed within this intent's budget, so an unchecked slot inside a rarely-used nl80211 command cannot be excluded.",
+    "tb[]/data[]-local dereferences inside rtnetlink RTM_* doit/changelink/fdb handlers belong to the i013 branch and were enumerated there, not re-audited here; net/sched, net/ipv4, net/ipv6, net/decnet, and net/dcb rtnl handlers remain enumerated-but-not-deep-read in this branch.",
+    "No compilation or runtime reproducer was executed (the snapshot tree is read-only and has no top-level Kconfig/Makefile); the NULL-deref conclusions rest on reading the guard, the non-required nla_policy entries (hwsim_genl_policy 579-583), the GENL_DONT_VALIDATE_STRICT op flags, and nla_get_u32/nla_parse_nested_deprecated semantics (include/net/netlink.h reads through nla_data()).",
+    "Reachability requires the mac802154_hwsim module to be loaded (or module-autoload available); the ops carry GENL_UNS_ADMIN_PERM, satisfiable from an unprivileged user namespace, but no live exploit was attempted; impact is characterized as local DoS (kernel oops), with no privilege-escalation path demonstrated.",
+    "Both reported findings share the same underlying inverted-guard defect in functions whose nested-parse (NULL-argument) aspect was already reported by sibling intents i010/i012; the finding entries here emphasize the distinct unchecked-tb-deref uses (nla_get_u32 on the uncovered attrs[RADIO_ID] slots and nla_get_u32/nla_get_u8 on the uncovered edge_attrs[ENDPOINT_ID]/[LQI] slots) that no prior intent recorded."
+  ]
+}

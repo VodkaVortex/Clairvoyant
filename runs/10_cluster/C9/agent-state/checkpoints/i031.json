@@ -1,0 +1,13 @@
+{
+  "intent_id": "i031",
+  "branch": "unclamped-wire-count",
+  "snapshot": "s08",
+  "status": "starting",
+  "progress": [
+    "Initial checkpoint written before first search.",
+    "Plan: (1) locate wire/userspace count stores (le/be*_to_cpu, get_unaligned, ntoh*, nla_get_u*, copy_from_user) into persistent kernel objects in snapshots/s08; (2) prioritize asymmetric validation (sibling MAX clamp vs mirror path without); (3) deep-read strongest candidates; (4) record seed usbip presence as excluded-by-rule if unpatched."
+  ],
+  "candidates": [],
+  "notes": []
+}
+NOTE-checkpoint-update-1: primary candidate found. s08:net/bluetooth/hci_event.c:7258 hci_store_wake_reason reads u8 num_reports = *ptr with NO skb->len/hci_ev_skb_pull validation; used to gate deref of adv structs at 7264-7279, storing OOB-read bytes into persistent hdev->wake_addr/wake_addr_type. Sibling handlers (hci_le_adv_report_evt:6225 via hci_le_ev_skb_pull per report, hci_le_direct_adv_report_evt:6645 via flex_array_size pull) all validate. hci_event_packet:7489 checks only skb->len >= sizeof(hdr) (2 bytes) before pull. usbip seed present UNPATCHED (usbip_common.c:665 int size = np*sizeof; :473 verbatim store; USBIP_MAX_ISO_PACKETS only in stub_rx.c:381 + header def) — excluded by rule. Next: sweep rest of tree for other unclamped wire counts.

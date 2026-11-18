@@ -1,0 +1,21 @@
+{
+  "intent_id": "i020",
+  "branch": "gro-frag-stale-ptr",
+  "snapshot": "s04",
+  "status": "finalizing",
+  "progress": "Audited GRO core (net/core/gro.c frag0 lifecycle), include/net/gro.h helpers, tcp4/tcp6/udp/ipv6/inet gro_receive/complete, gre/fou/gue/vxlan/geneve gro callbacks, and GSO segmenters. All gro handlers refetch after skb_gro_header_slow/pskb_may_pull. One finding: __skb_udp_tunnel_segment holds uh across pskb_may_pull and reads uh->len/uh->check after (lines 181,189,199,202). Writing final artifact.",
+  "candidates": [
+    "s04:net/ipv4/udp_offload.c:181 uh captured; pskb_may_pull 189; stale reads 199/202 -> reported",
+    "s04:include/net/gro.h tcp_gro_pull_header -> safe (refetch via skb_gro_header_slow)",
+    "s04:net/core/gro.c napi_frags_skb/dev_gro_receive -> safe (frag0 adjusted after gro_pull_from_frag0)",
+    "s04:net/ipv4/tcp_offload.c tcp4_gro_receive -> safe",
+    "s04:net/ipv6/tcpv6_offload.c tcp6_gro_receive -> safe",
+    "s04:net/ipv6/ip6_offload.c ipv6_gro_receive/exthdr loop -> safe (iph refetched at 235)",
+    "s04:net/ipv4/af_inet.c inet_gro_receive -> safe (iph used before pull)",
+    "s04:net/ipv4/gre_offload.c gre_gro_receive -> safe (refetch at 178)",
+    "s04:net/ipv4/fou_core.c gue_gro_receive -> safe (refetch at 376, remcsum returns fresh ptr)",
+    "s04:drivers/net/geneve.c geneve_gro_receive -> safe (refetch at 893 and 907)",
+    "s04:net/ipv4/udp_offload.c udp_gro_receive_segment -> safe (uh read before pull; postpull in non-pull branch)",
+    "s04:drivers/net/vxlan/vxlan_core.c gro wrappers -> safe"
+  ]
+}

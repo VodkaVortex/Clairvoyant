@@ -1,0 +1,98 @@
+{
+  "intent_id": "i012",
+  "branch": "fixed-epidx-rest",
+  "snapshot": "s03",
+  "status": "finalized",
+  "updated_at": "2026-11-15",
+  "summary": "Bounded sweep of s03 outside drivers/media/usb and drivers/net: all 47 literal fixed-index endpoint[k].desc sites enumerated; every one carries a same-scope bNumEndpoints guard (or is covered by a core/sibling guard) except two sound/usb residuals left unresolved. Zero pointer-arithmetic 'endpoint + N' fetches outside excluded trees. No reportable finding; evidence-backed negative artifact written.",
+  "candidates": [
+    {
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2172,
+      "status": "safe",
+      "note": "guard bNumEndpoints<1 at 2156 precedes endpoint[0].desc.bInterval in usb_fill_int_urb (s03 carries fix that s01/s04/s05/s06/s07 lack)"
+    },
+    {
+      "path": "drivers/staging/media/usbvision/usbvision-video.c",
+      "line": 1504,
+      "status": "safe",
+      "note": "per-iteration guard altsetting[i].desc.bNumEndpoints<2 at 1500-1503 precedes endpoint[1] wMaxPacketSize read; s03 fixed (siblings unguarded); model-index interface[] branch at 1435 is if-alt-count ownership (f012)"
+    },
+    {
+      "path": "drivers/staging/uwb/hwa-rc.c",
+      "line": 680,
+      "status": "safe",
+      "note": "guard at 809 precedes probe-time endpoint[0] use at 811; neep_init (680) runs via uwb_rc->start after the same guard on the single-altsetting interface"
+    },
+    {
+      "path": "drivers/usb/storage/alauda.c",
+      "line": 1114,
+      "status": "safe",
+      "note": "no local guard but usb-storage core get_pipes (usb.c:728-745) requires bulk in+out via usb_find_common_endpoints on the same cur_altsetting before attach"
+    },
+    {
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1282,
+      "status": "safe",
+      "note": "guards at 1207/1239/1278-1279 bound epctrl/epread/epwrite fixed indexes"
+    },
+    {
+      "path": "sound/usb/quirks.c",
+      "line": 305,
+      "status": "unresolved",
+      "note": "alts->endpoint[0].extra read in create_standard_midi_quirk; 5 bNumEndpoints refs in file, adjacency to this read unverified in budget"
+    },
+    {
+      "path": "sound/usb/stream.c",
+      "line": 579,
+      "status": "unresolved",
+      "note": "alts->endpoint[0].extra in parse_uac_endpoint; endpoint[1] guarded at 582 by bNumEndpoints>=2; caller-side guarantee for endpoint[0] unverified"
+    },
+    {
+      "path": "drivers/mmc/host/ushc.c",
+      "line": 474,
+      "status": "safe",
+      "note": "guard bNumEndpoints<1 at 425"
+    },
+    {
+      "path": "drivers/input/touchscreen/sur40.c",
+      "line": 672,
+      "status": "safe",
+      "note": "guard bNumEndpoints<5 at 668"
+    },
+    {
+      "path": "drivers/watchdog/pcwd_usb.c",
+      "line": 633,
+      "status": "safe",
+      "note": "guard bNumEndpoints<1 at 629"
+    },
+    {
+      "path": "drivers/staging/wusbcore/wa-nep.c",
+      "line": 257,
+      "status": "safe",
+      "note": "covered by wa-hc.c:28 bNumEndpoints<3 sibling guard; wa_nep_create called from wa_create after check"
+    },
+    {
+      "path": "drivers/staging/uwb/i1480/dfu/usb.c",
+      "line": 231,
+      "status": "safe",
+      "note": "guard at 352 on post-switch cur_altsetting precedes i1480_usb_create; usb_set_interface at 343 happens before the guard (validated-equals-used)"
+    }
+  ],
+  "batch_safe_guard_verified": [
+    "drivers/bluetooth/bfusb.c:614-615 (guard 611)",
+    "drivers/hid/usbhid/hid-core.c:998 (short-circuit !bNumEndpoints at 997; loops 1080/1313 bounded)",
+    "drivers/hid/usbhid/usbkbd.c:277 / usbmouse.c:121 (==1 guards)",
+    "drivers/i2c/busses/i2c-diolan-u2c.c:455-456 (guard 441-442)",
+    "drivers/input/joystick/iforce/iforce-usb.c:203/207 (guard 200)",
+    "drivers/input/misc/ati_remote2.c:823/846 (guards 816/840)",
+    "drivers/input/misc/{cm109,ims-pcu,powermate,yealink}.c (guards 701/1669+1681/311/864)",
+    "drivers/input/tablet/{acecad,aiptek,gtco,hanwang,kbtab,pegasus_notetaker}.c (guards 124/1805/878/325/117/278)",
+    "drivers/mfd/dln2.c:736-737 (guard 731-732)",
+    "drivers/usb/class/cdc-wdm.c:930 (guard 928 !=1)",
+    "drivers/usb/serial/qcserial.c:248-249 (==2 short-circuit)",
+    "drivers/usb/storage/onetouch.c:178 (==3 at 175)",
+    "sound/usb/misc/ua101.c:1003/1011 (alt1 bNumEndpoints!=1 validated at 906-909; altsetting[1] literal is if-alt-count ownership)"
+  ],
+  "findings": []
+}

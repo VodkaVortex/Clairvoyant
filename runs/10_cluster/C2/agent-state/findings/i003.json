@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "tcp-optwalk-len2",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/sched/sch_cake.c",
+      "start": 960,
+      "end": 974,
+      "quote": "\t\tif (opcode == TCPOPT_NOP) {\n\t\t\tlength--;\n\t\t\tcontinue;\n\t\t}\n\t\topsize = *ptr++;",
+      "confidence": "medium",
+      "reason": "cake_get_tcpopt() (net/sched/sch_cake.c:953) is a TCP-option walk with exactly the seed's shape and, unlike every other walk in s02, has NO 'if (length < 2)' check between consuming the kind byte (line 961 'int opcode = *ptr++;') and dereferencing the size byte (line 970 'opsize = *ptr++;'). Untrusted source: attacker-controlled TCP header options of queued packets examined by the qdisc ACK filter (cake_ack_filter, caller at lines 1169/1192/1241/1252); cake_get_tcphdr copies min(hdr_len,64) bytes of the packet into the on-stack buffer '_tcph[64]' (declared line 1153) via skb_header_pointer. Missing guarantee: the loop condition is 'while (length > 0)', the EOL/NOP fast path only does 'length--' for NOP, so when length==1 and the last byte is any kind other than EOL/NOP the switch/ifs fall through to 'opsize = *ptr++' which reads 1 byte past the option area derived from th->doff (i.e. past __tcp_hdrlen(tcph)-20 bytes). If doff*4 < 60 the option area ends inside the 64-byte stack buffer, so the over-read stays within _tcph (the tcp_parse_aligned_timestamp-style 'safe padding' shape); but when th->doff==15 (60-byte header) length can reach 44 and __tcp_hdrlen-20 == 40, leaving 4 slack bytes in the 64-byte buffer, so a trailing 1-byte option still over-reads within the copy; the OOB becomes actual out-of-object only for the non-linear/large-header corner cases where the direct skb pointer path (skb_header_pointer returning skb->data) is used and doff*4 exceeds the copied length boundary. Counterevidence checked: opsize is then validated ('opsize < 2 || opsize > length' breaks), so no wide over-read; the mirrored walk in cake_tcph_may_drop (lines 1097-1107) has the identical missing length>=2 check. Because the direct byte-past-buffer read is only reachable when the 64-byte copy is not the limiting factor, confidence is medium rather than high; the invariant 'at least 2 bytes remain before reading the size byte' is nonetheless violated in the source."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 3935,
+      "status": "safe",
+      "reason": "tcp_parse_mss_option (and tcp_parse_options at line 3986) both have 'if (length < 2) return;' immediately before 'opsize = *ptr++' (lines 3937/3988); opsize also checked '<2' and '>length'. Matches the post-9609dad263f8 fixed shape."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mptcp/options.c",
+      "line": 359,
+      "status": "safe",
+      "reason": "mptcp_get_options contains 'if (length < 2) return;' before 'opsize = *ptr++' (line 361) - the seed's own fix is present in this tree."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sched/sch_cake.c",
+      "line": 1107,
+      "status": "reported",
+      "reason": "cake_tcph_may_drop has the identical missing check: 'int opcode = *ptr++;' at 1098 then 'opsize = *ptr++;' at 1107 with only 'while (length > 0)' protecting; reported together with the primary finding at cake_get_tcpopt (same invariant, same untrusted source, same callers)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_conntrack_proto_tcp.c",
+      "line": 358,
+      "status": "safe",
+      "reason": "tcp_options() walk: 'if (length < 2) return;' at 358 before opsize read at 359; second walk tcp_sack() at line 420 likewise. opsize clamped to length."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_synproxy_core.c",
+      "line": 53,
+      "status": "safe",
+      "reason": "synproxy_parse_options has 'if (length < 2) return true;' at line 53 before 'opsize = *ptr++;' at 55, plus opsize<2 and opsize>length checks."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_conntrack_seqadj.c",
+      "line": 147,
+      "status": "safe",
+      "reason": "nf_ct_sack_adjust walk uses 'optoff + 1 == optend || optoff + op[1] > optend || op[1] < 2' guard (line 147-149) before using op[1]; synproxy_tstamp_adjust in nf_synproxy_core.c has the same guard."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/dccp/options.c",
+      "line": 76,
+      "status": "safe",
+      "reason": "dccp_parse_options: after 'opt = *opt_ptr++' it checks 'if (opt_ptr == opt_end) goto out_nonsensical_length;' before reading the len byte (line 78), and 'if (opt_ptr > opt_end)' after advancing; equivalent 2-byte-remain guarantee present."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/filter.c",
+      "line": 6767,
+      "status": "safe",
+      "reason": "bpf_search_tcp_opt guards 'if (opend - op < 2 || opend - op < op[1] || op[1] < 2) return ERR_PTR(-EFAULT);' before using op[1] as kind_len and memcmp/memcpy sizes."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4142,
+      "status": "safe",
+      "reason": "tcp_parse_md5sig_option loop condition is 'while (length >= TCPOLEN_MD5SIG)' which subsumes the >=2 check before 'opsize = *ptr++;' at line 4153; opsize<2 or >length returns NULL."
+    }
+  ],
+  "limitations": [
+    "Did not build or run KASAN on s02 (snapshot lacks top-level Makefile; full kernel build out of scope), so the sch_cake over-read was confirmed by source reading only: the walk in cake_get_tcpopt/cake_tcph_may_drop lacks any length>=2 guard, but whether the 1-byte read lands past a real object depends on whether the 64-byte skb_header_pointer copy (present in cake_ack_filter) or the direct skb data path bounds the option area; the exact over-read object boundary was not measured.",
+    "Only sites reachable via 'opsize = *ptr++', 'TCPOPT_EOL/NOP' switch-default walks, and 'while (length > 0)' loops under net/ were enumerated; TCP-option parsing embedded in BPF selftests, arch-specific code, or non-net trees (e.g. tools/testing) was not audited.",
+    "net/ipv6/syncookies.c and net/ipv4/syncookies.c contain no TCP-option walk in this tree (cookie checks call tcp_parse_options indirectly); TCP-AO (net/ipv4/tcp_ao.c) does not exist in this snapshot, so those intent-listed areas had no in-tree candidate to classify.",
+    "mptcp_parse_option sub-option handling (net/mptcp/options.c:23) performs strict opsize equality checks per subtype; its body was only partially read (first ~120 lines), so an optsize-body-clamp issue there belongs to branch optsize-body-clamp, not this branch."
+  ]
+}

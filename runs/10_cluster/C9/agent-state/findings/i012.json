@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "start": 660,
+      "end": 715,
+      "quote": "\tint np = urb->number_of_packets;\n\tint size = np * sizeof(*iso);\n",
+      "confidence": "medium",
+      "reason": "Error-unwind poisoned-count chain, verified from source in s03. POISONING STORE: usbip_common.c:473 in usbip_pack_ret_submit() (unpack dir) copies the remote peer's RET_SUBMIT PDU field verbatim: urb->number_of_packets = rpdu->number_of_packets; with no range check - the only clamp, USBIP_MAX_ISO_PACKETS(1024) (usbip_common.h:130), is enforced on the opposite CMD_SUBMIT direction at stub_rx.c:381-384, i.e. asymmetric validation. EARLY RETURN WITHOUT RESET: usbip_recv_iso() (usbip_common.c:660-715) reads np = urb->number_of_packets (line 664), computes int size = np * sizeof(*iso) (line 665, unchecked 32-bit multiply), kzalloc(size) at 677, and on failure returns -EPIPE at line 692 (recv short) and line 714 (total_length mismatch) without ever resetting urb->number_of_packets; the np==0 bail at 674-675 also skips any cleanup. ERROR-UNWIND HANDOFF: vhci_rx.c vhci_recv_ret_submit() line 77 usbip_pack_pdu(...,USBIP_RET_SUBMIT,0) performs the poisoning store, then line 86-88 'if (usbip_recv_iso(ud, urb) < 0) { urb->status = -EPROTO; goto error; }' jumps to the error label (line 94) which still runs usb_hcd_giveback_urb() (line 107) - the failed URB is completed with the wire-controlled count intact. LATER CONSUMING LOOP: drivers/usb/core/devio.c processcompl() iterates 'for (i = 0; i < urb->number_of_packets; i++)' at lines 2063-2068 doing put_user(urb->iso_frame_desc[i].actual_length/status,...), and compute_isochronous_actual_length() at 2035-2039 sums iso_frame_desc[i].actual_length over the same count. The iso_frame_desc array is allocated in alloc_async(number_of_packets) (devio.c:1780) with number_of_packets clamped to [1,128] at submit time (devio.c:1742-1743, stored at 1898), so a peer-supplied np > 128 (e.g. 0x10000001 via the int overflow at 665, or any moderate np where kzalloc succeeds but recv/total_length fails) drives an OOB heap read past the <=128-entry array whose results are copied to userspace, on the error path even when the happy path is safe. Impact: remotely triggerable OOB read/info-leak and crash via URB completion during error handling (the seed patch fixed this exact consequence by zeroing urb->number_of_packets before bailing). Counterevidence checked: the CMD_SUBMIT side (stub_rx.c:381) does clamp, btusb.c:1579 and usbdux*.c completion loops only iterate driver-locally-built URBs (number_of_packets set by the driver itself at btusb.c:1656/1677, constants 1 at usbdux.c:417/1470), so they are not peer-poisoned."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 473,
+      "status": "reported",
+      "reason": "Poisoning store of wire count into shared urb (pack_ret_submit unpack); part of the reported finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/usbip/vhci_rx.c",
+      "line": 86,
+      "status": "reported",
+      "reason": "Error path goto error -> usb_hcd_giveback_urb at line 107 completes URB with poisoned number_of_packets; part of the reported finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/core/devio.c",
+      "line": 2063,
+      "status": "reported",
+      "reason": "processcompl loop iterates poisoned count over <=128-entry iso_frame_desc (allocated devio.c:1780 with clamp at 1742-1743); later consuming loop of the reported finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/usbip/stub_rx.c",
+      "line": 381,
+      "status": "safe",
+      "reason": "Enforcing sibling path: CMD_SUBMIT clamps number_of_packets to [0,USBIP_MAX_ISO_PACKETS]; it is the asymmetric-validation evidence, not itself vulnerable on this branch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/bluetooth/btusb.c",
+      "line": 1579,
+      "status": "safe",
+      "reason": "Completion loops over urb->number_of_packets/iso_frame_desc, but URBs are built by the driver itself (number_of_packets assigned locally at btusb.c:1656/1677 from local loop index); not peer-controlled, no poisoned count."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/comedi/drivers/usbdux.c",
+      "line": 417,
+      "status": "safe",
+      "reason": "number_of_packets = 1 constant; no untrusted count."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/comedi/drivers/usbduxsigma.c",
+      "line": 372,
+      "status": "safe",
+      "reason": "number_of_packets = 1 constant; no untrusted count."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 974,
+      "status": "unresolved",
+      "reason": "user_msg->count = le32_to_cpu(msg->hdr.count) stores a userspace/ioctl-supplied count into a kernel control message object; error/unwind paths and later iteration were not audited before the finalize budget ran out."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/md/dm-zoned-metadata.c",
+      "line": 1079,
+      "status": "unresolved",
+      "reason": "Five on-disk superblock counts (nr_meta_blocks, nr_reserved_seq, nr_chunks, nr_map_blocks, nr_bitmap_blocks at lines 1079-1083) stored via le32_to_cpu with no clamp visible at the store site; consuming loops and error paths not audited."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/md/dm-era-target.c",
+      "line": 372,
+      "status": "unresolved",
+      "reason": "nr_bits/nr_blocks (lines 372, 603) taken from on-disk metadata into core struct; later consumers and failure paths not audited."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 689,
+      "status": "unresolved",
+      "reason": "bad_peb_count = be32_to_cpu(fmhdr->bad_peb_count) from flash superblock; downstream use and error handling not audited."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt.c",
+      "line": 8608,
+      "status": "unresolved",
+      "reason": "Device-response min_entries/max_entries (lines 8608-8723) stored from le32_to_cpu(resp->...); whether allocation/iteration trusts them and whether failure paths leave them set was not audited."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: the count-store sweep used regex patterns for wire/disk/device-supplied num_/nr_/count/entries stores (be32_to_cpu/le32_to_cpu/get_unaligned/ntohl) plus all urb->number_of_packets/iso_frame_desc consumers in drivers, net, fs, sound, kernel, mm, block, crypto; other naming conventions for shared-object counts (sgl, ring entry, iovec, transaction-descriptor iteration on teardown) were not exhaustively audited before the finalize budget.",
+    "The reported function family is the same subsystem/file as the seed demonstration: snapshots/s03 retains the unpatched upstream usbip code, so this finding documents the error-unwind aspect of the seed mechanism actually present in the assigned tree rather than a different-location variant; confidence is medium for that reason and because the OOB read on processcompl is argued from source (array size vs. loop bound), not reproduced at runtime.",
+    "Unresolved candidates (qaic_control.c:974, dm-zoned-metadata.c:1079-1083, dm-era-target.c:372/603, ubi/fastmap.c:689, bnxt.c:8608-8723, gve_adminq.c:1425, ixgbe_e610.c:667-764) were only located by the wire/disk/device count-store sweep; their error paths and consuming loops were not read and could hide stronger same-mechanism variants.",
+    "No compilation or runtime reproducer was built; all conclusions come from reading the snapshot source."
+  ]
+}

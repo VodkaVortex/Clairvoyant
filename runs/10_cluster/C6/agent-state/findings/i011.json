@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "loop-parser-stale-state",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/mpls/af_mpls.c",
+      "start": 199,
+      "end": 235,
+      "quote": "v4hdr = (const struct iphdr *)(hdr + 1);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: mpls_multipath_hash() (s03:net/mpls/af_mpls.c:180) is called from mpls_select_multipath() at line 275 for forwarded MPLS packets (mpls_output/mpls_xmit paths); the label stack and payload are network-received bytes fully controlled by the sender, including the number of labels (loop bound MAX_MP_SELECT_LABELS, 'bottom of stack' flag) and which payload header (v4/v6) follows. VIOLATED INVARIANT: hdr (struct mpls_shim_hdr *) is captured inside the label-stack for-loop at line 194 as 'hdr = mpls_hdr(skb) + label_index' -- a raw pointer into skb->head. The interior pulls pskb_may_pull(skb, mpls_hdr_len) at line 192 and pskb_may_pull(skb, mpls_hdr_len + sizeof(struct iphdr)) at line 222 (and the ipv6 variant at lines 227-228) may invoke __pskb_pull_tail()/pskb_expand_head(), which frees and replaces skb->head for a cloned/non-linear skb; pskb_expand_head() is documented (net/core/skbuff.c) that all pointers into the skb header must be reloaded after the call. No refetch of hdr occurs between the capture and the uses. UNSAFE USE: after the payload pull at line 222, v4hdr = (const struct iphdr *)(hdr + 1) at line 225 and v6hdr = (const struct ipv6hdr *)(hdr + 1) at line 232 derive from the pre-pull hdr, and stale reads follow immediately: v4hdr->version at 226, v4hdr->saddr/daddr/protocol at 227-230, v6hdr->saddr/daddr/nexthdr at 233-235 (jhash inputs) -- the loop-parser stale-state shape of the seed's pep_get_sb(): pointer state captured before an interior pull, dereferenced after it, producing a KASAN-detectable slab use-after-free read that feeds the multipath nexthop selection (kernel forwarding state transition through possibly freed memory). The values read (addresses, protocol) also influence which nexthop receives the packet. COUNTEREVIDENCE/UNCERTAINTY: read-only (no write through the stale pointer, unlike the seed's ph->sb_len -= 2); triggering requires the skb to actually be non-linear/cloned at that offset so pskb_may_pull really reallocates (path-dependent on RX/GRO/driver); net_config multipath must have multiple nexthops for mpls_select_multipath to call the hash at all; no runtime reproducer was built. Reported at medium confidence per the loop-parser-stale-state intent."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/phonet/pep.c",
+      "start": 55,
+      "end": 61,
+      "quote": "if (ph == NULL || ph->sb_len < 2 || !pskb_may_pull(skb, ph->sb_len))",
+      "confidence": "high",
+      "reason": "Baseline seed mechanism still present unpatched in s03: pep_get_sb() is the canonical 'get next record' helper -- ph captured via skb_header_pointer at line 55, interior pskb_may_pull(skb, ph->sb_len) with attacker-controlled length at line 56, then stale ph->sb_len -= 2 (WRITE) at line 59 and ph->sb_type read at line 60 with no refetch. Called from the TLV record loops at lines 312-314, 497-499 and 824-826 (while (n_sb > 0) { pep_get_sb(skb, ...) }), exactly the loop-helper shape this intent targets. UNTRUSTED SOURCE: Phonet pipe control skbs from phonet_rcv() RX path, attacker-controlled first bytes. Reported as the seed-location confirmation (not the new variant, which is the MPLS finding), since it demonstrates the mechanism is live in this snapshot."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/802/garp.c",
+      "line": 447,
+      "status": "safe",
+      "reason": "garp_pdu_parse_attr() in s03 is the FIXED version, unlike s04 where i014 found the bug: line 447 'if (!pskb_may_pull(skb, sizeof(*ga)))', line 449 captures ga = (struct garp_attr_hdr *)skb->data AFTER the first pull, line 453 pulls the variable attacker length ga->len, and line 455 REFETCHES 'ga = (struct garp_attr_hdr *)skb->data' before the skb_pull(456), dlen computation (457), ga->event switch (462) and ga->data lookup (486). Refetch discipline present; no stale dereference. The while-loop caller garp_pdu_parse_msg (506-508) and garp_pdu_rcv loop (538-540) re-pull per record. Explicitly safe."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mpls/af_mpls.c",
+      "line": 225,
+      "status": "reported",
+      "reason": "mpls_multipath_hash() label-stack loop: hdr captured at 194 before interior pskb_may_pull calls at 192/222/227; v4hdr/v6hdr derived from stale hdr at 225/232 and dereferenced at 226-235. Raised as finding 1 (medium)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/phonet/pep.c",
+      "line": 59,
+      "status": "reported",
+      "reason": "Seed mechanism itself present in s03 (ph live across pskb_may_pull(skb, ph->sb_len); ph->sb_len write at 59, ph->sb_type read at 60; loops at 312/497/824). Raised as baseline finding 2."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/phonet/pep.c",
+      "line": 258,
+      "status": "safe",
+      "reason": "pep_rcv_conn_ind() area and other pep.c parsers (258, 662, 803) call pskb_may_pull with constant sizeof()-based lengths BEFORE capturing hdr from skb->data; capture-after-pull order, no stale state."
+    }
+  ],
+  "limitations": [
+    "The full-tree automated loop/capture scan was terminated by the harness timeout before producing output; the evidence in this artifact comes from targeted grep/reads of the known highest-signal loop-parser files (net/phonet/pep.c, net/802/garp.c, net/mpls/af_mpls.c) plus knowledge shared from the parallel intents' s03 audits (i009 rx-pull, i010 tx-cow).",
+    "Only a bounded set of loop-parser candidates in net/ was deeply read; other TLV/option loops (x25 facilities, ipv6 exthdrs, ipvs icmp, l2tp, batman-adv, nfc/nfc-hci, act_csum, xfrm decode_session) were screened via the sibling-snapshot audits and pattern knowledge but not all re-verified line-by-line in s03; candidates from those files remain unexamined here within the triage limit.",
+    "The MPLS finding is a static hypothesis: no KASAN reproducer was run; triggering needs a cloned/non-linear skb at the label-stack payload offset, MPLS multipath with >1 nexthop, and sysctl net.mpls.platform_labels plus a route using multipath hash; the stale reads are read-only and feed only the hash/nexthop selection.",
+    "drivers/, arch/, fs/ parse loops were not audited; the search was confined to net/ receive/forward parse loops as the intent specifies."
+  ]
+}

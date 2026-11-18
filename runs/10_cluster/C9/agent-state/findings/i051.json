@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "intent_id": "i051",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s13"
+  ],
+  "findings": [
+    {
+      "snapshot": "s13",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 272,
+      "quote": "num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: param.count is a __u64 copied verbatim from userspace via copy_from_user (line 165) of the FSL_HV_IOCTL_MEMCPY ioctl; the ioctl is reachable by any process opening /dev/fsl-hv with CAP_SYS_ADMIN unchecked in this function. Missing guarantee: the u64 sum param.count + lb_offset + PAGE_SIZE - 1 is assigned to 'unsigned int num_pages' (32-bit), silently truncating counts >= 2^32, and the subsequent sizing is plain 32-bit multiply, not kcalloc/array_size/struct_size (line 236: kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1)). There is no upper clamp on param.count anywhere in the function. Unsafe use: the truncated num_pages under-allocates the sg_list heap buffer, then the fill loop 'for (i = 1; i < num_pages; i++)' (line 272) writes sg_list[i].source/.target/.size per entry and the exit path iterates pages[i] (line 293), writing past the allocation when count >= 4 GiB wraps num_pages. Counter-evidence checked: the get_user_pages_unlocked path pins exactly num_pages and would normally fail on absurd counts, but the sg_list fill loop executes before and independently of pin success only for pinned pages; the primary overflow requires count >= 2^32 with successful pinning of the (truncated) small num_pages while the sg_list allocation used the same truncated value, so the direct heap overflow needs num_pages itself to wrap (count near 2^32 + small); more practically, kzalloc(num_pages * sizeof(struct page *)) at line 226 shares the truncated product so both allocations agree, meaning the classic overflow window is the 32-bit wrap of the multiply itself when num_pages is large (e.g. count just under 2^32 gives num_pages ~ 2^20, product ~ 2^20*32 = 2^25 fits in int, no wrap; num_pages up to 2^26 needed for product wrap, i.e. count ~ 2^48, which still truncates num_pages to at most 2^32-1 and requires pinning that many pages - practically infeasible). Impact therefore leans to the truncation mismatch rather than multiply wrap: with count = 2^32 exactly, num_pages becomes ~0 and the loop writes zero entries, but sg_list[0] init at line ~258 writes to a kmalloc(sizeof(struct fh_sg_list) - 1 + 0) buffer - a zero/undersized allocation written by sg_list[0] unconditionally. This 32-bit truncation of a user u64 count into the sizing chain is the exact structural analogue of the seed's unchecked-count-to-allocator chain (this is the known fsl_hv ioctl_memcpy weakness).",
+      "conclusion": "FSL_HV_IOCTL_MEMCPY takes a user __u64 count, truncates it to 32-bit num_pages for both kmalloc sizing and the sg_list fill loop, so large counts under-allocate the heap S/G buffer that the loop then writes - report as medium-confidence pre-privilege (CAP-requiring /dev node) kernel heap overflow; multiply-wrap itself needs ~2^26 pages pinned and is noted as limited."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s13",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 236,
+      "status": "reported",
+      "reason": "u64 ioctl count from copy_from_user truncated into unsigned int num_pages (line 218) and used in plain 32-bit kmalloc multiply (line 236) feeding the per-element sg_list fill loop (line 272). Untrusted source, violated validated-equals-used invariant, unsafe use all present.",
+      "conclusion": "Reported as the primary finding: ioctl-supplied 64-bit count truncated to 32 bits before allocator sizing and loop bound in ioctl_memcpy."
+    },
+    {
+      "snapshot": "s13",
+      "path": "block/partitions/ldm.c",
+      "line": 1275,
+      "status": "safe",
+      "reason": "kmalloc(sizeof(*f) + size*num) at line 1275 where num is the on-disk record count, but the function explicitly rejects num < 1 or num > 4 (line ~1261) before allocating, and rec >= num is rejected; size is vm.vblk_size from the on-disk VMDB, checked only non-zero, but perbuf = 512/size in ldm_get_vblks (line 1381) bounds the per-sector iteration and size*num cannot overflow int with num <= 4 unless size > ~2^29; the TOC bound (vm->vblk_size * vm->last_vblk_seq) > (bitmap1_size << 9) at line 477 is itself 32-bit unchecked but only affects early abort. No exploitable multiply-overflow chain: the memcpy into f->data copies at most size bytes per record from a 512-byte sector buffer and the fragment data path uses f->num*f-size offsets bounded by num<=4.",
+      "conclusion": "ldm_frag_add allocation is bounded by the explicit num-in-1..4 check; no 32-bit multiply overflow reachable - classified safe."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 616,
+      "status": "unresolved",
+      "reason": "The seed-mechanism code is present unpatched in this tree: usbip_recv_iso (line 611) computes 'int size = np * sizeof(*iso)' (line 616) from urb->number_of_packets (unvalidated peer count from ret_submit unpack, line 424) and feeds kzalloc (line 617) with a for (i = 0; i < np; i++) recv loop; USBIP_MAX_ISO does not appear anywhere in usbip_common.c/usbip_common.h (0 grep hits). However this is the demonstration seed itself and is excluded by rule from being reported.",
+      "conclusion": "Unpatched seed usbip_recv_iso chain (int np*sizeof iso -> kzalloc -> per-packet recv loop) exists in s13 but is excluded-by-rule; a different worker should confirm independently if the branch scope ever permits re-reporting it."
+    }
+  ],
+  "coverage_gaps": [
+    "Broad sweep of driver/fs/net/block/sound/crypto parsers for other count*element-size kmalloc patterns was cut short by the finalize directive; only the two priority shapes named in the intent (fsl_hypervisor ioctl_memcpy, ldm_frag_add) plus the seed usbip site were deeply read.",
+    "Allocator-adjacent arithmetic sites examined: drivers/virt/fsl_hypervisor.c:218,226,236 (ioctl_memcpy sizing chain) and block/partitions/ldm.c:1275 (ldm_frag_add sizing); no systematic grep-driven enumeration of all kmalloc(a*b) sites in the tree was completed."
+  ],
+  "limitations": [
+    "The fsl_hypervisor finding's exploitability is bounded: /dev/fsl-hv is a misc device whose open may be root-only, and the FSL_HV ioctl path is PowerPC-only (fh_partition_memcpy from asm/fsl_hcalls.h exists in arch/powerpc in this tree), so triggering requires that arch/driver to be built; overflow impact is a hypothesis, not an exploit.",
+    "The multiply-wrap variant of the fsl_hypervisor chain requires pinning ~2^26 pages via get_user_pages_unlocked which will fail first; the realistic defect is the u64-to-unsigned-int truncation of param.count, whose worst outcome (sg_list[0] write into a near-zero allocation when count is a multiple of 2^32) still needs the count/lb_offset arithmetic to land near zero.",
+    "ldm.c line 477's own 32-bit multiply (vblk_size * last_vblk_seq) was noted but not fully traced; it gates an early return only and was treated as out of scope for the alloc-overflow chain.",
+    "No compilation or runtime reproducer was attempted; evidence is source-reading only."
+  ]
+}

@@ -1,0 +1,65 @@
+# Task
+You will receive a context bundle containing Origin, Goal, and Hints. Your job is to verify the information in Origin using real tools, then produce confirmed facts.
+
+## Step 1: Verify Using Tools
+**You MUST use command-line tools to actually verify the target's state BEFORE outputting any result.**
+
+Based on the Origin, use appropriate tools:
+- **Port verification**: `nc -vz TARGET PORT` for each port mentioned
+- **Service fingerprinting**: `curl -v http://TARGET/`, `nmap -sV TARGET -p PORT`
+- **Banner grabbing**: `echo "" | nc TARGET PORT`, `timeout 5 nc TARGET PORT`
+- **DNS**: `dig TARGET`, `nslookup TARGET`, `host TARGET`
+
+Record the ACTUAL output of each command. If a service is unreachable, note the exact error.
+
+## Step 2: Report as NDJSON
+**Only AFTER completing your verification with tools**, output newline-delimited JSON lines with your confirmed findings. Each line must be a valid JSON object with an "event" field.
+
+If Goal is not yet satisfied but you have confirmed a useful objective fact:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` after Goal has been achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **USE TOOLS FIRST, OUTPUT NDJSON SECOND.** Do NOT skip the verification step.
+- Your `description` must describe concrete, objective technical findings you actually observed (e.g., "port 8080 confirmed open — Apache Tomcat 9.0.41 via curl response headers").
+- **FORBIDDEN in your description**: meta-commentary about intents, exploration process, or what other workers should do. Describe only what YOU verified with tools.
+- If the problem is not yet solved but you have a confirmed useful fact, return `done` with `complete:false`. Do not wait indefinitely.
+- If you later receive a conclude-phase instruction, that overrides this keep-working rule. Stop immediately and return your `done` event.
+- Set `complete:true` only if Goal has already been definitively achieved.
+- Do not put long data blobs in `description`. Save to a file and reference it instead.
+
+## Output Format
+Each line MUST be valid NDJSON with an "event" field. No prose, markdown, or code fences before/after.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Origin
+```
+Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/run5/public. Seed: xsk: cache csum_start/csum_offset to fix TOCTOU in xsk_skb_metadata(). The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04
+```
+
+### Goal
+```
+Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+```
+
+### Hints
+```
+[
+  {
+    "content": "Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.",
+    "created_at": 1794395860838,
+    "creator": "variant-adapter",
+    "id": "h001"
+  }
+]
+```

@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "hwmon-sysfs-scaled-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "start": 1196,
+      "end": 1221,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "high",
+      "reason": "Untrusted source: the hwmon sysfs fan RPM store path. amdgpu_hwmon_set_fan1_target (drivers/gpu/drm/amd/pm/amdgpu_pm.c:2836-2862) parses the local user's string with kstrtou32(buf, 10, &value) with no range bound (only pwm_mode == AMD_FAN_CTRL_MANUAL is required) and calls amdgpu_dpm_set_fan_speed_rpm(adev, value) (amdgpu_dpm.c:1495-1507 pass-through), which reaches smu_set_fan_speed_rpm (drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c:2714-2728) that rejects only the single value speed == U32_MAX before dispatching to smu->ppt_funcs->set_fan_speed_rpm. That hook is smu_v11_0_set_fan_speed_rpm, registered in navi10_ppt.c:3589 (Navi10/Navi14) and sienna_cichlid_ppt.c:3199 (Sienna Cichlid). Violated invariant: the only validation inside smu_v11_0_set_fan_speed_rpm is 'if (speed == 0) return -EINVAL;' at line 1207 -- a raw-input check -- while the value actually divided at line 1217 is the fixed-width u32 expression (8 * speed); for speed = 0x20000000 (536870912, which is nonzero and != U32_MAX so every check passes), 8 * speed wraps modulo 2^32 to exactly 0, so a validated nonzero user input becomes a zero divisor at the exact u32 division width. Unsafe use: line 1217 'tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);' executes a 32-bit integer division by the wrapped-to-zero denominator while programming mmCG_TACH_CTRL TARGET_PERIOD (WREG32_SOC15), causing a kernel divide-by-zero oops / stalled PM programming -- the identical mechanism and consequence class as the seed vega10 bug (commit 4b8c3c0d17c0). Counterevidence checked: this snapshot's own sibling implementations smu13/smu_v13_0.c:1229 ('if (!speed || speed > UINT_MAX/8) return -EINVAL;') and smu11/arcturus_ppt.c:1269 carry the upstream fix, proving the missing bound here is an oversight, not an unreachable path; the fan1_target SENSOR_DEVICE_ATTR is registered at amdgpu_pm.c:3291 with S_IWUSR. Note this site is the same underlying location also identified by the drm-userif intent (f011) for s03; here it is confirmed specifically through the hwmon sysfs store-handler chain of this branch."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "line": 1217,
+      "status": "reported",
+      "reason": "smu_v11_0_set_fan_speed_rpm: only 'if (speed == 0)' (line 1207) on the raw input; divisor (8 * speed) at line 1217 wraps in u32 to 0 for speed > UINT_MAX/8; reached from hwmon fan1_target store (amdgpu_pm.c:2862) via amdgpu_dpm_set_fan_speed_rpm and smu_set_fan_speed_rpm (amdgpu_smu.c:2722 rejects only U32_MAX); registered by navi10_ppt.c:3589 and sienna_cichlid_ppt.c:3199."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c",
+      "line": 2724,
+      "status": "reported",
+      "reason": "smu_set_fan_speed_rpm guard 'if (speed == U32_MAX) return -EINVAL;' blocks only the single value U32_MAX; wrapped-divisor values such as 0x20000000 (8*speed == 0 mod 2^32) pass through to smu_v11_0_set_fan_speed_rpm; part of the reported finding's dispatch chain, not an independent defect."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/w83781d.c",
+      "line": 153,
+      "status": "safe",
+      "reason": "FAN_TO_REG (also w83792d.c:226, w83791d.c:218, w83627hf.c:258, w83l786ng.c:76, it87.c:669, lm78.c:85, lm80.c:70, sis5595.c:133, via686a.c:164, vt8231.c:138, asb100.c:120): rpm == 0 returns 255 early; rpm = clamp_val(rpm, 1, 1000000); divisor (rpm * div) is in [1, 1000000*8] in int width, cannot wrap or truncate to 0; final result clamped 1..254."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/g760a.c",
+      "line": 63,
+      "status": "safe",
+      "reason": "rpm_from_cnt: (clk*30)/(val*div) divides by a u8 register value val with 'val == 0x00 ? 0' short-circuit at the same expression; val in 1..255 and div = 2 constant, product cannot wrap; the only user write path pwm1_store clamps to 0..255 and performs no division."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/emc2103.c",
+      "line": 395,
+      "status": "safe",
+      "reason": "fan1_target_store clamps rpm_target to [0, 16384] and maps 0 to 0x1fff; the divisor of (FAN_RPM_FACTOR * multiplier) / rpm_target is the raw clamped value with no fixed-width scaling; fan_div path uses new_div from a fixed set (1..8)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/f71805f.c",
+      "line": 244,
+      "status": "safe",
+      "reason": "fan_to_reg: 'if (rpm < 367) return 0xfff;' screens the raw input before 1500000 / rpm; divisor is the raw user value >= 367, never scaled; set_fan_min/set_fan_target pass val straight through kstrtol."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/f75375s.c",
+      "line": 220,
+      "status": "safe",
+      "reason": "rpm_to_reg: 'if (rpm < 367 || rpm > 0xffff) return 0xffff;' before 'return 1500000 / rpm;'; divisor is the raw checked value, no scaling of the denominator."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/g762.c",
+      "line": 186,
+      "status": "safe",
+      "reason": "cnt_from_rpm: '!rpm' returns 0xff early (line 190); rpm = clamp_val(rpm, f1/(255*f2), ULONG_MAX/f2) (line 193) so the DIV_ROUND_CLOSEST(f1, rpm * f2) divisor at line 194 is >= 1 and cannot wrap in unsigned long width."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/amc6821.c",
+      "line": 484,
+      "status": "safe",
+      "reason": "amc6821 fan write: val < 0 rejected, !val rejected for fan_min and fan_target; 'val = val ? 6000000 / clamp_val(val, 1, 6000000) : 0;' divides by the clamp_val'd raw value itself; no fixed-width scaling applied to the denominator."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/adt7475.c",
+      "line": 272,
+      "status": "safe",
+      "reason": "rpm2tach: rpm == 0 returns 0 before (90000 * 60) / rpm; divisor is the raw unsigned long user value proven nonzero; result clamped 1..0xFFFF."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/adt7470.c",
+      "line": 660,
+      "status": "safe",
+      "reason": "adt7470_fan_write: 'if (val <= 0) return -EINVAL;' precedes FAN_RPM_TO_PERIOD(val) = (90000*60)/val; the divisor is the raw user value proven > 0; result clamped 1..65534."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/max6620.c",
+      "line": 372,
+      "status": "safe",
+      "reason": "fan target write clamps val to FAN_RPM_MIN(240)..FAN_RPM_MAX(30000) before max6620_fan_rpm_to_tach(); divisor (rpm * MAX6620_PULSE_PER_REV=2) at line 152 is in [480, 60000], cannot wrap in int width."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/max6650.c",
+      "line": 269,
+      "status": "safe",
+      "reason": "max6650_set_target: rpm == 0 handled as mode-OFF short circuit; rpm = clamp_val(rpm, FAN_RPM_MIN=240, FAN_RPM_MAX=30000); divisor (256 * rpm / 60) bounded [1024, 128000]; ktach clamped 0..255."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/max31790.c",
+      "line": 230,
+      "status": "safe",
+      "reason": "max31790_write_fan clamps val to FAN_RPM_MIN(120)..FAN_RPM_MAX(7864320) before RPM_TO_REG(rpm,sr) = (60*sr*8192)/(rpm*2); divisor 2*rpm in [240, 15728640] fits int; result additionally clamped 0x1..0x7FF."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/axi-fan-control.c",
+      "line": 148,
+      "status": "safe",
+      "reason": "DIV_ROUND_CLOSEST(60 * ctl->clk_rate, ctl->ppr * tach): ppr is a device-tree property validated at probe ('if (ctl->ppr != 1 && ctl->ppr != 2 && ctl->ppr != 4) return -EINVAL', line 382); tach is a hardware register read guarded by 'if (tach == 0) return 0' (lines 143-147); the sysfs store path writes only temp limit registers. No user-scaled divisor."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/emc2305.c",
+      "line": 181,
+      "status": "safe",
+      "reason": "EMC2305_PWM_STATE2DUTY(state, max_state, pwm_max) divides by data->max_state, which is validated at probe: 'if (!pdata->max_state || pdata->max_state > EMC2305_FAN_MAX_STATE) data->max_state = EMC2305_FAN_MAX_STATE;' (line 560-575); the user-provided state is bounded by 'if (state > data->max_state) return -EINVAL;' (line 208). No zero divisor reachable."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/dell-smm-hwmon.c",
+      "line": 1011,
+      "status": "safe",
+      "reason": "dell_smm_write pwm divisor is data->i8k_pwm_mult = DIV_ROUND_UP(255, data->i8k_fan_max) set once at probe (line 1204) from 'data->i8k_fan_max = fan_max ? : I8K_FAN_HIGH' -- a fan_max module param of 0 falls back to the nonzero default, so i8k_fan_max is never 0 and i8k_pwm_mult >= 1; the user pwm value is the numerator (clamp_val(DIV_ROUND_CLOSEST(val, i8k_pwm_mult), 0, i8k_fan_max)), not a scaled divisor."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/nct6775-core.c",
+      "line": 2018,
+      "status": "safe",
+      "reason": "store_fan_min: val == 0 handled by early branches on both paths; 13-bit path pre-clamps 'if (val > 1350000U) val = 135000U' so 1350000U / val has divisor >= 1; divider path 'reg = 1350000U / val' at line 2031 executes only for val >= 1 (unsigned long raw value, no scaling); store_fan_pulses bounds val to <= 4."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/ina3221.c",
+      "line": 198,
+      "status": "safe",
+      "reason": "ina3221_interval_ms_to_conv_time computes DIV_ROUND_CLOSEST(interval * 1000 / 2, channels * samples) where channels = hweight16(config & CHs_EN_MASK) and samples = ina3221_avg_samples[AVG(config)] >= 1; channels can only be 0 if all three channel-enable bits were cleared via currN_enable stores (probe sets CONFIG_DEFAULT 0x7127 with enables for connected inputs); even then samples >= 1 and the DIV_ROUND_CLOSEST denominator is channels*samples = 0 only when all channels are disabled -- the interval store is a hwmon chip attribute (is_visible 0644, line 615) and remains writable after disabling all channels, so this is a theoretical weak spot, but it divides a numerator, uses no fixed-width scaling of a user value, and requires an unusual multi-step state; the primary seed mechanism (scaled raw input wrapping to 0) is absent."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/aspeed-pwm-tacho.c",
+      "line": 524,
+      "status": "safe",
+      "reason": "aspeed_get_fan_tach_ch_measure_period divides by clk_unit * div_h * div_l * tacho_div * tacho_unit, all probe-time register-cache constants derived from fixed type configuration (M_TACH_CLK_DIV etc.); there is no fan RPM/target store handler in this driver, so no user-scaled divisor exists."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/hwmon/adt7411.c",
+      "line": 465,
+      "status": "safe",
+      "reason": "in_min/max store: 'val = DIV_ROUND_CLOSEST(val * 256, data->vref_cached);' divides by vref_cached which is refreshed from a register read (2250 constant or VDD measurement); a VDD measurement of 0 would make the divisor 0, but vref_cached is chip-measured (not user-scaled input) and this is an in-attribute path outside the fan/pwm/limit family; no fixed-width scaling of a user value into the denominator."
+    }
+  ],
+  "limitations": [
+    "Bounded search: six high-signal query families over drivers/hwmon, drivers/thermal and the amdgpu hwmon store chain in snapshots/s03 -- parenthesized scaled divisors ('/ (x * y)'), DIV_ROUND_* with arithmetic denominators, fan RPM/target/min/div/pulses/pwm store handlers, update_interval chip-attribute stores, and the fan1_target dispatch chain; non-fan attributes (in/temp/power/current) in the remaining ~280 drivers/hwmon files were only pattern-scanned, not line-by-line audited.",
+    "The reported smu_v11_0 finding was verified by source reading only: the u32 wrap (8 * 0x20000000 == 0 mod 2^32) is arithmetic fact, but no amdgpu hardware/VM was available to trigger the oops; reachability requires dpm enabled, pwm1_enable set to AMD_FAN_CTRL_MANUAL, and the fan1_target node exposed (hwmon_attributes_visible can hide fan nodes on APU parts).",
+    "Thermal-side (drivers/thermal) cooling-device cur_state handlers were spot-checked (emc2305 set_cur_state max_state bounds) rather than exhaustively verified; the fan-adjacent attributes of aquacomputer_d5next, corsair-cpro, nzxt-kraken3/smart2, gigabyte_waterforce and similar USB HID drivers were confirmed to write raw duty/rpm values with clamps and no kernel-side division at their write entry points, but their full read paths were not audited.",
+    "The ina3221 channels*samples divisor (line 198) can be driven to 0 only by first disabling all three currN_enable channels and then writing update_interval; it lacks the seed's scaled-raw-input shape (no fixed-width scaling of the user value), so it was classified safe, but this judgment is by reading, not runtime testing.",
+    "The sibling AMD powerplay fan-RPM functions (vega10_thermal.c, vega20_thermal.c, smu7_thermal.c, arcturus_ppt.c) in this snapshot belong to the drm-userif intent (f011) and were not re-triaged here beyond confirming the fan1_target dispatch chain that also carries the reported smu_v11_0 site."
+  ]
+}

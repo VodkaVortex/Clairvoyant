@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "xmit-softirq-lock",
+  "snapshot": "s07",
+  "status": "finalized",
+  "progress": "Search complete. Findings: (1) s07 drivers/net/wireless/marvell/mwl8k.c:1978-2033 stream_lock plain spin_lock on softirq-reachable .tx chain vs process/workqueue holders (watchdog_ba_events worker 3822/3835, mwl8k_cmd_set_new_stn_del 4152/4163, mwl8k_ampdu_action 5445+), zero _bh on the lock, medium confidence. (2) s07 drivers/net/ethernet/altera/altera_tse_main.c:455-464 tse_tx_complete plain spin_lock from NAPI poll vs plain spin_lock in tse_shutdown:1298 process context, xmit side uses _bh at 579, low confidence (window narrowed by napi_disable/free_irq ordering). Candidates classified: ks7010 seed=safe(excluded), mwl8k=reported, altera_tse 463=reported, hostap_hw 1862=unresolved, cw1200 wsm 1091=safe, qtnfmac trans 43=unresolved, ath9k 387=safe, cassini 1863=safe, iwlwifi rx 1675=unresolved, igb 2470=unresolved, cw1200 1692=safe, altera_tse 543=unresolved. Final artifact written to findings/i008.json.",
+  "candidates": [
+    {
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 1982,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 463,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/staging/ks7010/ks7010_sdio.c",
+      "line": 398,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/net/wireless/intersil/hostap/hostap_hw.c",
+      "line": 1862,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/net/wireless/st/cw1200/wsm.c",
+      "line": 1091,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+      "line": 43,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/net/wireless/ath/ath9k/main.c",
+      "line": 387,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "line": 1863,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/net/wireless/intel/iwlwifi/pcie/rx.c",
+      "line": 1675,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/net/ethernet/intel/igb/igb_main.c",
+      "line": 2470,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/net/wireless/st/cw1200/wsm.c",
+      "line": 1692,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 543,
+      "status": "unresolved"
+    }
+  ],
+  "findings": [
+    {
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "start": 1978,
+      "end": 2033,
+      "confidence": "medium"
+    },
+    {
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "start": 455,
+      "end": 464,
+      "confidence": "low"
+    }
+  ]
+}

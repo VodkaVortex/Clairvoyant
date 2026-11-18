@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "drm-userif-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "start": 1207,
+      "end": 1217,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "high",
+      "reason": "smu_v11_0_set_fan_speed_rpm() guards only speed == 0 (line 1207-1208) before computing tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed) at line 1217 in uint32_t arithmetic (tach_period is uint32_t, crystal_clock_freq is uint32_t 2500). Untrusted source: sysfs hwmon fan1_target store amdgpu_hwmon_set_fan1_target (amdgpu_pm.c:2836-2862) does kstrtou32(buf,10,&value) with no range bound and calls amdgpu_dpm_set_fan_speed_rpm(adev,value); chain is amdgpu_pm.c -> amdgpu_dpm.c:1495 -> smu_set_fan_speed_rpm (amdgpu_smu.c:2714, which only rejects speed == U32_MAX) -> .set_fan_speed_rpm = smu_v11_0_set_fan_speed_rpm registered for navi10_ppt.c:3589 (Navi10/Navi14) and sienna_cichlid_ppt.c:3199 (Sienna Cichlid / Navi2x). Violated invariant: the divisor (8 * speed) is never proven nonzero at the u32 width where '/' executes. For speed = 0x20000000 (536870912), 0x40000000, or 0x60000000 (all <= 0xFFFFFFFE and not U32_MAX, so they pass every check), 8 * speed wraps modulo 2^32 to exactly 0, producing a kernel divide-by-zero oops in the PM programming path; verified by compiled C demonstration under the agent TMPDIR (8u*536870912u == 0, 8u*1073741824u == 0, 8u*1610612736u == 0, and the raw division faults with SIGFPE). Counter-evidence checked: no UINT_MAX/8 bound exists anywhere in smu_v11_0.c (grep UINT_MAX only matches an unrelated file), and the only upstream-style fix (speed > UINT_MAX/8) exists in smu_v13_0.c:1229 but was never applied to the v11_0/vega20/arcturus/smu7 variants in this snapshot. Impact: local unprivileged DoS via /sys/class/hwmon/hwmon*/fan1_target (requires AMD_FAN_CTRL_MANUAL pwm mode and dpm enabled)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+      "start": 194,
+      "end": 204,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "high",
+      "reason": "vega20_fan_ctrl_set_fan_speed_rpm() guards only !speed (lines 194-195, return -EINVAL); unlike vega10 it does not even consult ulMinRPM/ulMaxRPM, so any speed != 0 reaches tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed) at line 204 in uint32_t width. Untrusted source: same sysfs fan1_target store path via pp_dpm_set_fan_speed_rpm (amd_powerplay.c:581-595, rejects only rpm == U32_MAX) -> .set_fan_speed_rpm = vega20_fan_ctrl_set_fan_speed_rpm (vega20_hwmgr.c:4433). For speed = 536870912 (UINT_MAX/8 rounded, exactly 2^29), 1073741824, or 1610612736, the u32 product 8 * speed wraps to 0 and the division faults (demonstrated in compiled test). No UINT_MAX guard anywhere in the file. Same class and identical expression as the vega10 seed CVE."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/arcturus_ppt.c",
+      "start": 1259,
+      "end": 1270,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "high",
+      "reason": "arcturus_set_fan_speed_rpm() performs NO validation whatsoever on speed: the function body (lines 1259-1277) goes straight from computing crystal_clock_freq = 2500 to tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed) at line 1270. Untrusted source: sysfs fan1_target -> amdgpu_dpm_set_fan_speed_rpm -> smu_set_fan_speed_rpm (only rejects U32_MAX) -> .set_fan_speed_rpm = arcturus_set_fan_speed_rpm (arcturus_ppt.c:2005). This variant is strictly worse than the seed: speed == 0 gives an immediate divide-by-zero, and speed in {2^29, 2^30, 3*2^29} gives the wrapped-zero 8*speed divisor. Arcturus is a discrete GPU (not APU), so the fan-attribute APU hide rule in amdgpu_hwmon_is_visible does not apply; requires manual fan control mode."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 320,
+      "status": "reported",
+      "reason": "The seed function itself, present in s03 in its unfixed pre-patch form: checks speed == 0 and ulMinRPM/ulMaxRPM but not speed > UINT_MAX/8, then divides by (8 * speed). Reported as finding-equivalent seed site; counted as a confirmed variant location but superseded by the three distinct new locations above."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0.c",
+      "line": 1229,
+      "status": "safe",
+      "reason": "smu_v13_0_set_fan_speed_rpm explicitly checks if (!speed || speed > UINT_MAX/8) return -EINVAL before the identical division at line 1236; this is the upstream fix applied, confirming the missing guard in the v11_0/vega20/arcturus variants is a genuine oversight rather than an unreachable path."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "line": 280,
+      "status": "unresolved",
+      "reason": "smu7_fan_ctrl_set_fan_speed_rpm divides by (8 * speed) at line 280 after checking speed == 0 and speed within [ulMinRPM, ulMaxRPM], where the limits come from the powerplay table as ucFanMinRPM*100 / ucFanMaxRPM*100 (processpptables.c:1000-1002, u8 * 100 so max possible table limit is 25500). Because the table-derived max is always far below 2^29 on well-formed tables, the wrap is only reachable if a malformed/fanless VBIOS reports ucFanMinRPM=ucFanMaxRPM=0 (limits check then accepts any nonzero speed). Reachability depends on firmware-table content; left unresolved for the firmware-table branch (i016) rather than this user-interface branch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "line": 6722,
+      "status": "unresolved",
+      "reason": "Legacy amdgpu si_fan_ctrl_set_fan_speed_rpm divides by (8 * speed) at line 6722 guarded only by u8 fan_min_rpm/fan_max_rpm from the VBIOS thermal controller table (legacy_dpm.c:698-699, raw u8 so a malformed table with ucFanMaxRPM=0 would admit any speed). Firmware-table dependent; deferred to i016."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/radeon/si_dpm.c",
+      "line": 6199,
+      "status": "safe",
+      "reason": "radeon si_fan_ctrl_set_fan_speed_rpm contains the same 8*speed division, but grep of drivers/gpu/drm/radeon shows no hwmon fan1_target or set_fan_speed_rpm exposure: radeon's hwmon attributes are only temp1_*/pwm1*/freq1* (radeon_pm.c:706-736) and its dpm callbacks expose set_fan_speed_percent only; si_fan_ctrl_set_fan_speed_rpm is static and unreferenced, so no unprivileged user path reaches it."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/radeon/ci_dpm.c",
+      "line": 1172,
+      "status": "safe",
+      "reason": "Identical structure to radeon si_dpm.c, but likewise static with no sysfs/ioctl caller in the radeon driver; not reachable from user interfaces in this snapshot."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/amdgpu_pm.c",
+      "line": 2836,
+      "status": "safe",
+      "reason": "amdgpu_hwmon_set_fan1_target itself performs no arithmetic on the parsed u32; it is the untrusted-source entry point for the reported findings, not an independent unsafe use."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/amd_powerplay.c",
+      "line": 594,
+      "status": "safe",
+      "reason": "pp_dpm_set_fan_speed_rpm validates only rpm == U32_MAX before dispatching to hwmgr_func->set_fan_speed_rpm; it is pass-through plumbing for the vega10/vega20/smu7 findings rather than a separate defect."
+    }
+  ],
+  "limitations": [
+    "The three reported sites were verified by source reading plus a compiled C model of the u32 wrap (outputs and SIGFPE under $TMPDIR), not by loading the actual amdgpu driver on target hardware; real-device confirmation and a kernel Oops trace were not produced.",
+    "Reachability requires the hwmon fan1_target node, dpm enabled, and AMD_FAN_CTRL_MANUAL pwm mode (amdgpu_hwmon_set_fan1_target returns -ENODATA otherwise); visibility rules in amdgpu_hwmon_is_visible can additionally hide fan nodes for APU parts (noted for arcturus: it is a dGPU so this does not apply).",
+    "smu7_thermal.c:280, legacy-dpm/si_dpm.c:6722, and the two radeon sites depend on VBIOS/powerplay-table-derived u8 RPM limits and were left unresolved here; they are scoped to the firmware-table-divisor intent (i016) for s03.",
+    "Other DRM vendors (nouveau, i915, xe) and non-fan user interfaces (pp_od_clk_voltage, power_dpm_force_performance_level, debugfs OD paths) were only spot-checked for div-by-constant-scaling patterns; a full per-vendor ioctl sweep was not completed."
+  ]
+}

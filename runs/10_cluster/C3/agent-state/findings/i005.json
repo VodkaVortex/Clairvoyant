@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "rtnl-doit-attr-gaps",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/mpls/af_mpls.c",
+      "start": 2114,
+      "end": 2122,
+      "quote": "ifindex = nla_get_u32(tb[i]);",
+      "confidence": "medium",
+      "reason": "Untrusted source: an unprivileged local user sends an rtnetlink RTM_GETROUTE dump request with NLM_F_DUMP and rtgen_family=AF_MPLS; rtnetlink_rcv_msg() (net/core/rtnetlink.c:5325) enforces no CAP_NET_ADMIN for dump (kind==2) requests, and the handler is reachable as dumpit via rtnl_register_module(PF_MPLS, RTM_GETROUTE, NULL, mpls_dump_route) at net/mpls/af_mpls.c:2747, which calls mpls_valid_fib_dump_req() when cb->strict_check is set (line ~2170; NETLINK_GET_STRICT_CHK is settable without capabilities). Violated invariant (validated != used): this #else (CONFIG_INET=n) variant of mpls_valid_fib_dump_req() parses attributes with nlmsg_parse_deprecated_strict() into tb[], then loops 'for (i = 0; i <= RTA_MAX; ++i)' and in the 'if (i == RTA_OIF)' arm dereferences tb[i] with nla_get_u32() WITHOUT any tb[RTA_OIF] != NULL check, even though the 'else if (tb[i])' arm of the same loop shows NULL slots are expected and must be skipped. A dump request that omits RTA_OIF passes parsing with tb[RTA_OIF] == NULL. Unsafe use: nla_get_u32(NULL) is *(u32 *)(NULL + NLA_HDRLEN) \u2014 a NULL/near-NULL read causing a kernel oops (local DoS) from unprivileged input; the resulting value then feeds __dev_get_by_index(net, ifindex), an index lookup. Counterevidence/limits: with CONFIG_INET=y (the common configuration) the #if branch at line 2073 delegates to ip_valid_fib_dump_req() (net/ipv4/fib_frontend.c:889), whose attribute loop correctly does 'if (!tb[i]) continue;' before switch, so the flaw is compiled only when CONFIG_MPLS=y && CONFIG_INET=n; the reach also requires the strict-check socket option. No build was performed (snapshot is a read-only source tree), so the compiled-out/in status against a shipped .config is unverified; confidence medium for that reason."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/mpls/af_mpls.c",
+      "line": 2118,
+      "status": "reported",
+      "reason": "mpls_valid_fib_dump_req() CONFIG_INET=n variant: nla_get_u32(tb[i]) at i==RTA_OIF without tb[RTA_OIF] NULL check; nlmsg_parse-deprecated_strict leaves the slot NULL when the attribute is omitted; reachable from unprivileged RTM_GETROUTE+NLM_F_DUMP dump requests with strict-check enabled."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/rtnetlink.c",
+      "line": 4792,
+      "status": "safe",
+      "reason": "rtnl_bridge_setlink()/rtnl_bridge_dellink(): 'attr' is NULL-initialized and only assigned when IFLA_BRIDGE_FLAGS is found inside IFLA_AF_SPEC; have_flags is set true in exactly the same iteration, so the trailing memcpy(nla_data(attr),...) is executed only when attr is non-NULL. No NULL-deref path."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/act_api.c",
+      "line": 1449,
+      "status": "safe",
+      "reason": "tc_ctl_action() checks tca[TCA_ACT_TAB] == NULL before passing it to tcf_action_add/tca_action_gd; nlmsg_parse failure handled."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/phonet/pn_netlink.c",
+      "line": 248,
+      "status": "safe",
+      "reason": "route/addr doit handlers use correct OR-of-negations guards: 'if (tb[RTA_DST] == NULL || tb[RTA_OIF] == NULL) return -EINVAL;' and 'if (tb[IFA_LOCAL] == NULL) return -EINVAL;' before every dereference."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/qrtr/qrtr.c",
+      "line": 1043,
+      "status": "safe",
+      "reason": "qrtr_addr_doit() checks '!tb[IFA_LOCAL]' before nla_get_u32(tb[IFA_LOCAL]); other slots never dereferenced."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/net_namespace.c",
+      "line": 722,
+      "status": "safe",
+      "reason": "rtnl_net_newid()/rtnl_net_getid() require NETNSA_NSID presence and branch if/else on NETNSA_PID vs NETNSA_FD; every used slot is checked."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/fib_rules.c",
+      "line": 493,
+      "status": "safe",
+      "reason": "fib_nl2rule() guards FRA_SRC/FRA_DST with '!tb[...] ||' (correct OR) and every other tb[X] use with an if (tb[X]) guard; nla_get_kuid_range only called under if (tb[FRA_UID_RANGE])."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/devinet.c",
+      "line": 637,
+      "status": "safe",
+      "reason": "rtm_to_ifaddr() rejects '!tb[IFA_LOCAL]', aliases IFA_ADDRESS to IFA_LOCAL when absent, and guards all optional attributes; inet_rtm_deladdr() guards tb[IFA_LOCAL/IFA_LABEL/IFA_ADDRESS] uses."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bridge/br_netlink.c",
+      "line": 854,
+      "status": "safe",
+      "reason": "br_setlink()/br_dellink() null-check protinfo/afspec (from nlmsg_find_attr) before use; br_setport()/br_set_port_flag() check '!tb[attrtype]' for every index used; br_afspec() iterates nla_for_each_nested over a checked non-NULL af_spec."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/dcb/dcbnl.c",
+      "line": 1732,
+      "status": "safe",
+      "reason": "dcb_doit() requires tb[DCB_ATTR_IFNAME]; nested setters (dcbnl_setapp, dcbnl_setpfccfg, __dcbnl_pg_setcfg) check the nesting attribute and every inner slot (app_tb 'all must be non-null' with correct ||, data[i], pg_tb[i]) before nla_get_*."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/can/gw.c",
+      "line": 732,
+      "status": "safe",
+      "reason": "cgw_parse_attr() guards every tb[CGW_*] use with if (tb[...]) and checks the mandatory pair with correct '!tb[CGW_SRC_IF] || !tb[CGW_DST_IF]' OR form before nla_get_u32."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/cls_api.c",
+      "line": 2041,
+      "status": "safe",
+      "reason": "tc_new_tfilter()/tc_del_tfilter() check 'tca[TCA_KIND] == NULL || !protocol' before nla_data(tca[TCA_KIND]) and guard every nla_strcmp/nla_get_u32(tca[TCA_CHAIN]) with a presence test; sch_api tc_ctl_tclass() likewise guards tca[TCA_INGRESS_BLOCK]/[TCA_EGRESS_BLOCK]."
+    }
+  ],
+  "limitations": [
+    "The reported MPLS flaw is compiled only in the #else branch of '#if IS_ENABLED(CONFIG_INET)' (net/mpls/af_mpls.c:2073); with CONFIG_INET=y the shared ip_valid_fib_dump_req() (net/ipv4/fib_frontend.c:889) correctly skips NULL tb[] entries. The snapshot tree contains no .config, so which configuration the snapshot represents is unverified; no compilation was possible in the read-only workspace.",
+    "Reachability of the reported flaw additionally requires the NETLINK_GET_STRICT_CHK socket option (cb->strict_check path at net/mpls/af_mpls.c:~2164-2170); this option is settable without privileges, but the exact interplay was not runtime-tested.",
+    "Bounded search: rtnl_link_ops per-kind newlink/changelink implementations (vxlan, geneve, macsec, gtp, bonding, ipvlan, hsr, xfrm_interface, infiniband ipoib, etc.) were only spot-checked, not exhaustively audited for unguarded data[] dereferences.",
+    "net/ipv6/addrconf.c inet6_rtm_* handlers, net/ipv6/route.c, net/ipv4/nexthop.c, net/ipv6/ip6_fib.c/ip6mr.c, net/ipv4/ipmr.c, and net/decnet rtnl handlers were scanned for registration/parsing patterns but not read function-by-function; a gap there cannot be excluded.",
+    "net/sched per-filter-kind and per-qdisc-kind change()/init() callbacks consuming tca[TCA_OPTIONS] were not individually audited."
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "helper-param-null-deref",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nfnetlink_queue.c",
+      "line": 1109,
+      "status": "safe",
+      "reason": "nfqnl_ct_parse: caller nfqnl_recv_verdict gates the whole helper on 'if (nfqa[NFQA_CT])' (1203-1206) and the helper NULL-checks nfqa[NFQA_EXP] itself (1124) before attach_expect; nfnl_ct->parse -> ctnetlink_glue_parse receives only the gated NFQA_CT slot. Callees ctnetlink_glue_parse (nf_conntrack_netlink.c:2583) and ctnetlink_glue_attach_expect (2613) lack their own NULL checks, but every caller-side path covers the exact slot; the optional NLA_UNSPEC policy entries (nfnetlink_queue.c:1013-1014) therefore never feed a NULL into them."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_conntrack_netlink.c",
+      "line": 1147,
+      "status": "safe",
+      "reason": "ctnetlink_parse_tuple dereferences cda[type] via nla_parse_nested_deprecated with no NULL check (line 1156), but every call site was enumerated and each is guarded: del_conntrack/get_conntrack branch on 'if (cda[CTA_TUPLE_ORIG]) / else if (cda[CTA_TUPLE_REPLY])' (1290-1296, 1363-1369); create_conntrack requires both tuples (2140-2151); new_expect requires TUPLE/MASK/MASTER with '||' of negated tests (3417-3420) plus a comment 'caller guarantees'; create_expect parses the same three (3427-3436); dump_exp_ct (3027) and get_expect (3086-3090) parse CTA_EXPECT_MASTER/TUPLE only under explicit if/else-if presence tests; glue_exp_parse (2603-2608) receives cda parsed by ctnetlink_glue_attach_expect and the caller ctnetlink_glue_attach_expect passes the whole cda[] with CTA_EXPECT_TUPLE/CTA_EXPECT_MASK consumed by new_expect's guaranteed-present contract; ctnetlink_parse_expect_nat (3253) is called only under 'if (cda[CTA_EXPECT_NAT])' (3320). No unguarded index found."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_conntrack_netlink.c",
+      "line": 1201,
+      "status": "safe",
+      "reason": "ctnetlink_parse_help passes attr straight into nla_parse_nested_deprecated with no NULL check, but both callers cover the slot: ctnetlink_change_helper is only called under 'if (cda[CTA_HELP])' in ctnetlink_change_conntrack (1907-1910) and ctnetlink_glue_parse_ct (2563-2567); ctnetlink_create_conntrack inlines 'if (cda[CTA_HELP])' before its own parse_help call (1986)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_nat_core.c",
+      "line": 883,
+      "status": "safe",
+      "reason": "nfnetlink_parse_nat_proto passes attr to nla_parse_nested_deprecated unguarded, but its only caller nfnetlink_parse_nat checks 'if (!tb[CTA_NAT_PROTO]) return 0;' first (nf_nat_core.c:960-961); nfnetlink_parse_nat_setup explicitly handles 'if (attr == NULL)' by taking the null-binding path (972-975) and is called from ctnetlink_setup_nat, which itself returns early when both CTA_NAT_DST and CTA_NAT_SRC are absent (nf_conntrack_netlink.c:1626-1627). Inner helpers nf_nat_ipv4/ipv6/l4proto_nlattr_to_range check tb[...] presence before every nla_get_*/nla_memcpy."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_conntrack_netlink.c",
+      "line": 1104,
+      "status": "safe",
+      "reason": "ctnetlink_parse_zone is NULL-tolerant by construction: it dereferences attr only inside 'if (attr)' (1112/1115), and its wrapper ctnetlink_parse_tuple_zone passes tb[CTA_TUPLE_ZONE] only under 'if (tb[CTA_TUPLE_ZONE])' in ctnetlink_parse_tuple (1178). All cda[CTA_ZONE]/cda[CTA_EXPECT_ZONE] callers pass optional slots safely."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nft_ct.c",
+      "line": 793,
+      "status": "safe",
+      "reason": "nft_ct_timeout_parse_policy passes attr into nla_parse_nested_deprecated unguarded, but its sole caller nft_ct_timeout_obj_init requires 'if (!tb[NFTA_CT_TIMEOUT_L4PROTO] || !tb[NFTA_CT_TIMEOUT_DATA]) return -EINVAL;' (nft_ct.c:872-874) before the call at 895-896. Likewise the twin helper ctnl_timeout_parse_policy in net/netfilter/nfnetlink_cttimeout.c:46 is called only after cttimeout_new_timeout requires CTA_TIMEOUT_DATA presence with a correct '||' of negated tests (nfnetlink_cttimeout.c:85-89)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nft_ct.c",
+      "line": 395,
+      "status": "safe",
+      "reason": "nft_ct_get_init/nft_ct_set_init dereference tb[NFTA_CT_KEY] (lines 395, 548) with no in-function NULL check, but the expression's select_ops nft_ct_select_ops rejects a missing key first ('if (tb[NFTA_CT_KEY] == NULL) return ERR_PTR(-EINVAL);', nft_ct.c:734) and nf_tables nft_expr_init only invokes ops->init after select_ops returns non-error; DREG/SREG uses are gated by the select_ops DREG/SREG branching, DIRECTION by explicit 'if (tb[NFTA_CT_DIRECTION] != NULL)' tests (493, 594). nft_ct_timeout_obj_init (872), nft_ct_helper_obj_init (987-989: '!tb[NFTA_CT_HELPER_NAME] || !tb[NFTA_CT_HELPER_L4PROTO]'), and nft_ct_expect_obj_init (1171-1174: correct '||' over four negated tests) all validate presence before use."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bridge/br_netlink_tunnel.c",
+      "line": 219,
+      "status": "safe",
+      "reason": "br_parse_vlan_tunnel_info passes attr into nla_parse_nested_deprecated unguarded, but its only caller br_afspec (net/bridge/br_netlink.c:631) iterates 'nla_for_each_nested(attr, af_spec, rem)' so attr is never NULL; the inner ID/VID pair is required with a correct '||' (br_netlink_tunnel.c:236-238) and FLAGS is optional-guarded. br_afspec itself is reached only under 'if (afspec)' in br_setlink (br_netlink.c:903) and 'if (!afspec) return 0;' in br_dellink (br_netlink.c:923)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/seg6_local.c",
+      "line": 839,
+      "status": "safe",
+      "reason": "parse_nla_bpf passes attrs[SEG6_LOCAL_BPF] into nla_parse_nested_deprecated unguarded, but the dispatcher parse_nla_action iterates only 'if (desc->attrs & (1 << i))' and checks 'if (!attrs[i]) return -EINVAL;' (seg6_local.c:958-960) before calling param->parse(attrs, slwt); seg6_local_build_state additionally requires tb[SEG6_LOCAL_ACTION] (1002-1003). The same covering pattern protects parse_nla_srh/nh4/nh6/iif/oif/table. The optional-in-policy nesting attribute never reaches a helper as NULL."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/fou.c",
+      "line": 671,
+      "status": "safe",
+      "reason": "parse_nl_config wraps every attribute dereference in its own 'if (info->attrs[FOU_ATTR_*])' test (AF 684, PORT 700, IPPROTO 705, TYPE 708, LOCAL_V4/PEER_V4 713/719, LOCAL_V6/PEER_V6 727/733, PEER_PORT 743, IFINDEX 752) and uses intermediate locals only after assignment from a tested slot; the only cross-attribute coupling (has_peer requires PEER_PORT; IFINDEX requires has_local) is enforced with explicit returns. No unguarded slot dereference."
+    }
+  ],
+  "limitations": [
+    "Negative result for branch helper-param-null-deref on s01: every helper that dereferences an nlattr parameter (nla_parse_nested_deprecated / nla_get_* / nla_data / nla_len) without its own NULL check was traced to its callers, and in each case either a caller-side presence test on the exact slot or an in-helper check covers the argument. The closest structural analogue of the seed (nfqnl_ct_parse forwarding nfqa[NFQA_CT]/nfqa[NFQA_EXP] into ctnetlink glue helpers that parse unguarded) was fully traced and is covered: nfqnl_recv_verdict gates the call on 'if (nfqa[NFQA_CT])' (nfnetlink_queue.c:1203-1206) and the helper itself NULL-checks nfqa[NFQA_EXP] at 1124 before attach_expect; the optional NLA_UNSPEC policy entries (1013-1014) therefore never feed a NULL into ctnetlink_glue_parse/ctnetlink_glue_attach_expect.",
+    "unverified-remainder: the nfqnl_recv_verdict_batch variant's gate around nfqnl_ct_parse was not re-read in this truncated session (the non-batch path was verified gated); likewise l4proto->ctnl_timeout.nlattr_to_obj implementations in nf_conntrack_proto_*.c were assumed guarded by their parse wrappers rather than read.",
+    "Bounded negative: the helper-parameter surface actually read end-to-end is the one the prior s01 artifacts left unresolved plus the queue-verdict glue: nf_conntrack_netlink tuple/zone/help/expect-nat/seq_adj helpers and glue_parse/attach_expect, their nfnl_ct_hook consumers in nfnetlink_queue.c, nf_nat_core nfnetlink_parse_nat*, nfnetlink_cttimeout ctnl_timeout_parse_policy, nft_ct policy parsers, br_parse_vlan_tunnel_info, seg6_local parse_nla_* callbacks, and fou.c parse_nl_config. Other helper-parameter surfaces (openvswitch flow_netlink.c, devlink, dcbnl legacy handlers, netlabel helpers, l2tp/ncsi helpers) were not re-read in this intent.",
+    "The nfqnl_ct_parse candidate was classified safe on static reading; a runtime reproducer was not run (the snapshot tree is read-only and has no top-level Makefile/Kconfig), so the conclusion rests on exact source reading of the caller guard at nfnetlink_queue.c:1203-1206, the in-helper check at 1124, and the hook registration at nf_conntrack_netlink.c:2660-2665.",
+    "Reachability claims assume netlink_net_capable(skb, CAP_NET_ADMIN) at net/netfilter/nfnetlink.c:555 is satisfiable from an unprivileged user namespace; whether the relevant modules (nfnetlink_queue, nf_conntrack_netlink) are loaded in a target configuration is deployment-dependent.",
+    "Helpers reached only through single specialized callers (e.g. l4proto->ctnl_timeout.nlattr_to_obj implementations in nf_conntrack_proto_*.c) were assumed to follow the same presence-checking pattern because their tb[] is produced by the guarded parse wrappers; they were not individually read.",
+    "net/ipv4/fou.c callers beyond parse_nl_config (fou_nl_cmd_get_port dump paths) and the GUE/fou genl family's remaining ops were not deep-read; the prior s03/s02 evidence showed nothing anomalous in fou.c for those."
+  ]
+}

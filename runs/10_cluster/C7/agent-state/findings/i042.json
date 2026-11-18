@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "intent_id": "i042",
+  "branch": "tasklet-napi-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s13"
+  ],
+  "findings": [
+    {
+      "snapshot": "s13",
+      "path": "drivers/atm/solos-pci.c",
+      "start": 453,
+      "end": 463,
+      "quote": "spin_lock(&card->cli_queue_lock);",
+      "confidence": "high",
+      "reason": "Untrusted source is attacker-influenced concurrency, not data: any device-generated PKT_COMMAND console response raises the shared PCI IRQ, and solos_irq (solos-pci.c:757-766) calls tasklet_schedule(&card->tlet) at line 762 while a userspace read of the same device's sysfs 'console' attribute (DEVICE_ATTR_RW(console) at line 587, group registered via sysfs_create_group at line 1385) executes console_show in process context. Violated invariant: card->cli_queue_lock is a lock shared with a TASKLET-softirq callback - tasklet_init(&card->tlet, solos_bh, ...) at line 1311, and solos_bh's PKT_COMMAND case takes the same lock at lines 868-876 - yet the process-context site console_show acquires it with plain spin_lock at line 461 (unlock 463) instead of spin_lock_bh; plain spin_lock only disables preemption, not bottom halves. Unsafe use: after console_show takes the lock at 461, a pending TASKLET_SOFTIRQ on the same CPU runs solos_bh, which spins forever at 868 while the preempted holder (preemption disabled, BHs enabled) can never resume - the exact seed shape with the tasklet callback in place of the xmit callback. Impact: same-CPU softirq soft-lockup, watchdog/RCU-stall splats, hung sysfs read, repeatable denial of service by any local user who reads the attribute while the device emits console traffic. Counterevidence checked: no local_bh_disable/spin_lock_bh anywhere in console_show or its call chain; the tasklet is never disabled around sysfs reads (the only tasklet synchronization is tasklet_unlock_wait in pclose at 1006-1008, unrelated to this lock); sibling locks in the same driver use irqsave/irq (param_queue_lock at 223/231/279/287/439/536), showing the author's own discipline for interrupt-shared locks and the omission here.",
+      "conclusion": "solos-pci console_show takes card->cli_queue_lock with plain spin_lock (461) in process/sysfs context while the hardirq-scheduled solos_bh tasklet takes the same lock (868) in TASKLET softirq; the missing spin_lock_bh lets the tasklet spin forever against the preempted sysfs reader on one CPU (soft-lockup DoS)."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/atm/solos-pci.c",
+      "start": 963,
+      "end": 978,
+      "quote": "spin_lock(&card->tx_queue_lock);",
+      "confidence": "medium",
+      "reason": "Untrusted source is timing: any FPGA TX-complete interrupt arriving while a process closes an ATM VCC. Violated invariant: card->tx_queue_lock is shared between the process-context site pclose (registered as fpga_ops .close at solos-pci.c:1185, invoked from ATM socket close/vcc_destroy_socket), which takes it with plain spin_lock at line 971 (unlock 978), and the softirq side solos_bh -> fpga_tx (fpga_tx called from the tasklet at line 781), which takes the same lock with plain spin_lock at line 1090 (unlock 1094) while running in TASKLET softirq context; the process-context acquisition must use spin_lock_bh. Unsafe use: pclose holds tx_queue_lock with bottom halves enabled; the hardirq (solos_irq, request_irq at 1318-1321) schedules the tasklet; on IRQ exit the tasklet runs fpga_tx, acquires tx_lock irqsave at 1070, then spins forever on tx_queue_lock at 1090 while the preempted pclose can never release it - same-CPU self-deadlock. Impact: soft-lockup and VCC-close hang during device TX activity. Counterevidence checked: fpga_queue (1048-1053) and all other tx_queue_lock users use irqsave, so the 971/1090 plain pair is the mismatch; pclose contains no tasklet_disable and its tasklet_unlock_wait (1006-1008) runs only after the lock is dropped; remaining uncertainty is whether the generic ATM core (net/atm) calls vcc close with BHs already disabled, which was not verified in this snapshot, hence medium confidence.",
+      "conclusion": "solos-pci pclose takes card->tx_queue_lock with plain spin_lock (971) in process context while the tasklet callback solos_bh->fpga_tx takes the same lock (1090) in TASKLET softirq; the missing spin_lock_bh can wedge the tasklet against the VCC-close holder on one CPU (soft-lockup DoS), pending confirmation that the ATM close path is BH-enabled."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s13",
+      "path": "drivers/atm/he.c",
+      "line": 1771,
+      "status": "safe",
+      "reason": "The only plain spin_lock(&he_dev->global_lock) pair (1771, re-lock at 1773, unlock around vcc->push) is inside he_service_rbrq, which is invoked from he_tasklet (1929) in softirq context, not process context; every other global_lock site in he.c (1937, 2025, 2178, 2207, 2246, 2287, 2357, 2412, 2448, 2526, 2629, 2682, 2696, 2729) uses spin_lock_irqsave, so no BH-enabled plain holder of this softirq-shared lock was found.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/atm/eni.c",
+      "line": 1519,
+      "status": "safe",
+      "reason": "eni_dev->lock is taken plainly only inside the hardirq handler eni_int (1519-1521); the tasklet eni_tasklet (1535) and all other callers use spin_lock_irqsave, so there is no process-context plain acquirer sharing a lock with the tasklet/softirq side (the hardirq-plain site is branch4 territory, and its process counterpart is irqsave-protected).",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/atm/fore200e.c",
+      "line": 1202,
+      "status": "safe",
+      "reason": "Both tasklet callbacks (fore200e_tx_tasklet 1195-1202, fore200e_rx_tasklet 1209-1216) and every process-context q_lock user (1158, 1162, 1330, 1444, 1560, 2994) take fore200e->q_lock with spin_lock_irqsave; no plain or BH-mismatched acquisition exists.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/tty/ipwireless/hardware.c",
+      "line": 1014,
+      "status": "safe",
+      "reason": "The tasklet ipwireless_do_tasklet (1009-1014) and every other hw->lock site (416, 509, 525, 563, 665, 689, 709, 738, 934, 942, 960, 991, 1074, 1081, 1154, 1171, 1180, 1230, 1242, 1700) uses spin_lock_irqsave consistently; no plain process-context acquisition of this tasklet-shared lock.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/usb/rtl8150.c",
+      "line": 436,
+      "status": "safe",
+      "reason": "rx_pool_lock is only taken with irqsave (436) and irq (604, 610) variants and the rx_fixup tasklet (tasklet_init at 898) has no plain-lock process-context partner; pegasus.c contains no spin_lock sites at all; lan78xx.c's lone plain done.lock acquisition (2777, inside defer_bh) executes only from URB-completion softirq context, with all process/worker paths (2229, 2262, 3206, 3330, 3379, 3997, 4101) using irqsave - so both sides of every shared lock are softirq-side or BH/irq-protected.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/wireless/ath/carl9170/rx.c",
+      "line": 150,
+      "status": "safe",
+      "reason": "carl9170_cmd_callback takes ar->cmd_lock plainly (150-158) but is reached only from carl9170_rx <- carl9170_usb_rx_work <- carl9170_usb_tasklet (tasklet_hi_schedule at usb.c:435/453, tasklet_init at 1088), i.e. softirq context; every process-context cmd_lock site (usb.c:668, 705, 779) correctly uses spin_lock_bh, so the discipline matches the invariant - this is the already-fixed analogue of the seed shape.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/wireless/ath/carl9170/main.c",
+      "line": 263,
+      "status": "unresolved",
+      "reason": "carl9170_flush_ba (process context, reached from carl9170_zap_queues at 283/344/462/488 via mac80211 stop/flush paths) takes tid_info->lock with plain spin_lock at 263 while iterating under spin_lock_bh(&ar->tx_ampdu_list_lock); whether any tasklet/NAPI-softirq path (usb_tasklet or TX processing) also takes tid_info->lock was not traced before finalization.",
+      "conclusion": "Follow up: trace carl9170 TX/BA processing (tx.c, mac.c) for a softirq-context acquisition of tid_info->lock to pair with the plain process-context acquisition in carl9170_flush_ba (main.c:263)."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/wireless/ath/ath5k/base.c",
+      "line": 1126,
+      "status": "unresolved",
+      "reason": "ath5k_drain_tx_buffs takes ah->txbuflock with plain spin_lock (1126) and the SWBA beacontq tasklet path takes ah->block plainly (2204) while sibling process users use spin_lock_bh; the rxtq/txtq/ani_tasklet tasklet bodies and the BH state of every plain acquirer were not fully cross-read in this snapshot.",
+      "conclusion": "Follow up: enumerate every plain spin_lock acquirer of ah->txbuflock/ah->block/ah->rxbuflock in ath5k and check each tasklet body (rxtq/txtq/ani_tasklet/beacontq) for the same lock taken in softirq, to decide whether a BH-enabled process holder pairs with a tasklet spinner."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/wireless/ath/ath9k/htc_drv_txrx.c",
+      "line": 1131,
+      "status": "unresolved",
+      "reason": "ath9k_htc registers rx_tasklet, tx_failed_tasklet (htc_drv_init.c:650-652) and wmi_event_tasklet (wmi.c:109) scheduled from RX/URB completion (htc_drv_txrx.c:697, 1131); plain spin_lock sites such as htc_drv_txrx.c:669/762 (wmi->event_lock) and hif_usb.c:279/300/538/592 (tx_lock/rx_lock) were located but their context pairing with the tasklet bodies was not deep-read.",
+      "conclusion": "Follow up: read ath9k_rx_tasklet/ath9k_tx_failed_tasklet/ath9k_wmi_event_tasklet bodies and classify each plain spin_lock (wmi->event_lock, hif_dev tx/rx locks, cc_lock) as process or softirq side to test the BH-disable invariant."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/wireless/ralink/rt2x00/rt2x00queue.c",
+      "line": 671,
+      "status": "unresolved",
+      "reason": "rt2x00queue.c:671 and rt2x00mac.c:150 take queue->tx_lock with plain spin_lock, and rt2x00dev registers a per-device interrupt tasklet (rt2x00dev.c:1184 macro); whether any tasklet callback body (rt2x00pci/rt2x00usb tasklet work) takes queue->tx_lock or another lock also taken plainly in process context (queue start/stop/flush) was not traced.",
+      "conclusion": "Follow up: open the rt2x00 interrupt tasklet bodies (rt2400pci/rt2500pci/rt2800mmio/rt61pci tasklet macros and the rt2x00dev.c:1184 expansion) and pair their locks against the plain queue->tx_lock/irqmask_lock process-context sites."
+    },
+    {
+      "snapshot": "s13",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 3822,
+      "status": "unresolved",
+      "reason": "priv->stream_lock is taken with plain spin_lock at 1982, 2046, 2069, 2119, 3822, 3835, 4152, 4163, 5445, 5486; the dominant risk shape is the workqueue worker holding it while NET_TX softirq runs mwl8k_txq_xmit, which belongs to the xmit-softirq-lock branch (branch1) per Fact f039, but a tasklet-side pairing was not excluded here.",
+      "conclusion": "Follow up: reassign mwl8k stream_lock to the xmit-softirq-lock branch (workqueue holder vs NET_TX mwl8k_txq_xmit), and only check here whether any mwl8k tasklet body takes stream_lock in softirq context."
+    }
+  ],
+  "coverage_gaps": [
+    "Only about 30 of the roughly 357 tasklet_init files in the tree were triaged; drivers/dma (27 files), drivers/mmc/host (12), drivers/crypto (12), drivers/scsi, sound/pci, drivers/media, drivers/s390 and drivers/hv tasklet bodies were never read for a plain process-context partner lock.",
+    "NAPI poll functions were not enumerated in s13 this session; only tasklet callbacks were deep-read, so NAPI-poll-vs-process-context plain spin_lock pairs (the NET_RX half of branch3) remain unexamined except where incidentally touched.",
+    "Remaining staging drivers with tasklets (rtl8188eu, rtl8723bs, rtl8192e/u, rtl8712, wlan-ng, mt7621-dma, ks7010 itself) and net/ core tasklet users (mac80211, smc, ppp) were grepped for presence but their lock pairings were not classified.",
+    "Lock correlation was textual, by lock-expression base name per file; locks reached through differently named pointers, container_of aliases, or per-queue lock arrays between softirq and process sites could not be matched automatically."
+  ],
+  "limitations": [
+    "The solos-pci findings are source-level hypotheses: the deadlock window (device IRQ enabled via IRQ_EN_ADDR and tasklet schedulable at the instant the sysfs reader/VCC closer holds the lock) was reasoned from code, not dynamically reproduced; a compiled reproducer was not run.",
+    "For the pclose/tx_queue_lock finding, whether the generic ATM core (net/atm vcc close path) invokes fpga_ops->close with bottom halves already disabled was not verified inside this snapshot, which is the only reason its confidence is medium rather than high.",
+    "Deep reading was limited to solos-pci.c, he.c, eni.c, fore200e.c, ipwireless/hardware.c, rtl8150.c/pegasus.c/lan78xx.c and the carl9170 cmd_lock chain, plus greps of ath9k/ath5k/rt2x00/mwl8k; absence of further variants in the un-triaged majority of the tree cannot be claimed.",
+    "The ks7010 seed itself (drivers/staging/ks7010) was inspected only to confirm presence and was excluded from reporting as required."
+  ]
+}

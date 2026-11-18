@@ -1,0 +1,34 @@
+{
+ "version": 1,
+ "intent_id": "i051",
+ "branch": "hardirq-shared-lock",
+ "status": "in_progress",
+ "snapshot": "s07",
+ "note": "Scan complete: 1305 handler bodies resolved; 213 files have hardirq handlers using plain spin_lock. Cross-index found 132 lock rows. Deep-reading top candidates: synclink_gt.c (confirmed), sbni.c (confirmed), ens1370.c (confirmed), qlge_main.c (weak - callers are hardirq/softirq only).",
+ "candidates": [
+  {
+   "path": "drivers/tty/synclink_gt.c",
+   "line": 1160,
+   "status": "probable-report",
+   "reason": "set_params32 compat ioctl takes info->lock plainly; hardirq slgt_interrupt takes same lock plainly at 2371/2357/2390"
+  },
+  {
+   "path": "drivers/net/wan/sbni.c",
+   "line": 1328,
+   "status": "probable-report",
+   "reason": "sbni_ioctl SIOCDEVSHWSTATE takes nl->lock plainly; hardirq sbni_interrupt takes plainly at 509"
+  },
+  {
+   "path": "sound/pci/ens1370.c",
+   "line": 1015,
+   "status": "probable-report",
+   "reason": "PCM pointer callbacks take reg_lock plainly; hardirq snd_audiopci_interrupt takes plainly at 2366 and 2170/2182 (midi helper)"
+  },
+  {
+   "path": "drivers/net/ethernet/qlogic/qlge/qlge_main.c",
+   "line": 672,
+   "status": "probably-safe",
+   "reason": "ql_disable_completion_interrupt callers are hardirq ISR and NAPI poll; no confirmed process-context caller with IRQs enabled yet"
+  }
+ ]
+}

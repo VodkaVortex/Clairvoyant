@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "io-uring-sq-ring",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "io_uring/uring_cmd.c",
+      "start": 65,
+      "end": 101,
+      "quote": "int io_uring_cmd_prep_async(struct io_kiocb *req)\n{\n\tstruct io_uring_cmd *ioucmd = io_kiocb_to_cmd(req, struct io_uring_cmd);\n\tsize_t cmd_size;\n\n\tBUILD_BUG_ON(uring_cmd_pdu_size(0) != 16);\n\tBUILD_BUG_ON(uring_cmd_pdu_size(1) != 80);\n\n\tcmd_size = uring_cmd_pdu_size(req->ctx->flags & IORING_SETUP_SQE128);\n\n\tmemcpy(req->async_data, ioucmd->cmd, cmd_size);\n\treturn 0;\n}",
+      "confidence": "medium",
+      "reason": "Untrusted source: ioucmd->cmd is set in io_uring_cmd_prep (uring_cmd.c:101, 'ioucmd->cmd = sqe->cmd;') to point directly at the inline cmd[] array of the SQE living in ctx->sq_sqes, the user-mapped SQ ring memory (io_uring.c:2410 '*sqe = &ctx->sq_sqes[head];'); io_get_sqe's own comment (io_uring.c:2385-2391) states this memory is mapped by userspace and members validated then later used must be read through READ_ONCE to prevent a re-load. Violated invariant: the payload bytes behind ioucmd->cmd are fetched twice in one request lifetime without a single-fetch snapshot - first live by the initial file->f_op->uring_cmd(ioucmd, ...) execution at uring_cmd.c:133 (each ->uring_cmd driver dereferences ioucmd->cmd in place, e.g. reading its cmd_op/payload), and then again independently by memcpy(req->async_data, ioucmd->cmd, cmd_size) at uring_cmd.c:75 on the -EAGAIN retry path; neither fetch uses READ_ONCE, copy_from_user, or a local cache, and there is no lock covering userspace (the SQ ring is mapped writable to the submitting application). Unsafe use: the second, unvalidated copy is what retry execution consumes (uring_cmd.c:130-131 'ioucmd->cmd = req->async_data;'), so a racing userspace write between the first execution and the memcpy makes the reissued driver command differ from the one originally validated/handled; driver uring_cmd handlers (block/NVMe passthrough, SCSI/UBlk) parse this payload into opcodes and offsets. Counterevidence checked: io_uring_cmd_prep does snapshot the scalar fields with READ_ONCE (flags at :86, buf_index at :94, cmd_op at :102) and validates them, so only the variable-length cmd[] payload lacks single-fetch semantics; cmd_op itself is cached, so a plain opcode confusion is bounded, but payload fields are not. Exploit impact (which driver turns a divergent retry payload into OOB) is not proven here - hence medium confidence, consistent with the seed mechanism (validate/handle then re-fetch from shared memory for the retry path)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "io_uring/net.c",
+      "line": 263,
+      "status": "safe",
+      "reason": "io_sendmsg_prep reads 'sqe->addr2 || sqe->file_index' once solely to reject reserved fields (-EINVAL, net.c:263-264); the IORING_OP_SEND branch caches addr2/addr_len into sr->addr/sr->addr_len via READ_ONCE (net.c:261-262), so no same field is fetched for validation and then re-fetched for use. Identical shape in io_send_zc_prep (net.c:996-1000)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "io_uring/io_uring.c",
+      "line": 2405,
+      "status": "safe",
+      "reason": "io_get_sqe fetches the user-mapped SQ array index exactly once ('head = READ_ONCE(ctx->sq_array[sq_idx]);', io_uring.c:2405), bounds-checks the local (head < ctx->sq_entries) and forms the SQE pointer from the same cached local. This is the correctly-fixed reference pattern; the file documents the required invariant in the comment above the function."
+    },
+    {
+      "snapshot": "s04",
+      "path": "io_uring/fdinfo.c",
+      "line": 92,
+      "status": "safe",
+      "reason": "io_uring_show_fdinfo uses 'sq_idx = READ_ONCE(ctx->sq_array[entry & sq_mask]);' (single fetch), rejects sq_idx > sq_mask, and only formats the SQE for display; no kernel offset/length consumes the re-read value."
+    },
+    {
+      "snapshot": "s04",
+      "path": "io_uring/kbuf.c",
+      "line": 148,
+      "status": "safe",
+      "reason": "io_ring_buffer_select reads the user-mapped buf ring tail once with smp_load_acquire (kbuf.c:136) and each struct io_uring_buf field (buf->len, buf->bid, buf->addr at kbuf.c:148-152,168) exactly once with immediate use; no validate-then-re-fetch of the same field exists in this function."
+    },
+    {
+      "snapshot": "s04",
+      "path": "io_uring/uring_cmd.c",
+      "line": 75,
+      "status": "reported",
+      "reason": "Promoted to finding: double fetch of the user-mapped SQE cmd[] payload between initial execution (uring_cmd.c:133) and the retry snapshot memcpy(req->async_data, ioucmd->cmd, cmd_size) (uring_cmd.c:75), retry consumes the second copy at uring_cmd.c:130-131."
+    }
+  ],
+  "limitations": [
+    "Search was bounded to snapshots/s04 io_uring/ (main SQ-ring/SQE plumbing plus a scripted scan of every .c file for per-function repeated sqe->field dereferences, which only flagged net.c addr2 patterns that proved to be single-use-for-rejection).",
+    "The uring_cmd finding identifies the double fetch and the divergent-retry consequence but does not demonstrate a concrete out-of-bounds access inside any specific ->uring_cmd driver (block, NVMe, SCSI, UBLK drivers under drivers/ were not audited in this intent).",
+    "io_uring_cmd_prep scalar fields (flags, buf_index, cmd_op) are READ_ONCE-cached, so the exposure is limited to the variable-length cmd[] payload bytes and ioucmd->cmd_op consumers that read the payload's embedded opcodes; a driven exploit chain was not run.",
+    "io-wq/retry re-entry paths for other opcodes were only spot-checked; other prep_async implementations that memcpy from user-mapped SQEs via raw pointers (if any) were not exhaustively enumerated beyond the scripted sqe->field scan."
+  ]
+}

@@ -1,0 +1,126 @@
+{
+ "version": 1,
+ "intent_id": "i052",
+ "branch": "unclamped-wire-count",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s13"
+ ],
+ "findings": [
+  {
+   "snapshot": "s13",
+   "path": "net/bluetooth/hci_event.c",
+   "start": 4926,
+   "end": 4945,
+   "quote": "\tu8 num_reports = skb->data[0];\n\tvoid *ptr = &skb->data[1];\n\n\thci_dev_lock(hdev);\n\n\twhile (num_reports--) {\n\t\tstruct hci_ev_le_advertising_info *ev = ptr;\n\t\ts8 rssi;\n\n\t\trssi = ev->data[ev->length];",
+   "confidence": "high",
+   "reason": "Untrusted source: num_reports is the first byte of an HCI event packet delivered by the Bluetooth controller (peer-controlled device firmware on the serial/H4 transport, per drivers/bluetooth/hci_h4.c h4_recv_buf which allocates skb by hdr->plen but does not re-verify per-handler). Missing guarantee: hci_le_adv_report_evt performs no skb->len validation at all before reading skb->data[0], and the while(num_reports--) loop advances ptr by sizeof(*ev)+ev->length+1 (ev->length also peer-controlled) with no check that ptr stays within skb->len; there is no maximum on num_reports. Asymmetric validation: sibling handlers in the same file do validate, e.g. hci_num_comp_pkts_evt (line 3204) and hci_num_comp_blocks_evt (line 3291) both check 'skb->len < sizeof(*ev) || skb->len < sizeof(*ev) + ev->num_hndl * sizeof(...)', and hci_inquiry_result_with_rssi_evt (line 3622) checks '(skb->len - 1) / num_rsp != sizeof(...)' before its equivalent num_rsp loop. Unsafe use: process_adv_report is called with peer-controlled ev->data/ev->length pointers (further consumed by mgmt_device_found and store_pending_adv_report) and rssi read at ev->data[ev->length] - OOB read past the skb on a truncated or crafted event. Impact: OOB read/crash (DoS) and info leak potential driven by controller-supplied event; not an OOB write. Counterevidence checked: the upstream fix (hci_ev_skb_pull introduction) is absent from this tree - grep for hci_ev_skb_pull returns nothing; only five skb->len checks exist in the whole file (lines 796, 2537, 3204, 3291, 5213) and none cover the LE meta subevent handlers dispatched from hci_le_meta_evt line 5148 which itself does no length check either.",
+   "conclusion": "HCI LE Advertising Report event handler loops on controller-supplied num_reports with zero skb length validation and no per-report bounds on the peer-controlled ev->length advance, unlike sibling handlers that check skb->len - OOB read of event data past the skb."
+  },
+  {
+   "snapshot": "s13",
+   "path": "net/bluetooth/hci_event.c",
+   "start": 5124,
+   "end": 5137,
+   "quote": "\tu8 num_reports = skb->data[0];\n\tvoid *ptr = &skb->data[1];\n\n\thci_dev_lock(hdev);\n\n\twhile (num_reports--) {\n\t\tstruct hci_ev_le_direct_adv_info *ev = ptr;\n\n\t\tprocess_adv_report(hdev, ev->evt_type, &ev->bdaddr,",
+   "confidence": "high",
+   "reason": "Same mechanism as the LE adv report handler, one dispatch case apart (HCI_EV_LE_DIRECT_ADV_REPORT at line 5176 vs HCI_EV_LE_ADVERTISING_REPORT at 5160): u8 num_reports taken from skb->data[0] with no skb->len check, and the while loop reads struct hci_ev_le_advertising_info fields (evt_type, bdaddr, bdaddr_type, direct_addr, direct_addr_type, rssi = fixed 18 bytes per report) advancing ptr by sizeof(*ev) each iteration with no bound against the skb; a short event with num_reports=255 walks far past the buffer. Asymmetric validation identical to sibling 1: hci_num_comp_pkts_evt (3204) and hci_num_comp_blocks_evt (3291) enforce skb->len coverage of num_hndl*element_size before looping; this handler enforces nothing. Impact: OOB read past the skb (fixed-stride, so a long deterministic walk), feeding attacker-chosen bdaddr/type values into process_adv_report/mgmt_device_found. Not an OOB write.",
+   "conclusion": "HCI LE Direct Advertising Report handler walks num_reports controller-supplied fixed-size entries with no skb->len validation unlike sibling count handlers that enforce skb->len coverage - OOB read of up to ~255 entries past the buffer."
+  },
+  {
+   "snapshot": "s13",
+   "path": "fs/cifs/misc.c",
+   "start": 649,
+   "end": 687,
+   "quote": "\t*num_of_nodes = le16_to_cpu(rsp->NumberOfReferrals);\n\n\tif (*num_of_nodes < 1) {\n\t\tcifs_dbg(VFS, \"num_referrals: must be at least > 0, but we get num_referrals = %d\\n\",\n\t\t\t *num_of_nodes);\n\t\trc = -EINVAL;\n\t\tgoto parse_DFS_referrals_exit;\n\t}\n\n\tref = (struct dfs_referral_level_3 *) &(rsp->referrals);\n\tif (ref->VersionNumber != cpu_to_le16(3)) {\n...\t\t*target_nodes = kcalloc(*num_of_nodes, sizeof(struct dfs_info3_param),\n\t\t\t\tGFP_KERNEL);\n...\t\t/* copy DfsPath */\n\t\ttemp = (char *)ref + le16_to_cpu(ref->DfsPathOffset);\n\t\tmax_len = data_end - temp;",
+   "confidence": "high",
+   "reason": "Untrusted source: NumberOfReferrals is a __le16 field of the server's get_dfs_referral_rsp, filled by the remote CIFS/SMB server (cifssmb.c:4892 SMB1 TRANS2 path and smb2ops.c:1204 SMB2 FSCTL_DFS_GET_REFERRALS path). Missing guarantee: the only validation is *num_of_nodes < 1; there is no upper bound against rsp_size, no check that rsp_size even covers sizeof(*rsp) + num*REFERRAL3 before ref++ walks the array, and no maximum constant (the DFS protocol caps are not enforced). Asymmetric validation: sibling length-bearing fields get real checks - ref->VersionNumber must equal 3, PathConsumed/DfsPathOffset/NetworkAddressOffset-derived max_len are computed against data_end = rsp + rsp_size - but the referral count itself never is, and the kcalloc is safe from overflow only because sizeof(dfs_info3_param) ~48B * 65535 stays under SIZE_MAX (kmalloc failure instead). Unsafe use: the loop 'for (i = 0; i < *num_of_nodes; i++)' dereferences ref->ServerType/ReferralEntryFlags at each stride and later computes temp = (char*)ref + DfsPathOffset and max_len = data_end - temp which goes negative (int) and is passed to cifs_strndup_from_utf16(max_len) as a negative maxlen - in cifs_unicode.c:371 cifs_utf16_bytes(src, maxlen<0) walks while maxlen>0 fails immediately, so the string copy itself is guarded by the data_end arithmetic, but the struct-field reads at ref++ strided by sizeof(REFERRAL3)=34 are not: a truncated response with rsp_size=8 and NumberOfReferrals=65535 reads far past the response buffer. Impact: OOB read (server-controlled) potentially feeding values into node->server_type/flags stored in kernel structures and -ENOMEM on the kcalloc; primarily DoS/info-leak-adjacent. Counterevidence checked: rsp_size at cifssmb.c:4892 is only DataCount (le16) after validate_t2 which checks total_size<=1024-ish, so a 4-byte DataCount still declares NumberOfReferrals=65535.",
+   "conclusion": "CIFS parse_dfs_referrals trusts server-supplied NumberOfReferrals (le16) with only a <1 check, then walks that many 34-byte referral structs and stores them via kcalloc without ever bounding the count against rsp_size - OOB read of the response buffer."
+  },
+  {
+   "snapshot": "s13",
+   "path": "fs/cifs/cifsacl.c",
+   "start": 742,
+   "end": 756,
+   "quote": "\tnum_aces = le32_to_cpu(pdacl->num_aces);\n\tif (num_aces > 0) {\n...\t\tif (num_aces > ULONG_MAX / sizeof(struct cifs_ace *))\n\t\t\treturn;\n\t\tppace = kmalloc(num_aces * sizeof(struct cifs_ace *),\n\t\t\t\tGFP_KERNEL);\n\t\tif (!ppace)\n\t\t\treturn;\n\n\t\tfor (i = 0; i < num_aces; ++i) {\n\t\t\tppace[i] = (struct cifs_ace *) (acl_base + acl_size);",
+   "confidence": "high",
+   "reason": "Untrusted source: num_aces is a __le32 in the DACL of the security descriptor returned by the remote CIFS server in a QuerySecurity/QueryInformation reply (parse_sec_desc at cifsacl.c:853 called from get_cifs_acl paths). Missing guarantee: pdacl->size (le16) is validated against end_of_acl ('end_of_acl < (char *)pdacl + pdacl->size' at line 726) but num_aces is never cross-checked against that validated size - so the header can claim a size covering 20 bytes while num_aces claims 0xffffffff. Asymmetric validation within the same function: the size field gets a bounds check, the count field does not. Unsafe use: kmalloc(num_aces * 8) with the ULONG_MAX guard preventing only overflow, not the semantic mismatch; then the for loop reads ppace[i]->sid via compare_sids (four calls per iteration) and advances acl_base = (char*)ppace[i]; acl_size = le16_to_cpu(ppace[i]->size) - each iteration's advance uses a freshly read peer-controlled 16-bit size with no end_of_acl re-check (dump_ace under CONFIG_CIFS_DEBUG2 has a check but it is debug-only and does not stop the loop). OOB read past the response buffer for the whole walk. Impact: server-triggered OOB read whose read values flow into access_flags_to_mode decisions on fattr->cf_mode - incorrect permission derivation plus crash. Counterevidence checked: end_of_acl is derived from acl_len which the caller gets from the server too, so the walk can exit early only by chance alignment.",
+   "conclusion": "CIFS parse_dacl consumes server-supplied num_aces (le32) with no cross-check against the already-validated pdacl->size, walking that many ACEs (each strided by a peer-controlled le16 size) past the response buffer while deriving file mode - OOB read."
+  },
+  {
+   "snapshot": "s13",
+   "path": "drivers/md/raid5-ppl.c",
+   "start": 829,
+   "end": 841,
+   "quote": "\t/* iterate through all PPL entries saved */\n\tfor (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++) {\n\t\tstruct ppl_header_entry *e = &pplhdr->entries[i];\n\t\tu32 pp_size = le32_to_cpu(e->pp_size);",
+   "confidence": "medium",
+   "reason": "Untrusted source: pplhdr is a 4096-byte on-disk PPL header read by sync_page_io in ppl_load_distributed (line 937) from a raid member disk, so the content is disk-controlled (a forged/corrupted member disk or replaced drive). Missing guarantee: the loop bound le32_to_cpu(pplhdr->entries_count) (u32 up to 4294967295) has no clamp to PPL_HDR_MAX_ENTRIES (=126, defined in include/uapi/linux/raid/md_p.h:415), while the write path (ppl_log_stripe, raid5-ppl.c:274 'io->entries_count == PPL_HDR_MAX_ENTRIES') enforces exactly that maximum before appending - textbook asymmetric validation between the write and read/recovery directions of the same on-disk format. Unsafe use: e = &pplhdr->entries[i] walks the fixed PPL_HDR_MAX_ENTRIES=126-element array inside the single 4096-byte page; entries_count>126 reads entries past the page into unrelated memory, each consumed as pp_size/checksum driving sync_page_io disk reads at ppl_sector += pp_size>>9 - OOB read of kernel heap memory plus unbounded disk I/O. Mitigating counterevidence found: ppl_load_distributed verifies the header CRC32c over the full PAGE_SIZE before calling ppl_recover (line 950 'if (crc_stored != crc) goto out'), so the attacker must forge a header whose checksum matches, which requires control of the full page including the OOB content it walks into - this makes the pure OOB read reach only bytes whose CRC was already computed, downgrading to medium confidence; the disk-I/O walk (ppl_sector advancing by pp_size>>9 for each of up to 4B entries) is still unbounded.",
+   "conclusion": "raid5-ppl recovery loop iterates on-disk pplhdr->entries_count (u32) with no PPL_HDR_MAX_ENTRIES clamp that the write path enforces at raid5-ppl.c:274, walking a fixed 126-entry page array with crafted pp_size also driving disk I/O - header CRC over the page is the only gate."
+  },
+  {
+   "snapshot": "s13",
+   "path": "drivers/net/ethernet/qlogic/netxen/netxen_nic_ctx.c",
+   "start": 380,
+   "end": 395,
+   "quote": "\tfor (i = 0; i < le16_to_cpu(prsp->num_rds_rings); i++) {\n\t\trds_ring = &recv_ctx->rds_rings[i];\n\n\t\treg = le32_to_cpu(prsp_rds[i].host_producer_crb);\n...\t\treg = le32_to_cpu(prsp_sds[i].host_consumer_crb);",
+   "confidence": "medium",
+   "reason": "Untrusted source: prsp is a DMA buffer filled by the netxen NIC firmware in response to NX_CDRP_CMD_CREATE_RX_CTX (netxen_issue_cmd at line 369), i.e. a PCIe-attached peer device. Missing guarantee: num_rds_rings and num_sds_rings (le16) come back from the card with no check against the locally-known nrds_rings/nsds_rings that were sent in the request (prq->num_rds_rings = cpu_to_le16(nrds_rings) at line 330) nor against the response allocation rsp_size = SIZEOF_CARDRSP_RX(...) - the firmware can claim 65535 rings when only 2-3 were allocated. Asymmetric validation: the request direction computes and stores counts, the reply direction trusts the mirror fields blindly. Unsafe use: two OOB consequences: recv_ctx->rds_rings[i] indexes the kcalloc(max_rds_rings) array from netxen_nic_init.c:222 (max 3 entries) - OOB write of crb_rcv_producer/crb_sts_consumer pointers into adjacent heap memory beyond the array (rds_ring->crb_rcv_producer = netxen_get_ioaddr(...) at line 383, sds_ring->crb_sts_consumer/crb_intr_mask writes at 394-398); and prsp_rds[i]/prsp_sds[i] walk the DMA response buffer OOB (read). Impact: malicious/compromised NIC firmware triggers heap OOB write past a small kzalloc array. Counterevidence checked: rsp_size is sized from the requested counts, not the replied counts, so the response buffer walk is equally unbounded; the qlcnic driver has the identical pattern at qlcnic_ctx.c:355/364 but is an etnernet copy with the same firmware trust model.",
+   "conclusion": "netxen create_rx_ctx consumes firmware-reply num_rds_rings/num_sds_rings (le16) without checking against the counts it requested, indexing past the small kcalloc'd ring arrays (OOB pointer writes) and past the sized DMA response buffer."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s13",
+   "path": "drivers/usb/usbip/usbip_common.c",
+   "line": 611,
+   "status": "unresolved",
+   "reason": "Seed instance present and unpatched in s13: usbip_recv_iso at line 611-614 stores the wire count (urb->number_of_packets from usbip_pack_ret_submit at line 424) and computes int size = np * sizeof(*iso) then kzalloc + np-iteration loop, with no USBIP_MAX_ISO_PACKETS clamp anywhere in the tree and asymmetric vs stub_rx.c:458 which at least passes it to usb_alloc_urb. Excluded from findings by the seed rule.",
+   "conclusion": "Seed usbip_recv_iso unclamped-count chain confirmed unpatched in s13 at drivers/usb/usbip/usbip_common.c:611-614; excluded from findings by rule - track via the dedicated seed CVE, do not re-report here."
+  },
+  {
+   "snapshot": "s13",
+   "path": "drivers/net/ethernet/mellanox/mlx4/mcg.c",
+   "line": 350,
+   "status": "unresolved",
+   "reason": "mlx4_READ_ENTRY returns a device-filled MGM entry; m_count = be32_to_cpu(mgm->members_count) & 0xffffff (up to ~16.7M) and the loop 'for (i = 0; i < m_count; i++) qpn = be32_to_cpu(mgm->qp[i])' walks the mailbox buffer, whose struct mlx4_mgm qp[] array is MLX4_MAX_QP_PER_MGM = 4*(4096/16-2) = 1020 entries (mlx4.h:625). No clamp of members_count against num_qp_per_mgm before the read loops at lines 355, 472, 625, 1151, 1253; only the write paths compare members_count == dev->caps.num_qp_per_mgm before appending (line 211). Time ran out before confirming the exact mailbox buffer size vs the 1020-element struct (mailbox is alloc'd by mlx4_alloc_cmd_mailbox at a fixed size, so qp[1020] likely overflows the mailbox struct itself by design or the loop is bounded by the real entry size).",
+   "conclusion": "mlx4 multicast mgm->members_count (&0xffffff, up to 16.7M) from device READ_ENTRY is looped over the fixed ~1020-entry qp[] array with no clamp that write paths enforce - follow up by confirming the cmd-mailbox buffer size vs MLX4_MAX_QP_PER_MGM and whether caps.num_qp_per_mgm can exceed the array."
+  },
+  {
+   "snapshot": "s13",
+   "path": "fs/ceph/inode.c",
+   "line": 333,
+   "status": "safe",
+   "reason": "ceph_fill_fragtree re-fetches nsplits = le32_to_cpu(fragtree->nsplits) at the use site, but the pointer p was already advanced past sizeof(splits)*nsplits inside parse_reply_info_in (fs/ceph/mds_client.c:76-77) and every subsequent ceph_decode_32_safe/ceph_decode_need in that function bounds-checks against end, so an oversized nsplits would have failed decoding before the info struct ever reached ceph_fill_fragtree; the sort and the i<nsplits loop read only within the already-validated span.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s13",
+   "path": "fs/ceph/snap.c",
+   "line": 854,
+   "status": "safe",
+   "reason": "num_split_inos/num_split_realms (le32) are stored and p is advanced by sizeof(u64)*count for both, but ceph_decode_need(&p, e, sizeof(*ri), bad) at line 871 bounds-checks the cumulative pointer against the message end before the split_inos/split_realms loops execute at lines 892/952, so an inflated count makes the advance fail the need-check and goto bad.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s13",
+   "path": "drivers/accel/qaic",
+   "line": 1,
+   "status": "safe",
+   "reason": "The qaic driver does not exist anywhere in s13: grep for qaic/QAIC across all .c/.h files returns nothing, and drivers/accel contains only amd. The named qaic_control resp_worker orphan-response lead is therefore not applicable to this snapshot's tree state.",
+   "conclusion": ""
+  }
+ ],
+ "coverage_gaps": [
+  "The le16/le32/be16/be32 *_cpu(->num_*/count/entries/segs/descs) conversion sweep covered drivers/net (bnx2x, bnxt, be2net, i40e, netxen, qlcnic, qed/qede, mlx4, 8390 family), drivers/scsi (aacraid, hpsa, megaraid, esas2r, hptiop), fs/ (ceph, cifs, ext4, f2fs) and net/bluetooth; drivers/media, drivers/gpu, sound, crypto, block and the remaining drivers/ subsystems were grep-enumerated but not individually read in this session.",
+  "Bluetooth hci_event.c was triaged at the count-loop level (num_reports handlers found and both reported); the many non-count field parsers (status/len/feature reads) in the ~100 other handlers were not exhaustively read, and the hci_cc_read_data_block_size num_blocks store at line 780 (a value, not a loop bound) was judged benign.",
+  "copy_from_user ioctl/netlink nla_parse paths (sound, media, target configfs, block ioctls) named in the intent's broader scope were not swept in this session; only the wire/peer-response le/be count sites were covered.",
+  "qlcnic_ctx.c:355/364 was seen to contain the identical netxen unclamped num_rds/num_sds_rings pattern but was not independently verified (same firmware trust model, likely same verdict)."
+ ],
+ "limitations": [
+  "Bluetooth controller trust boundary: the LE adv-report handlers are fed by local controller firmware over H4/UART/USB transport; treating controller-compromise as in-scope follows the upstream CVE fix (hci_ev_skb_pull introduction) which is absent here, but physical/USB-attached controller attackers are a narrower threat model than the seed's remote TCP peer.",
+  "CIFS DFS referral and DACL findings assume a malicious or compromised SMB server, which matches the seed's remote-peer trust boundary; the OOB reads have no demonstrated info-leak exfiltration path - process_adv_report/bdaddr and compare_sids/mode-derivation consume the values, so impact is primarily crash/DoS plus potential info exposure.",
+  "raid5-ppl requires a forged header that passes the page-wide CRC32c check, so the practical OOB reach is limited to a page the attacker already fully controls; the unbounded pp_size-driven disk I/O walk remains.",
+  "netxen/mlx4 findings require malicious PCIe NIC firmware, a weaker trust boundary than a remote network peer (defense-in-depth severity); the netxen OOB write of ioremap pointers past the 3-entry array is concrete but the firmware must first accept NX_CDRP_CMD_CREATE_RX_CTX.",
+  "Line numbers were captured by grep and targeted sed reads in a read-only snapshot; no compilation or dynamic reproduction was performed for any candidate."
+ ]
+}

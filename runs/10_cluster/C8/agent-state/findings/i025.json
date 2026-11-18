@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "intent_id": "i025",
+  "branch": "if-alt-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s06"
+  ],
+  "findings": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "start": 318,
+      "end": 348,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];",
+      "confidence": "high",
+      "reason": "Untrusted source: altsetting[] is a flex array in the kzalloc'd usb_interface_cache, sized solely from the attacker-controlled enumeration descriptors a USB device supplies; usbcore accepts a config whose interface declares only one altsetting (num_altsetting==1) with a warning. Missing guarantee: stv06xx_isoc_init (line 320) and stv06xx_isoc_nego (line 333) unconditionally index altsetting[1]; the file contains zero num_altsetting and zero bNumEndpoints validation (grep-verified). Unsafe use: isoc_init writes alt->endpoint[0].desc.wMaxPacketSize = cpu_to_le16(...) (321-322) and isoc_nego reads (334) then rewrites (342) that 16-bit field and then calls usb_set_interface(dev, iface, 1) (344); both hooks run from the gspca core at the first VIDIOC_STREAMON (nego again on -ENOSPC retry), before any core-side altsetting validation, so a one-altsetting gadget causes an OOB read+write past the usb_interface_cache allocation (or NULL-deref through an absent endpoint array). Counterevidence checked: no other altsetting/num_altsetting references in the file; the co-located endpoint[0] half of this statement is the media-epidx finding f011 for s06 (dedupe at merge), this report is the altsetting-count half."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "start": 2651,
+      "end": 2690,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];",
+      "confidence": "high",
+      "reason": "Untrusted source: same attacker-sized altsetting[] flex array in usb_interface_cache. Missing guarantee: sd_isoc_init (line 2653) and sd_isoc_nego (line 2676) index altsetting[1] with a literal 1 and the file contains zero num_altsetting and zero bNumEndpoints checks (grep-verified) - the same copied gspca pattern as stv06xx.c. Unsafe use: 2654 writes alt->endpoint[0].desc.wMaxPacketSize, 2677 reads it, 2684 rewrites it, 2686 issues usb_set_interface(dev, iface, 1); both hooks run at first VIDIOC_STREAMON via the gspca core, so a one-altsetting gadget gets an OOB 16-bit read+write past the interface-cache allocation before any core validation. Counterevidence checked: no altsetting/num_altsetting guards elsewhere in the driver; endpoint[0] half co-located with f011's s06 media-epidx finding (dedupe at merge)."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/hid/wacom_sys.c",
+      "start": 2253,
+      "end": 2265,
+      "quote": "hdev1 = usb_get_intfdata(usbdev->config->interface[1]);",
+      "confidence": "medium",
+      "reason": "Untrusted source: usb_host_config.interface[] is sized by the attacker-declared bNumInterfaces of the configuration usbcore accepted. Missing guarantee: wacom_wireless_work unconditionally dereferences config->interface[1] (line 2256) and config->interface[2] (line 2262); grep-verified that neither wacom_sys.c nor wacom_wac.c contains any bNumInterfaces check. Unsafe use: the results are chain-dereferenced (usb_get_intfdata -> hid_get_drvdata -> wacom_release_resources) and the work item is scheduled from a device-supplied wireless-status HID report, so a spoofed wireless-receiver gadget declaring fewer than three interfaces drives an OOB interface[] deref. Counterevidence checked: these are the only config->interface[ references in the driver; the identical pattern is confirmed in sibling snapshots (f012 s03:2418-2427, f025 s05:2178-2190, f018 s07:2253-2265). Confidence medium: the s06 work-queue scheduling chain was verified by grep and line reads rather than a full re-read, and triggerability requires the wireless-receiver model."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "start": 1442,
+      "end": 1445,
+      "quote": "interface = &dev->actconfig->interface[usbvision_device_data[model].interface]->altsetting[0];",
+      "confidence": "medium",
+      "reason": "Untrusted source: actconfig->interface[] sized by the attacker-declared bNumInterfaces. Missing guarantee: the model-index branch (1442-1443) dereferences interface[usbvision_device_data[model].interface] with no bNumInterfaces bound check, while the sibling ifnum branch three lines below (1444-1445) performs exactly that check ('else if (ifnum < dev->actconfig->desc.bNumInterfaces)'), proving the guard was known and omitted. Unsafe use: probe then follows ->altsetting[0], checks bNumEndpoints < 2 (1453) and reads endpoint[1] (1458), so a config usbcore accepted with zero parsed interfaces (warning-only) yields an OOB interface[] deref at probe. Counterevidence checked: all 67 in-tree .interface values in usbvision-cards.c are 0 or -1, so the model-index branch only reaches index 0 in practice - triggerability requires a matching-model gadget, hence medium confidence; the interface[0] use at 1492 is safe."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "line": 320,
+      "status": "reported",
+      "reason": "altsetting[1] literal index with zero num_altsetting guards in the file; OOB r/w at VIDIOC_STREAMON (finding 1)."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "line": 2653,
+      "status": "reported",
+      "reason": "copied altsetting[1] literal-index pattern with zero guards; OOB r/w at VIDIOC_STREAMON (finding 2)."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/hid/wacom_sys.c",
+      "line": 2256,
+      "status": "reported",
+      "reason": "config->interface[1]/[2] fixed indexes in wacom_wireless_work with no bNumInterfaces check anywhere in wacom_sys.c or wacom_wac.c (finding 3)."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "line": 1443,
+      "status": "reported",
+      "reason": "model-index interface[] deref missing the bNumInterfaces check its sibling ifnum branch has at 1444-1445 (finding 4)."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "line": 1492,
+      "status": "safe",
+      "reason": "uif = dev->actconfig->interface[0]: usbcore rejects a configuration with zero interfaces at parse time, so interface[0] always exists for any accepted config; the subsequent altsetting/endpoint[1] accesses belong to the media-epidx branch (fact f011)."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/media/usb/gvc/usbtv-core.c",
+      "line": 78,
+      "status": "safe",
+      "reason": "probe requires intf->num_altsetting == 2 (rejects otherwise) before using altsetting[0]/altsetting[1], so both indexes are bounds-valid; overlaps f011's s06 usbtv candidate."
+    }
+  ],
+  "limitations": [
+    "The runtime alt-switch consumers fact f002 flagged (sound/usb set_alt handlers, cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, V4L2 VIDIOC_S_ALT handlers) were grep-enumerated in s06 but not deep-read within this session's budget - they remain unexamined for this branch.",
+    "stv06xx.c and xirlink_cit.c findings report the altsetting-count half of the statements at 320-322/333-342 and 2653-2654/2676-2684; the co-located endpoint[0].desc access is the media-epidx half already recorded by fact f011 for s06 - merge-time dedupe needed.",
+    "No gadget reproducer, compilation, or runtime test was run (read-only snapshot, no device-model build); findings rest on source-line and grep evidence of the missing validated-equals-used guard.",
+    "wacom_sys.c and usbvision-video.c findings are pattern-level: the wacom one requires a spoofed wireless-receiver device profile with <3 interfaces and its full s06 work-queue chain was verified by grep plus targeted line reads, and the usbvision one requires a matching-model gadget plus a config usbcore accepts with zero parsed interfaces (warning-only acceptance)."
+  ]
+}

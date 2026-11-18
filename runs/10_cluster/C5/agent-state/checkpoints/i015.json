@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "snapshot": "s04",
+  "status": "complete",
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "kernel/signal.c",
+      "line": 4425,
+      "status": "safe",
+      "reason": "sys_rt_sigaction() copies the whole struct sigaction from user memory once via copy_from_user(&new_sa.sa, act, sizeof(new_sa.sa)) into kernel struct new_sa and passes only the kernel copy to do_sigaction(); there is no second fetch of *act before use, so no validate/use divergence (lines 4425-4430)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "fs/xattr.c",
+      "line": 574,
+      "status": "safe",
+      "reason": "setxattr_copy() copies the user xattr name once into ctx->kname->name via strncpy_from_user and all later consumers (do_setxattr/vfs_setxattr) read the kernel copy; the apparent duplicate copy_from_user hits from the scanner are two independent syscall entry points, not a double fetch of the same location."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/scsi/hpsa.c",
+      "line": 6537,
+      "status": "unresolved",
+      "reason": "hpsa_big_passthru_ioctl() fetches the fixed BIG_IOCTL_Command_struct header once (copy_from_user at drivers/scsi/hpsa.c:6662) and then loops copy_from_user(buff[sg_used], data_ptr, sz) per SG chunk; sz/left are kernel copies, but the per-iteration user data_ptr advance walks user-controlled buffer contents and post-completion copy_to_user/err_info paths re-read user memory; cannot fully rule out a validate/use divergence on the same user locations within the time window, but no single field is provably validated on one fetch and used from a second fetch of the same address."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ethtool/ioctl.c",
+      "line": 116,
+      "status": "safe",
+      "reason": "ethtool ioctl handlers copy each struct from useraddr once (e.g. copy_from_user(&cmd, useraddr, sizeof(cmd)) then copy_from_user(features, useraddr, sizeof(features))) into distinct kernel structures; the repeated useraddr fetches are sequential reads of different offsets of the user blob, not a second fetch of a previously validated field, and all decisions use the kernel copies."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/input/misc/uinput.c",
+      "line": 422,
+      "status": "safe",
+      "reason": "uinput_ioctl_handler copies setup/ff structs from arg/buffer once into kernel locals before validation and use; the multiple copy_from_user calls are for different commands (UI_DEV_SETUP vs force-feedback upload/erase), each single-fetch into a local."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/ip_sockglue.c",
+      "line": 769,
+      "status": "safe",
+      "reason": "ip_setsockopt() fetches each optval variant (mreq/greq/gsf/msf/val) once into a kernel local and validates/uses the local; compat paths (gr32/gf32) fetch once as well; no re-fetch of the same user location after validation."
+    },
+    {
+      "snapshot": "s04",
+      "path": "fs/userfaultfd.c",
+      "line": 978,
+      "status": "safe",
+      "reason": "userfaultfd ioctl handlers use copy_from_user into kernel structs (uffdio_copy/zeropage/register/wake) with deliberately partial copies to exclude the 'copy' field; each user location is fetched once and kernel copies are used; copy_to_user of results is a distinct direction."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/xen/privcmd.c",
+      "line": 418,
+      "status": "safe",
+      "reason": "privcmd mmapbatch ioctls fetch struct m once per ioctl variant; the two copy_from_user calls belong to separate PRIVCMD_MMAPBATCH and PRIVCMD_MMAPBATCH_V2 cases, each single-fetch into kernel struct before use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "fs/aio.c",
+      "line": 1864,
+      "status": "unresolved",
+      "reason": "io_submit iocb lookup copies struct iocb from user_iocb once (copy_from_user(&iocb, user_iocb, sizeof(iocb))) and passes the kernel copy into aio; however aio iocb user pointers remain in user memory and are re-fetched on completion (write-back of results to the user iocb), a pattern double-fetch audits flag, but the later access is a result write-back rather than a validated-then-used value; not classified as a violation of the single-fetch invariant."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ethtool/ioctl.c",
+      "line": 1048,
+      "status": "safe",
+      "reason": "ethtool_rxfh handlers read rxfh.indir_size/hkey_size from the once-copied kernel struct rxfh, then copy indir/hkey blobs from computed offsets; user_size is read via copy_from_user once and compared; blob copies are of distinct offsets, not re-fetches of validated scalars."
+    }
+  ]
+}

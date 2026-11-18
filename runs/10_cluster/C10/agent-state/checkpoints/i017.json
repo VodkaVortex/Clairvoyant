@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "ioctl-sock-usercopy-string",
+  "status": "finalizing",
+  "snapshot": "s04",
+  "candidates": [
+    {"path": "drivers/s390/cio/cio_inject.c", "line": 102, "status": "reported", "reason": "vmemdup_user(buf,lbuf) exact-size copy then sscanf('%x x7') with no terminator slot"},
+    {"path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c", "line": 319, "status": "reported", "reason": "memdup_user exact-size then sscanf, bfa-seed twin, unfixed in s04"},
+    {"path": "drivers/scsi/bfa/bfad_debugfs.c", "line": 257, "status": "safe", "reason": "seed file itself present in s04 but not reportable per task rules"},
+    {"path": "drivers/net/ethernet/intel/ice/ice_debugfs.c", "line": 184, "status": "reported", "reason": "memdup_user exact-size then sscanf('%s') with no terminator; count<=8/4/2/5 caps but no NUL"},
+    {"path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c", "line": 1008, "status": "safe", "reason": "count+1 alloc and cmd_buf[count]='\\0' before strchr"},
+    {"path": "fs/btrfs/ioctl.c", "line": 2803, "status": "safe", "reason": "fixed-size struct copy with path_checked helper enforcing NUL"}
+  ]
+}

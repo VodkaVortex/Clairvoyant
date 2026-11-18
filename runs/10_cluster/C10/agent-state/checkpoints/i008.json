@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "proc-config-write-unterminated",
+  "snapshot": "s02",
+  "status": "in_progress",
+  "note": "swept 53 proc_write files and all scsi ->write_info callbacks. Strong candidates: scsi_proc.c->write_info consumers imm.c/ppa.c (unterminated PAGE + simple_strtoul past validated length); lparcfg.c kbuf[64] count==sizeof accepted + kbuf[count-1] terminator truncation; sym_glue.c sym_user_command simple_strtoul unbounded; wd33c93 buf[len] write bounded (len<=3072<PAGE_SIZE). Many handlers verified safe (explicit terminator or clamp).",
+  "candidates": [
+    {"path": "drivers/scsi/imm.c", "line": 137, "status": "pending", "reason": "unterminated page from proc_scsi_host_write + simple_strtoul(buffer+5)"},
+    {"path": "drivers/scsi/ppa.c", "line": 138, "status": "pending", "reason": "unterminated page + simple_strtoul(buffer+5) and buffer+10, recon_tmo printk leak"},
+    {"path": "drivers/scsi/scsi_proc.c", "line": 80, "status": "pending", "reason": "proc_scsi_host_write copies count<=3072 into PAGE_SIZE page, no terminator, raw (page,count) to write_info"},
+    {"path": "arch/powerpc/platforms/pseries/lparcfg.c", "line": 683, "status": "pending", "reason": "count > sizeof(kbuf) [not >=] accepted at 64; kbuf[count-1]=0 only; strchr/strcmp/simple_strtoul run on buffer whose last byte is truncated, not terminated past user data"},
+    {"path": "drivers/scsi/sym53c8xx_2/sym_glue.c", "line": 1034, "status": "pending", "reason": "get_int_arg simple_strtoul(ptr,...) unbounded on unterminated page"},
+    {"path": "drivers/scsi/wd33c93.c", "line": 2019, "status": "safe", "reason": "buf[len]=0 with len<=PROC_BLOCK_SIZE=3072 < PAGE_SIZE, terminator in-bounds; parse loop terminates"},
+    {"path": "arch/um/kernel/exitcode.c", "line": 47, "status": "pending", "reason": "size=min(count,7) fills 7-byte array, simple_strtol reads buf[7] OOB"}
+  ]
+}

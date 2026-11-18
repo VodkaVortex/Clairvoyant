@@ -1,0 +1,18 @@
+{
+  "intent_id": "i056",
+  "branch": "hci-completed-length-trust",
+  "status": "complete",
+  "snapshot": "s01",
+  "step": "final: finding selected, candidates classified",
+  "finding": {
+    "path": "drivers/media/usb/cx231xx/cx231xx-417.c",
+    "lines": "1341-1361 (cx231xx_bulk_copy), consuming buffer_filled ~1294-1313",
+    "mechanism": "urb->actual_length (controller-set at bulk-in completion) used as buffer_size with no >=3 check -> memcpy(buffer+3, p_buffer, buffer_size-3) underflows u32 to ~4GB into kmalloc(actual_length) on 0/1/2-byte (ZLP/short) completions; buffer_filled then memcpy(vbuf, data, len) with len = full actual_length into vb2 plane sized mpeglinesize*mpeglines = 65536 (queue_setup:1232) with no bound; URB buffers are 320*max_pkt_size (cx231xx-core.c:1191,1205); isoc sibling cx231xx_isoc_copy:1315 checks buffer_size>0 and routes via guarded buffer_copy (asymmetric validation)"
+  },
+  "classified_candidates": {
+    "reported": ["cx231xx-417.c:1348", "cx231xx-417.c:1359 (buffer_filled unguarded memcpy)"],
+    "safe": ["opticon.c:76", "kl5kusb105.c:360", "greybus/es2.c:840", "ipheth.c:215", "hso.c:1015", "etas_es58x_core.c:1229", "uas.c:433", "dln2.c:282"],
+    "unresolved": ["esd_usb.c:508 (parse-time straddled header, reclassify)", "cx231xx-dvb.c:257 (dvb_bulk_copy not deep-read)"]
+  },
+  "notes": "usbip and gb-beagleplay hdr.size are parse-time wire counts, excluded by rule; iforce-usb.c:162 and cx231xx-vbi/video bulk copies left as coverage gaps"
+}

@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "intent_id": "i034",
+  "branch": "media-epidx",
+  "execution_status": "complete",
+  "snapshots_checked": ["s09"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/gspca/konica.c",
+      "line": 204,
+      "status": "safe",
+      "reason": "sd_start reads alt->endpoint[0] (line 186) and alt->endpoint[0..1] (line 204, i = n&1 ? 0 : 1) but line 183 rejects 'if (alt->desc.bNumEndpoints < 2) return -ENODEV;' before both, so indices 0 and 1 are always in bounds; wMaxPacketSize-derived packet_size sizes the 4 isoc URB buffers (packet_size * SD_NPKT) only after the bound holds. usbvision, the known-vulnerable sibling in this family, is absent from this tree."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/gspca/ov519.c",
+      "line": 3485,
+      "status": "safe",
+      "reason": "ov511_mode_init_regs and the ov518 path (line 3616) both do usb_altnum_to_altsetting + NULL check and 'if (alt->desc.bNumEndpoints < 1)' (lines 3480 and 3611) before reading alt->endpoint[0].desc.wMaxPacketSize."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "line": 327,
+      "status": "safe",
+      "reason": "stv06xx_isoc_init checks intfc->num_altsetting < 2 (line 318) and alt->desc.bNumEndpoints < 1 (line 324) before patching altsetting[1].endpoint[0].desc.wMaxPacketSize (line 327); stv06xx_start has the same bNumEndpoints < 1 check (line 285) before its endpoint[0] read (line 288). stv06xx_isoc_nego (line 344) re-fetches the same intf_cache[0]->altsetting[1].endpoint[0] without its own check, but gspca.c:774-776 calls isoc_init unconditionally and returns on failure before any isoc_nego at line 882, and the usb_host_interface cache object is immutable after enumeration, so validated-equals-used holds; pb0100.c:192 is likewise guarded at line 189."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "line": 2659,
+      "status": "safe",
+      "reason": "cit_isoc_init checks intfc->num_altsetting < 2 (line 2651) and alt->desc.bNumEndpoints < 1 (line 2657) before writing altsetting[1].endpoint[0].desc.wMaxPacketSize (line 2659); cit_get_packet_size has the same check at 1445 before its endpoint[0] read (1448); sd_isoc_nego (line 2685) relies on isoc_init's validation via the same gspca-core ordering as stv06xx (isoc_init always runs first, gspca.c:774 vs 882) and the comment at 2681 documents that contract."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/b2c2/flexcop-usb.c",
+      "line": 431,
+      "status": "safe",
+      "reason": "flexcop_usb_transfer_init reads fc_usb->uintf->cur_altsetting->endpoint[0].desc (line 431, via usb_endpoint_maxp) to size the whole iso_buffer (B2C2_USB_NUM_ISO_URB * B2C2_USB_FRAMES_PER_ISO * frame_size), but probe (line 586) first calls flexcop_usb_init which usb_set_interface(0,1), then checks 'if (alt->desc.bNumEndpoints < 2) return -ENODEV;' (line 516) and usb_endpoint_is_isoc_in(&alt->endpoint[0].desc) (line 518) on the same cur_altsetting; nothing between flexcop_usb_init (586) and flexcop_usb_transfer_init (594) calls usb_set_interface, so the validated altsetting object is the one used."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/usbtv/usbtv-core.c",
+      "line": 82,
+      "status": "safe",
+      "reason": "usbtv_probe rejects intf->num_altsetting != 2 (line 78) and intf->altsetting[1].desc.bNumEndpoints != 4 (line 79) before taking ep = &intf->altsetting[1].endpoint[0]; the maxp-derived size feeds usbtv->iso_size but only after the descriptor-declared counts are validated."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/dvb-usb/dib0700_core.c",
+      "line": 841,
+      "status": "safe",
+      "reason": "dib0700_rc_setup checks 'if (intf->cur_altsetting->desc.bNumEndpoints < rc_ep + 1) return -ENODEV;' (line 821, rc_ep = 1) before e = &intf->cur_altsetting->endpoint[rc_ep].desc (line 841), and it checks usb_endpoint_dir_in on the fetched descriptor before building the rc pipe. The historical fixed rc_ep index here is fixed in this tree."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 519,
+      "status": "safe",
+      "reason": "Core paths never use an assumed endpoint index: alt_xfer (line 518) and gspca_input_create_urb (line 218) loop 'i < alt->desc.bNumEndpoints'; build_isoc_ep_tb only visits endpoints returned by alt_xfer; gspca_init_transfer fails with 'no transfer endpoint found'/'bad altsetting' when alt_xfer returns NULL before create_urbs uses ep->desc.wMaxPacketSize to size buffers. Subdrivers forcing an alt (se401 sd_isoc_init sets alt=1; sn9c20x sd_isoc_init) still resolve their endpoint through the bounds-bounded alt_xfer."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/em28xx/em28xx-cards.c",
+      "line": 4012,
+      "status": "safe",
+      "reason": "em28xx_check_usb_descriptor is only called from a doubly-bounded loop at lines 4148-4156 ('ep < intf->altsetting[i].desc.bNumEndpoints' inside 'i < intf->num_altsetting'), so its e = &intf->altsetting[alt].endpoint[ep].desc (line 4005) and the alt_max_pkt_size_isoc[alt] writes (4025, 4080) are all in bounds; em28xx-audio.c likewise checks intf->num_altsetting <= alt (line 672) before its bNumEndpoints-bounded loop at 680."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/stk1160/stk1160-core.c",
+      "line": 191,
+      "status": "safe",
+      "reason": "stk1160_scan_usb's endpoint access is inside 'for (e = 0; e < intf->altsetting[i].desc.bNumEndpoints; e++)' within 'for (i = 0; i < intf->num_altsetting; i++)'; alt_max_pkt_size is kmalloc_array'd on num_altsetting (line 282) and consumed in stk1160_set_alternate only over i < dev->num_alt."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/uvc/uvc_driver.c",
+      "line": 1271,
+      "status": "safe",
+      "reason": "uvc_find_endpoint (line 52) and the Pico extra-descriptor fallback (line 574) iterate 'i < alts->desc.bNumEndpoints'; the status endpoint take at line 1271 is guarded by 'alts->desc.bNumEndpoints == 1' (line 1269) and further validated by usb_endpoint_is_int_in plus wMaxPacketSize >= 8 and bInterval != 0."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/media/usb/siano/smsusb.c",
+      "line": 538,
+      "status": "safe",
+      "reason": "Representative of the remaining bounded-loop family: smsusb.c (536, 608), pwc/pwc-if.c (430), hdpvr/hdpvr-core.c (325), au0828/au0828-video.c (1943), s2255/s2255drv.c (2243), dvb-usb/cxusb.c (1555) all iterate 'i < ...desc.bNumEndpoints' rather than using an assumed index; smsusb additionally fails probe when in_ep/out_ep are missing (line 422) and clamps maxp into align. go7007 uses udev->ep_in[4/6/1/8] with explicit NULL checks (go7007-usb.c 1135-1136, 1271, 1276, 1297); ttusb-dec and dvb-usb/dvb-usb-v2 drivers use fixed pipe numbers or module-prop constants with range checks (m920x.c epi < 0 || epi >= M9206_MAX_ADAPTERS at line 100), not descriptor-array indexing."
+    }
+  ],
+  "coverage_gaps": [
+    "The usbvision driver (known to carry the per-altsetting endpoint[1].wMaxPacketSize -> alt_max_pkt_size[] pattern in other trees) does not exist anywhere in snapshots/s09, so that lineage could not be checked here.",
+    "Downstream propagation of wMaxPacketSize-derived sizes into URB completion handlers' copy offsets (e.g., gspca isoc_irq, em28xx, stk1160 buffer writes) was not separately audited; this intent only covered the descriptor-array bounds at the fetch site.",
+    "The sweep enumerated every 'endpoint[', 'wMaxPacketSize', 'bEndpointAddress', 'ep_in[', and 'endpoint+' occurrence under drivers/media/usb but did not build the tree or run a static analyzer to catch macro-obscured descriptor accesses."
+  ],
+  "limitations": [
+    "Static reading only: no compilation, no USB fuzzing/gadget hardware, so the control-flow judgments (stv06xx/xirlink isoc_nego relying on isoc_init's check, flexcop transfer_init relying on flexcop_init's check on the same cur_altsetting) are reasoned from call order in gspca.c:774/882 and flexcop-usb.c:586/594, not dynamically verified.",
+    "usbvision's absence and the guard set observed (bNumEndpoints < 1/2/!= 4 checks matching the seed patch style) suggest this snapshot post-dates the upstream fixes for the known family members, but snapshot provenance/version metadata is unavailable (no Makefile version headers in this trimmed tree) so the exact baseline commit could not be pinned."
+  ]
+}

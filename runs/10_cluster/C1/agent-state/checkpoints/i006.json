@@ -1,0 +1,95 @@
+{
+  "intent_id": "i006",
+  "branch": "drm-userif-divisor",
+  "snapshot": "s01",
+  "status": "complete",
+  "progress": [
+    "Enumerated all 9 '/ (8 * speed)' tach sites in s01; verified reachability chain amdgpu_pm.c:2845/2862 -> amdgpu_dpm.c:1495 -> amdgpu_smu.c:2714 (U32_MAX only) / amd_powerplay.c:581 (U32_MAX only) -> ppt_funcs/hwmgr_func registrations.",
+    "Reported 3 variant findings: smu_v11_0.c:1217 (only speed==0), vega20_thermal.c:204 (only !speed), smu7_thermal.c:280 (seed-identical raw-input checks, firmware-gated).",
+    "Classified safe: arcturus_ppt.c:1273 and smu_v13_0.c:1236 (both have UINT_MAX/8 guard), amdgpu legacy si_dpm.c:6722 and radeon si_dpm.c:6199 / ci_dpm.c:1172 (#if 0 dead blocks), smu7/vega10 OD input scaling (re-validated, never divisors), sclk/mclk OD DIV_ROUND_UP (firmware divisor, user value is numerator), navi10 od_edit (range-checked).",
+    "vega10_thermal.c:320 (seed site, unfixed in s01) left unresolved/unreported per seed-exclusion rule.",
+    "Final artifact written to findings/i006.json."
+  ],
+  "candidates": [
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "line": 1217,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+      "line": 204,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "line": 280,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 320,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/arcturus_ppt.c",
+      "line": 1273,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0.c",
+      "line": 1236,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "line": 6722,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/si_dpm.c",
+      "line": 6199,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/radeon/ci_dpm.c",
+      "line": 1172,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_hwmgr.c",
+      "line": 5542,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_hwmgr.c",
+      "line": 5100,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c",
+      "line": 2625,
+      "status": "safe"
+    }
+  ],
+  "findings": [
+    {
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "start": 1195,
+      "end": 1217,
+      "confidence": "high"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+      "start": 188,
+      "end": 204,
+      "confidence": "high"
+    },
+    {
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "start": 262,
+      "end": 280,
+      "confidence": "medium"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "intent_id": "i021",
+  "branch": "terminator-write-off-by-one",
+  "snapshot": "s04",
+  "status": "finalize",
+  "resolved_contradiction": "f008 vs f015 settled: versal_edac inject_data_ue_store len = min_t(size_t, count, sizeof(buf)) on char buf[6] with buf[len] = '\\0' at line 863 IS a 1-byte stack OOB write when count >= 6 (len == 6 -> buf[6]). f015 is correct; f008's reasoning (index bounded by sizeof(buf) stays in bounds) is wrong because valid indices are 0..5. ASan harness reproduced stack-buffer-overflow WRITE of size 1.",
+  "findings": [
+    "drivers/edac/versal_edac.c:854-863 inject_data_ue_store - 1-byte OOB stack write (buf[6] on char buf[6])",
+    "drivers/edac/zynqmp_edac.c:294-311 inject_ue_write - identical pattern, buf[len] at line 311 with len up to sizeof(buf)=6 on char buf[6]"
+  ],
+  "candidates_classified_safe": [
+    "arch/x86/kernel/cpu/resctrl/pseudo_lock.c:1257-1261 min(count, sizeof(buf)-1)",
+    "drivers/base/regmap/regmap-debugfs.c:312-315 min(count, sizeof(buf)-1)",
+    "drivers/mfd/aat2870-core.c:282-287 min(count, sizeof(buf)-1)",
+    "drivers/usb/chipidea/debug.c:83-88 min_t(sizeof(buf)-1, count)",
+    "drivers/hid/hid-wiimote-debug.c:137-141 len=min(15,s) on buf[16]",
+    "arch/powerpc/platforms/cell/spufs/file.c:120-125 size=min(sizeof(set_buf)-1,len)",
+    "arch/powerpc/kernel/rtas-proc.c:316-321 count capped to MAX_LINELENGTH-1",
+    "kernel/dma/debug.c:756-760 len=min(count,NAME_MAX_LEN-1)",
+    "arch/alpha/kernel/srm_env.c:101-107 count<PAGE_SIZE enforced on page buffer",
+    "fs/kernfs/file.c:316-319 len+1 allocation",
+    "ath5k/ath6kl/ath9k/ath10k/ath11k/rtw89/amdgpu_pm/toshiba_acpi/ntb_tool/iio/edac others: all use min(count, sizeof(buf)-1) pattern",
+    "drivers/edac/zynqmp_edac.c:250-279 inject_ce_write uses kstrtou8_from_user (no manual copy/terminate)"
+  ]
+}

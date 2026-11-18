@@ -1,0 +1,14 @@
+{
+  "intent_id": "i003",
+  "branch": "unclamped-wire-count",
+  "snapshot": "s01",
+  "status": "finalized",
+  "candidates": [
+    {"path": "drivers/accel/qaic/qaic_control.c", "line": 1449, "status": "reported", "reason": "resp_worker orphan-response loop uses peer msg->hdr.count/hdr.len and trans_hdr->len advance with no clamp; sibling request path clamps in qaic_manage:1256-1258 and decode_message:976-993; asymmetric validation, 4-byte wild read / infinite loop"},
+    {"path": "drivers/accel/qaic/qaic_control.c", "line": 979, "status": "safe", "reason": "decode_message count clamped by qaic_manage:1256-1258 plus per-transaction len checks"},
+    {"path": "net/can/bcm.c", "line": 1130, "status": "safe", "reason": "nframes clamped to MAX_NFRAMES+1 (RX) and [1,MAX_NFRAMES] (TX line 941) in s01"},
+    {"path": "drivers/usb/usbip/usbip_common.c", "line": 482, "status": "safe", "reason": "seed subsystem present but already patched in s01 (clamp at 482-484, np bounds check and kcalloc in recv_iso); excluded from reporting"}
+  ],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C9/agent-state/findings/i003.json",
+  "notes": "Finalized under directive. One low-confidence finding (qaic resp_worker unclamped wire count), bounded sweep documented in limitations."
+}

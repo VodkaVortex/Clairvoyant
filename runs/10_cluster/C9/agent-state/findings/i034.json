@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "intent_id": "i034",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": ["s08"],
+  "findings": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "start": 204,
+      "end": 214,
+      "quote": "u16 cport_id = le16_to_cpu(gb_frame->cport); u16 gb_msg_len = le16_to_cpu(gb_frame->hdr.size);",
+      "confidence": "medium",
+      "reason": "Peer-trusted-transport invariant violation, verified from source in snapshots/s08. UNTRUSTED SOURCE: hdlc_rx_greybus_frame() (drivers/greybus/gb-beagleplay.c:204-214) parses a Greybus message delivered by the remote peer MCU over the serdev UART/HDLC link (ADDRESS_GREYBUS dispatch in hdlc_rx_frame(), line 368); the attacker is the remote endpoint of this virtual-bus protocol, the seed's threat model without sharing the seed's subsystem. MISSING LOCAL LIMIT CHECK: the peer-controlled 16-bit header field is extracted at line 208 (gb_msg_len = le16_to_cpu(gb_frame->hdr.size)) and passed verbatim as the delivered length to greybus_data_rcvd() at line 213, while the locally known real frame length -- len = bg->rx_buffer_len - 4 computed by hdlc_rx_frame() at line 357 from the CRC-validated (line 349) accumulated frame and passed in as the 'len' parameter at line 368 -- is never used inside hdlc_rx_greybus_frame: gb_msg_len is never compared to len, to the fixed u8 rx_buffer[MAX_RX_HDLC] member (MAX_RX_HDLC = 1 + RX_HDLC_PAYLOAD(256) + CRC_LEN(2), gb-beagleplay.c:23-25, array at line 69), or to any kernel-known maximum for this RX path. The downstream validation is vacuous for this caller: gb_connection_recv() (drivers/greybus/operation.c:1024-1066) re-reads msg_size = le16_to_cpu(header.size) at line 1048 from the very same peer-supplied bytes it was handed as size, and only tests 'if (size < msg_size)' at line 1049 -- for this caller size == msg_size by construction, so the check can never fire; the validated value is not independent of the used value. UNSAFE USE: gb_connection_recv_request() -> gb_operation_create_incoming() memcpy(operation->request->header, data, size) at operation.c:651 copies peer-declared size bytes from the fixed 259-byte rx_buffer into the request message buffer (destination bounded by hd->buffer_size_max = TX_CIRC_BUF_SIZE = 1024, gb_hd_create clamped to GB_OPERATION_MESSAGE_SIZE_MAX at hd.c:155-158), so a peer frame whose hdr.size exceeds the actual accumulated HDLC payload drives an OOB heap read past rx_buffer into the greybus request object; the response direction (operation.c:985-1011) is capped by the locally known message_size, so the violation is the unbounded source-side length. The TX mirror path enforces a local limit (le16 msg size > RX_HDLC_PAYLOAD rejected), evidencing the within-driver asymmetry. Reachability requires a malicious/compromised CC1352 peer MCU (the CRC is computed by the same peer, so it is not a trust boundary); no runtime reproducer was built (read-only snapshot, transport needs serdev hardware)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 208,
+      "status": "reported",
+      "reason": "Peer-field source of the reported finding: gb_msg_len = le16_to_cpu(gb_frame->hdr.size) taken raw from the remote MCU's HDLC-framed Greybus message; the caller-supplied real length (len = rx_buffer_len - 4 at line 357, passed at line 368) is ignored."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/greybus/operation.c",
+      "line": 1048,
+      "status": "reported",
+      "reason": "Vacuous downstream validation: gb_connection_recv re-reads msg_size from the same peer bytes it was handed as size, so 'if (size < msg_size)' (line 1049) cannot fire for the beagleplay caller; validated value not independent of used value. Part of the reported finding."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/greybus/operation.c",
+      "line": 651,
+      "status": "reported",
+      "reason": "Consuming copy: memcpy(operation->request->header, data, size) in gb_operation_create_incoming copies peer-declared size bytes from the fixed 259-byte rx_buffer into the request message; source over-read past the accumulated frame. Part of the reported finding."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/greybus/es2.c",
+      "line": 813,
+      "status": "safe",
+      "reason": "Sibling greybus host driver cport_in_callback (813-846): urb->actual_length is HCI-set and cannot exceed transfer_buffer_length (buffers kmalloc'd ES2_GBUF_MSG_SIZE_MAX by es2 itself at probe), and the >= sizeof(*header) minimum is enforced at line 834 before greybus_data_rcvd at 844-845 -- greybus_data_rcvd is safe with a locally bounded caller; the unbounded deliverer is only gb-beagleplay. arpc_in_callback (1024-1060) likewise gates on urb->actual_length >= sizeof(*resp) at line 1046 and copies only fixed struct sizes."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/9p/trans_fd.c",
+      "line": 339,
+      "status": "safe",
+      "reason": "p9_read_work: peer-declared m->rc.size from p9_parse_header (line 320) is cross-checked against the locally known m->rreq->rc.capacity ('if (m->rc.size > m->rreq->rc.capacity) -> -EIO', lines 339-342) before the receive into the request buffer; tag resolved via p9_tag_lookup with REQ_STATUS_SENT gate. Peer length cross-checked against locally-known limit."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/9p/trans_virtio.c",
+      "line": 146,
+      "status": "safe",
+      "reason": "req_done stores the peer-set used-ring len into req->rc.size (line 146) only to trigger p9_client_cb; rc buffers were posted by the client with msize-bounded sg lists (pack_sg_list, client->msize clamped >= 4k at client.c:162-176) and p9_parse_header validates the header; handle_rerror (380-408) clamps req->rc.size to P9_ZC_HDR_SZ before the page copy."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/9p/trans_rdma.c",
+      "line": 307,
+      "status": "safe",
+      "reason": "recv_done: c->rc.size = wc->byte_len (peer/remote-NIC-completed length) is immediately validated by p9_parse_header (line 308, checks against the posted msize-sized buffer), duplicate replies are rejected, and the receive buffer was posted with sge.length = client->msize (line 399); peer length bounded by the locally negotiated msize."
+    },
+    {
+      "snapshot": "s08",
+      "path": "net/9p/trans_xen.c",
+      "line": 210,
+      "status": "safe",
+      "reason": "p9_xen_response: peer h.size from the xenstore ring header is cross-checked against the locally known req->rc.capacity ('if (h.size > req->rc.capacity) -> error', lines 210-214) before xen_9pfs_read_packet copies h.size bytes into req->rc.sdata (line 225); tag validated via p9_tag_lookup. Peer length cross-checked against local capacity."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/block/nbd.c",
+      "line": 869,
+      "status": "safe",
+      "reason": "nbd_handle_reply resolves the peer 'handle' through tag/cookie validation (nbd_handle_to_tag/handle_to_cookie, cmd_cookie mismatch rejected at 907-910) and delivers read data only into the kernel-built request's bvec segments via sock_xmit/iov_iter with per-segment bv_len bounds (rq_for_each_segment loop, 930-961); no peer-supplied length sizes an allocation or loop (struct nbd_reply carries only magic/error/cookie)."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/net/virtio_net.c",
+      "line": 1250,
+      "status": "safe",
+      "reason": "Peer num_buf (hdr->num_buffers) loop 'while (--num_buf)' is bounded per-iteration by virtqueue_get_buf availability (returns NULL -> error, 1251-1256); per-buffer len is checked against locally-known truesize ('len exceeds truesize' at line 1141), the linearize path rejects len > MAX_SKB_FRAGS * PAGE_SIZE (line 870), and frag append rolls over to a new frag_list skb at MAX_SKB_FRAGS; buffers posted by the driver, no allocation sized by a peer count. Peer counts/lengths cross-checked against local limits."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 473,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim and UNPATCHED in s08 per prior verified facts (f020/f026/f031/f032): usbip_pack_ret_submit unpack stores 'urb->number_of_packets = rpdu->number_of_packets;' with no clamp, usbip_recv_iso computes 'int size = np * sizeof(*iso);' (line 665) then kzalloc(size) and a per-element loop, with USBIP_MAX_ISO_PACKETS enforced only on the CMD_SUBMIT sibling direction (stub_rx.c:379-384) -- asymmetric validation. Excluded from findings per the seed-never-reportable rule (seed names usbip/recv_iso/number_of_packets must never be the finding itself); recorded as excluded-by-rule only."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: peer/virtual-transport handlers deep-read in s08 this session were the greybus family (gb-beagleplay.c, es2.c cport_in/arpc callbacks, operation.c gb_connection_recv/gb_operation_create_incoming/gb_operation_message_alloc, hd.c buffer_size_max clamp), the 9p transports (trans_fd p9_read_work, trans_virtio req_done/handle_rerror, trans_rdma recv_done, trans_xen p9_xen_response), nbd reply handling, and virtio_net receive_mergeable/xdp_linearize guards. drivers/rpmsg/qcom_glink_native.c and drivers/hv/hv_balloon.c were located in s08 but not deep-read in this session (peer-field validation there was verified only in sibling snapshots s02/s04/s05 per facts f010/f011/f019); their s08 instances remain unverified.",
+    "Other peer transports present but only enumerated, not deep-read: 9p trans_usbg, xen-blkfront/blkback, vhost/vringh, vsock, mctp, NFC NCI, HID (btusb/hidraw report lengths), remaining remote admin-queue reply handlers (gve/ixgbe/bnxt), and ceph/cifs/ksmbd reply parsers; an on-branch variant in those cannot be ruled out.",
+    "The reported finding's impact is bounded to a heap OOB read: the memcpy destination is allocated from the same peer-declared size and capped by hd->buffer_size_max (operation.c:365-368), so no OOB write was identified; the over-read source is the fixed 259-byte rx_buffer member of struct gb_beagleplay, so exposure depends on adjacent heap layout, and whether the copied bytes reach userspace (greybus protocol responses, debugfs) was not traced.",
+    "Reachability requires a malicious or compromised CC1352 peer MCU sending a frame whose hdr.size exceeds the actual HDLC payload; the frame is CRC-validated but the peer computes the CRC too, so the CRC is not a trust boundary; the reported invariant violation (peer-declared length never cross-checked against the locally known frame length, downstream check not independent) is source-verified, but no runtime reproducer or compilation was performed (read-only snapshot, serdev hardware peer required).",
+    "The seed usbip chain is present unpatched in s08 (per verified prior facts) and is excluded from findings by the seed-never-reportable rule; recorded as an excluded-by-rule candidate only.",
+    "All line numbers come from direct numbered sed/grep reads of snapshots/s08 performed in this session (gb-beagleplay.c 204-214/343-368/23-25/69/840, operation.c 355-380/620-660/985-1066, es2.c 813-846/1046-1060, trans_fd.c 300-380, trans_virtio.c 125-175/380-410, trans_rdma.c 280-330, trans_xen.c 180-260, nbd.c 869-967, virtio_net.c 1238-1310/860-885); no compilation, static analyzer, or reproducer harness was run."
+  ]
+}

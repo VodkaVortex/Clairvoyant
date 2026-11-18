@@ -1,0 +1,69 @@
+{
+  "intent_id": "i015",
+  "branch": "vhost-virtio-guestmem",
+  "snapshot": "s04",
+  "status": "complete",
+  "candidates": [
+    {
+      "path": "drivers/vhost/net.c",
+      "line": 738,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vhost/vhost.c",
+      "line": 2119,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vhost/vhost.c",
+      "line": 2255,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vhost/vhost.c",
+      "line": 2290,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vhost/vringh.c",
+      "line": 322,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vhost/vsock.c",
+      "line": 359,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vdpa/vdpa_sim/vdpa_sim_blk.c",
+      "line": 124,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vdpa/vdpa_user/vduse_dev.c",
+      "line": 1096,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vhost/vdpa.c",
+      "line": 312,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vhost/scsi.c",
+      "line": 901,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/vhost/net.c",
+      "line": 613,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/virtio/virtio_ring.c",
+      "line": 1,
+      "status": "unresolved"
+    }
+  ],
+  "notes": "Negative result: every guest-writable-memory field consumed in the audited vhost/vdpa/vduse paths is fetched exactly once into a kernel-local struct or scalar (vhost_get_desc->vhost_copy_from_user stack copy; vringh copy() stack copy; copy_from_iter/copy_page_from_iter/vringh_iov_pull_iotlb header snapshots) and both validation and use operate on that single copy. vhost_net_build_xdp gso csum fields are the closest structural twin of the seed but are checked and consumed from the kernel page_frag snapshot made by copy_page_from_iter before either read."
+}

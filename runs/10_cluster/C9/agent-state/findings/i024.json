@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "intent_id": "i024",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s06"],
+  "findings": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "start": 973,
+      "end": 1006,
+      "quote": "user_msg->len = 0;\n\tuser_msg->count = le32_to_cpu(msg->hdr.count);\n\n\tfor (i = 0; i < user_msg->count; ++i) {",
+      "confidence": "low",
+      "reason": "Error-unwind poisoned-count chain, verified from source in snapshots/s06 (same instance previously flagged unresolved for s03 by fact f003). POISONING STORE: decode_message() line 974 'user_msg->count = le32_to_cpu(msg->hdr.count);' copies the device/QSM-supplied 32-bit count from the MHI control-channel response into the shared kernel object user_msg (struct manage_msg 'msg', kzalloc(QAIC_MANAGE_MAX_MSG_LENGTH + sizeof(*msg)) in qaic_manage_ioctl at line ~1322) with no range check at the store; the sibling request direction enforces a bound in qaic_manage() lines 1252-1255 ('user_msg->len > QAIC_MANAGE_MAX_MSG_LENGTH || user_msg->count > QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr)' -> -EINVAL) before encode/transfer -- asymmetric validation between the request and reply directions of the same QAIC manage protocol. EARLY RETURNS WITHOUT RESET: every failure exit inside the decode loop leaves user_msg->count set to the unvalidated device value: line 979-980 'if (msg_len > msg_hdr_len - sizeof(*trans_hdr)) return -EINVAL;', lines 984-986 hdr_len/size_add check 'return -EINVAL;', decode_status -ECANCELED (status!=0, line ~951) / -EPIPE (CRC, ~954), decode_passthrough -ENOSPC, default 'return -EINVAL;' at 1001-1002, and 'if (ret) return ret;' at 1005-1006; none resets or clamps user_msg->count. ERROR-UNWIND HANDOFF AND EXPORT: qaic_manage() returns the error to qaic_manage_ioctl (line 1332), whose -ECANCELED exception path intentionally copies back to userspace even on failure: 'if (ret == -ECANCELED || !ret) { if (copy_to_user(user_data, msg->data, msg->len)) { ret = -EFAULT; } else { user_msg->len = msg->len; user_msg->count = msg->count; } }' (lines 1340-1347) -- the device-controlled count survives the error unwind and is exported to the untrusted ioctl caller. Counterevidence checked: the consuming decode loop at 976 re-validates each iteration against msg_hdr_len (itself clamped to QAIC_MANAGE_MAX_MSG_LENGTH at 969-971) with per-iteration size_add bounds, so the count alone does not cause a kernel OOB inside this function; impact is state poisoning of the shared message object plus propagation of a device-controlled, never-clamped count/len to userspace on the error path (and a device-chosen loop iteration count bounded only by u32 vs msg_hdr_len, i.e. early -EINVAL exit), not a demonstrated memory-corruption write; this is why confidence is low and the impact bound is stated rather than claimed."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 974,
+      "status": "reported",
+      "reason": "Poisoning store: device-supplied le32 reply count stored unclamped into shared struct manage_msg; all decode-loop failure exits (979-980, 984-986, 1001-1002, 1005-1006, decode_status -ECANCELED/-EPIPE, decode_passthrough -ENOSPC) return without reset; qaic_manage_ioctl lines 1340-1347 export the poisoned count to userspace on the -ECANCELED error path; request-direction sibling qaic_manage 1252-1255 enforces the clamp the reply direction omits."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 664,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim present unpatched in s06: line 664 'int np = urb->number_of_packets;' with 665 'int size = np * sizeof(*iso);' feeding kzalloc(size) at 677, error returns at ~692 (recv short, -EPIPE) and ~714 (total_length mismatch, -EPIPE) that never reset urb->number_of_packets, and the wire store 'urb->number_of_packets = rpdu->number_of_packets;' at usbip_common.c:473 with no clamp; USBIP_MAX_ISO_PACKETS (usbip_common.h:130) is enforced only on the CMD_SUBMIT sibling direction (stub_rx.c:379-381). Excluded from findings per the seed-never-reportable rule; recorded only to document snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/usb/usbip/stub_rx.c",
+      "line": 379,
+      "status": "safe",
+      "reason": "Enforcing sibling path of the seed family: CMD_SUBMIT direction clamps the wire count against USBIP_MAX_ISO_PACKETS before usb_alloc_urb; asymmetric-validation evidence, not itself vulnerable."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 1252,
+      "status": "safe",
+      "reason": "Request-direction clamp in qaic_manage: 'user_msg->len > QAIC_MANAGE_MAX_MSG_LENGTH || user_msg->count > QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr)' -> -EINVAL before qaic_manage_msg_xfer; the enforcing sibling proving the reply-direction asymmetry."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 1406,
+      "status": "safe",
+      "reason": "resp_worker() orphan-response path matches no pending xfer and simply kfree(msg) (line ~1416 'request must have timed out, drop packet'); the newer resp_worker count-walk variant present in s01 (f012) does not exist in this snapshot's qaic_control.c -- s06's resp_worker only compares the sequence number, so no count is consumed on the orphan path."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 1081,
+      "status": "safe",
+      "reason": "priv->num_event_counters = be16_to_cpu(descriptor->counters) is a device-supplied count stored into shared driver state, but a tree grep found no consumer loop or allocation keyed on num_event_counters in gve_adminq.c/gve_main.c/gve.h in this session's check (grep over gve_adminq.c returned only the store); stored-state field with no located consuming iterator on an error path, and the earlier s08 audit of gve page_buses sizing found num_entries kernel-derived, not device-derived."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep halted by the finalize directive: the wire/disk/device count-store sweep completed for the qaic control channel and the seed usbip family; prior unresolved leads present in s06 (drivers/md/dm-era-target.c, drivers/md/dm-zoned-metadata.c, drivers/mtd/ubi/fastmap.c, drivers/net/ethernet/broadcom/bnxt/bnxt.c TPA/ring counts, drivers/net/ethernet/intel/ixgbe/ixgbe_e610.c admin queue) were confirmed present but their error paths and consuming loops were NOT deep-read in this session.",
+    "The reported qaic finding is low confidence: the consuming decode loop is internally bounds-checked against msg_hdr_len (clamped to QAIC_MANAGE_MAX_MSG_LENGTH at lines 969-971), so no kernel OOB from the count alone was demonstrated; impact is state poisoning of the shared manage_msg plus export of the unvalidated device count/len to userspace on the -ECANCELED error path, and the attacker is a malicious/compromised MHI device peer, not a remote network endpoint.",
+    "The number_of_packets consumer sweep outside usbip (drivers/bluetooth/btusb.c, comedi usbdux/usbduxsigma, media dvb-usb/em28xx/cx231xx, isdn hfcsusb, usb gadget) was only enumerated by file listing before the finalize directive; the individual completion handlers' error paths were not walked.",
+    "No compilation, static analysis, or runtime reproducer was performed (assigned tree is read-only); all line numbers come from direct numbered sed/awk/grep reads of snapshots/s06 verified in this session, and the qaic_manage_msg_xfer/msg_xfer short-response cross-check (whether the actually received MHI length is validated against rsp->hdr.len before decode_message walks it) was not re-audited in this session."
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "l2-wireless-ie-tlv",
+  "phase": "final",
+  "snapshot": "s02",
+  "status": "complete",
+  "notes": "Finalized early per instruction. 3 findings: cfg80211_gen_new_ie both loops (scan.c:307 and scan.c:367) read the element length byte in the loop condition with no remaining>=2 check (remote beacon/probe MBSSID path, 1-byte OOB read); skip_ie (util.c:1576) reads ies[pos+1] without pos+1<ielen, reached from nl80211-supplied assoc/TDLS IEs. Safe: cfg80211_is_element_inherited, cfg80211_get_p2p_attr, for_each_element macro, mbssid walk. Unresolved: mac80211/util.c:2749, Bluetooth/radiotap not searched.",
+  "candidates": ["scan.c:244 safe", "util.c:1461 safe", "ieee80211.h:3783 safe", "scan.c:2087 safe", "util.c:1599 reported via skip_ie", "mac80211/util.c:2749 unresolved", "bluetooth unresolved"],
+  "timestamp": "2026-11-12T00:00:00Z"
+}

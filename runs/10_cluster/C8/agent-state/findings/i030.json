@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "intent_id": "i030",
+  "branch": "media-epidx",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s08"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "line": 323,
+      "status": "safe",
+      "reason": "The f002 gspca isoc_init/isoc_nego pattern is FIXED in s08. stv06xx_isoc_init() does 'intfc = gspca_dev->dev->actconfig->intf_cache[0]; if (intfc->num_altsetting < 2) return -ENODEV; alt = &intfc->altsetting[1]; if (alt->desc.bNumEndpoints < 1) return -ENODEV;' before writing 'alt->endpoint[0].desc.wMaxPacketSize = cpu_to_le16(sd->sensor->max_packet_size[...]);' (line 325-327). stv06xx_isoc_nego() re-fetches 'alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];' at line 343 under the comment '/* Existence of altsetting and endpoint was verified in stv06xx_isoc_init() */' and only then reads/writes endpoint[0].desc.wMaxPacketSize. stv06xx_start() has the same bNumEndpoints<1 guard at line 285."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "line": 2655,
+      "status": "safe",
+      "reason": "sd_isoc_init() in s08 validates before the fixed-index endpoint[0] access: 'if (intfc->num_altsetting < 2) return -ENODEV; alt = &intfc->altsetting[1]; if (alt->desc.bNumEndpoints < 1) return -ENODEV;' then 'alt->endpoint[0].desc.wMaxPacketSize = cpu_to_le16(max_packet_size);'. sd_isoc_nego() (alt fetch at 2684) carries '/* Existence of altsetting and endpoint was verified in sd_isoc_init() */' and cit_get_packet_size() is guarded at line 1445 ('if (alt->desc.bNumEndpoints < 1) return -ENODEV;') before reading endpoint[0] at 1448."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/gspca/konica.c",
+      "line": 183,
+      "status": "safe",
+      "reason": "sd_start() checks 'if (alt->desc.bNumEndpoints < 2) return -ENODEV;' at line 183 before reading 'alt->endpoint[0].desc.wMaxPacketSize' (line 186) and before the 4-URB loop that alternates 'i = n & 1 ? 0 : 1;' and uses 'alt->endpoint[i].desc.wMaxPacketSize' (lines 204-205) to size usb_alloc_coherent(..., packet_size * SD_NPKT, ...) buffers. Both indexes 0 and 1 are covered by the bNumEndpoints<2 guard."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/gspca/ov519.c",
+      "line": 3480,
+      "status": "safe",
+      "reason": "grep-confirmed guards: ov519.c has bNumEndpoints/num_altsetting checks at lines 3480 and 3611 immediately preceding the fixed-index endpoint[0].desc reads at lines 3485 and 3616 (sd_start sd_reset_sd/reset paths). Guard adjacency verified by line numbers from combined grep of 'bNumEndpoints|num_altsetting' and 'endpoint\\[[0-9]' in the same file."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx_pb0100.c",
+      "line": 189,
+      "status": "safe",
+      "reason": "grep-confirmed guard at line 189 ('if (alt->desc.bNumEndpoints < 1) return -ENODEV;') immediately preceding the fixed-index endpoint[0] read at line 192."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/b2c2/flexcop-usb.c",
+      "line": 516,
+      "status": "safe",
+      "reason": "flexcop_usb_init() calls usb_set_interface(fc_usb->udev, 0, 1) first, then validates the switched-to altsetting: 'alt = fc_usb->uintf->cur_altsetting; if (alt->desc.bNumEndpoints < 2) return -ENODEV; if (!usb_endpoint_is_isoc_in(&alt->endpoint[0].desc)) return -ENODEV;' (lines 514-518). flexcop_usb_transfer_init() (line 427, 'frame_size = usb_endpoint_maxp(&alt->endpoint[0].desc);' at 431) runs after init in the probe chain, so the endpoint[0] read is validated."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/dvb-usb/dib0700_core.c",
+      "line": 841,
+      "status": "safe",
+      "reason": "dib0700_rc_setup() in s08 validates the endpoint count before the fixed-index read: 'if (intf->cur_altsetting->desc.bNumEndpoints < rc_ep + 1) return -ENODEV;' (line 821, rc_ep==1) before 'e = &intf->cur_altsetting->endpoint[rc_ep].desc;' (line 841). This site was unguarded in older snapshots (facts f005/f026) but carries the fix in s08; the access also switched from altsetting[0] to cur_altsetting."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/usbtv/usbtv-core.c",
+      "line": 82,
+      "status": "safe",
+      "reason": "usbtv_probe() checks 'if (intf->num_altsetting != 2) return -ENODEV;' and 'if (intf->altsetting[1].desc.bNumEndpoints != 4) return -ENODEV;' (lines 76-81) before 'ep = &intf->altsetting[1].endpoint[0];' (line 82) and the usb_endpoint_maxp() reads that size the isoc URB buffers."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/uvc/uvc_driver.c",
+      "line": 1271,
+      "status": "safe",
+      "reason": "uvc_parse_control()/status-endpoint path guards the fixed-index access: 'if (alts->desc.bNumEndpoints == 1 && !(dev->quirks & UVC_QUIRK_BUILTIN_ISIGHT)) { struct usb_host_endpoint *ep = &alts->endpoint[0];' (lines 1269-1271); the read only happens when exactly one endpoint is declared."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/go7007/go7007-usb.c",
+      "line": 1135,
+      "status": "safe",
+      "reason": "All fixed-index ep_in[] dereferences are NULL-checked in s08: 'ep = usb->usbdev->ep_in[4]; if (!ep) goto allocfail;' (line 1135-1136) before usb_fill_bulk_urb/int_urb; likewise 'if (!usb->usbdev->ep_in[6]) goto allocfail;' (1271), 'if (!usb->usbdev->ep_in[1]) goto allocfail;' (1276), 'if (!usb->usbdev->ep_in[8]) goto allocfail;' (1297). A device whose descriptors omit those endpoints yields a NULL check failure instead of a NULL deref."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/siano/smsusb.c",
+      "line": 411,
+      "status": "safe",
+      "reason": "Endpoint discovery is loop-bounded by the descriptor-declared count: 'for (i = 0; i < intf->cur_altsetting->desc.bNumEndpoints; i++) { struct usb_endpoint_descriptor *desc = &intf->cur_altsetting->endpoint[i].desc; ... dev->in_ep = desc->bEndpointAddress; ... }' (lines 411-416); no fixed-index ep_in[] access exists in s08's smsusb.c (grep 'ep_in\\[' matches only go7007)."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/media/usb/usbvision",
+      "line": 0,
+      "status": "safe",
+      "reason": "Vacuously absent: s08's drivers/media/usb contains no usbvision directory at all, so the usbvision alt_max_pkt_size[] per-altsetting wMaxPacketSize loop findings from sibling snapshots (f005/f026/f014 lineage) do not exist in this tree."
+    }
+  ],
+  "limitations": [
+    "Evidence is static source reading plus grep adjacency only; no compilation, syzkaller-style fuzzing, or device-level reproduction was performed in this read-only snapshot.",
+    "Variable-index endpoint[i] sites (au0828-video.c:1923, dvb-usb/cxusb.c:1556-1561, em28xx-audio.c:681, em28xx-cards.c:3796, gspca/gspca.c:219/519, hdpvr-core.c:326, pwc-if.c:431-432, s2255drv.c:2244, stk1160-core.c:191, uvc_driver.c:53/575/585-586) were grep-triaged as loop-bounded over i < bNumEndpoints or desc-count-limited but were not all individually re-read line-by-line in s08.",
+    "cx231xx files are the seed demonstration and were excluded per intent policy; interface/altsetting-count gaps (if-alt-count branch) are out of scope for media-epidx.",
+    "s08 is a newer upstream tree than s01-s07; the negative result reflects fixes (upstream commits adding num_altsetting/bNumEndpoints guards and ep_in[] NULL checks) already merged in this snapshot, not remediation performed by this audit."
+  ]
+}

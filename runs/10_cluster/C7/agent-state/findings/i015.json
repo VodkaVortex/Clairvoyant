@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "xmit-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s14"
+  ],
+  "findings": [
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "start": 1981,
+      "end": 2040,
+      "quote": "spin_lock(&priv->stream_lock);",
+      "confidence": "medium",
+      "reason": "Softirq-side chain: mwl8k_tx (ieee80211_ops .tx, drivers/net/wireless/marvell/mwl8k.c:4676, called by mac80211 __ieee80211_tx->drv_tx from ndo_start_xmit/ieee80211_subif_start_xmit or from tx dequeue under NET_TX softirq) -> mwl8k_txq_xmit (line 4690) -> spin_lock(&priv->stream_lock) at lines 1982/2046/2069 with no bottom-half disable, while the same function takes priv->tx_lock with spin_lock_bh (lines 2054/2115) proving this xmit path is expected to run with BH enabled. Process/workqueue-side chains taking the same stream_lock plainly: mwl8k_watchdog_ba_handle worker (mwl8k_watchdog_ba_events, line 3822, queued from the hardirq handler at line 4605 via ieee80211_queue_work) and mwl8k_cmd_set_new_stn_del (line 4152, reached from sta_remove -> mwl8k_sta_remove under wiphy mutex in process context), plus mwl8k_ampdu_action (line 5445) from cfg80211/mac80211 process context. With a worker (or user task) holding stream_lock, a NET_TX softirq on the same CPU executing mwl8k_txq_xmit spins on stream_lock forever while the preempted holder can never run -> soft lockup/RCU stall/TX stall DoS, the exact seed mechanism (missing spin_lock_bh on a lock shared between process and xmit softirq context). Untrusted trigger: ordinary packet transmission aligned with BA-watchdog/station-removal events; no privileged input needed. Counterevidence checked: all stream_lock sites are plain spin_lock with no _bh/_irqsave variant anywhere in the file; the only other plain lock (tx_lock) is consistently taken with spin_lock_bh, showing the driver knows the path can run under softirq. Impact not reproduced at runtime; medium confidence reflects that mac80211 may sometimes invoke .tx from process context too, and the watchdog worker holds stream_lock only briefly."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s14",
+      "path": "drivers/staging/ks7010/ks7010_sdio.c",
+      "line": 398,
+      "status": "safe",
+      "reason": "This is the seed demonstration itself (spin_lock(&priv->tx_dev.tx_dev_lock) in ks_wlan_hw_tx); explicitly excluded from reporting per instructions."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+      "line": 30,
+      "status": "unresolved",
+      "reason": "ctl_node->resp_lock taken with plain spin_lock at trans.c:30/47/87/136; qtnfmac bus locks (tx_lock, tx_reclaim_lock, irq_lock) all use spin_lock_irqsave, but whether any resp_lock site is reachable from TX softirq was not fully traced before the search was halted."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/staging/wilc1000/wilc_wlan.c",
+      "line": 45,
+      "status": "safe",
+      "reason": "All wilc->txq_spinlock acquisitions use spin_lock_irqsave (wilc_wlan.c:45,64,82,146,194,338,354); no plain spin_lock sites on the shared tx queue lock."
+    },
+    {
+      "snapshot": "s14",
+      "path": "drivers/net/wireless/rsi/rsi_91x_main.c",
+      "line": 326,
+      "status": "safe",
+      "reason": "Only spin_lock_init for ps_lock found; no plain spin_lock acquisitions in rsi_91x_main.c/rsi_91x_core.c."
+    }
+  ],
+  "limitations": [
+    "Bounded search: only drivers/net/wireless, drivers/staging wireless trees (wilc1000, rtl*, wlan-ng, vt665x) and drivers/net/usb were ranked by plain-spin_lock density; full-mac softirq reachability analysis was completed only for mwl8k, qtnfmac, wilc1000 and rsi.",
+    "qtnfmac trans.c resp_lock softirq reachability was not concluded (unresolved candidate).",
+    "iwlwifi pcie/rx.c and hostap had high plain spin_lock counts but were not analyzed before the intent was stopped; these are mac80211/fullmac drivers where .tx handlers run under NET_TX softirq and merit a follow-up pass.",
+    "The mwl8k finding is a static hypothesis: no runtime reproducer was built because the kernel tree lacks .config/headers for building the driver standalone."
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "csum-partial-consumer-trust",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/sun/sunvnet_common.c",
+      "start": 1152,
+      "end": 1200,
+      "quote": "int offset = start + nskb->csum_offset;",
+      "confidence": "medium",
+      "reason": "Untrusted source: skb->csum_start/skb->csum_offset originate from user-controllable CHECKSUM_PARTIAL producers (AF_XDP TX metadata xsk_skb_metadata(), virtio_net_hdr via tpacket_fill_skb/tun, packet sockets); s03's skbuff.h (lines 171-176) documents that the stack, not drivers, must validate these values. Violated invariant: in vnet_skb_shape(), nskb->csum_offset is copied unvalidated from the incoming skb (line 1153) and start = skb_checksum_start_offset(skb) (line 1157) is used with no check that start + csum_offset + 2 <= skb_headlen(skb); the only guard on the whole copy path is a bounds-safe skb_copy_bits() for the header copy. Unsafe use: offset = start + nskb->csum_offset (line 1159) is used as a raw pointer write *(__sum16 *)(skb->data + offset) = 0 (line 1169) into the ORIGINAL skb's linear data before skb_copy_and_csum_bits, i.e., a kernel write at an attacker-influenced offset derived solely from the unvalidated pair, with no headlen validation anywhere in vnet_skb_shape() or its caller sunvnet_start_xmit_common() (which calls skb_checksum_help-equivalents only via vnet_fullcsum_* AFTER shaping). Counterevidence checked: net/core/dev.c skb_checksum_help() (lines 3594-3614 in this snapshot) DOES validate offset and offset+2 against skb_headlen, and net/core/skbuff.c skb_partial_csum_set() validates against headlen, showing the invariant exists elsewhere and is absent here; upstream fixed sunvnet's use of an unvalidated offset in commit 38b0d49cdc24 ('sunvnet: XDP forward'). Reaching this code requires the sunvnet/ldom virtual network driver (SPARC/sun LDC guest traffic), which bounds practical exploitability, hence medium not high confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/xdp/xsk.c",
+      "line": 969,
+      "status": "safe",
+      "reason": "Seed demonstration in its FIXED form: csum_start/csum_offset are READ_ONCE into locals (lines 980-981), validated (lines 983-985), and the same locals assigned to skb (987-988). Single-fetch invariant intact; excluded per instructions."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/dev.c",
+      "line": 3569,
+      "status": "safe",
+      "reason": "skb_checksum_help() validates offset = skb_checksum_start_offset(skb) against skb_headlen (line 3597-3598, WARN_ONCE 'offset (%d) >= skb_headlen()') and re-validates offset + skb->csum_offset + sizeof(__sum16) against headlen (line 3605-3609) before the *(__sum16*) write; consumer is defensive."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/skbuff.c",
+      "line": 3935,
+      "status": "safe",
+      "reason": "skb_copy_and_csum_dev() has BUG_ON(csstart > skb_headlen(skb)) guarding csstart, and csstuff = csstart + csum_offset (line 3955) writes into the driver's own destination buffer 'to' sized by the device ring, not into skb; callers (via-rhine, sc92031, 8139too, ep93xx, ec_bhf, ksz884x) use fixed device tx buffers; residual risk is csum_offset pushing past 'to' size but the validated-equals-used invariant on the shared-memory side is not violated here."
+    },
+    {
+      "snapshot": "s03",
+      "path": "include/linux/skbuff.h",
+      "line": 5378,
+      "status": "safe",
+      "reason": "lco_csum() reads *(__sum16 *)(csum_start + skb->csum_offset) without local headlen validation, but all callers in s03 (gre_build_header in include/net/gre.h:137, udp_v4_check/udp_v6_check paths in net/ipv4/udp.c:1080, net/ipv6/ip6_checksum.c:80) are reached after stack encapsulation code that either sets csum_start/csum_offset itself (gre.h:140-141 sets them right after) or after skb_cow_head/pskb_may_pull of the L4 header; the untrusted-producer-to-this-sink chain was not demonstrated without an intermediate stack-set value."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/freescale/fec_main.c",
+      "line": 464,
+      "status": "safe",
+      "reason": "fec_enet_clear_csum() writes *(__sum16 *)(skb->head + skb->csum_start + skb->csum_offset) = 0 with no headlen check, but this is the documented driver checksum-offload contract (skbuff.h lines 168-176 put validation duty on the stack); the FEC driver is reached only via the stack TX path (ip_output etc.) where the stack sets csum_start/csum_offset itself. No untrusted-producer path to this line was identified in s03, so the violated-invariant leg is unproven (residual uncertainty noted in limitations)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/skbuff.c",
+      "line": 2841,
+      "status": "safe",
+      "reason": "pskb_trim_rcsum_slow() checks offset + sizeof(__sum16) > hdlen and returns -EINVAL; validated."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/fou_core.c",
+      "line": 1004,
+      "status": "safe",
+      "reason": "__gue_build_header REMCSUM path checks csum_start < hdrlen and only builds header bytes pd[0]/pd[1]; no memory access at csum_start+csum_offset."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/ipvs/ip_vs_xmit.c",
+      "line": 1069,
+      "status": "safe",
+      "reason": "ipvs GUE encap mirrors fou_core: checks csum_start < hdrlen, writes only into the freshly pushed GUE private header."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/hsr/hsr_forward.c",
+      "line": 357,
+      "status": "safe",
+      "reason": "csum_start +=/-= HSR_HLEN adjustments are paired with __pskb_copy that allocated headroom +/- HSR_HLEN; adjust is arithmetic on a stack-managed value, no unvalidated use."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/packet/af_packet.c",
+      "line": 2534,
+      "status": "safe",
+      "reason": "__packet_snd_vnet_parse() copies the virtio_net_hdr into a kernel stack struct once via copy_from_iter_full (line 2546) and validates csum_start + csum_offset + 2 <= hdr_len <= len on the kernel copy; tpacket_fill_skb then sets skb fields from the cached struct via skb_partial_csum_set-like assignment; no double fetch of user memory."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/tun_vnet.h",
+      "line": 137,
+      "status": "safe",
+      "reason": "__tun_vnet_hdr_get() copy_from_iter_full's the header into a kernel struct, computes hdr_len = max(csum_start + csum_offset + 2, hdr_len) on the kernel copy and rejects hdr_len > iov count; single fetch of user memory."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/virtio_net.c",
+      "line": 1874,
+      "status": "safe",
+      "reason": "virtio_net TX checks VIRTIO_NET_HDR_F_NEEDS_CSUM in the kernel-copied header and relies on tun-style validation before XDP; no unchecked csum_start arithmetic on guest-writable memory located in this snapshot's xmit path (lines 1874/2210)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/skbuff.c",
+      "line": 5807,
+      "status": "safe",
+      "reason": "skb_partial_csum_set() is the canonical validator: rejects csum_start >= U16_MAX or csum_end > skb_headlen before setting skb fields."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_offload.c",
+      "line": 154,
+      "status": "safe",
+      "reason": "skb_checksum_start(skb) != skb_transport_header(skb) comparison only; no dereference at csum_start + csum_offset."
+    }
+  ],
+  "limitations": [
+    "Bounded search: only skb->csum_start/skb->csum_offset/CHECKSUM_PARTIAL consumers reachable via grep in snapshots/s03 were triaged (13 candidates); exotic indirect consumers (BPF helpers writing then reading csum fields, per-driver firmware descriptor formats beyond fec/sun/xilinx/sun-sun drivers spot-checked) were not exhaustively proven safe.",
+    "The reported sunvnet_common.c finding depends on an untrusted producer (AF_XDP metadata, virtio_net_hdr from a VM/container via veth+tun, or packet socket) reaching a sunvnet (SPARC LDOM) transmit path; the code path is architecturally plausible but the full end-to-end producer-to-driver route was not executed, so confidence is medium.",
+    "fec_main.c:464 writes at skb->head + csum_start + csum_offset without any headlen check and was classified safe only on the assumption that only the validated stack TX path reaches FEC; a route from skb_checksum_help-bypassing untrusted producers to fec_enet_clear_csum was not disproven, only not found.",
+    "lco_csum() (include/linux/skbuff.h:5385) dereferences csum_start + csum_offset with no local validation in all callers; classified safe because observed callers set or pre-pull the header first, but a caller reachable with stale unvalidated values would violate the invariant."
+  ]
+}

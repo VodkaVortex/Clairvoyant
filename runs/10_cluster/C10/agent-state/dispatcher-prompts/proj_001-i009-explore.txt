@@ -1,0 +1,285 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-13d0cecb4626
+  status: active
+  created_at: 1794446080075
+  reason: null
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C10/public. Seed: scsi: bfa: Ensure the copied buf is NUL terminated. The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'Seed mechanism (scsi bfa bfad_debugfs regrd/regwr, never reportable): an attacker controls both the length (nbytes from a debugfs write syscall) and full contents of a userspace buffer that is copied into a kernel heap allocation of exactly nbytes bytes via memdup_user. MISSING GUARANTEE: the resulting buffer carries no NUL terminator and no check ensures one exists in-bounds, so the C-string invariant is violated. UNSAFE USE: the unterminated buffer is handed to C-string parsers (sscanf) that scan until NUL, reading past the end of the allocation. CONSEQUENCE: out-of-bounds heap read (KASAN slab-OOB, info leak / crash). Transferable pattern: usercopy of attacker-sized length into an exactly-sized allocation, followed by any string-consuming API (sscanf, simple_strtoul/strtol, strlen, strcmp, strchr, strcpy/strscpy-from-unterminated) without memdup_user_nul, strndup_user, or an explicit terminator slot. Search guidance: grep call sites of memdup_user followed by string parsers; kmalloc/copy_from_user with exact user length then string ops; copy helpers lacking a terminator byte; and verify the fix primitive (memdup_user_nul / strndup_user / len+1 allocation). BRANCHES: branch1=debugfs-write-memdup-sscanf - debugfs (and analogous debug-control) write file_operations handlers across drivers that memdup_user or kmalloc+copy_from_user an attacker-sized buffer and pass it to sscanf/simple_strtoul-style parsers without NUL termination; branch2=sysfs-store-attr-terminator - sysfs ->store() attribute callbacks (device/driver/bus/class/module attrs) that copy_from_user into exact- or fixed-size buffers and then use string parsers or strcmp/strlen/strchr on possibly-unterminated data; branch3=proc-config-write-unterminated - /proc, configfs, and other textual control-file write handlers that copy user data of attacker-chosen length and consume it with string functions assuming termination; branch4=ioctl-sock-usercopy-string - ioctl, setsockopt/getsockopt, netlink, and char-device fops paths that copy_from_user into variable-length buffers and then use string helpers (sscanf, strtoul, strcmp, strchr, strscpy) on the unterminated result.'
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794446135254
+  created_at: 1794446080131
+  concluded_at: 1794446135254
+- id: i002
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=debugfs-write-memdup-sscanf; Direct structural/API analogue of the seed (scsi bfa bfad_debugfs regrd/regwr). Search only snapshots/s01 and no other snapshot. Locate debugfs and analogous debug-control .write file_operations handlers that copy attacker-controlled user data via memdup_user or kmalloc(count)+copy_from_user into an exactly nbytes-sized heap buffer, then pass the possibly-unterminated buffer to C-string consumers (sscanf, simple_strtoul/simple_strtol, kstrtol, strlen, strcmp, strchr, strscpy) with no memdup_user_nul, strndup_user, or count+1 terminator slot. Grep debugfs_create_file and .write call sites, memdup_user uses, and sscanf/simple_strtoul on user-copied buffers. For each candidate record file:line, the copy call with its exact size argument, the string use, and terminator evidence; reject with concrete evidence where termination or bounds are enforced. A negative evidence-backed result is valid. Save a structured JSON artifact for snapshot s01 only.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794446330195
+  created_at: 1794446330173
+  concluded_at: null
+- id: i003
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=sysfs-store-attr-terminator; Same usercopy-then-string-parser invariant under a different interface name. Search only snapshots/s01 and no other snapshot. Locate sysfs ->store() callbacks (DEVICE_ATTR and _RW variants, DRIVER_ATTR, BUS_ATTR, CLASS_ATTR, module_param handlers) and kernfs-backed attribute stores that (a) perform their own copy_from_user/memdup_user of attacker-chosen length into a fixed- or exactly-sized buffer and then use sscanf/simple_strtol, strcmp, strlen, strchr, or strscpy on possibly-unterminated data, or (b) parse buf while trusting count over the real string length, or index buf[count]. Verify whether the kernfs page-buffer trailing-NUL guarantee actually holds at each use site and reject candidates where termination and bounds are already guaranteed. Record file:line, copy primitive, size, string use, and terminator evidence; negatives with evidence are valid. Save a structured JSON artifact for snapshot s01 only.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794446330197
+  created_at: 1794446330175
+  concluded_at: null
+- id: i004
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=proc-config-write-unterminated; Trust-boundary and state-transition analogue through other textual control-file write paths. Search only snapshots/s01 and no other snapshot. Locate /proc write handlers (proc_ops .proc_write, file_operations .write on proc entries), configfs ->store_* item/attribute callbacks, securityfs/tracefs control files, and misc textual control writers that copy user data of attacker-chosen length (memdup_user, kmalloc(len)+copy_from_user, copy_from_user into stack arrays) and then consume it with string functions assuming NUL termination (sscanf, simple_strtoul, strlen, strcmp, strchr, strscpy, strcpy), especially where the allocation size equals the user length exactly with no +1 terminator slot. Record file:line, copy primitive and size argument, string use, and terminator evidence; reject candidates with proper termination or non-string consumption, with evidence. Save a structured JSON artifact for snapshot s01 only.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794446330196
+  created_at: 1794446330176
+  concluded_at: null
+- id: i005
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=ioctl-sock-usercopy-string; Cross-subsystem, alternative-syntax analogue of the seed invariant. Search only snapshots/s01 and no other snapshot. Locate ioctl handlers (.unlocked_ioctl, .compat_ioctl), setsockopt/getsockopt optval parsers, netlink attribute handling (nla_data/nla_string consumed without NLA_NUL_STRING policy guarantees), and char-device .write fops that copy_from_user into variable- or exactly-sized buffers and then run string helpers (sscanf, simple_strtoul/simple_strtol, strcmp, strchr, strscpy, strlen) on the unterminated result. Grep copy_from_user and memdup_user call sites near ioctl/sockopt implementations followed by string ops. Record file:line, copy call, size versus user length, string use, and terminator evidence; reject candidates where a terminator or bounds check exists. Save a structured JSON artifact for snapshot s01 only.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794446330198
+  created_at: 1794446330177
+  concluded_at: null
+- id: i006
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=debugfs-write-memdup-sscanf; Direct structural/API analogue of the seed (scsi bfa bfad_debugfs regrd/regwr). Search only snapshots/s02 and no other snapshot. Locate debugfs and analogous debug-control .write file_operations handlers that copy attacker-controlled user data via memdup_user or kmalloc(count)+copy_from_user into an exactly nbytes-sized heap buffer, then pass the possibly-unterminated buffer to C-string consumers (sscanf, simple_strtoul/simple_strtol, kstrtol, strlen, strcmp, strchr, strscpy) with no memdup_user_nul, strndup_user, or count+1 terminator slot. Grep debugfs_create_file and .write call sites, memdup_user uses, and sscanf/simple_strtoul on user-copied buffers. For each candidate record file:line, the copy call with its exact size argument, the string use, and terminator evidence; reject with concrete evidence where termination or bounds are enforced. A negative evidence-backed result is valid. Save a structured JSON artifact for snapshot s02 only.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794446330199
+  created_at: 1794446330178
+  concluded_at: null
+- id: i007
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=sysfs-store-attr-terminator; Same usercopy-then-string-parser invariant under a different interface name. Search only snapshots/s02 and no other snapshot. Locate sysfs ->store() callbacks (DEVICE_ATTR and _RW variants, DRIVER_ATTR, BUS_ATTR, CLASS_ATTR, module_param handlers) and kernfs-backed attribute stores that (a) perform their own copy_from_user/memdup_user of attacker-chosen length into a fixed- or exactly-sized buffer and then use sscanf/simple_strtol, strcmp, strlen, strchr, or strscpy on possibly-unterminated data, or (b) parse buf while trusting count over the real string length, or index buf[count]. Verify whether the kernfs page-buffer trailing-NUL guarantee actually holds at each use site and reject candidates where termination and bounds are already guaranteed. Record file:line, copy primitive, size, string use, and terminator evidence; negatives with evidence are valid. Save a structured JSON artifact for snapshot s02 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330179
+  concluded_at: null
+- id: i008
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=proc-config-write-unterminated; Trust-boundary and state-transition analogue through other textual control-file write paths. Search only snapshots/s02 and no other snapshot. Locate /proc write handlers (proc_ops .proc_write, file_operations .write on proc entries), configfs ->store_* item/attribute callbacks, securityfs/tracefs control files, and misc textual control writers that copy user data of attacker-chosen length (memdup_user, kmalloc(len)+copy_from_user, copy_from_user into stack arrays) and then consume it with string functions assuming NUL termination (sscanf, simple_strtoul, strlen, strcmp, strchr, strscpy, strcpy), especially where the allocation size equals the user length exactly with no +1 terminator slot. Record file:line, copy primitive and size argument, string use, and terminator evidence; reject candidates with proper termination or non-string consumption, with evidence. Save a structured JSON artifact for snapshot s02 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330180
+  concluded_at: null
+- id: i009
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=ioctl-sock-usercopy-string; Cross-subsystem, alternative-syntax analogue of the seed invariant. Search only snapshots/s02 and no other snapshot. Locate ioctl handlers (.unlocked_ioctl, .compat_ioctl), setsockopt/getsockopt optval parsers, netlink attribute handling (nla_data/nla_string consumed without NLA_NUL_STRING policy guarantees), and char-device .write fops that copy_from_user into variable- or exactly-sized buffers and then run string helpers (sscanf, simple_strtoul/simple_strtol, strcmp, strchr, strscpy, strlen) on the unterminated result. Grep copy_from_user and memdup_user call sites near ioctl/sockopt implementations followed by string ops. Record file:line, copy call, size versus user length, string use, and terminator evidence; reject candidates where a terminator or bounds check exists. Save a structured JSON artifact for snapshot s02 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330180
+  concluded_at: null
+- id: i010
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=debugfs-write-memdup-sscanf; Direct structural/API analogue of the seed (scsi bfa bfad_debugfs regrd/regwr). Search only snapshots/s03 and no other snapshot. Locate debugfs and analogous debug-control .write file_operations handlers that copy attacker-controlled user data via memdup_user or kmalloc(count)+copy_from_user into an exactly nbytes-sized heap buffer, then pass the possibly-unterminated buffer to C-string consumers (sscanf, simple_strtoul/simple_strtol, kstrtol, strlen, strcmp, strchr, strscpy) with no memdup_user_nul, strndup_user, or count+1 terminator slot. Grep debugfs_create_file and .write call sites, memdup_user uses, and sscanf/simple_strtoul on user-copied buffers. For each candidate record file:line, the copy call with its exact size argument, the string use, and terminator evidence; reject with concrete evidence where termination or bounds are enforced. A negative evidence-backed result is valid. Save a structured JSON artifact for snapshot s03 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330181
+  concluded_at: null
+- id: i011
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=sysfs-store-attr-terminator; Same usercopy-then-string-parser invariant under a different interface name. Search only snapshots/s03 and no other snapshot. Locate sysfs ->store() callbacks (DEVICE_ATTR and _RW variants, DRIVER_ATTR, BUS_ATTR, CLASS_ATTR, module_param handlers) and kernfs-backed attribute stores that (a) perform their own copy_from_user/memdup_user of attacker-chosen length into a fixed- or exactly-sized buffer and then use sscanf/simple_strtol, strcmp, strlen, strchr, or strscpy on possibly-unterminated data, or (b) parse buf while trusting count over the real string length, or index buf[count]. Verify whether the kernfs page-buffer trailing-NUL guarantee actually holds at each use site and reject candidates where termination and bounds are already guaranteed. Record file:line, copy primitive, size, string use, and terminator evidence; negatives with evidence are valid. Save a structured JSON artifact for snapshot s03 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330182
+  concluded_at: null
+- id: i012
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=proc-config-write-unterminated; Trust-boundary and state-transition analogue through other textual control-file write paths. Search only snapshots/s03 and no other snapshot. Locate /proc write handlers (proc_ops .proc_write, file_operations .write on proc entries), configfs ->store_* item/attribute callbacks, securityfs/tracefs control files, and misc textual control writers that copy user data of attacker-chosen length (memdup_user, kmalloc(len)+copy_from_user, copy_from_user into stack arrays) and then consume it with string functions assuming NUL termination (sscanf, simple_strtoul, strlen, strcmp, strchr, strscpy, strcpy), especially where the allocation size equals the user length exactly with no +1 terminator slot. Record file:line, copy primitive and size argument, string use, and terminator evidence; reject candidates with proper termination or non-string consumption, with evidence. Save a structured JSON artifact for snapshot s03 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330184
+  concluded_at: null
+- id: i013
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=ioctl-sock-usercopy-string; Cross-subsystem, alternative-syntax analogue of the seed invariant. Search only snapshots/s03 and no other snapshot. Locate ioctl handlers (.unlocked_ioctl, .compat_ioctl), setsockopt/getsockopt optval parsers, netlink attribute handling (nla_data/nla_string consumed without NLA_NUL_STRING policy guarantees), and char-device .write fops that copy_from_user into variable- or exactly-sized buffers and then run string helpers (sscanf, simple_strtoul/simple_strtol, strcmp, strchr, strscpy, strlen) on the unterminated result. Grep copy_from_user and memdup_user call sites near ioctl/sockopt implementations followed by string ops. Record file:line, copy call, size versus user length, string use, and terminator evidence; reject candidates where a terminator or bounds check exists. Save a structured JSON artifact for snapshot s03 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330185
+  concluded_at: null
+- id: i014
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=debugfs-write-memdup-sscanf; Direct structural/API analogue of the seed (scsi bfa bfad_debugfs regrd/regwr). Search only snapshots/s04 and no other snapshot. Locate debugfs and analogous debug-control .write file_operations handlers that copy attacker-controlled user data via memdup_user or kmalloc(count)+copy_from_user into an exactly nbytes-sized heap buffer, then pass the possibly-unterminated buffer to C-string consumers (sscanf, simple_strtoul/simple_strtol, kstrtol, strlen, strcmp, strchr, strscpy) with no memdup_user_nul, strndup_user, or count+1 terminator slot. Grep debugfs_create_file and .write call sites, memdup_user uses, and sscanf/simple_strtoul on user-copied buffers. For each candidate record file:line, the copy call with its exact size argument, the string use, and terminator evidence; reject with concrete evidence where termination or bounds are enforced. A negative evidence-backed result is valid. Save a structured JSON artifact for snapshot s04 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330186
+  concluded_at: null
+- id: i015
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=sysfs-store-attr-terminator; Same usercopy-then-string-parser invariant under a different interface name. Search only snapshots/s04 and no other snapshot. Locate sysfs ->store() callbacks (DEVICE_ATTR and _RW variants, DRIVER_ATTR, BUS_ATTR, CLASS_ATTR, module_param handlers) and kernfs-backed attribute stores that (a) perform their own copy_from_user/memdup_user of attacker-chosen length into a fixed- or exactly-sized buffer and then use sscanf/simple_strtol, strcmp, strlen, strchr, or strscpy on possibly-unterminated data, or (b) parse buf while trusting count over the real string length, or index buf[count]. Verify whether the kernfs page-buffer trailing-NUL guarantee actually holds at each use site and reject candidates where termination and bounds are already guaranteed. Record file:line, copy primitive, size, string use, and terminator evidence; negatives with evidence are valid. Save a structured JSON artifact for snapshot s04 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330187
+  concluded_at: null
+- id: i016
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=proc-config-write-unterminated; Trust-boundary and state-transition analogue through other textual control-file write paths. Search only snapshots/s04 and no other snapshot. Locate /proc write handlers (proc_ops .proc_write, file_operations .write on proc entries), configfs ->store_* item/attribute callbacks, securityfs/tracefs control files, and misc textual control writers that copy user data of attacker-chosen length (memdup_user, kmalloc(len)+copy_from_user, copy_from_user into stack arrays) and then consume it with string functions assuming NUL termination (sscanf, simple_strtoul, strlen, strcmp, strchr, strscpy, strcpy), especially where the allocation size equals the user length exactly with no +1 terminator slot. Record file:line, copy primitive and size argument, string use, and terminator evidence; reject candidates with proper termination or non-string consumption, with evidence. Save a structured JSON artifact for snapshot s04 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330188
+  concluded_at: null
+- id: i017
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=ioctl-sock-usercopy-string; Cross-subsystem, alternative-syntax analogue of the seed invariant. Search only snapshots/s04 and no other snapshot. Locate ioctl handlers (.unlocked_ioctl, .compat_ioctl), setsockopt/getsockopt optval parsers, netlink attribute handling (nla_data/nla_string consumed without NLA_NUL_STRING policy guarantees), and char-device .write fops that copy_from_user into variable- or exactly-sized buffers and then run string helpers (sscanf, simple_strtoul/simple_strtol, strcmp, strchr, strscpy, strlen) on the unterminated result. Grep copy_from_user and memdup_user call sites near ioctl/sockopt implementations followed by string ops. Record file:line, copy call, size versus user length, string use, and terminator evidence; reject candidates where a terminator or bounds check exists. Save a structured JSON artifact for snapshot s04 only.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794446330189
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794446080075
+
+```
+
+### Current Intent
+```
+i009
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s02; BRANCH=ioctl-sock-usercopy-string; Cross-subsystem, alternative-syntax analogue of the seed invariant. Search only snapshots/s02 and no other snapshot. Locate ioctl handlers (.unlocked_ioctl, .compat_ioctl), setsockopt/getsockopt optval parsers, netlink attribute handling (nla_data/nla_string consumed without NLA_NUL_STRING policy guarantees), and char-device .write fops that copy_from_user into variable- or exactly-sized buffers and then run string helpers (sscanf, simple_strtoul/simple_strtol, strcmp, strchr, strscpy, strlen) on the unterminated result. Grep copy_from_user and memdup_user call sites near ioctl/sockopt implementations followed by string ops. Record file:line, copy call, size versus user length, string use, and terminator evidence; reject candidates where a terminator or bounds check exists. Save a structured JSON artifact for snapshot s02 only.
+```
+

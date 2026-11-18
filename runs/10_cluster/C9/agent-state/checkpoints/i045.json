@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "intent_id": "i045",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s11"],
+  "findings": [
+    {
+      "snapshot": "s11",
+      "path": "drivers/scsi/smartpqi/smartpqi_init.c",
+      "start": 8311,
+      "end": 8321,
+      "quote": "mem_descriptor = ofap->sg_descriptor;\n\tnum_memory_descriptors =\n\t\tget_unaligned_le16(&ofap->num_memory_descriptors);\n\n\tfor (i = 0; i < num_memory_descriptors; i++) {\n\t\tdma_free_coherent(dev,\n\t\t\tget_unaligned_le32(&mem_descriptor[i].length),\n\t\t\tctrl_info->pqi_ofa_chunk_virt_addr[i],\n\t\t\tget_unaligned_le64(&mem_descriptor[i].address));",
+      "confidence": "medium",
+      "reason": "Untrusted source: ofap is the OFA host-memory buffer shared with the device (ctrl_info->pqi_ofa_mem_virt_addr); pqi_ofa_alloc_mem (line 8227) writes sg_count (validated <= PQI_OFA_MAX_SG_DESCRIPTORS=64, smartpqi.h:512, check at line 8207) into ofap->num_memory_descriptors, but the buffer stays device-writable afterwards. Error-unwind/teardown path: pqi_ofa_free_host_buffer re-reads the shared count with no re-clamp (lines 8312-8313) and loops i < num_memory_descriptors freeing ctrl_info->pqi_ofa_chunk_virt_addr[i] (allocated as kmalloc_array(sg_count) at line 8210) and mem_descriptor[i] (array sized sg_count inside the ofap allocation). A device write of num_memory_descriptors between alloc and free makes the unwind loop read the descriptor array OOB past the shared buffer and dereference/free pointers past the kmalloc_array chunk array - OOB read plus wild free during error handling. Same unclamped re-read also feeds buffer_length at line 8347 in pqi_ofa_ctrl_restart/update. Counterevidence: on the happy path the value equals the local sg_count and the loop is in-bounds; the bug requires a hostile/compromised device or a device firmware bug that rewrites its own buffer, the same threat model the intent names (peer-trusted shared object). Negative impact of no local validation is exact: nothing cross-checks the stored value against the locally known sg_count. Not reported elsewhere for this intent in this session.",
+      "conclusion": "pqi_ofa_free_host_buffer re-reads device-shared ofap->num_memory_descriptors (le16, lines 8312-8313) with no re-clamp to the alloc-side PQI_OFA_MAX_SG_DESCRIPTORS=64, so a device write to the shared OFA buffer between alloc and teardown drives the free loop OOB over chunk_virt_addr[] and the sg_descriptor[] array - OOB read and wild free during error unwind."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s11",
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 635,
+      "status": "safe",
+      "reason": "free/used/scrub/erase_peb_count and vol_count loops (lines 635-682) each advance fm_pos and check fm_pos >= fm_size before consuming each element; pool sizes clamped to UBI_FM_MAX_POOL_SIZE (lines 607-627); scan_pool reads pebs[i] with pool_size already clamped; fail_bad path frees the used/free lists. Every count-derived cursor is bounds-checked; error unwind only frees what was added.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 733,
+      "status": "safe",
+      "reason": "priv->num_event_counters = be16_to_cpu(descriptor->counters) (line 733) is stored from the device descriptor, but its only consumers size/free the counter array consistently (gve_main.c:74-86) and pass it to configure_device_resources (gve_main.c:409); be16 max 65535 * sizeof(__be32) cannot overflow size_t on any arch, and no later loop indexes a differently-sized array with it.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt.c",
+      "line": 1330,
+      "status": "safe",
+      "reason": "tpa_info->agg_count reset to 0 in bnxt_tpa_start (line 1330); bnxt_tpa_agg BUG_ON(agg_count >= MAX_SKB_FRAGS) before agg_arr[agg_count++] (line 1707-1708); TPA-end clamps agg_bufs to tpa_info->agg_count and rejects agg_bufs > MAX_SKB_FRAGS (lines 1586-1618) before bnxt_abort_tpa/bnxt_rx_pages; agg_arr is one array of max_tpa*MAX_SKB_FRAGS entries carved per agg_id (lines 2920-2940), so all loops are bounded.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/intel/ice/ice_sched.c",
+      "line": 1262,
+      "status": "safe",
+      "reason": "Firmware buf[i].hdr.num_elems re-read per branch in the parse loop (line 1262) after only the first branch was validated (lines 1234-1238), but num_branches is clamped to ICE_TXSCHED_MAX_BRANCHES (line 1226) and the buffer is ICE_AQ_MAX_BUF_LEN, sized for the maximum branch/element count, so indexing generic[j] with a re-read num_elems cannot exceed the allocation; failure path frees the tree nodes it created.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/infiniband/ulp/rtrs/rtrs-clt.c",
+      "line": 2396,
+      "status": "safe",
+      "reason": "process_info_rsp stores sg_cnt from the server reply (line 2396) but requires queue_depth % sg_cnt == 0, verifies wc->byte_len >= sizeof(msg) + sg_cnt*sizeof(desc) before the loop (rtrs_clt_info_rsp_done, lines 2488-2491), and bounds every inner iteration by sess->queue_depth; rbufs[] is allocated with queue_depth entries (rtrs-clt.c:1320-1346). No poisoned count survives an error path.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/wireless/intel/iwlwifi/iwl-dbg-tlv.c",
+      "line": 529,
+      "status": "safe",
+      "reason": "num_frags from the TLV (line 529) is clamped with min_t against BUF_ALLOC_MAX_NUM_FRAGS and remain_pages (lines 539-540) before kcalloc, and fw_mon->num_frags is only set from that clamped value; the teardown loop at line 345 iterates the stored count over the same kcalloc-sized frags array.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/block/xen-blkfront.c",
+      "line": 749,
+      "status": "safe",
+      "reason": "shadow[id].num_sg is set from blk_rq_map_sg (line 739-749), which never exceeds the scatterlist size, set to 0 on the second half of a split request (line 793), and the completion path (lines 1423-1426) iterates the stored count over the same per-shadow sg array; no error path leaves a larger count behind.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/usb/core/devio.c",
+      "line": 2085,
+      "status": "safe",
+      "reason": "get_urb32 copies userspace urb32.number_of_packets into a stack kurb (line 2085), but proc_submiturb_compat then re-validates 1..128 (shared check at lines 1636-1637) before alloc_async/iso_frame_desc allocation, and processcompl/proc_urb-completion loops (lines 1929-1962, 2128-2132) iterate the validated count over the allocated desc array. Note: this is a local-user ioctl path, not the seed's remote protocol.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 387,
+      "status": "unresolved",
+      "reason": "The seed instance is present in this tree: usbip_unpack/recv path stores the wire number_of_packets into urb state and usbip_recv_iso (usbip_common.c ~line 665) lacks the clamp, with asymmetric validation vs stub_rx.c:368 and the completion path re-iterating the poisoned count. Per task rules the seed demonstration itself must never be reported; listing only as unresolved bookkeeping.",
+      "conclusion": "Seed-instance present and unpatched in s11; excluded from findings by rule - only follow-up needed is confirming it is tracked by the seed's own maintainers/other intents (i044 already lists it as unresolved)."
+    }
+  ],
+  "coverage_gaps": [
+    "drivers/scsi/elx/libefc_sli/sli4.c and drivers/net/ethernet/emulex/benet/be_cmds.c had many firmware-response field conversions (27 and 19 sites) that were only grep-triaged; their error-unwind consumers were not read line-by-line.",
+    "drivers/net/wireless/ath/ath10k/wmi.c + wmi-tlv.c + htt_rx.c (91 count conversions total) were enumerated but not read; htt_rx tx_fetch_ind num_records/num_resp_ids loops are plausible follow-ups.",
+    "dm-era-target.c and dm-zoned-metadata.c were checked for count stores: dm-era has no attacker-count store (ws_inc/ws_dec iterate caller-provided counts; ti->error count is a string), dm-zoned counts are internal bit ops - neither walked further.",
+    "The prior-audit lead qaic is absent from s11 (no drivers/accel directory, no qaic references tree-wide) and ixgbe_e610 is absent (no e610 references in drivers/net/ethernet/intel/), so those leads could not be audited here."
+  ],
+  "limitations": [
+    "The smartpqi finding is a same-buffer double-fetch of a device-shared count on a teardown path; actual OOB requires the device (or a DMA-write capable attacker) to modify num_memory_descriptors after allocation, so exploitability is a hypothesis expressed as medium confidence, not a demonstrated exploit.",
+    "The generic sweeps used count-shaped field names (num_*, nr_*, count, entries, sg_cnt, num_frags) in drivers/, net/, fs/; error paths with differently named count fields (n, cnt, nelem, vecs) or on-stack poisoned state were not covered.",
+    "No compilation or runtime reproducer was built for the smartpqi path (needs smartpqi hardware or a mocked ctrl_info); the evidence is source-line reading only."
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "intent_id": "i039",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s10"
+  ],
+  "findings": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 240,
+      "quote": "num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: ioctl FSL_HV_IOCTL_MEMCPY on /dev/fsl-hv copies a fully userspace-controlled struct fsl_hv_ioctl_memcpy via copy_from_user (drivers/virt/fsl_hypervisor.c:165); param.count is an unrestricted u64. Missing guarantee: num_pages is declared 'unsigned int num_pages' (line 155) and assigned at line 221 as (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT - a 64-bit sum whose result is TRUNCATED to 32 bits on assignment with no clamp; the preceding check at 218-220 rejects only count==0 and 64-bit wraparound of the addition (param.count > U64_MAX - lb_offset - PAGE_SIZE + 1), not the truncation. The sizing at lines 239-240 'kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1, GFP_KERNEL)' is a plain 32-bit unsigned multiply-add (element size 32 bytes per struct fh_sg_list, arch/powerpc/include/asm/fsl_hcalls.h) with no kcalloc/array_size/struct_size overflow check, so a param.count near 2^41 yields num_pages ~2^29 whose product 2^34 wraps to 0 and kmalloc(sizeof(*sg_list)-1 = 31) succeeds. Unsafe use: the fill loop at line 274 'for (i = 1; i < num_pages; i++)' writes sg_list[i].source/.target/.size (lines 275-287) for every num_pages entries into the undersized buffer - the seed's truncated-product->undersized-alloc->element-indexed-write chain; get_user_pages_fast (line 249) also pins num_pages entries into the pages array sized by the same truncated count. Counterevidence checked: the sibling allocation at line 229 'kzalloc_objs(struct page *, num_pages)' is overflow-checked via size_mul (include/linux/slab.h:971-975), the within-function asymmetry evidencing the unchecked multiply at 239-240; the seed usbip path is PATCHED in s10 (usbip_common.c:685 clamps 'np <= 0 || np > USBIP_MAX_ISO_PACKETS' and zeroes urb->number_of_packets before bailing, kcalloc at 699), so this is the strongest allocator-adjacent multiply-overflow chain in this snapshot. Attacker is local userspace with the root-owned /dev/fsl-hv misc device on Freescale powerpc (weaker than the seed's remote peer); same instance family previously reported for s01/s02/s04/s05/s06/s07/s08/s09 (facts f002/f007/f014/f018/f021/f024/f032/f035)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 221,
+      "status": "reported",
+      "reason": "Truncating assignment: unsigned int num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT from the userspace u64 param.count; the only check (218-220) guards 64-bit wraparound, not the 64->32-bit truncation; part of the reported finding."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 239,
+      "status": "reported",
+      "reason": "Unchecked allocator sizing: kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1, GFP_KERNEL) - plain 32-bit multiply-add from the truncated count with no overflow-checked helper; part of the reported finding."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 274,
+      "status": "reported",
+      "reason": "Consuming element-indexed loop: for (i = 1; i < num_pages; i++) writes sg_list[i].source/.target/.size (275-287) into the buffer sized by the wrapped product, with get_user_pages_fast (249) filling the pages array with the same truncated count; the write-overflow consumer of the reported finding."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 229,
+      "status": "safe",
+      "reason": "pages = kzalloc_objs(struct page *, num_pages) expands to __alloc_objs which sizes with size_mul(sizeof(TYPE), COUNT) (include/linux/slab.h:971-975), an overflow-checked size_t computation; every consumer (get_user_pages_fast 249, put_page unwind, hypercall) uses the same truncated num_pages - the hardened within-function sibling that evidences the asymmetry with line 239 rather than being vulnerable itself."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 685,
+      "status": "safe",
+      "reason": "Seed family present in s10 but PATCHED: usbip_recv_iso clamps 'if (np <= 0 || np > USBIP_MAX_ISO_PACKETS)' (line 685), zeroes urb->number_of_packets before bailing (with explicit processcompl comment), and allocates with kcalloc(np, sizeof(*iso)) at 699; the seed's int-multiply -> kzalloc chain no longer exists here; additionally demonstration-only and excluded from reporting by rule."
+    },
+    {
+      "snapshot": "s10",
+      "path": "block/partitions/ldm.c",
+      "line": 1247,
+      "status": "safe",
+      "reason": "kmalloc(sizeof(*f) + size*num) with memcpy(f->data + VBLK_SIZE_HEAD + rec*size, data, size): num is clamped to [1,4] at lines 1232-1235 (rec >= num rejected), size >= 2*VBLK_SIZE_HEAD at 1224, and the only caller ldm_get_vblks (1344-1397) computes perbuf = 512/size and only enters the vblk loop when perbuf > 0, i.e. size <= 512, bounding size*num <= 512*4 = 2048; vblk_size is a raw on-disk be32 (line 187, zero-checked only) but the caller bound prevents the 32-bit wrap, matching the s08/s09 sibling-audit conclusions."
+    },
+    {
+      "snapshot": "s10",
+      "path": "net/sctp/sm_make_chunk.c",
+      "line": 3653,
+      "status": "safe",
+      "reason": "__u16 stream_len = stream_num * sizeof(__u16) can truncate for stream_num >= 32768, but the truncation is self-consistent: sctp_make_reconf allocates from SCTP_PAD4(outlen) + SCTP_PAD4(inlen) where outlen/inlen are computed from the SAME truncated stream_len, and both sctp_addto_chunk(retval, stream_len, stream_list) copies use that identical value - validated-equals-used holds, so the narrow type produces protocol confusion at worst, not an undersized-allocation overflow; stream_num is also bounded by the callers against the association's negotiated stream counts."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/ethernet/emulex/benet/be_cmds.c",
+      "line": 2929,
+      "status": "safe",
+      "reason": "int img_hdrs_size = num_of_images * sizeof(struct image_hdr) is not an allocator argument: it only feeds get_fsec_info(adapter, filehdr_size + img_hdrs_size, fw) which validates the flash-section-info cookie/placement within the firmware image, and the consuming loop iterates le32_to_cpu(fsec->fsec_hdr.num_images) - a different field validated by fsec placement within fw->size; firmware is loaded by root via ethtool flash, a weak trust boundary."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/video/fbdev/core/fbcmap.c",
+      "line": 95,
+      "status": "unresolved",
+      "reason": "int size = len * sizeof(u16) in fb_alloc_cmap_gfp from a userspace-settable colormap length; the sibling-snapshot audits split on this instance (s05 classified it safe because fb_set_user_cmap clamps 'size < 0 || size < cmap->len' -> -E2BIG before use; s06 left it unresolved); the s10 state of the userspace entry-path clamp was not re-verified before the finalize directive."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/infiniband/hw/vmw_pvrdma/pvrdma_mr.c",
+      "line": 218,
+      "status": "safe",
+      "reason": "int size = max_num_sg * sizeof(u64) is computed before the check, but the caller rejects max_num_sg > PVRDMA_MAX_FAST_REG_PAGES (128) at line ~222 before kzalloc(size), bounding the product to 1024; compute-before-check is stylistically bad but cannot overflow (same classification as sibling-snapshot audits)."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/s390/cio/vfio_ccw_cp.c",
+      "line": 514,
+      "status": "safe",
+      "reason": "int idal_len = idaw_nr * sizeof(*idaws) is 32-bit, but the idaws buffer is allocated with kcalloc(idaw_nr, sizeof(*idaws)) (overflow-checked allocator) and idaw_nr derives from the 16-bit ccw count (max 65535 bytes) giving at most 64 words; the wrapped-small idal_len at most under-reads the guest IDAL into an array sized with the same idaw_nr."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 1160,
+      "status": "safe",
+      "reason": "u32 size = num_entries * sizeof(qpl->page_buses[0]) feeding dma_alloc_coherent plus a fill loop is 32-bit multiply+alloc+loop in shape, but num_entries = qpl->num_entries is set by the driver itself in gve_alloc_queue_page_list from locally computed ring sizing (kernel-derived), not from any device/adminq-reply field; page_buses is kvcalloc'd with the same count (same classification as the s05/s08 sibling audits)."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: two high-signal regex families were executed over drivers/, fs/, net/, block/, sound/, crypto/, ipc/, io_uring/, security/ - (1) narrow-typed 'size/len/buflen/bytes = count * sizeof' assignments (~60 hits) and (2) allocator calls with an inline multiply excluding array_size/struct_size/size_mul users (~140 hits, most constant or locally-derived multipliers); the planned 'count << shift' sizing and memcpy-length-arithmetic families were not run before the finalize directive, so an additional alloc-multiply-overflow variant in those shapes cannot be ruled out.",
+    "Allocator-sweep hits located but not deep-read before finalization: drivers/staging/media/ipu7/ipu7-dma.c:61 and drivers/media/pci/intel/ipu6/ipu6-dma.c:61 (count * sizeof(struct page *)), fs/fuse/file.c:1589 (max_pages * sizeof(struct page *)), sound/soc/sof/sof-client-probes-ipc4.c:254, drivers/accel/habanalabs/common/state_dump.c:275, drivers/pinctrl/realtek/pinctrl-rtd.c:624, drivers/hwmon/peci/dimmtemp.c:337, crypto/testmgr.c:3948, fs/xfs/libxfs/xfs_inode_fork.c:117, net/ethtool/bitset.c:250/474, net/rds/message.c:389, sound/soc/codecs/tas571x.c:183, the atomisp kvmalloc grid sites, and the remaining constant-multiplier hits; their s10 state is unverified.",
+    "The reported fsl_hypervisor finding is a source-level hypothesis, not a proven exploit: no compilation, static-analyzer run, or runtime reproducer was performed (assigned tree read-only); a wrapped product at line 239 requires num_pages >= 2^27, and line 249 additionally requires get_user_pages_fast to pin num_pages pages before the fill loop runs, so practical triggering needs roughly 512GB of pinnable memory; the attacker is a local user with access to the root-owned /dev/fsl-hv misc device on Freescale powerpc, weaker than the seed's remote network peer, and reachability on other architectures is nil.",
+    "The 64-to-32-bit truncation at line 221 alone is self-consistent (loop, gup, and hypercall all use the same truncated num_pages); the memory-safety violation depends specifically on the unchecked 32-bit multiply-add at lines 239-240, so a fix of only the truncation would not close the reported overflow.",
+    "The fsl_hypervisor instance is the same code previously reported for s01/s02/s04/s05/s06/s07/s08/s09 (facts f002/f007/f014/f018/f021/f024/f032/f035); it is reported here for the assigned snapshot s10 with s10's exact verified line numbers (165, 219-221, 229, 239-240, 249, 274) rather than as a new distinct location."
+  ]
+}

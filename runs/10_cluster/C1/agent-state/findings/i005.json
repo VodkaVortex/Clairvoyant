@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "hwmon-sysfs-scaled-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/max6620.c",
+      "line": 372,
+      "status": "safe",
+      "reason": "fanN_target store -> max6620_write() clamps val to FAN_RPM_MIN(240)..FAN_RPM_MAX(30000) at line 372 before max6620_fan_rpm_to_tach(); divisor (rpm * MAX6620_PULSE_PER_REV=2) at line 152 is in [480,60000], cannot wrap or truncate to 0 in int width. The u16 tach truncation applies to the quotient, not the divisor."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/g762.c",
+      "line": 193,
+      "status": "safe",
+      "reason": "fan1_target_store -> do_set_fan_target -> cnt_from_rpm(): !rpm returns 0xff early (line 190-191); rpm is clamped up to f1/(255*f2) at line 193 so rpm*f2 >= 1 and the DIV_ROUND_CLOSEST(f1, rpm*f2) divisor at line 194 cannot be 0; all operands unsigned long."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/max6650.c",
+      "line": 269,
+      "status": "safe",
+      "reason": "max6650_set_target(): rpm==0 handled as mode-OFF short circuit; clamp_val(rpm, FAN_RPM_MIN=240, FAN_RPM_MAX=30000); divisor (256 * rpm / 60) bounded [1024,128000]; ktach result clamped 0..255."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/max31790.c",
+      "line": 48,
+      "status": "safe",
+      "reason": "max31790_write_fan() clamps val to FAN_RPM_MIN(120)..FAN_RPM_MAX(7864320) before RPM_TO_REG(rpm,sr)=((60*sr*8192)/((rpm)*2)); divisor 2*rpm in [240,15728640] and 60*sr*8192 <= 3932160 for sr<=8, both fit int; result additionally clamped 0x1..0x7FF."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/amc6821.c",
+      "line": 479,
+      "status": "safe",
+      "reason": "amc6821_fan_write(): val<0 rejected, val==0 rejected for fan_min/fan_target; divisor is clamp_val(val,1,6000000) itself with no fixed-width scaling, so no wrap-to-zero denominator."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/adt7475.c",
+      "line": 738,
+      "status": "safe",
+      "reason": "tach_store -> rpm2tach(): rpm==0 returns 0; clamp_val((90000*60)/rpm, 1, 0xFFFF); user value is the divisor but it is checked nonzero directly at line 274 and 64-bit-equivalent unsigned long, no scaling wrap."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/adt7470.c",
+      "line": 668,
+      "status": "safe",
+      "reason": "adt7470_fan_write(): val<=0 rejected; FAN_RPM_TO_PERIOD(val)=(90000*60)/val divides by the user value itself which was proven >0; result clamped 1..65534."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/w83781d.c",
+      "line": 153,
+      "status": "safe",
+      "reason": "FAN_TO_REG(rpm,div) (also w83792d.c:221, w83791d.c fan_to_reg:213, w83627hf.c:253): rpm==0 -> 255; clamp_val(rpm,1,1000000); divisor rpm*div in [1*1, 1000000*8], all signed-int safe; final clamp 1..254."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/w83793.c",
+      "line": 177,
+      "status": "safe",
+      "reason": "FAN_TO_REG(rpm): rpm<=0 -> 0xfff; divisor is rpm itself after implicit >0 proof; clamp_val(...,1,0xffe) on the quotient."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/nct7904.c",
+      "line": 617,
+      "status": "safe",
+      "reason": "hwmon_fan_min write: val<=0 rejected at line 618; DIV_ROUND_CLOSEST(1350000,val) divides by the positively-proven raw input, no scaling."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/w83627ehf.c",
+      "line": 722,
+      "status": "safe",
+      "reason": "store_fan_min(): val<0 rejected; !val handled as 'no min limit'; 1350000U/val with val>0 and explicit !reg branch for unrepresentable high speeds."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/corsair-cpro.c",
+      "line": 207,
+      "status": "safe",
+      "reason": "set_target(): clamp_val(val, 0, 0xFFFF) then raw USB command; no division on the user value."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/axi-fan-control.c",
+      "line": 90,
+      "status": "safe",
+      "reason": "axi_fan_control_store(): temperature attributes only; DIV_ROUND_CLOSEST_ULL((temp+280230)*65535ULL, 509314) uses 64-bit math with a constant nonzero divisor; pwm duty path divides by SYSFS_PWM_MAX constant."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/aspeed-pwm-tacho.c",
+      "line": 577,
+      "status": "safe",
+      "reason": "pwm_store(): fan_ctrl range-checked 0..PWM_MAX before aspeed_set_pwm_port_fan_ctrl; the only tach division is in the read path with raw_data==0 guarded and divisors derived from registers, not user input."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/emc2305.c",
+      "line": 274,
+      "status": "safe",
+      "reason": "emc2305_show_fan(): fan_input is read-only (0444); EMC2305_RPM_FACTOR/ret guarded by ret<=0 check before >>3; pwm writes are range-checked and EMC2305_PWM_DUTY2STATE divides by the EMC2305_FAN_MAX constant."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hwmon/nct6775-core.c",
+      "line": 2105,
+      "status": "safe",
+      "reason": "store_fan_pulses(): val>4 rejected; fan_pulses only feeds hardware registers and read-side display (p?:4), not a kernel-side divisor; store_fan_min similarly checks !val and uses 1350000-based conversions on positively-proven values."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/thermal/thermal_sysfs.c",
+      "line": 530,
+      "status": "safe",
+      "reason": "cur_state_store(): sscanf-checked unsigned long, negative rejected, state > cdev->max_state rejected before set_cur_state(); no division on the stored value in this file; per-cooling-device set_cur_state implementations (e.g. mlxreg-fan, pwm-fan) clamp state before any duty conversion whose divisors are constants (MLXREG_FAN_MAX_STATE, MAX_PWM)."
+    }
+  ],
+  "limitations": [
+    "Bounded to the hwmon-sysfs-scaled-divisor branch in snapshot s04: sysfs/hwmon/thermal store handlers for fan RPM/target/pwm/limit/temperature attributes plus thermal cooling-device cur_state_store; the DRM fan interfaces of s04 (radeon si_dpm.c/ci_dpm.c and amd legacy-dpm si_dpm.c, which do contain unguarded '8 * speed' tach divisions) are assigned to the separate drm-userif-divisor intent i009 and were not analyzed here.",
+    "Drivers whose only user writes are pwmN_input duty values (npcm750-pwm-fan, gxp-fan-ctrl, nct7363, nzxt-kraken3, nzxt-smart2, gigabyte_waterforce, aquacomputer_d5next, asus_rog_ryujin, oxp-sensors, dell-smm-hwmon, lenovo-ec-sensors, sch5627, adm9240) were inspected only at their write entry points and found to range-check or pass through values without kernel-side division; their full read paths were not audited.",
+    "Thermal governor internals (gov_power_allocator, devfreq_cooling, cpufreq_cooling) were not audited beyond confirming cur_state_store bounds the stored state; per-cooling-device set_cur_state implementations were spot-checked (mlxreg-fan, pwm-fan), not exhaustively verified."
+  ]
+}

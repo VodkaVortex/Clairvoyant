@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "intent_id": "i042",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": ["s10"],
+  "findings": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "start": 204,
+      "end": 214,
+      "quote": "u16 gb_msg_len = le16_to_cpu(gb_frame->hdr.size);",
+      "confidence": "high",
+      "reason": "Untrusted source: gb_frame arrives over the serdev HDLC link from the CC1352 MCU (peer). Violated invariant: the peer-supplied 16-bit hdr.size is taken as the message length passed to greybus_data_rcvd() (gb-beagleplay.c:213) while the locally-validated received length computed at gb-beagleplay.c:439 (len = bg->rx_buffer_len - 4, bounded by MAX_RX_HDLC at :481) is discarded, so no local limit cross-checks the peer length. Downstream the check is vacuous: gb_connection_recv() at drivers/greybus/operation.c:1049-1050 re-reads msg_size = le16_to_cpu(header.size) from the same peer bytes and compares it against 'size', which is itself the peer gb_msg_len passed down from gb-beagleplay.c:213 - a validated-equals-used fetch of the same peer value, so 'size < msg_size' can never fire. Unsafe use: gb_operation_create_incoming() at operation.c:651-652 does memcpy(operation->request->header, data, size) with size = peer msg_size (allocation sized from the same peer value at operation.c:365-379, capped only by hd->buffer_size_max), reading up to that many bytes from a pointer into the MAX_RX_HDLC-sized rx_buffer - out-of-bounds read past the actual received frame whenever hdr.size exceeds the true frame length. Counterevidence checked: the CRC check at gb-beagleplay.c:431 only validates rx_buffer_len bytes and does not constrain hdr.size; hd->buffer_size_max does bound the allocation (which bounds the memcpy destination) but not the source overread; s10's usbip seed path is patched (f038) and is not the basis of this report."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 213,
+      "status": "reported",
+      "reason": "greybus_data_rcvd(bg->gb_hd, cport_id, (u8 *)&gb_frame->hdr, gb_msg_len) passes the peer 16-bit size while the locally-known frame length (line 439, rx_buffer_len - 4) is ignored - the trust-boundary crossing of the reported finding."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/greybus/operation.c",
+      "line": 1050,
+      "status": "reported",
+      "reason": "if (size < msg_size) at operation.c:1050 compares the peer-re-derived msg_size against 'size' that was itself the peer gb_msg_len forwarded from gb-beagleplay.c:213 - vacuous peer-vs-peer check with no locally-known limit; part of the same reported chain."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/greybus/operation.c",
+      "line": 652,
+      "status": "reported",
+      "reason": "memcpy(operation->request->header, data, size) in gb_operation_create_incoming() copies peer-controlled size bytes from the receive buffer (source overread past the actual HDLC frame); destination is sized from the same peer value, so no local bound protects the source."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/greybus/es2.c",
+      "line": 834,
+      "status": "safe",
+      "reason": "cport_in_callback consumes urb->actual_length, which is HCI-set to <= transfer_buffer_length at completion and gated by an 'actual_length < sizeof(*header)' check before payload use; consistently classified safe in prior rounds; not line-re-verified in s10 this session."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/usb/serial/opticon.c",
+      "line": 76,
+      "status": "unresolved",
+      "reason": "size_t data_len = urb->actual_length - 2; from this session's grep of completion metadata - potential underflow if actual_length < 2 (peer-controlled short completion), but the guard above the subtraction was not read before finalize."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/usb/serial/kl5kusb105.c",
+      "line": 360,
+      "status": "unresolved",
+      "reason": "len = urb->actual_length - KLSI_HDR_LEN; from this session's grep - same short-completion underflow pattern; surrounding bounds check not read before finalize."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1354,
+      "status": "unresolved",
+      "reason": "Host-supplied range_count peer-trust chain known from sibling snapshots (free_balloon_pages loop gated only by recvlen > 0 dispatch); drivers/hv confirmed present in s10 but the function was not re-read in s10 state this session before finalize."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/rpmsg/qcom_glink_native.c",
+      "line": 808,
+      "status": "unresolved",
+      "reason": "Peer chunk_size/left_size sizing chain known from sibling snapshots (avail computed from peer-writable SMEM indices, kmalloc(chunk_size + left_size)); file present in s10 but not re-read this session before finalize."
+    }
+  ],
+  "limitations": [
+    "Intent-mandated deep reads of 9p (trans_fd/trans_virtio/trans_rdma/trans_xen), nbd.c, vhost/vringh, virtio_net, and HID transports were not completed before the finalize instruction; only grep enumeration of completion-metadata consumers (urb->actual_length uses in drivers/usb/*, drivers/net/usb/*) and the greybus chain were read in s10 this session - those handlers remain unexamined for peer-size validation gaps.",
+    "Exact values of MAX_RX_HDLC and hd->buffer_size_max in s10 were not captured; the reported overread magnitude (peer hdr.size up to 65535 vs true frame <= MAX_RX_HDLC) is bounded in practice by the buffer_size_max allocation cap at operation.c:365-379.",
+    "Impact of the gb-beagleplay finding is an out-of-bounds read / cross-trust-boundary length confusion into a kernel object; exploitability (what is copied past rx_buffer) was not proven, hence reported as a hypothesis with high mechanism confidence.",
+    "hv_balloon.c and qcom_glink_native.c candidates are carried from sibling-snapshot facts and marked unresolved rather than verified in s10's exact source state."
+  ]
+}

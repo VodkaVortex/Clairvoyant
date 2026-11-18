@@ -1,0 +1,16 @@
+{
+  "intent_id": "i023",
+  "branch": "unclamped-wire-count",
+  "snapshot": "s06",
+  "status": "finalizing",
+  "note": "Six high-signal queries run (netfilter nla_len counts; le/be*_to_cpu wire counts in drivers/net,fs/ceph,fs/nfs; peer-message sized allocations; fuse/9p nr_segs counts; vhost/9p/nbd reply counts; usb/gadget+fuse copy_from_user counts). Candidates: hci_store_wake_reason unvalidated num_reports (REPORT); seed usbip present unpatched (excluded-by-rule); ceph snap counts verified clamped via ceph_decode_need; CAN bcm RX_SETUP verified clamped at MAX_NFRAMES+1 (line 1095); gadgetfs ev_next bounded by N_EVENT BUG_ON, ep0 write clamped to setup_wLength. Finalizing now.",
+  "candidates": [
+    {"path": "net/bluetooth/hci_event.c", "line": 7258, "status": "reported", "reason": "u8 num_reports = *ptr; in hci_store_wake_reason: controller-supplied count read from skb with no hci_ev_skb_pull/min_len length validation (unlike sibling hci_le_meta_evt at line ~7160 which checks skb->len < subev->min_len) and used to gate dereference of report structs at ptr+1."},
+    {"path": "drivers/usb/usbip/usbip_common.c", "line": 664, "status": "unresolved", "reason": "Seed mechanism verbatim present in s06 (unpatched: np from wire at 664, int size = np * sizeof(*iso) at 665, kzalloc; clamp USBIP_MAX_ISO_PACKETS only on submit path stub_rx.c:379-381). Excluded from findings per seed-never-reportable rule."},
+    {"path": "fs/ceph/snap.c", "line": 1046, "status": "safe", "reason": "num_split_inos/num_split_realms from wire; pointer advances p += sizeof(u64)*count followed by ceph_decode_need(&p, e, ...) bounds macro (ceph_has_room checks n <= end - p with wrap-safe subtraction on pointers) before any dereference; counts only position a pointer, no allocation or copy sized by them."},
+    {"path": "net/can/bcm.c", "line": 1095, "status": "safe", "reason": "RX_SETUP clamps wire nframes to MAX_NFRAMES+1 (line 1095) before kmalloc_array/kcalloc and memcpy_from_msg; update path rejects nframes > op->nframes (-E2BIG); TX_SEND sibling also clamps (line 915)."},
+    {"path": "drivers/usb/gadget/legacy/inode.c", "line": 1119, "status": "safe", "reason": "ev_next bounded by N_EVENT via BUG_ON at line 1120; ep0 write path clamps len to dev->setup_wLength before copy_from_user into req->buf sized by setup_req()."},
+    {"path": "fs/fuse/ioctl.c", "line": 150, "status": "safe", "reason": "verity enable salt_size/sig_size from userspace are checked against FUSE_VERITY_ENABLE_ARG_MAX_PAGES * PAGE_SIZE before use."}
+  ],
+  "timestamp": "2026-11-11"
+}

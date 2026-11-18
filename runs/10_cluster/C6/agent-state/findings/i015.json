@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "rx-pull-stale-hdr",
+  "execution_status": "complete",
+  "snapshots_checked": ["s05"],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "net/bridge/br_multicast.c",
+      "start": 924,
+      "end": 949,
+      "quote": "grec = (void *)(skb->data + len - sizeof(*grec));\n\t\tgroup = grec->grec_mca;\n\t\ttype = grec->grec_type;\n\n\t\tlen += ntohs(grec->grec_nsrcs) * 4;\n\t\tif (!ip_mc_may_pull(skb, len))\n\t\t\treturn -EINVAL;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: IGMPv3 membership reports received on a bridge port reach br_ip4_multicast_igmp3_report() via br_multicast_rcv() -> br_multicast_ipv4_rcv() (net/bridge/br_multicast.c:1582 ip_mc_check_igmp validation, :1611 dispatch); the report is remote-attacker-controlled multicast traffic and every group-record byte, including grec_nsrcs, is untrusted. VIOLATED INVARIANT: grec is captured at line 924 as a raw cast of skb->data + len - sizeof(*grec) after that iteration's first ip_mc_may_pull() (line 921, wrapper over pskb_may_pull, include/linux/igmp.h:105-111); a SECOND ip_mc_may_pull(skb, len) executes at line 929 whose length argument is itself derived from the attacker-controlled grec->grec_nsrcs (len += ntohs(grec->grec_nsrcs) * 4, line 928) — exactly the seed's pep_get_sb() shape where pskb_may_pull(skb, ph->sb_len) used the untrusted header length. pskb_may_pull() calls __pskb_pull_tail() (include/linux/skbuff.h:2246-2252) which, when eat > 0 or the skb is cloned, calls pskb_expand_head() (net/core/skbuff.c:1923-1931); pskb_expand_head frees the old head (skb_free_head at net/core/skbuff.c:1534) and its documentation requires 'All the pointers pointing into skb header may change and must be reloaded after call to this function' (net/core/skbuff.c:1481-1482). grec is never refetched. UNSAFE USE: the stale pre-pull grec is dereferenced after the second pull at line 949 (ntohs(grec->grec_nsrcs) == 0) to decide leave-group vs add-group, i.e. bridge multicast group membership state (br_ip4_multicast_leave_group/br_ip4_multicast_add_group) transitions through possibly-freed slab memory; group/type (lines 925-926) were copied before the pull but grec_nsrcs at 949 is a fresh independent fetch through the stale pointer. IMPACT: KASAN-detectable slab use-after-free read on the receive path. COUNTEREVIDENCE: reallocation only occurs when the skb is non-linear/cloned at that offset (pull is otherwise a no-op), the use is a 2-byte read gating group state rather than the seed's write, and the sibling br_ip6_multicast_mld2_report() (lines 963-1035) demonstrates the correct pattern (it reads nsrcs via skb_header_pointer into a stack copy before pulling), which sharpens the contrast."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bridge/br_multicast.c",
+      "start": 1278,
+      "end": 1322,
+      "quote": "const struct ipv6hdr *ip6h = ipv6_hdr(skb);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: MLD/MLDv2 query packets (ICMPv6 multicast listener queries) received on a bridge port reach br_ip6_multicast_query() via br_multicast_rcv() -> br_multicast_ipv6_rcv() -> ipv6_mc_check_mld validation (net/bridge/br_multicast.c:1658) and the :1693 dispatch; the query bytes are remote-attacker-controlled multicast traffic. VIOLATED INVARIANT: ip6h is captured at line 1278 via ipv6_hdr(skb), a raw pointer into skb->head, and is never reassigned (only other use is line 1322). pskb_may_pull(skb, offset + sizeof(*mld)) at line 1298 and pskb_may_pull(skb, offset + sizeof(*mld2q)) at line 1307 can call __pskb_pull_tail -> pskb_expand_head which frees and replaces skb->head for a non-linear/cloned skb (net/core/skbuff.c:1923-1931, 1481-1482, 1534); every pointer into the old head must be reloaded. UNSAFE USE: line 1322 reads saddr.u.ip6 = ip6h->saddr through the stale pre-pull pointer and feeds it to br_multicast_query_received() (bridge IPv6 querier state at line 1324) — kernel state driven by possibly-freed slab memory, the same read-shape as the seed's ph->sb_type. The in-function contrast is that mld/mld2q ARE correctly re-derived from icmp6_hdr(skb) after each pull (lines 1302, 1311), but ip6h is not. IMPACT: KASAN-detectable 16-byte slab use-after-free read on the RX path affecting querier selection state. COUNTEREVIDENCE: reallocation requires a non-linear/cloned MLD skb reaching this point; the read is read-only (no write, unlike the seed); no runtime reproducer was built on this read-only snapshot."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/mpls/af_mpls.c",
+      "start": 174,
+      "end": 215,
+      "quote": "hdr = mpls_hdr(skb) + label_index;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: mpls_multipath_hash() parses network-received MPLS packets; mpls_forward() (net/mpls/af_mpls.c:343) is the registered RX handler (.func = mpls_forward, line 481) and calls mpls_select_multipath() at line 392 which invokes mpls_multipath_hash(); the label stack and the payload after the bottom label are fully attacker-controlled. VIOLATED INVARIANT: hdr is captured at line 174 (hdr = mpls_hdr(skb) + label_index; mpls_hdr() returns skb_network_header(skb), a pointer into skb->head) after that iteration's first pskb_may_pull (line 169); the bottom-of-stack branch then executes pskb_may_pull(skb, mpls_hdr_len + sizeof(struct iphdr)) at line 199 and pskb_may_pull(skb, mpls_hdr_len + sizeof(struct ipv6hdr)) at line 208 — either may __pskb_pull_tail -> pskb_expand_head and free/reallocate skb->head (net/core/skbuff.c:1923-1931; reload requirement documented at 1481-1482) — while hdr is never refetched. UNSAFE USE: line 202 derives v4hdr = (const struct iphdr *)(hdr + 1) from the pre-pull hdr and reads v4hdr->version (203) and, for IPv4, v4hdr->saddr/daddr/protocol (205-207); line 212 derives v6hdr = (const struct ipv6hdr *)(hdr + 1) AFTER the second pull at line 208 and reads v6hdr->saddr/daddr/nexthdr (213-215) — reads through a potentially freed slab pointer for the multipath hash (kernel forwarding state selection). Same function shape as pep_get_sb(): capture, attacker-data-dependent pull, post-pull dereference without refetch. COUNTEREVIDENCE: triggers only when the skb is non-linear at the payload offset so the pull actually reallocates; the dereferences are reads whose result only affects nexthop hash selection (no write, unlike the seed); no runtime reproducer or KASAN trace was produced."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/phonet/pep.c",
+      "start": 55,
+      "end": 65,
+      "quote": "ph = skb_header_pointer(skb, 0, 2, &h);\n\tif (ph == NULL || ph->sb_len < 2 || !pskb_may_pull(skb, ph->sb_len))\n\t\treturn NULL;\n\tph->sb_len -= 2;",
+      "confidence": "high",
+      "reason": "Seed location confirmed present unpatched in s05, recorded as the baseline reference rather than a new variant: pep_get_sb() captures ph = skb_header_pointer(skb, 0, 2, &h) at line 55, calls pskb_may_pull(skb, ph->sb_len) at line 56 with the attacker-controlled length, and then dereferences the stale ph at lines 58-60 and 62-65 (ph->sb_len -= 2 write, ph->sb_type read, ph->sb_len reads) with no refetch — the exact seed UAF. It is on the RX path (pep_do_rcv <- pipe_handler_do_rcv <- __sk_receive_skb <- phonet_rcv). Reported so the artifact documents that the seed itself is unpatched in this snapshot and that the searched-for analogues were found elsewhere."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "net/phonet/pep.c",
+      "line": 56,
+      "status": "reported",
+      "reason": "Seed itself unpatched in s05 (ph at 55, pskb_may_pull(skb, ph->sb_len) at 56, stale ph->sb_len/ph->sb_type at 58-60, stale ph->sb_len at 62-65); baseline finding, not a new variant."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bridge/br_multicast.c",
+      "line": 949,
+      "status": "reported",
+      "reason": "br_ip4_multicast_igmp3_report(): grec captured at 924 after pull #1; attacker-length-driven pull #2 at 929 (len += ntohs(grec->grec_nsrcs)*4); stale grec->grec_nsrcs dereferenced at 949 to gate leave/add group state. Raised as finding."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bridge/br_multicast.c",
+      "line": 1322,
+      "status": "reported",
+      "reason": "br_ip6_multicast_query(): ip6h captured at 1278 via ipv6_hdr(skb); pskb_may_pull at 1298/1307 may reallocate head; ip6h->saddr read at 1322 without refetch while mld/mld2q are correctly re-derived after each pull. Raised as finding."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/mpls/af_mpls.c",
+      "line": 202,
+      "status": "reported",
+      "reason": "mpls_multipath_hash() on the RX forwarding path (mpls_forward:392 -> mpls_select_multipath:235): hdr captured at 174; pskb_may_pull at 199/208 inside the loop body; hdr+1 dereferenced at 202-207 and 212-215 without refetch. Raised as finding."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/igmp.c",
+      "line": 986,
+      "status": "safe",
+      "reason": "igmp_heard_query() captures ih/ih3 at 935-936 but every pskb_may_pull (983, 988) in the v3 branch is followed by an explicit refetch ih3 = igmpv3_query_hdr(skb) (985, 992) before ih3 is used again; ih itself is never used after the pulls. Correctly-written analogue of the seed fix."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/icmp.c",
+      "line": 747,
+      "status": "safe",
+      "reason": "icmp_socket_deliver(): iph captured at 741 and protocol = iph->protocol read at 744 BEFORE pskb_may_pull(skb, iph->ihl * 4 + 8) at 747 (attacker-controlled ihl as pull length, but the read precedes the pull); after the pull only raw_icmp_error(skb, protocol, info) and ipprot->err_handler(skb, info) run — no post-pull dereference of iph."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/icmp.c",
+      "line": 1028,
+      "status": "safe",
+      "reason": "icmp_rcv(): pskb_pull(skb, sizeof(*icmph)) at 1028 precedes icmph = icmp_hdr(skb) capture at 1030; all later icmph->type dereferences (1032+) use the post-pull pointer. No stale use."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/ip_input.c",
+      "line": 465,
+      "status": "safe",
+      "reason": "ip_rcv_core(): pskb_may_pull(skb, sizeof(struct iphdr)) at 439 precedes iph = ip_hdr(skb) at 443; after the second pskb_may_pull(skb, iph->ihl*4) at 465 with the attacker-controlled ihl, iph is explicitly refetched at 467 (iph = ip_hdr(skb)) before all further uses. Correct pattern."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/igmp.c",
+      "line": 1491,
+      "status": "safe",
+      "reason": "ip_mc_check_iphdr() refetches iph = ip_hdr(skb) after each of its pskb_may_pull calls (1487 -> 1491, 1496 -> 1498) before any dereference; ip_mc_check_igmp_query/reportv3 re-derive igmp_hdr(skb) after their ip_mc_may_pull calls; no capture survives a pull."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bridge/br_multicast.c",
+      "line": 1001,
+      "status": "safe",
+      "reason": "br_ip6_multicast_mld2_report(): nsrcs is fetched via skb_header_pointer into a stack copy (_nsrcs) before ipv6_mc_may_pull at 1001, and grec is derived from the post-pull skb->data at 1004; the correctly-written sibling of the IGMPv4 loop, demonstrating the fix pattern the v4 version lacks."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/mpls/af_mpls.c",
+      "line": 378,
+      "status": "safe",
+      "reason": "mpls_forward() itself: skb_share_check at 377 and pskb_may_pull at 378 both precede the capture hdr = mpls_hdr(skb) at 381; hdr is used (mpls_entry_decode) before mpls_select_multipath can pull again, and the loop-local stale use lives in mpls_multipath_hash, already reported separately."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/ip_input.c",
+      "line": 439,
+      "status": "safe",
+      "reason": "Pull-before-capture ordering in ip_rcv_core (see line 465 entry); no pointer into skb->head is live across a pull in this function."
+    }
+  ],
+  "limitations": [
+    "All findings are static-analysis hypotheses: no runtime reproducer or KASAN trace was produced; each requires the skb to actually be non-linear or cloned at the flagged pull so __pskb_pull_tail -> pskb_expand_head really frees the old head (net/core/skbuff.c:1923-1931), which is driver/GRO-path dependent and was not dynamically demonstrated.",
+    "The audit was bounded to receive-path protocol parsers reachable from net/ in s05 (phonet pep, ipv4 igmp/icmp/ip_input, bridge br_multicast, mpls af_mpls were read line-by-line); drivers/ RX handlers outside net/ and net/mac80211 were not audited for this intent (mac80211 RX was covered by the parallel s02 intent's shape and is out of scope here).",
+    "The search was guided by grep of pskb_may_pull/pskb_pull/__pskb_pull_tail/skb_linearize and skb_header_pointer call sites in net/ (146 files with pull APIs, 111 with skb_header_pointer) followed by manual reads of the strongest candidates; capture patterns not matching pointer-declaration forms (pointers passed into helpers, captured in outer loops, or re-derived via arithmetic casts elsewhere) may have been missed, and the triage was stopped at twelve candidates per the bounded-search rule.",
+    "For br_ip4_multicast_igmp3_report, group/type are copied to scalars before pull #2 (lines 925-926), so only grec_nsrcs at line 949 is the stale post-pull dereference; a line-level impact analysis of whether the 2-byte read can be upgraded from a UAF read to memory corruption was not performed.",
+    "Whether upstream Linux has since fixed mpls_multipath_hash(), br_ip4_multicast_igmp3_report(), or br_ip6_multicast_query() after this snapshot could not be checked (no network/Git access); findings reflect the source as present in snapshots/s05."
+  ]
+}

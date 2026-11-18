@@ -1,0 +1,16 @@
+{
+  "intent_id": "i004",
+  "branch": "tcp-optwalk-len2",
+  "status": "complete",
+  "snapshot": "s03",
+  "notes": "Audited all TCP-option walkers located in snapshots/s03. tcp_parse_options (net/ipv4/tcp_input.c:4556) and tcp_parse_mss_option (4504), mptcp_get_options (net/mptcp/options.c:386), synproxy_parse_options (net/netfilter/nf_synproxy_core.c:54), nf_conntrack tcp_options (364) and tcp_sack (426), sch_cake cake_get_tcpopt (1030, 1169) all carry the length<2 guard. tcp_do_parse_auth_options guards with 'while (length >= minlen)' with minlen>=18 so >=2 always holds. ipv4/ipv6 syncookies delegate to tcp_parse_options. No net/dccp directory in s03. Negative result with candidates classified.",
+  "candidates": [
+    {"path": "net/ipv4/tcp_input.c", "line": 4556, "status": "safe", "reason": "length<2 guard present before opsize read"},
+    {"path": "net/ipv4/tcp_input.c", "line": 4504, "status": "safe", "reason": "tcp_parse_mss_option has length<2 guard"},
+    {"path": "net/mptcp/options.c", "line": 386, "status": "safe", "reason": "mptcp_get_options has length<2 guard (seed fix shape present)"},
+    {"path": "net/ipv4/tcp_input.c", "line": 4721, "status": "safe", "reason": "tcp_do_parse_auth_options loop condition length>=minlen(minlen>=18) ensures >=2"},
+    {"path": "net/netfilter/nf_synproxy_core.c", "line": 54, "status": "safe", "reason": "guard present"},
+    {"path": "net/netfilter/nf_conntrack_proto_tcp.c", "line": 364, "status": "safe", "reason": "guard present"},
+    {"path": "net/sched/sch_cake.c", "line": 1030, "status": "safe", "reason": "guard present"}
+  ]
+}

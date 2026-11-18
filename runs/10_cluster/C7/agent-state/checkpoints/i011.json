@@ -1,0 +1,45 @@
+{
+ "intent_id": "i011",
+ "snapshot": "s10",
+ "branch": "xmit-softirq-lock",
+ "status": "complete",
+ "progress": "Final artifact written to agent-state/findings/i011.json. 1 finding (mwl8k stream_lock), 5 candidates (2 safe, 1 safe seed, 2 unresolved), 5 limitations.",
+ "candidates": [
+  {
+   "path": "drivers/net/wireless/marvell/mwl8k.c",
+   "line": 1987,
+   "status": "reported",
+   "reason": "stream_lock plain spin_lock in mwl8k_txq_xmit (xmit/.tx softirq path, tx_lock uses spin_lock_bh) vs worker mwl8k_watchdog_ba_events and process-context sta_remove/ampdu_action"
+  },
+  {
+   "path": "drivers/staging/ks7010/ks7010_sdio.c",
+   "line": 398,
+   "status": "safe",
+   "reason": "seed demonstration, excluded"
+  },
+  {
+   "path": "drivers/net/wireless/st/cw1200/wsm.c",
+   "line": 1088,
+   "status": "safe",
+   "reason": "wsm_cmd.lock serialized by wsm_cmd_mux mutex; consumption in dedicated cw1200_bh kthread, not NET_TX softirq"
+  },
+  {
+   "path": "drivers/net/wireless/ath/ath9k/main.c",
+   "line": 387,
+   "status": "safe",
+   "reason": "plain spin_lock on sc_pcu_lock only on tasklet side; all process/worker sites use spin_lock_bh"
+  },
+  {
+   "path": "drivers/net/wireless/intersil/hostap/hostap_ap.c",
+   "line": 218,
+   "status": "unresolved",
+   "reason": "mixed plain/_bh on sta_table_lock, baplock, txfidlock; TX-side context not fully proven"
+  },
+  {
+   "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+   "line": 30,
+   "status": "unresolved",
+   "reason": "resp_lock softirq reachability not traced"
+  }
+ ]
+}

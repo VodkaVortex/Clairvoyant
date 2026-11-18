@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "intent_id": "i027",
+  "branch": "timer-dwork-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s12"
+  ],
+  "findings": [
+    {
+      "snapshot": "s12",
+      "path": "net/bridge/br_multicast.c",
+      "start": 928,
+      "end": 946,
+      "quote": "spin_lock(&br->multicast_lock);",
+      "confidence": "medium",
+      "reason": "Lock br->multicast_lock (spin_lock_init at net/bridge/br_multicast.c:1748) is shared between TIMER_SOFTIRQ callbacks and process-context code with the process side missing the bottom-half disable - the timer-softirq analogue of the seed's missing spin_lock_bh. TIMER-SOFTIRQ SIDE (all plain spin_lock, verified by grep in s12): br_multicast_group_expired (def 224, lock 230, setup_timer at 623), br_multicast_port_group_expired (def 285, lock 290, setup_timer at 650), br_multicast_router_expired (def 742, lock 747, setup_timer at 887), br_multicast_querier_expired (def 763, lock 766; wired by setup_timer at 1751/1756), br_multicast_query_expired (def 1698, lock 1701, setup_timer at 1753/1758) plus the ip4/ip6 port-query wrappers (setup_timer at 889/892); these execute in call_timer_fn from TIMER_SOFTIRQ. PROCESS SIDE (same lock object, plain spin_lock): br_multicast_enable_port (def 911, lock 915) and br_multicast_disable_port (def 928, lock 934) which walks port->mglist deleting port groups and deleting timers under the lock - reached from bridge STP port enable/disable, bridge start/stop and netlink/sysfs port-state configuration. UNTRUSTED SOURCE: attacker-influenced concurrency, not data - multicast group/port-group expiry, router-querier timeouts and query-interval ticks are timer-driven (influenced by remote IGMP/MLD traffic and locally triggered port-state changes); any of these expiring on the same CPU as a preempted process-context holder aligns both sides. COUNTEREVIDENCE CHECKED: sibling process-context sites of the very same lock use spin_lock_bh (1798, 1817, 1832, 1924, 1967), proving mixed discipline and that the plain sites are the defect; the del_timer() calls inside disable_port's critical section (940-944) do NOT wait for a callback already executing (del_timer does not synchronize), so the window stays open. UNSAFE USE: a TIMER_SOFTIRQ firing on the same CPU between a holder's spin_lock and spin_unlock spins forever on multicast_lock while the preempted holder can never resume -> soft lockup, RCU stall, bridge multicast control stall, repeatable local/remote-triggerable DoS. Same bug family confirmed in sibling snapshots s07 (f015) and s11 (f018); medium confidence because the process-context callers of enable/disable_port were established from the standard bridge call model plus the s12 registration sites, not line-level tracing."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/scsi/libiscsi.c",
+      "start": 1896,
+      "end": 1920,
+      "quote": "spin_lock(&session->lock);",
+      "confidence": "medium",
+      "reason": "Lock object struct iscsi_session.lock (this kernel generation's name for the lock the s05 sibling fact f016 calls frwd_lock) is shared between TIMER_SOFTIRQ callback bodies and BH-enabled process context with several plain spin_lock acquisitions and no _bh at those sites. TIMER-SOFTIRQ SIDE: iscsi_tmf_timedout (def drivers/scsi/libiscsi.c:1746, plain spin_lock(&session->lock) at 1751, wired via conn->tmf_timer.function = iscsi_tmf_timedout at 1779) and iscsi_check_transport_timeouts (def 2030, plain spin_lock(&session->lock) at 2036, wired via conn->transport_timer.function = iscsi_check_transport_timeouts at 2856) both run in call_timer_fn from TIMER_SOFTIRQ. PROCESS SIDE (holder): iscsi_eh_cmd_timed_out (def 1896, plain spin_lock(&session->lock) at 1910) is the scsi_host_template .eh_timed_out hook (installed at 2551-2552: shost->transportt->eh_timed_out = iscsi_eh_cmd_timed_out) invoked from the block-layer timeout work in process/kworker context with BH enabled. UNTRUSTED SOURCE: any iSCSI command timeout on the session plus the per-connection transport timer (fires every few seconds per conn) aligning on the same CPU; command timeouts are influenced by remote target behavior. COUNTEREVIDENCE CHECKED: many sibling sites of the same lock correctly use spin_lock_bh(&session->lock) (538, 794, 1326, 1354, 1603, 1774, 1803, 2099, 2170, 2238, 2278, 2301, 2329, 2358, 2401, 2441, 2864, 2908, 2944, 2989, 3057, 3081, 3104, 3135), so the plain sites 1751/1910/2036 are the discipline gap; whether any of the plain process-side callers already runs with BH disabled was not dynamically verified (medium confidence). UNSAFE USE: a timer softirq preempting eh_timed_out between lock and unlock spins forever on session->lock while the holder can never resume -> soft lockup/RCU stall and iSCSI LUN I/O stall DoS, the exact timer-branch shape reported for s05 (fact f016)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s12",
+      "path": "net/bridge/br_multicast.c",
+      "line": 934,
+      "status": "reported",
+      "reason": "br_multicast_disable_port takes br->multicast_lock with plain spin_lock at 934 (verified by sed read of the function body, 928-946) while timer callbacks group_expired:230, port_group_expired:290, router_expired:747, querier_expired:766, query_expired:1701 take the same lock in TIMER_SOFTIRQ; reported as finding 1."
+    },
+    {
+      "snapshot": "s12",
+      "path": "net/bridge/br_multicast.c",
+      "line": 915,
+      "status": "reported",
+      "reason": "br_multicast_enable_port (def 911) takes the same br->multicast_lock with plain spin_lock at 915; second process-side site of finding 1; sibling process sites 1798/1817/1832/1924/1967 use spin_lock_bh."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 1910,
+      "status": "reported",
+      "reason": "Plain spin_lock(&session->lock) at 1910 inside iscsi_eh_cmd_timed_out (def 1896; .eh_timed_out hook installed at 2551-2552), i.e. BH-enabled process context, vs timer-softirq callbacks taking the same lock at 1751/2036; reported as finding 2."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 1751,
+      "status": "reported",
+      "reason": "Timer-side site of finding 2: iscsi_tmf_timedout (def 1746, conn->tmf_timer.function wired at 1779) takes plain spin_lock(&session->lock) at 1751 in TIMER_SOFTIRQ context."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 2036,
+      "status": "reported",
+      "reason": "Timer-side site of finding 2: iscsi_check_transport_timeouts (def 2030, conn->transport_timer.function wired at 2856) takes plain spin_lock(&session->lock) at 2036 in TIMER_SOFTIRQ context."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/tun.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "tun_flow_cleanup timer callback takes plain spin_lock(&tun->lock) in sibling snapshots, but this file was not verified in s12 in this session; s11 classified it safe (all process sites use _bh), which likely holds here but was not confirmed."
+    },
+    {
+      "snapshot": "s12",
+      "path": "net/802/garp.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "garp_join_timer plain-spin_lock app->lock shape from sibling snapshots; s12 copy not examined before the finalize order."
+    },
+    {
+      "snapshot": "s12",
+      "path": "net/802/mrp.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "mrp_join_timer/mrp_periodic_timer plain-spin_lock app->lock shape from sibling snapshots; s12 copy not examined before the finalize order."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "bcm_enet_refill_rx_timer plain-spin_lock rx_lock shape from sibling snapshots (classified safe there because the only other site is the NAPI poll); s12 copy not examined."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/wireless/intersil/hostap/hostap_ap.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "ap_handle_timer timer callback takes plain spin_lock(&ap->sta_table_lock) (s12 line numbers differ from sibling snapshots); the context of the other plain sta_table_lock sites in s12 was not traced to conclusion, per the earlier s12 xmit-branch pass (fact f014) which only classified the softirq-side TX-callback sites."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/chelsio/cxgb4/sge.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "sge_tx_timer_cb takes plain spin_lock(&adap->ptp_lock) in a timer callback (sibling snapshots s05/s07); whether any process-context ptp_lock site in s12 is plain was not verified."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/wireless/intel/iwlwifi/pcie/tx.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "iwl_pcie_txq_stuck_timer takes plain spin_lock(&txq->lock) in a timer_list callback (sibling snapshots s07/s11); whether every non-timer txq->lock site in s12 uses spin_lock_irqsave (which would also exclude the timer softirq) was not enumerated."
+    }
+  ],
+  "limitations": [
+    "The full-tree timer-callback enumeration (timer_list/hrtimer/delayed_work bodies containing plain spin_lock) was not executed for s12 before the finalize order; only the two known sibling timer-branch bug families - net/bridge/br_multicast.c (br->multicast_lock) and drivers/scsi/libiscsi.c (session->lock) - were line-verified in this session via grep/sed.",
+    "Unresolved candidates (drivers/net/tun.c, net/802/garp.c, net/802/mrp.c, drivers/net/ethernet/broadcom/bcm63xx_enet.c, hostap hostap_ap.c ap_handle_timer, cxgb4 sge.c ptp_lock, iwlwifi pcie/tx.c txq stuck timer, qdisc sch_pie/sch_sfq/sch_red perturbation timers) were carried from sibling-snapshot rankings and were not verified in s12; their line numbers are unknown in this tree.",
+    "hrtimer handlers and delayed_work timer-expiry callbacks were not enumerated in s12; only timer_list-registered callbacks of the two verified families were checked.",
+    "Static source analysis only: no compile, lockdep run, or runtime reproducer (the s12 tree has no top-level Makefile/.config); the process-context callers of br_multicast_enable_port/disable_port (br_stp_enable_port/br_stp_disable_port from netlink/sysfs port-state change and bridge start/stop) and the block-layer timeout work -> scsi eh_timed_out chain rest on standard kernel wiring plus the grep-visible registration sites (libiscsi.c:2551-2552), not line-level tracing in this session - reflected in medium confidence.",
+    "For both findings, the deadlock additionally requires the timer softirq to fire on the same CPU while the process-context holder is between lock and unlock; for libiscsi, whether any plain process-side caller already runs with BH disabled was not dynamically verified.",
+    "The staging ks7010 seed is absent from s12 (no drivers/staging/ks7010 directory per the prior s12 xmit-branch pass, fact f014) and must never be reported regardless."
+  ]
+}

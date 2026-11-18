@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "chardev-ioctl-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/dib8000.c",
+      "start": 2786,
+      "end": 2793,
+      "quote": "return (LUT_isdbt_symbol_duration[i] / (c->bandwidth_hz / 1000)) + 1;",
+      "confidence": "medium",
+      "reason": "Untrusted source: c->bandwidth_hz is a u32 that an unprivileged user sets verbatim via the DVB chardev ioctl path FE_SET_PROPERTY -> dtv_property_process_set (drivers/media/dvb-core/dvb_frontend.c:1922-1923 'case DTV_BANDWIDTH_HZ: c->bandwidth_hz = data;') with no range validation in dvb-core (dvb_frontend_check_parameters at lines 964-1004 only validates frequency and symbol_rate, never bandwidth_hz). Missing guarantee: the only screening is the raw 'bandwidth_hz == 0' check in dib8000_set_frontend (lines 3613-3616, which coerces 0 to 6000000); nothing ties the input to the representable range of the derived expression, so the invariant 'every value used as a divisor must be proven nonzero at the exact integer width where the division executes' is absent. Unsafe use: the divisor at line 2793 in dib8000_get_symbol_duration() is the fixed-width u32 expression (c->bandwidth_hz / 1000), which right-shift truncates to 0 whenever the user supplies bandwidth_hz in [1,999] - the exact structural analogue of the seed's unchecked '8 * speed' wrap, where the check validates f's input (raw ==0) instead of f's output at division width (scaled truncated value). The division is a plain integer '/' executed from dib8000_tune (line 3085, state->symbol_duration = dib8000_get_symbol_duration(state)) during the CT_DEMOD_START state-machine step reached from dib8000_set_frontend via the .set_frontend op (dib8000.c:4429) and the FE_SET_FRONTEND/FE_SET_PROPERTY ioctl paths, so a zero divisor oopses the kernel (DoS/reliability bug, not memory corruption). Counterevidence checked: the sibling call dib8000_set_bandwidth(fe, c->bandwidth_hz / 1000) at line 3060 internally re-coerces bw==0 to 6000 (line 619-620), showing the driver anticipated truncation-to-zero there but not at line 2793; delivery system is SYS_ISDBT only (line 4411), so the core's symbol_rate check does not apply and no other validation of bandwidth_hz exists anywhere on the path; the legacy DVBv3 FE_SET_FRONTEND path (dtv_property_cache_sync lines 1192-1214) only maps enumerated BANDWIDTH_* constants to fixed values, so the modern DTV_BANDWIDTH_HZ property ioctl is the unguarded entry."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/dib8000.c",
+      "line": 2793,
+      "status": "reported",
+      "reason": "Primary finding: division by (c->bandwidth_hz / 1000) where bandwidth_hz is user-settable via DTV_BANDWIDTH_HZ with only a raw ==0 check (line 3613) upstream; bandwidth_hz in [1,999] truncates the scaled divisor to 0 exactly like the seed mechanism."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/mb86a16.c",
+      "line": 1611,
+      "status": "safe",
+      "reason": "state->srate = p->symbol_rate / 1000 used as direct divisor at lines 1146, 1280, 1415-1467; core raw check (dvb_frontend.c:988-997) enforces symbol_rate >= ops.info.symbol_rate_min = 1000000 (mb86a16.c:1804, delsys SYS_DVBS), so srate >= 1000 and the truncated divisor never reaches 0."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/stv0367.c",
+      "line": 2322,
+      "status": "safe",
+      "reason": "TRLTimeOut = 100000000 / p->symbol_rate (2322) and CRLTimeOut = ... / (p->symbol_rate / 1000) (2365-2366); both stv0367cab_ops and stv0367ddb_ops declare symbol_rate_min = 870000 for SYS_DVBC_ANNEX_A, so dvb_frontend_check_parameters rejects symbol_rate < 870000 and the scaled divisor >= 870; the ddb wrapper additionally rejects == 0 at lines 2989-2993 ('protect against division error oopses'). The raw minimum is far above the truncation threshold, closing the gap."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/ds3000.c",
+      "line": 953,
+      "status": "safe",
+      "reason": "value = 29777 / (c->symbol_rate / 1000) etc. at lines 953/961/969/975, but ds3000_set_frontend explicitly range-checks raw c->symbol_rate against ops.info.symbol_rate_min = 1000000 at lines 942-949 before the divisions, so the truncated divisor >= 1000."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/cxd2841er.c",
+      "line": 3337,
+      "status": "safe",
+      "reason": "timeout = DIV_ROUND_UP(3000000, symbol_rate) where symbol_rate = p->symbol_rate/1000 (line 3304); ops.info.symbol_rate_min = 1000000 for the DVB-S/S2 frontend ops (line 3944) rejects raw symbol_rate < 1000000 at the core check, so the truncated divisor >= 1000."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/stv090x.c",
+      "line": 2289,
+      "status": "safe",
+      "reason": "timeout /= (srate / 1000) is guarded by 'if (srate > 0)' but srate in [1,999] would still truncate to 0; however ops.info.symbol_rate_min = 1000000 (line 4963, delsys SYS_DVBS/DVBS2) plus the core raw check (dvb_frontend.c:988-997) rejects symbol_rate < 1000000 before stv090x_search copies props->symbol_rate to state->srate (line 3491), so the truncated divisor >= 1000."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/horus3a.c",
+      "line": 260,
+      "status": "safe",
+      "reason": "symbol_rate = p->symbol_rate/1000 (line 170) is used only as numerator in DIV_ROUND_UP(symbol_rate * 47, 40000) and the DIV_ROUND_CLOSEST frequency math; the divisors are constants, so no user-derived denominator."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-frontends/tda10023.c",
+      "line": 189,
+      "status": "safe",
+      "reason": "BDRI /= sr divides by the raw user symbol_rate; tda10023_attach computes ops.info.symbol_rate_min = (sysclk/2)/64 (line 547, nonzero for the 28.9MHz-class default config), and the core check rejects symbol_rate below that; BDRI computation also sits behind the NDEC selection chain. The divisor is the checked raw value itself, not a scaled one."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/media/dvb-core/dvb_frontend.c",
+      "line": 1842,
+      "status": "safe",
+      "reason": "fepriv->step_size = c->symbol_rate / 16000 and max_drift = c->symbol_rate / 2000 divide by constants; symbol_rate is the numerator, so no zero-divisor risk from user input."
+    }
+  ],
+  "limitations": [
+    "The dib8000 finding was verified by source reading only; no reproducer was compiled or executed against snapshot s02, so reachability of CT_DEMOD_START with bandwidth_hz in [1,999] via a real FE_SET_PROPERTY/DTV_TUNE sequence on actual dib8000 hardware (or a emulated frontend) was not demonstrated at runtime.",
+    "The DVB frontend sweep prioritized symbol_rate- and bandwidth_hz-derived divisors; other DTV properties that become divisors (e.g. isdbt segment counts, DVB-T code rates) and non-DVB chardev subsystems beyond DVB (iio ioctl parameters, tty, HID, input, misc drivers) were not exhaustively audited within this intent.",
+    "mb86a16's state->srate divisions were classified safe based on the ops.info.symbol_rate_min raw check; a hypothetical board overriding the frontend ops info (symbol_rate_min = 0) after attach could reopen that path, but no such override exists in snapshot s02."
+  ]
+}

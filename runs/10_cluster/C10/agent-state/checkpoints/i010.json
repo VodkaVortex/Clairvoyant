@@ -1,0 +1,138 @@
+{
+  "intent_id": "i010",
+  "branch": "debugfs-write-memdup-sscanf",
+  "snapshot": "s03",
+  "status": "complete",
+  "updated_at": "final",
+  "candidates": [
+    {
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 315,
+      "status": "reported",
+      "reason": "bnad_debugfs_write_regrd: memdup_user(buf, nbytes) exact-size alloc, then sscanf(kern_buf, \"%x:%x\") with no NUL terminator; identical to seed mechanism"
+    },
+    {
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 375,
+      "status": "reported",
+      "reason": "bnad_debugfs_write_regwr: memdup_user(buf, nbytes) then sscanf(kern_buf, \"%x:%x\"); same unterminated sscanf OOB read"
+    },
+    {
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 174,
+      "status": "reported",
+      "reason": "ice_debugfs_module_write: memdup_user(buf, count) (count<=8) then sscanf(cmd_buf, \"%s\", user_val[16]) on unterminated buffer; sscanf %s scans until NUL past allocation; also leaks cmd_buf"
+    },
+    {
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 260,
+      "status": "reported",
+      "reason": "ice_debugfs_nr_messages_write: memdup_user(buf, count) (count<=4) then sscanf(cmd_buf, \"%s\", user_val[8]); OOB read on unterminated heap buffer"
+    },
+    {
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 335,
+      "status": "reported",
+      "reason": "ice_debugfs_enable_write: memdup_user(buf, count) (count<=2) then sscanf(cmd_buf, \"%s\", user_val[8]); OOB read"
+    },
+    {
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 431,
+      "status": "reported",
+      "reason": "ice_debugfs_log_size_write: memdup_user(buf, count) (count<=5) then sscanf(cmd_buf, \"%s\", user_val[8]); OOB read"
+    },
+    {
+      "path": "drivers/scsi/qedf/qedf_debugfs.c",
+      "line": 173,
+      "status": "reported",
+      "reason": "qedf_dbg_debug_cmd_write: memdup_user(buffer, count) then kstrtouint(kern_buf, 10, &val) which uses strtoul on possibly-unterminated buffer"
+    },
+    {
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 1002,
+      "status": "safe",
+      "reason": "rvu_dbg_qsize_write uses memdup_user(buffer, count + 1) then sets cmd_buf[count]=0; explicit terminator slot"
+    },
+    {
+      "path": "drivers/infiniband/hw/hfi1/debugfs.c",
+      "line": 745,
+      "status": "safe",
+      "reason": "i2c write: memdup_user(buf,count) then passed as raw bytes to i2c_write with count; no string API"
+    },
+    {
+      "path": "drivers/infiniband/hw/hfi1/debugfs.c",
+      "line": 852,
+      "status": "safe",
+      "reason": "qsfp write: raw byte buffer with count to qsfp_write; no string API"
+    },
+    {
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/cmd.c",
+      "line": 1451,
+      "status": "safe",
+      "reason": "data_write stores raw command bytes consumed by mlx5_cmd_exec with dbg->inlen; no string parse"
+    },
+    {
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/cmd.c",
+      "line": 1517,
+      "status": "safe",
+      "reason": "outlen_write: copy_from_user into char outlen_str[8]={0} with count<=6, zero-initialized leaves 2 spare NUL bytes"
+    },
+    {
+      "path": "drivers/firmware/tegra/bpmp-debugfs.c",
+      "line": 380,
+      "status": "safe",
+      "reason": "bpmp_debug_store passes databuf,count to mrq_debug_write(bpmp,name,data,sz_data); raw length-based, no string parse"
+    },
+    {
+      "path": "drivers/infiniband/hw/qib/qib_fs.c",
+      "line": 333,
+      "status": "safe",
+      "reason": "flash_write requires count==sizeof(struct qib_flash) and writes raw EEPROM bytes; no string parse"
+    },
+    {
+      "path": "drivers/net/wireless/ath/wil6210/debugfs.c",
+      "line": 981,
+      "status": "safe",
+      "reason": "txmgmt: frame passed as params.buf/params.len raw to cfg80211 mgmt_tx; no string parse"
+    },
+    {
+      "path": "drivers/net/wireless/ath/wil6210/debugfs.c",
+      "line": 1018,
+      "status": "safe",
+      "reason": "wmi: raw command bytes with len; no string parse"
+    },
+    {
+      "path": "drivers/net/wireless/realtek/rtw89/debug.c",
+      "line": 3233,
+      "status": "safe",
+      "reason": "rtw89_hex2bin_user: buf consumed by hex2bin(bin, buf, num) bounded length parse, no NUL assumption"
+    },
+    {
+      "path": "drivers/net/wireless/silabs/wfx/debug.c",
+      "line": 216,
+      "status": "unresolved",
+      "reason": "wfx_send_pds_write passes buf,count to wfx_send_pds; need to verify wfx_send_pds does not use string APIs"
+    },
+    {
+      "path": "drivers/net/wireless/silabs/wfx/debug.c",
+      "line": 258,
+      "status": "safe",
+      "reason": "send_hif_msg: checks le16 len==count; raw message consumed by command path"
+    },
+    {
+      "path": "drivers/net/wireless/ti/wlcore/debugfs.c",
+      "line": 1141,
+      "status": "safe",
+      "reason": "mem write: raw bytes to wlcore_raw_write with length; no string parse"
+    },
+    {
+      "path": "drivers/char/nvram.c",
+      "line": 271,
+      "status": "safe",
+      "reason": "nvram_misc_write: memdup_user then nvram_write length-based raw write; not a string path (also misc dev not debugfs)"
+    }
+  ],
+  "notes": "Primary confirmed: bnad_debugfs regrd/regwr (bna, Brocade ethernet twin of scsi bfa) and ice_debugfs 4 write handlers (sscanf %s). qedf kstrtouint candidate. rvu explicitly allocates count+1 and terminates.",
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C10/agent-state/findings/i010.json",
+  "summary": "7 reported findings (bnad regrd/regwr, ice x4 sscanf, qedf kstrtouint); 13 safe; 1 unresolved (rvu lf_reset_write)"
+}

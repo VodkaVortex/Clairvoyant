@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "firmware-table-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "start": 52,
+      "end": 66,
+      "quote": "div = 27648000 / bios->pwm_freq;",
+      "confidence": "medium",
+      "reason": "Untrusted source: struct nvbios_volt.pwm_freq/pwm_range are filled by nvbios_volt_parse() (drivers/gpu/drm/nouveau/nvkm/subdev/bios/volt.c:102-118) as raw u32 VBIOS reads, pwm_freq = nvbios_rd32(bios, volt + 0x5) / 1000 and pwm_range = nvbios_rd32(bios, volt + 0x16), with no range or nonzero validation anywhere in the parser. Violated invariant (seed mechanism): the value actually divided at gk104.c:59 is the parse-time scaled f(raw)=raw/1000 computed in u32, which truncates to 0 for any VBIOS value in [1,999] exactly like the seed's 8*speed wrap, while all existing 'validation' (nvbios_volt_parse success at gk104.c:108 and the PWM-type/gpio check at lines 111-114) validates only the raw input's container, never the divisor at division width. Unsafe use: gk104_volt_set() executes div = 27648000 / bios->pwm_freq (plain u32 '/') and duty = DIV_ROUND_UP((uv - bios->base) * div, bios->pwm_range) at line 60 where pwm_range==0 is a second unvalidated zero denominator and (uv - bios->base) * div is an unchecked fixed-width u32 scaling in the numerator. Impact: integer divide-by-zero oops during voltage programming on GK104+ boards whose VBIOS selects PWM voltage mode. Counterevidence checked: full gk104_volt_new read - volt_func switches to gk104_volt_pwm solely on bios.type == NVBIOS_VOLT_PWM plus a DCB GPIO match, no clamp of pwm_freq/pwm_range; volt/base.c:228 uses info.pwm_range only additively (max_uv), never validating it; fanpwm.c:67 guards its own pwm_freq use, showing the pattern was checkable."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/radeon/radeon_atombios.c",
+      "start": 3694,
+      "end": 3718,
+      "quote": "((nominal_voltage - min_voltage) / voltage_step) *",
+      "confidence": "medium",
+      "reason": "Untrusted source: voltage_step (u16) is copied verbatim from the ATOM BIOS VoltageObjectInfo formula by radeon_atom_get_voltage_step() (radeon_atombios.c:3653-3691) as le16_to_cpu(formula->usVoltageStep), or as the scaled (le16_to_cpu(formula->usVoltageStep) + 1) / 2 when ucFlag bit0 is set - the scaling maps a raw 0 to 0 and no check anywhere proves the stored value nonzero. Violated invariant: the only validation in radeon_atom_round_to_true_voltage is that the fetch succeeded (line 3705 checks the return code, not the value); the divisor used at line 3714 is never proven nonzero at the u16/int width where the division executes. Unsafe use: ((nominal_voltage - min_voltage) / voltage_step) * voltage_step divides by the firmware-table value with no zero guard, so a zeroed/corrupt VBIOS field yields a kernel divide-by-zero oops during PM voltage rounding. Reachability: sole caller rv6xx_step_sw_voltage (rv6xx_dpm.c:1272-1302) runs during RV6xx DPM state transitions (probe/DPM enable); the same fetched voltage_step is also used as the while-loop increment at rv6xx_dpm.c:1294-1295, where step==0 with differing rounded voltages additionally hangs the loop. Counterevidence checked: atom interpreter division is guarded (amdgpu/atom.c:694 'if (src != 0)'), so this is a parser-site gap, not an interpreter one."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "start": 6509,
+      "end": 6516,
+      "quote": "slope1 = (u16)((50 + ((16 * duty100 * pwm_diff1) / t_diff1)) / 100);",
+      "confidence": "medium",
+      "reason": "Untrusted source: adev->pm.dpm.fan.t_min/t_med/t_high/pwm_min/pwm_med/pwm_high are raw le16_to_cpu copies of the ATOM_PPLIB fan table filled by amdgpu_parse_extended_power_table (drivers/gpu/drm/amd/pm/legacy-dpm/legacy_dpm.c:243-248) with no ordering, nonzero, or range validation. Violated invariant (seed mechanism): the divisor actually used at line 6515/6516 is the derived u32 expression t_diff1 = adev->pm.dpm.fan.t_med - t_min (line 6509), which is 0 whenever the firmware table sets usTMed == usTMin and wraps to ~2^32 when usTMed < usTMin; the function's only guards are duty100 != 0 (line 6500) and fan_table_start != 0 (line 6493), which validate a different (register-derived) operand, never the scaled/subtracted divisor at division width. Unsafe use: (16 * duty100 * pwm_diff1) / t_diff1 and the t_diff2 twin divide by the firmware-derived difference during SMC fan-table setup, producing a divide-by-zero oops (or a wrapped huge divisor producing garbage slope programming) in si_dpm_hw_init fan setup. Identical unchecked instances with the same VBIOS source: radeon si_thermal_setup_fan_table (drivers/gpu/drm/radeon/si_dpm.c:5993-6000, source r600_dpm.c:894-896) and ci_thermal_setup_fan_table (drivers/gpu/drm/radeon/ci_dpm.c:954-961). Counterevidence checked: the same drivers do validate other firmware fan fields - ci_populate_fuzzy_fan (ci_dpm.c:341-345) rejects fan_output_sensitivity == 0 and bit 15 - proving the codebase checks firmware fan fields for zero elsewhere but not t_diff."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "start": 38,
+      "end": 49,
+      "quote": "return bios->base + bios->pwm_range * duty / div;",
+      "confidence": "low",
+      "reason": "Secondary site in the same file: gk104_volt_get() divides by div = nvkm_rd32(device, 0x20340), a device-register value with no nonzero check, while the numerator applies bios->pwm_range (raw VBIOS u32 from bios/volt.c:111, unvalidated) as a fixed-width u32 scaling factor that can wrap. This reproduces the seed's unchecked-divisor shape from device/firmware-provided data. Counterevidence: the divisor is a hardware register rather than a table field and whether it can be observed as 0 before gk104_volt_set programs it (0x20340 is only written at line 62 in gk104_volt_set) was not verified against hardware documentation; kept at low confidence for that reason."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/bios/volt.c",
+      "line": 110,
+      "status": "reported",
+      "reason": "Unvalidated untrusted source feeding finding 1: nvbios_volt_parse 0x50 PWM branch fills pwm_freq = nvbios_rd32(bios, volt + 0x5) / 1000 (parse-time truncating scaling) and pwm_range = nvbios_rd32(bios, volt + 0x16) with no range checks; truncation makes a zero divisor reachable from nonzero VBIOS input 1..999."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 59,
+      "status": "reported",
+      "reason": "gk104_volt_set divides by VBIOS-sourced bios->pwm_freq with no nonzero check at division width; primary finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 60,
+      "status": "reported",
+      "reason": "Same function: DIV_ROUND_UP((uv - bios->base) * div, bios->pwm_range); raw VBIOS pwm_range divisor unchecked, plus u32 multiply wrap in the scaled numerator."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 48,
+      "status": "reported",
+      "reason": "gk104_volt_get: bios->pwm_range * duty / div with div an unvalidated nvkm_rd32(0x20340) register read; low-confidence secondary finding (device-provided divisor)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/radeon/radeon_atombios.c",
+      "line": 3714,
+      "status": "reported",
+      "reason": "Division by firmware-table u16 voltage_step with no nonzero validation; fetch success is the only check; see finding 2."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "line": 6515,
+      "status": "reported",
+      "reason": "slope division by t_diff1 = t_med - t_min, both raw u16 VBIOS fan-table fields (legacy_dpm.c:243-248); t_med == t_min gives divisor 0; see finding 3."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/radeon/si_dpm.c",
+      "line": 5999,
+      "status": "reported",
+      "reason": "Identical pattern in radeon si_thermal_setup_fan_table, source r600_parse_extended_power_table (r600_dpm.c:894-896) raw le16 VBIOS fields, unchecked before the t_diff1/t_diff2 slope divisions at lines 5999-6000."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/radeon/ci_dpm.c",
+      "line": 960,
+      "status": "reported",
+      "reason": "Identical pattern in ci_thermal_setup_fan_table (lines 960-961), same unchecked VBIOS fan-table temperature fields; contrast: ci_populate_fuzzy_fan at ci_dpm.c:341-345 does zero-check fan_output_sensitivity."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "line": 280,
+      "status": "unresolved",
+      "reason": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed) is the seed's user-input mechanism, but its gate values ulMinRPM/ulMaxRPM are firmware-table-derived (processpptables.c:1001-1003, u8 ucFanMinRPM/ucFanMaxRPM * 100, max 25500). A well-formed table caps speed far below UINT_MAX/8; a fanless/malformed table with ucFanMaxRPM==0 rejects every speed>0 at line 272. Whether any table configuration (e.g. defaults when the fan table is absent) admits a wrapping speed was not resolved from source alone; the underlying user-input variant of this site was already reported by the drm-userif intent for s03."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/radeon/r600_dpm.c",
+      "line": 227,
+      "status": "safe",
+      "reason": "r600_calculate_at explicitly rejects fl==0 || fh==0 || fl>fh at line 224 before k = (100 * fh) / fl; the divisor is validated nonzero at the exact u32 division width (this closes the divisor the s04 sibling intent left unresolved)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/amdgpu/atom.c",
+      "line": 694,
+      "status": "safe",
+      "reason": "atom_op_div (and atom_op_div32 at line 712) both guard 'if (src != 0)' before dividing firmware-interpreter operands, so VBIOS bytecode divisions map zero divisors to 0 results instead of faulting."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/therm/fanpwm.c",
+      "line": 71,
+      "status": "safe",
+      "reason": "nvkm_fanpwm_set: divs /= fan->base.bios.pwm_freq is inside 'if (fan->base.bios.pwm_freq)' (line 67), so the VBIOS-sourced divisor (bios/fan.c:90 nvbios_rd32 & 0xffffff) is proven nonzero before the division; divs starts at >= 1 (pwm_clock or 1), and nvkm_fanpwm_get's (duty * 100) / divs at line 52 is guarded by 'ret == 0 && divs'."
+    }
+  ],
+  "limitations": [
+    "Bounded search: six high-signal query families were executed (radeon voltage_step/atom voltage objects, nouveau bios volt/therm/fan pwm fields, do_div/DIV_ROUND sweeps across drm/radeon, drm/nouveau, drm/amd, table-struct-field divisors in amd pm parsers, mode/EDID-derived divisors in amd display dml/clk_mgr, and a spot sweep of drivers/hwmon, misc/eeprom, platform/x86, infiniband for step/sensitivity/period-named divisors); ACPI methods (632 sites), SMBIOS, EDID parsers, of_property readers and non-DRM firmware parsers were only pattern-scanned, not line-audited, so a wrapped or truncated-to-zero ACPI/DT/EEPROM divisor outside these hits cannot be excluded.",
+    "No runtime reproduction was performed: the snapshot is a source-only tree and no GK104 PWM-mode board, RV6xx VBIOS, or Tahiti/Pitcairn fan table hardware was available; all four findings are established by code reading plus arithmetic (u32 /1000 truncation of 1..999 to 0; u16 subtraction t_med - t_min == 0; u16 voltage_step == 0 raw or via (0+1)/2), not by an executed oops.",
+    "Reachability of the gk104_volt_set finding requires a VBIOS voltage table version 0x50 with the PWM flag bit (bios/volt.c:108) and a matching DCB_GPIO_VID_PWM gpio (gk104.c:111); the gf100_volt_oneinit/perf call graph into .volt_set was not fully traced, and it was not verified whether any other nouveau path re-validates pwm_freq/pwm_range after parsing.",
+    "The rv6xx infinite-loop consequence (voltage_step==0 used as the while-loop increment at rv6xx_dpm.c:1294-1295 with differing rounded voltages) is inferred from source structure; whether real-world VBIOS images ever carry usVoltageStep==0 is unknown and requires attacker-suppliable or corrupted firmware, the same trust boundary as the seed's sibling CVEs.",
+    "Spot-checked safe hwmon/display sites were verified only at the listed lines, not whole-driver: lm63.c:1084 (pwm1_freq forced to 1 when register reads 0 at lines 249-250/1037-1038 - a positive contrast validating the divisor itself), emc6w201.c:268 (==0/==0xFFFF guard), emc2103.c:289/304 (fan_multiplier = 1 << ((conf1 & 0x60) >> 5) so in {1,2,4,8}), ina209.c:514 (calibration_orig ternary guard), dcn32_clk_mgr.c:304/309 (dppclk_khz/dispclk_khz zero guards); drivers/hwmon/isl28022.c:441 divisor data->gain provenance was not traced and remains unexamined.",
+    "The vega10_thermal.c speed>UINT_MAX/8 raw-seed site in s03 belongs to the user-input branches and was reported by the drm-userif intent for this snapshot; it is intentionally not re-reported here, and other powerplay/swsmu firmware-derived operands (dep_table->entries[].clk, usFanOutputSensitivity, ulMaxRPM/100) were confirmed to be used only as numerators, clamped values, or non-divisor metadata in the inspected files."
+  ]
+}

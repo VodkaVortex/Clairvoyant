@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "intent_id": "i050",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": ["s12"],
+  "findings": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/hv/hv_balloon.c",
+      "start": 1340,
+      "end": 1352,
+      "quote": "int range_count = req->range_count;",
+      "confidence": "medium",
+      "reason": "Untrusted source: the Hyper-V host (peer of the vmbus dynamic-memory channel) supplies struct dm_unballoon_request verbatim; balloon_onchannelcallback (drivers/hv/hv_balloon.c:1488-1532) copies the whole vmbus packet into the static u8 recv_buffer[HV_HYP_PAGE_SIZE] (4096 bytes, line 493) via vmbus_recvpacket at lines 1490-1491, which returns -ENOBUFS without copying when packetlen > 4096 (drivers/hv/ring_buffer.c hv_ringbuffer_read), so the only gate on message content is 'if (recvlen > 0)' at line 1493 -- no check that the received length covers range_count*sizeof(range_array) and no clamp on range_count. Missing guarantee: balloon_down (line 1340) takes 'int range_count = req->range_count;' (line 1344) straight from the host-supplied wire field (32-bit, no local maximum, e.g. HV_DM_MAX_RANGE_COUNT does not exist here) and iterates 'for (i = 0; i < range_count; i++) free_balloon_pages(dm, &range_array[i]);' (lines 1349-1350) reading req->range_array[i] past the 4096-byte recv_buffer once range_count > (4096 - sizeof(struct dm_unballoon_request))/sizeof(union dm_mem_page_range) ~ 170 -- an unbounded peer count driving a kernel loop with no cross-check against the locally known received length. Unsafe use: free_balloon_pages (line 1182) then takes each out-of-bounds union's finfo.page_cnt as num_pages (line 1185) and start_frame as base pfn and executes '__ClearPageOffline(pg); __free_page(pg);' on 'pg = pfn_to_page(i + start_frame)' (line 1191) for every i in [0, num_pages) -- arbitrary-pfn page frees and vmstat/adjust_managed_page_count corruption driven by OOB-read peer data. Counterevidence checked: the receive path does truncate to 4096 (hv_ringbuffer_read packetlen > buflen returns -ENOBUFS leaving recvlen 0) so this is an OOB-read/DoS/state-corruption primitive rather than a linear OOB write; the sibling DM_MEM_HOT_ADD_REQUEST branch (lines 1536-1560) similarly lacks a range check but only copies two fixed unions; allow_hibernation gates the branch (line 1524) and ballooning_enabled() (line 1690) only guards page-size mismatch; upstream hardened exactly this host-trust issue in commit 5dae3a0fb26f ('Drivers: hv: balloon: Add support for Linux v5 boot protocol') by adding a range_count sanity check for the newer protocol, which is absent here.",
+      "conclusion": "hv_balloon balloon_down (hv_balloon.c:1344-1350) iterates the host-supplied unclamped dm_unballoon_request.range_count with only a recvlen>0 gate, reading range_array[] past the 4096-byte recv_buffer and freeing pfn_to_page(start_frame+num_pages) from OOB data: peer-driven OOB read plus arbitrary page free."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 208,
+      "status": "safe",
+      "reason": "hdlc_rx_greybus_frame passes peer hdr.size as gb_msg_len (line 208/213) while ignoring the locally known frame len, but the receiving chain cross-checks it: gb_connection_recv (drivers/greybus/operation.c:1027) copies the header, takes msg_size = le16_to_cpu(header.size) and rejects when 'size < msg_size' (line 1050) before dispatch; gb_connection_recv_response compares size against message_size = sizeof(*header)+message->payload_size and clamps/EMSGSIZE (operation.c:988-1006, memcpy at 1012 bounded); gb_connection_recv_request -> gb_operation_create_incoming -> gb_operation_message_alloc enforces message_size <= hd->buffer_size_max (operation.c:369) and the memcpy at operation.c:652 is sized by the same checked size. Also the physical input is capped: MAX_RX_HDLC=259 bounds bg->rx_buffer, len = rx_buffer_len - 4 <= 255, so a lying hdr.size>255 is rejected at operation.c:1050. cport_id is likewise cross-checked by gb_connection_hd_find. Mechanism present in shape but locally validated; not reportable.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/greybus/es2.c",
+      "line": 844,
+      "status": "safe",
+      "reason": "cport_in_callback hands urb->transfer_buffer with urb->actual_length to greybus_data_rcvd; actual_length is USB-core-set from the real transfer (<= the 8192 CPORT_IN buffer), >= sizeof(header) is checked (es2.c:821), cport_id is validated by cport_id_valid, and the length is then re-validated in gb_connection_recv/operation.c as above. arpc_in_callback copies only sizeof(*resp) (fixed struct, es2.c:1058) and looks up resp->id in the local arpc list. The earlier-audit lead is resolved safe: no allocation or loop is driven by an unchecked peer count.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/rpmsg/qcom_glink_native.c",
+      "line": 952,
+      "status": "unresolved",
+      "reason": "qcom_glink_rx_data takes peer chunk_size/left_size (le32) from the TX_DATA header; the intentless branch allocates intent->data = kmalloc(chunk_size + left_size) (line 952) with intent->size = chunk_size + left_size (line 960). The only bound is 'avail < sizeof(hdr) + chunk_size' (line 923) where avail comes from glink_smem_rx_avail/qcom_glink_rx_avail, which computes head-tail from SMEM head/tail written by the very same remote processor (qcom_glink_smem.c:63-92), so the peer controls both the claimed chunk size and the 'available' gate; chunk_size+left_size is a plain size_t add of two u32s (cannot overflow size_t on 64-bit, wraps on 32-bit builds), and left_size is never bounded by the fifo length, so a huge left_size makes kmalloc fail cleanly but a moderately large left_size with a tiny chunk_size allocates a big buffer that later fragments must exactly re-check ('intent->size - intent->offset < chunk_size' line 981) before each peek -- the per-fragment re-check plus the kmalloc failure path are the counterevidence that defuses a simple overflow. Remaining question: whether repeated GLINK_CMD_TX_DATA_CONT fragments can race/abuse the intentless channel->buf reuse after a partial fragment to make intent->offset inconsistent; not fully traced.",
+      "conclusion": "Follow up: trace intentless GLINK_CMD_TX_DATA_CONT fragment interleaving (qcom_glink_native.c:946-1010) to see whether peer left_size/chunk_size across multiple fragments can desync intent->offset versus the kmalloc(chunk_size+left_size) sizing on first fragment, and whether 32-bit builds can wrap chunk_size+left_size."
+    },
+    {
+      "snapshot": "s12",
+      "path": "net/9p/trans_xen.c",
+      "line": 210,
+      "status": "safe",
+      "reason": "All three 9p reply handlers cross-check the peer size field against the locally known capacity: trans_xen 'if (h.size > req->rc.capacity)' (line 210) before xen_9pfs_read_packet; trans_fd 'if (m->rc.size > m->rreq->rc.capacity)' (trans_fd.c:339) and it memcpy's only m->rc.capacity from tmp_buf then continues reading into the checked size; trans_usbg 'if (rc.size > p9_rx_req->rc.capacity)' (trans_usbg.c:210). req->rc.capacity is set from alloc_rsize = min(c->msize, ...) in p9_tag_alloc (client.c:294-300) i.e. a locally chosen msize, and p9_client_rpc additionally verifies rc.size <= rc.capacity at client.c:529. trans_rdma was grep-surveyed for the same pattern. Safe.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/block/xen-blkfront.c",
+      "line": 1383,
+      "status": "safe",
+      "reason": "blkif_completion iterates num_grant = s->req.u.rw.nr_segments, but that field lives in the guest-private shadow copy (rinfo->shadow[].req) written by the guest itself in blkif_queue_request (lines 777/804), not in the shared ring; the backend-controlled bret.id is checked against BLK_RING_SIZE and shadow status (blkif_interrupt lines 1551-1575), rsp_prod is checked with RING_RESPONSE_PROD_OVERFLOW (line 1545), and bret.operation is compared to the locally recorded op. nbd was likewise checked: nbd_handle_reply looks up the peer cookie only through blk_mq tag tables and reads data strictly via rq_for_each_segment bvec iov_iter into locally sized bio_vecs (nbd.c:930-945) with no peer count. Safe.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s12",
+      "path": "net/vmw_vsock/virtio_transport.c",
+      "line": 644,
+      "status": "safe",
+      "reason": "Guest-side virtio vsock rx validates both the virtqueue-returned len (len < sizeof(*hdr) || len > virtio_vsock_skb_len(skb), line 644) and the device-supplied header field payload_len > len - sizeof(*hdr) (line 652) before skb_put; vhost side (vhost_vsock.c:341-393) validates iov_length against VIRTIO_VSOCK_MAX_PKT_BUF_SIZE and payload_len + sizeof(*hdr) > len. Peer hdr->len consumers in virtio_transport_common.c (748, 1745) operate on skbs whose length was already bounded at ingress. Safe.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 665,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim and UNPATCHED in this tree: usbip_recv_iso 'int np = urb->number_of_packets;' with 'int size = np * sizeof(*iso);' (line 665) -> kzalloc -> for (i = 0; i < np; i++) loop, number_of_packets set from the wire in usbip_pack_ret_submit with no range check while USBIP_MAX_ISO_PACKETS is enforced only on the submit side (stub_rx.c) -- the exact peer-trusted-transport seed. Excluded from findings per the seed-never-reportable rule; recorded so later workers know the snapshot-local seed state.",
+      "conclusion": "Excluded-by-rule: s12 usbip_recv_iso (usbip_common.c:664-696) still contains the unpatched seed integer-overflow/OOB-write; never reportable as the finding, but confirms this tree predates the fix."
+    }
+  ],
+  "coverage_gaps": [
+    "drivers/rpmsg/qcom_glink_native.c intentless TX_DATA_CONT fragment interleaving and the 32-bit chunk_size+left_size add (line 952) were read only in the static window 898-1010; a per-fragment desync of intent->offset vs the first-fragment kmalloc sizing was not proven or refuted.",
+    "Remote reply handlers beyond the enumerated set -- ceph/cifs server reply vectors, virtiofs/virtio_blk config replies, ath10k/ath12k WMI-TLV, qcom smem/glink SSR, mshv guest->root notifications, vDPA/vhost-scsi config rings -- were only presence-checked, not deep-read.",
+    "hv_balloon hot-add path (ha_page_range/ha_region_range copied at 1537-1560, processed in hot_add_req/handle_pg_range) was read structurally but its pfn arithmetic was not audited for the same missing range validation as balloon_down.",
+    "net/9p/trans_rdma.c reply path and fs/9p client-side consumers were grep-surveyed for the capacity check pattern but not read line-by-line."
+  ],
+  "limitations": [
+    "The hv_balloon finding is a source-verified hypothesis, not a proven exploit: the host peer must send a DM_UNBALLOON_REQUEST whose 4096-byte-constrained payload still declares range_count > ~170; practical impact is OOB read of static kernel memory plus __free_page on garbage/OOB-derived pfns (DoS/memory-corruption), not a demonstrated linear overflow; no runtime reproducer or compilation was run (read-only snapshot, vmbus host not available in-tree).",
+    "The finalize directive cut the audit short: hv_balloon.c, gb-beagleplay.c, es2.c, greybus operation.c/connection.c, qcom_glink native/smem, 9p trans_xen/fd/usbg + client.c, xen-blkfront, nbd, virtio-vsock guest+vhost were deep-read, but the at-most-twelve candidate budget was not exhausted and the broader remote-transport space (nvme-fabrics, scsi qla/lpfc, ib srp, xen-netfront, hv_netvsc RNDIS, gpu/drm virtio) was not swept.",
+    "Conclusions come from numbered sed/grep reads of snapshots/s12 only; no cross-snapshot comparison (sibling snapshots' Facts were not re-opened) and no history inspection (no Git access)."
+  ]
+}

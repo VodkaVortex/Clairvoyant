@@ -1,0 +1,105 @@
+{
+ "intent_id": "i039",
+ "branch": "net-epidx",
+ "status": "complete",
+ "snapshot": "s10",
+ "progress": [
+  {
+   "step": "init",
+   "note": "Seed translated to invariant: USB net driver probe/bind must validate bNumEndpoints > k before indexing altsetting[i].endpoint[k]. Assigned tree s10 (net-epidx: drivers/net/usb/**, drivers/net/wireless, drivers/net/wwan USB NICs)."
+  },
+  {
+   "step": "candidates identified",
+   "note": "three fixed-index endpoint reads in drivers/net/usb of s10: r8152.c:1357(+2), lan78xx.c:3583-3585(+0/+1/+2), qmi_wwan.c:304 ([0]); none has bNumEndpoints check (grep bNumEndpoints in those files only matched lan78xx.c:2770 loop and r8152.c:1357 none). Wireless tree loops under review next."
+  },
+  {
+   "step": "drivers/net/usb triaged",
+   "note": "All endpoint[] and pipe-derived reads reviewed. Wireless tree: all 13 endpoint loops are bNumEndpoints-bounded; only unbounded fixed-index reads are ath9k hif_usb.c:1283 and zd1211rw zd_usb.c:1283 eject paths. wwan dir absent in s10."
+  },
+  {
+   "step": "finalized",
+   "note": "Final artifact written to findings/i039.json: 5 findings (r8152.c:1357, lan78xx.c:3582, qmi_wwan.c:304, ath9k/hif_usb.c:1223, zd1211rw/zd_usb.c:1282) + 8 safe candidates + 4 coverage gaps."
+  }
+ ],
+ "candidates": [
+  {
+   "file": "drivers/net/usb/r8152.c",
+   "line": 1357,
+   "status": "reported-primary",
+   "note": "alloc_all_mem: ep_intr = alt->endpoint + 2 (1357); ep_intr->desc.bInterval read at 1433 and used as usb_fill_int_urb interval (1434-1436) with usb_rcvintpipe(tp->udev,3). No bNumEndpoints>=3 check anywhere in r8152.c. Called from rtl8152_open (3275). Probe rtl8152_probe 4339 does no endpoint validation; device table matches INT_CLASS vendor-spec."
+  },
+  {
+   "file": "drivers/net/usb/lan78xx.c",
+   "line": 3582,
+   "status": "reported-secondary",
+   "note": "probe reads endpoint+0/+1/+2 (3582-3584) then dereferences ep_intr->desc.bEndpointAddress (3589-3591) and bInterval (3592) to program pipe_intr and the interrupt URB period; maxp from usb_maxpacket(pipe_intr) sizes kmalloc buffer. lan78xx_get_endpoints (2753-2811) only requires a bulk in+out pair (status intr endpoint optional); bind (2813-2819) ignores its return value. No bNumEndpoints check in file."
+  },
+  {
+   "file": "drivers/net/usb/qmi_wwan.c",
+   "line": 304,
+   "status": "reported-secondary",
+   "note": "qmi_wwan_register_subdriver reads and-of control cur_altsetting endpoint[0] (304) when control != data; dev->status->desc passed to usb_cdc_wdm_register (316-317). No bNumEndpoints>=1 check on control altsetting; probe (1014) adds no endpoint validation. Same mechanism as s08 finding f034."
+  },
+  {
+   "file": "drivers/net/wireless/ath/ath9k/hif_usb.c",
+   "line": 1283,
+   "status": "reported-secondary",
+   "note": "send_eject_command (1213) loops r=1..0 reading iface_desc->endpoint[r].desc (1283) with no bNumEndpoints check; probe (1272-1273) calls it directly for STORAGE_DEVICE id 0cf3:20ff on plug-in."
+  },
+  {
+   "file": "drivers/net/wireless/zydas/zd1211rw/zd_usb.c",
+   "line": 1283,
+   "status": "reported-secondary",
+   "note": "eject_installer (1272) loops r=1..0 reading endpoint[r].desc (1283) with no bNumEndpoints check; probe dispatches to it for DEVICE_INSTALLER ids 0ace:2011/0ace:20ff."
+  },
+  {
+   "file": "drivers/net/usb/usbnet.c",
+   "line": 112,
+   "status": "safe",
+   "note": "usbnet_get_endpoints loops ep < alt->desc.bNumEndpoints and requires in+out bulk."
+  },
+  {
+   "file": "drivers/net/usb/cdc_ether.c",
+   "line": 293,
+   "status": "safe",
+   "note": "endpoint[0] guarded by bNumEndpoints == 1 check."
+  },
+  {
+   "file": "drivers/net/usb/sierra_net.c",
+   "line": 696,
+   "status": "safe",
+   "note": "requires numendpoints == 3."
+  },
+  {
+   "file": "drivers/net/usb/hso.c",
+   "line": 3138,
+   "status": "safe",
+   "note": "hso_get_ep/hso_get_mux_ports bounded loops."
+  },
+  {
+   "file": "drivers/net/usb/ipheth.c",
+   "line": 503,
+   "status": "safe",
+   "note": "bounded loop over usb_altnum_to_altsetting result with bulk in/out requirement."
+  },
+  {
+   "file": "drivers/net/usb/cdc-phonet.c",
+   "line": 352,
+   "status": "safe",
+   "note": "explicit bNumEndpoints 0/2 validation of both altsettings before endpoint[0]/[1] reads."
+  },
+  {
+   "file": "drivers/net/usb/cdc_ncm.c",
+   "line": 681,
+   "status": "safe",
+   "note": "bounded ep loop."
+  },
+  {
+   "file": "drivers/net/usb/cdc_mbim.c and huawei_cdc_ncm.c",
+   "line": 168,
+   "status": "safe",
+   "note": "only test dev->status non-NULL (set by cdc_ncm/cdc_ether guarded paths) before using status->desc."
+  }
+ ],
+ "findings": []
+}

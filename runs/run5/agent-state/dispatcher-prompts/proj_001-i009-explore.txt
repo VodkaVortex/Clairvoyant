@@ -1,0 +1,317 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-22ba97ea9cc1
+  status: active
+  created_at: 1794395860838
+  reason: null
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/run5/public. Seed: xsk: cache csum_start/csum_offset to fix TOCTOU in xsk_skb_metadata(). The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'MECHANISM PROFILE. Untrusted source: field values that live in memory an untrusted peer can write concurrently with kernel reads — pages shared with userspace via mmap (here AF_XDP UMEM TX metadata), generalized to any unsynchronized shared region (guest-visible vrings, mmap''d socket rings) that the kernel dereferences in place instead of copying into private kernel memory. Missing guarantee: single-fetch snapshot — the value read for the security decision (bounds/offset validation) is re-read from shared memory when actually used, so the checked value and the used value may differ; no local-variable/READ_ONCE caching, no copy-to-kernel, no lock covering both accesses. Unsafe use: the reread, no-longer-validated values become offsets/lengths consumed by later kernel logic (here skb->csum_start/csum_offset feeding checksum-offload computation as indices into packet data). Security-relevant consequence: bounds-check bypass producing out-of-bounds read/write during checksum computation in the TX path -> memory corruption, info leak, or kernel panic. Transferable invariant: every field sourced from concurrently-writable memory must be fetched exactly once into a private copy that is both validated and used, with validation performed against the final object''s true bounds (including arithmetic-overflow safety of offset+length sums). The seed fix site (xsk_skb_metadata) is demonstration only and must never be reported. BRANCHES: branch1=xsk-umem-fetch=AF_XDP/UMEM shared-memory consumers: net/xdp core and xsk_tx_metadata users in drivers; hunt fields from mmap''d UMEM/rings/metadata (desc addr/len, request fields, timestamps) that are read twice, validated on one fetch and used from another, or whose addr+offset+length arithmetic can overflow the bounds check; branch2=vhost-vring-fetch=guest-memory double fetch in virtio/vhost: drivers/vhost and virtio ring/backend code; hunt vring descriptor/avail/used fields fetched twice (validate then use) so a racing guest can mutate len/addr/flags between the fetches; branch3=tpacket-ring-fetch=AF_PACKET TPACKET mmap''d rings in net/packet/af_packet.c: hunt tx/rx block and packet headers (len, snaplen, addrlen, status) fetched multiple times from shared memory with checks against a stale fetch, or used without full validation; branch4=tx-csum-invariant=TX checksum-offload ingestion of untrusted csum_start/csum_offset: tun/tap vnet_hdr, virtio-net, vhost-net and other paths assigning skb->csum_start/csum_offset; hunt sites where the invariant csum_start+csum_offset+sizeof(__sum16) fits within the validated frame/head is absent, computed against the wrong length, or checked on a value different from the one used.'
+- id: f002
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/run5/agent-state/findings/i015.json; branch=tx-csum-invariant; snapshots=s02; missing=s01,s03,s04; findings=1; unresolved=0; execution_status=complete
+    finding 1: s02:net/packet/af_packet.c:2671-2723 confidence=high; source quote='vnet_hdr = data; data += sizeof(*vnet_hdr); tp_len -= sizeof(*vnet_hdr); if (tp_len < 0 || __packet_snd_vnet_parse(vnet_hdr, tp_len)) {'; reason=Untrusted source: in tpacket_snd(), when the socket has po->has_vnet_hdr (PACKET_VNET_HDR sockopt), vnet_hdr = data (line 2672) points directly into the user mmap'd TPACKET TX ring frame (data comes from tpacket_parse_header() -> *data = frame + off, frame = packet_current_frame(po, &po->tx_ring, TP_STATUS_SEND_REQUEST)), which userspace can write concurrently; unlike the packet_snd() path that copies the header into a stack struct virtio_net_hdr via copy_from_iter_full, here the header is dereferenced in place with no READ_ONCE/private copy and no lock covering both accesses. Violated invariant: __packet_snd_vnet_parse(vnet_hdr, tp_len) at line 2676 validates csum_start+csum_offset+2 against hdr_len and hdr_len against tp_len, and tpacket_fill_skb() at line 2695 builds the skb (sock_alloc_send_skb sized from the shared hdr_len at 2680-2687; data copied into the skb), but the values actually consumed are re-fetched independently afterwards: virtio_net_hdr_to_skb(skb, vnet_hdr, vio_le()) at line 2719 re-reads hdr->csum_start/hdr->csum_offset from the same shared ring memory, and virtio_net_hdr_set_proto() at 2723 re-reads gso_type. A racing userspace writer can change csum_start/...
+    candidate: s02:net/packet/af_packet.c:2719 status=reported; virtio_net_hdr_to_skb(skb, vnet_hdr, vio_le()) re-reads the mmap'd TX ring vnet_hdr after __packet_snd_vnet_parse validated it at 2676 and tpacket_fill_skb consumed data at 2695; validated fetch and used fetch are independent reads of concurrently-writable user memory with no READ_ONCE/local copy.
+    candidate: s02:include/linux/virtio_net.h:54 status=safe; virtio_net_hdr_to_skb reads hdr->csum_start/csum_offset once into locals start/off and passes them to skb_partial_csum_set, which checks (u32)start+off+2 <= skb_headlen(skb) with 32-bit arithmetic (no overflow) and sets skb->csum_start/csum_offset from the same local values; invariant holds whenever the caller's hdr is a private copy.
+    candidate: s02:net/core/skbuff.c:4396 status=safe; skb_partial_csum_set validates csum_start (headroom+start <= U16_MAX) and csum_end (start+off+2 <= skb_headlen) in u32 arithmetic before assigning skb->csum_start/csum_offset; checked value is the same used value, computed against the true linear length.
+    candidate: s02:drivers/net/tun.c:1762 status=safe; tun_get_user copies the vnet header into a stack struct virtio_net_hdr gso via copy_from_iter_full (line 1759); all later csum_start/csum_offset/hdr_len reads at 1762-1764, 1811-1814, and virtio_net_hdr_to_skb at 1855 use the private stack copy, so no shared-memory re-fetch exists.
+    candidate: s02:drivers/net/tap.c:650 status=safe; tap_get_user copies vnet_hdr to the stack via copy_from_iter_full (line 647); the csum_start+csum_offset+2 check at 650-659 and virtio_net_hdr_to_skb at 709 both operate on the stack copy.
+    candidate: s02:net/packet/af_packet.c:2916 status=safe; packet_snd() (sendmsg path) uses a stack struct virtio_net_hdr vnet_hdr filled by packet_snd_vnet_parse->copy_from_iter_full (2439); virtio_net_hdr_to_skb at 2916 consumes the private stack copy.
+    candidate: s02:drivers/net/virtio_net.c:1024 status=safe; virtio_net_hdr_to_skb(skb, &hdr->hdr, ...) operates on the driver's own receive-path header (struct virtio_net_hdr_mrg_rxbuf in driver-managed memory built from virtqueue buffers), not on a concurrently-writable mmap'd user region; also an RX ingestion path rather than the untrusted TX csum_start/csum_offset ingestion this branch targets. Not fully traced to the DMA source, hence recorded rather than proven.
+    limitation: The reported tpacket_snd() finding's csum_start/csum_offset consequence is bounded: the second fetch at line 2719 goes through skb_partial_csum_set which independently re-validates against skb_headlen(skb), so the seed-style OOB during checksum computation requires divergence in hdr_len/gso/flags fields or their effect on skb sizing, not the csum pair alone; this weakens it to a validated-vs-used inconsistency hypothesis rather than a demonstrated memory-safety violation.
+    limitation: drivers/net/virtio_net.c:1024 header provenance (DMA-writable vs driver-private) was not fully traced; recorded as safe but unproven.
+    limitation: Other per-driver TX checksum-offload ingestion sites (e.g. drivers/net/ethernet/ibm/ibmveth.c:1297 skb_partial_csum_set) and vhost-net were not deeply audited; vhost-net does not assign skb->csum_start/csum_offset from guest memory directly in this tree (consumers go through tun/tap/virtio_net_hdr paths already classified).
+    limitation: No compile-time or dynamic reproducer was run; analysis is static line-level reading of the s02 snapshot.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/run5/agent-state/findings/i015.json
+- id: f003
+  description: |-
+    artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/run5/agent-state/findings/i005.json; branch=xsk-umem-fetch; snapshots=s04; missing=s01,s02,s03; findings=0; unresolved=1; execution_status=complete
+    candidate: s04:net/xdp/xsk_queue.h:199 status=safe; xskq_cons_read_desc() performs exactly the correct single-fetch pattern: '*desc = ring->desc[idx];' copies the whole struct xdp_desc (addr/len/options, 16 bytes) from the user-mmap'd TX ring into kernel-private memory in one structure assignment (line 199), then validates only that private copy via xskq_cons_is_valid_desc() (line 200 -> xp_aligned_validate_desc/xp_unaligned_validate_desc lines 133-170), and every downstream consumer (xsk_build_skb, drivers via xsk_tx_peek_desc) reads the priv...
+    candidate: s04:net/xdp/xsk_queue.h:224 status=safe; xskq_cons_read_desc_batch() (lines 214-236) copies each descriptor with 'descs[nb_entries] = ring->desc[idx];' into pool->tx_descs, a kvcalloc'd kernel array (xp_alloc_tx_descs, net/xdp/xsk_buff_pool.c:36-42), and validates that copy at line 225. Driver batch consumers (dpaa2-xsk.c:354-355/410, i40e_xsk.c:492-493, ice_xsk.c:923-924) then use pool->tx_descs entries, i.e. the validated private copies, never the shared ring.
+    candidate: s04:net/xdp/xsk_queue.h:115 status=safe; __xskq_cons_read_addr_unchecked() (lines 115-121) fetches the fill-ring u64 address once into the caller's local 'addr'; xp_check_unaligned/xp_check_aligned (net/xdp/xsk_buff_pool.c:409-421) validate and normalize that local, and __xp_alloc (lines 424-466) / xp_alloc_new_from_fq (lines 539-579) build xskb addresses from the validated local. Single fetch, private copy, no second read.
+    candidate: s04:net/xdp/xsk_queue.h:133 status=safe; Bounds arithmetic cannot wrap to bypass: xp_aligned_validate_desc checks chunk = addr & chunk_mask < pool->addrs_cnt and, when len != 0, that addr+len-1 lands in the same chunk, so a wrapping addr near U64_MAX is rejected because its aligned chunk exceeds addrs_cnt. xp_unaligned_validate_desc checks len <= chunk_size, base_addr < addrs_cnt, and addr (48-bit base + 16-bit offset, no u64 overflow) < addrs_cnt; xp_desc_crosses_non_contig_pg (include/net/xsk_buff_pool.h:175-190) computes (addr & ...
+    candidate: s04:net/xdp/xsk.c:443 status=safe; xsk_build_skb_zerocopy() (lines 424-465) takes 'addr = desc->addr; len = desc->len;' from the private struct xdp_desc filled by xskq_cons_peek_desc and uses only these locals for page iteration (pool->umem->pgs[addr >> PAGE_SHIFT]) and skb length; no shared-memory re-read.
+    candidate: s04:net/xdp/xsk.c:489 status=safe; xsk_build_skb() (lines 466-512) uses 'len = desc->len' to size sock_alloc_send_skb(hr + len + tr) and skb_put(skb, len), and 'xsk_buff_raw_get_data(xs->pool, desc->addr)' then skb_store_bits(skb, 0, buffer, len) - all from the private descriptor validated by xp_validate_desc; the UMEM bytes copied are packet content, whose concurrent modification is inherent to AF_XDP, not a validated-offset TOCTOU.
+    candidate: s04:net/xdp/xsk.c:317 status=safe; xsk_tx_peek_desc() (lines 317-345) fills the caller's struct xdp_desc through xskq_cons_peek_desc (single copy + validate) and uses desc->addr of that private copy for the completion-ring reservation xskq_prod_reserve_addr(pool->cq, desc->addr); no second fetch of ring memory for the decision.
+    candidate: s04:drivers/net/ethernet/freescale/dpaa2/dpaa2-xsk.c:354 status=safe; dpaa2_xsk_tx_build_fd() uses xdp_desc->addr/len sourced from pool->tx_descs filled by xsk_tx_peek_release_desc_batch (line 410), i.e. the kernel-private validated batch array; xsk_buff_raw_get_dma/xsk_buff_raw_dma_sync_for_device consume that same private copy.
+    limitation: Driver TX consumers beyond the eight inspected in depth (dpaa2, i40e, ice, igc, ixgbe, mlx5, nfp, stmmac) were verified only by grep for the desc-flow APIs; each follows the same xsk_tx_peek_desc/xsk_tx_peek_release_desc_batch private-copy contract, but a line-by-line read of every driver was not completed.
+    limitation: Concurrent modification of packet CONTENTS inside UMEM frames (which zero-copy DMA inherently exposes) is out of scope; this audit only covers the validated-field TOCTOU invariant on ring/header values (addr/len/offset/flags) that drive kernel bounds decisions.
+    limitation: RX-side ring production (xskq_prod_*) writes kernel-chosen values into shared rings and reads only producer/consumer indices once per batch via smp_load_acquire/READ_ONCE; only a spot check of those index fetches was performed, not a proof.
+    limitation: The vhost/virtio, AF_PACKET TPACKET, and generic TX csum_start/csum_offset branches are covered by separate intents (i006-i017) and were not searched here.
+    structured artifact=/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/run5/agent-state/findings/i005.json
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794396092545
+  created_at: 1794395860902
+  concluded_at: 1794396092545
+- id: i002
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=xsk-umem-fetch; Direct structural/API analogue of the seed. Search only snapshots/s01. Hunt AF_XDP/UMEM shared-memory consumers: net/xdp core and any driver call sites of xsk_tx_metadata, xsk buff pool helpers, and UMEM/fill-ring/complete-ring field accessors, for values from mmap''d shared memory (desc addr/len, request fields, timestamps, offsets) that are read twice with validation on one fetch and use from the re-read, fetched without a private once-only copy, or whose addr+offset+length bounds arithmetic can overflow the check. Do not report the seed fix site xsk_skb_metadata itself. Save a structured artifact for snapshots/s01 with execution_status and exact file/line evidence for each candidate or an evidence-backed negative.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358814
+  created_at: 1794396818279
+  concluded_at: null
+- id: i003
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=xsk-umem-fetch; Direct structural/API analogue of the seed. Search only snapshots/s02. Examine every AF_XDP/UMEM consumer present in this snapshot: net/xdp core plus any driver users of xsk_tx_metadata and UMEM/ring fields; flag double fetches where a value validated from the shared region is re-read at use time, missing READ_ONCE/private-copy snapshotting, and addr/len/offset sums that can overflow their bounds check; exclude the seed fix site xsk_skb_metadata from reporting. Save a structured artifact for snapshots/s02 with execution_status and concrete source evidence, including negatives.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358835
+  created_at: 1794396818280
+  concluded_at: null
+- id: i004
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=xsk-umem-fetch; Direct structural/API analogue of the seed. Search only snapshots/s03. Trace AF_XDP/UMEM shared-memory data flow in this snapshot: xsk_tx_metadata users, xsk buff pool and ring accessors in net/xdp and drivers; identify desc addr/len, request, or metadata fields fetched more than once from concurrently-writable memory so the checked and used values can diverge, and any offset/length validation whose arithmetic can wrap. Never report the seed fix site xsk_skb_metadata. Save a structured artifact for snapshots/s03 with execution_status and exact file/line evidence for each candidate or a concrete negative result.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358770
+  created_at: 1794396818281
+  concluded_at: null
+- id: i005
+  sources:
+  - origin
+  - f001
+  target_fact: f003
+  description: 'SNAPSHOT=s04; BRANCH=xsk-umem-fetch; Direct structural/API analogue of the seed. Search only snapshots/s04. Audit AF_XDP/UMEM consumers in this snapshot for the checked-once/used-twice pattern: any net/xdp or driver code taking desc addr/len, request fields, or metadata offsets from mmap''d UMEM/rings that re-reads shared memory between validation and use, lacks a once-only private fetch, or performs bounds arithmetic prone to overflow; the seed fix site xsk_skb_metadata is demonstration only and must not be reported. Save a structured artifact for snapshots/s04 with execution_status and exact source evidence, including evidence-backed negatives.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794399480279
+  created_at: 1794396818282
+  concluded_at: 1794399480279
+- id: i006
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=vhost-vring-fetch; Trust-boundary and concurrency analogue: guest-memory double fetch in virtio/vhost. Search only snapshots/s01. Hunt drivers/vhost and virtio ring/backend code where vring descriptor addr/len/flags/next, avail idx/flags, or used-ring entries are fetched from guest-shared memory more than once — validated on one fetch (range checks, iovec sizing, count/limit checks) and consumed from a re-read — so a racing guest can mutate the value between fetches; also flag missing READ_ONCE/lock coverage spanning both accesses. Save a structured artifact for snapshots/s01 with execution_status and exact file/line evidence for each candidate or an evidence-backed negative.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358820
+  created_at: 1794396818283
+  concluded_at: null
+- id: i007
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=vhost-vring-fetch; Trust-boundary and concurrency analogue: guest-memory double fetch in virtio/vhost. Search only snapshots/s02. Examine vhost and virtio ring/backend implementations in this snapshot for descriptor, avail-ring, and used-ring fields read twice from guest memory such that a concurrently-running guest can change len/addr/flags/idx between the validation fetch and the use fetch; include indirect descriptor tables and any translated iovec built from a stale fetch. Save a structured artifact for snapshots/s02 with execution_status and concrete source evidence, including negatives.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358311
+  created_at: 1794396818283
+  concluded_at: null
+- id: i008
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=vhost-vring-fetch; Trust-boundary and concurrency analogue: guest-memory double fetch in virtio/vhost. Search only snapshots/s03. Trace every vring fetch in this snapshot''s virtio/vhost code: descriptor/avail/used values used for bounds or size decisions and then re-fetched for the actual copy/DMA, per-descriptor state re-read after a guest can act, and missing once-only caching across the two accesses. Save a structured artifact for snapshots/s03 with execution_status and exact file/line evidence for each candidate or a concrete negative result.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358787
+  created_at: 1794396818288
+  concluded_at: null
+- id: i009
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=vhost-vring-fetch; Trust-boundary and concurrency analogue: guest-memory double fetch in virtio/vhost. Search only snapshots/s04. Audit this snapshot''s drivers/vhost and virtio ring/backend paths for validate-then-refetch patterns on guest-writable vring memory: addr/len/flags/idx checked once and re-read at use, iovec or pinning built from one fetch while the copy uses another, and absence of READ_ONCE/locks spanning both. Save a structured artifact for snapshots/s04 with execution_status and exact source evidence, including evidence-backed negatives.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794396818290
+  concluded_at: null
+- id: i010
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=tpacket-ring-fetch; Equivalent data-flow invariant under a different API: AF_PACKET TPACKET mmap''d rings. Search only snapshots/s01. Hunt net/packet/af_packet.c TX/RX ring handling (TPACKET_V1/V2/V3) for block and per-packet header fields (tp_len, tp_snaplen, addrlen, status, macoff/netoff) fetched multiple times from the shared ring, bounds checks compared against a stale fetch, or unvalidated values driving offsets/lengths into kernel buffers or skb copies. Save a structured artifact for snapshots/s01 with execution_status and exact file/line evidence for each candidate or an evidence-backed negative.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358315
+  created_at: 1794396818291
+  concluded_at: null
+- id: i011
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=tpacket-ring-fetch; Equivalent data-flow invariant under a different API: AF_PACKET TPACKET mmap''d rings. Search only snapshots/s02. Examine this snapshot''s af_packet.c tpacket paths for the checked-once/used-twice pattern on user-shared ring headers: tp_status/tp_len/tp_snaplen and block-descriptor fields read for validation and re-read for use, lengths and offsets consumed without validation against the true block/frame bounds, and any offset arithmetic that can overflow. Save a structured artifact for snapshots/s02 with execution_status and concrete source evidence, including negatives.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358829
+  created_at: 1794396818292
+  concluded_at: null
+- id: i012
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=tpacket-ring-fetch; Equivalent data-flow invariant under a different API: AF_PACKET TPACKET mmap''d rings. Search only snapshots/s03. Trace TX and RX tpacket code in this snapshot: every field from the mmap''d ring that the kernel dereferences in place (header lengths, snaplen, addresses, status) should be fetched exactly once, validated against real frame/block bounds, and used from the private copy; flag each violation with exact lines. Save a structured artifact for snapshots/s03 with execution_status and exact file/line evidence for each candidate or a concrete negative result.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358317
+  created_at: 1794396818293
+  concluded_at: null
+- id: i013
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=tpacket-ring-fetch; Equivalent data-flow invariant under a different API: AF_PACKET TPACKET mmap''d rings. Search only snapshots/s04. Audit this snapshot''s net/packet TPACKET handling for multi-fetch of shared ring state: packet/block headers validated on one read and re-read at use, missing revalidation after user status changes, and lengths/offsets consumed without checking them against the mapped block and frame sizes. Save a structured artifact for snapshots/s04 with execution_status and exact source evidence, including evidence-backed negatives.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358824
+  created_at: 1794396818293
+  concluded_at: null
+- id: i014
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=tx-csum-invariant; Cross-subsystem consequence-site analogue: TX checksum-offload ingestion of untrusted csum_start/csum_offset. Search only snapshots/s01. Hunt every site assigning skb->csum_start/csum_offset from external input — tun/tap virtio_net_hdr and virtio_net_hdr_v1 processing, virtio-net, vhost-net, and any other TX checksum-offload ingestion — and verify the invariant csum_start + csum_offset + sizeof(__sum16) fits within the validated frame/linear length; flag sites where the check is absent, computed against the wrong length, or performed on a value later re-read from shared memory. Save a structured artifact for snapshots/s01 with execution_status and exact file/line evidence for each candidate or an evidence-backed negative.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358323
+  created_at: 1794396818294
+  concluded_at: null
+- id: i015
+  sources:
+  - origin
+  - f001
+  target_fact: f002
+  description: 'SNAPSHOT=s02; BRANCH=tx-csum-invariant; Cross-subsystem consequence-site analogue: TX checksum-offload ingestion of untrusted csum_start/csum_offset. Search only snapshots/s02. Examine this snapshot''s tun/tap vnet_hdr, virtio-net, vhost-net, and equivalent checksum-offload paths for assignments of skb->csum_start/csum_offset; check each for a bounds assertion of csum_start + csum_offset + 2 bytes against the actual head/linear data length and against the value actually consumed; report missing, wrong-operand, or double-fetched variants. Save a structured artifact for snapshots/s02 with execution_status and concrete source evidence, including negatives.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794399427264
+  created_at: 1794396818295
+  concluded_at: 1794399427264
+- id: i016
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=tx-csum-invariant; Cross-subsystem consequence-site analogue: TX checksum-offload ingestion of untrusted csum_start/csum_offset. Search only snapshots/s03. Trace this snapshot''s checksum-offload ingestion: every vnet_hdr/virtio/vhost/xdp-derived csum_start/csum_offset assignment feeding skb checksum computation, verifying the offset sum is validated once against the true frame bounds and the validated value is the one used; flag overflow-prone sums, checks against stale lengths, and re-reads of the header fields. Save a structured artifact for snapshots/s03 with execution_status and exact file/line evidence for each candidate or a concrete negative result.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358817
+  created_at: 1794396818295
+  concluded_at: null
+- id: i017
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=tx-csum-invariant; Cross-subsystem consequence-site analogue: TX checksum-offload ingestion of untrusted csum_start/csum_offset. Search only snapshots/s04. Audit all TX checksum-offload sites in this snapshot that set skb->csum_start/csum_offset from peer-supplied headers (tun/tap, virtio-net, vhost-net, paravirtual or offload drivers); confirm or refute the invariant that csum_start + csum_offset + sizeof(__sum16) lies within the validated packet length on the exact fetched values, and record every violation with exact lines. Save a structured artifact for snapshots/s04 with execution_status and exact source evidence, including evidence-backed negatives.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794400358328
+  created_at: 1794396818296
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794395860838
+
+```
+
+### Current Intent
+```
+i009
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s04; BRANCH=vhost-vring-fetch; Trust-boundary and concurrency analogue: guest-memory double fetch in virtio/vhost. Search only snapshots/s04. Audit this snapshot's drivers/vhost and virtio ring/backend paths for validate-then-refetch patterns on guest-writable vring memory: addr/len/flags/idx checked once and re-read at use, iovec or pinning built from one fetch while the copy uses another, and absence of READ_ONCE/locks spanning both. Save a structured artifact for snapshots/s04 with execution_status and exact source evidence, including evidence-backed negatives.
+```
+

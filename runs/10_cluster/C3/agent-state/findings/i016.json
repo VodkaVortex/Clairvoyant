@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "helper-param-null-deref",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_main.c",
+      "start": 12774,
+      "end": 12776,
+      "quote": "br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC);\n\n\tnla_for_each_nested(attr, br_spec, rem) {",
+      "confidence": "medium",
+      "reason": "Cross-function form of the seed invariant on snapshot s03 (a form the prior s03 artifacts left unexamined; i40e/ice were only audited on s02). Untrusted source: a userspace rtnetlink RTM_SETLINK/PF_BRIDGE message; the dispatcher rtnl_bridge_setlink (net/core/rtnetlink.c:4886-4920) fetches its own br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC) and guards it with 'if (br_spec)', but on the BRIDGE_FLAGS_SELF path it forwards the RAW nlh to dev->netdev_ops->ndo_bridge_setlink(dev, nlh, flags, extack) at line 4920, delegating the IFLA_AF_SPEC presence decision to the driver callback. IFLA_AF_SPEC is policy-optional (net/core/rtnetlink.c:1855 '[IFLA_AF_SPEC] = { .type = NLA_NESTED }', no required semantics), and nlmsg_find_attr returns NULL when absent, so an attacker-crafted message with IFLA_BRIDGE_FLAGS=BRIDGE_FLAGS_SELF and no IFLA_AF_SPEC yields br_spec == NULL. Violated invariant (validated != used, cross-function): the caller-side 'if (br_spec)' guard in the dispatcher does NOT cover the driver's independent re-fetch; i40e_ndo_bridge_setlink (drivers/net/ethernet/intel/i40e/i40e_main.c:12752-12777, registered via .ndo_bridge_setlink = i40e_ndo_bridge_setlink at line 13277) performs no presence check of its own on the exact attribute it consumes. Unsafe use: the NULL local br_spec is passed as the nesting attribute into the macro wrapper nla_for_each_nested(attr, br_spec, rem) at line 12776, which expands to nla_for_each_attr(pos, nla_data(nla), nla_len(nla), rem) and immediately dereferences the NULL pointer (nla->nla_len read) \u2014 the same NULL-attribute-into-nested-helper mechanism as the seed. Consequence: NULL-pointer-dereference kernel oops (local DoS) from a netlink message crafted to reach this driver path. Counterevidence checked: the s02-twin finding (fact f003/i009) verified the sibling drivers bnxt, be2net, ixgbe and mlx5 all guard with 'if (!br_spec) return -EINVAL;' before the identical loop; on this snapshot the i40e site at 12774-12776 and the identical ice site at 6651-6653 were read directly and both lack any NULL check between the nlmsg_find_attr assignment and the nla_for_each_nested use; rtnl_bridge_getlink/setlink core paths are guarded (4886-4888, 4963-4965)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_main.c",
+      "start": 6651,
+      "end": 6653,
+      "quote": "br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC);\n\n\tnla_for_each_nested(attr, br_spec, rem) {",
+      "confidence": "medium",
+      "reason": "Same cross-function mechanism in the second unguarded driver on s03. Untrusted source: userspace RTM_SETLINK/PF_BRIDGE netlink message forwarded with the raw nlh from rtnl_bridge_setlink's BRIDGE_FLAGS_SELF path (net/core/rtnetlink.c:4920, err = dev->netdev_ops->ndo_bridge_setlink(dev, nlh, flags, extack)). Violated invariant: ice_bridge_setlink (drivers/net/ethernet/intel/ice/ice_main.c:6637-6676, registered via .ndo_bridge_setlink = ice_bridge_setlink at line 6979) fetches br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC) at line 6651 with NO NULL/presence check \u2014 neither its own nor the dispatcher's covers this independent re-fetch, and the IFLA_AF_SPEC policy entry at net/core/rtnetlink.c:1855 is plain optional { .type = NLA_NESTED }, so an attacker message omitting IFLA_AF_SPEC passes core validation. Unsafe use: the NULL local is passed as the nesting attribute to the nla_for_each_nested macro wrapper at line 6653, whose expansion calls nla_data(nla)/nla_len(nla) on it (NULL deref). Consequence: kernel NULL-pointer-dereference oops (local DoS) from the crafted RTM_SETLINK message. Counterevidence checked: lines 6643-6653 read directly \u2014 no 'if (!br_spec)' between assignment and use; the sibling guard pattern exists in other drivers per the s02 audit; core dispatch paths guard their own copies."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_main.c",
+      "line": 12776,
+      "status": "reported",
+      "reason": "i40e_ndo_bridge_setlink: br_spec from nlmsg_find_attr (12774) fed to nla_for_each_nested (12776) with no NULL check; rtnl_bridge_setlink forwards raw nlh on BRIDGE_FLAGS_SELF (rtnetlink.c:4920); IFLA_AF_SPEC optional in ifla_policy (1855)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_main.c",
+      "line": 6653,
+      "status": "reported",
+      "reason": "ice_bridge_setlink: identical unguarded br_spec into nla_for_each_nested (6651->6653); same dispatcher path and optional policy entry."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/rtnetlink.c",
+      "line": 4888,
+      "status": "safe",
+      "reason": "rtnl_bridge_setlink guards its own br_spec with 'if (br_spec)' (4887) before nla_for_each_nested (4888); the trailing memcpy(nla_data(attr),...) in the loop path only runs under have_flags set in the same guarded iteration; rtnl_bridge_dellink is identically guarded (4963-4965). The gap is only in the drivers it forwards raw nlh to."
+    },
+    {
+      "snapshot": "s03",
+      "path": "lib/nlattr.c",
+      "line": 92,
+      "status": "safe",
+      "reason": "lib/nlattr.c helper functions (validate_nla_bitfield32, nla_policy_len, nla_strscpy, nla_strdup, nla_memcmp etc.) are the core attribute primitives; they dereference their nlattr* parameter by contract (documented non-NULL) and every in-tree caller passes an already-validated attribute from a parse loop or guarded slot; they are the library itself, not handler dispatch surfaces."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_tables_api.c",
+      "line": 9191,
+      "status": "safe",
+      "reason": "nft_parse_register (9191) and nft_parse_u32_check (9178) dereference their attr parameter without NULL checks, but they are library helpers for expression init callbacks; the prior s03 unchecked-tb-deref audit (fact f011) verified the highest-density expression consumers (nft_ct select_ops gating) and the nested-parse audit (fact f002/i012) verified the nf_tables nested-parse sites are slot-guarded; the remaining deep expression-by-expression pass belongs to the kind-callback-tb-gaps branch (i019), not this helper-parameter branch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/openvswitch/flow_netlink.c",
+      "line": 2638,
+      "status": "unresolved",
+      "reason": "The OVS flow_netlink.c/action parsers (29 helper-parameter deref candidates, the largest cluster on s03: genev/erspan_tun_opt_from_nlattr, validate_and_copy_set_tun, ovs_nla_get_ufid, __ovs_nla_copy_actions and the actions.c/conntrack.c consumers) dereference nlattr* parameters without in-helper NULL checks. The OVS datapath command handlers (ovs_dp_change, ovs_vport_cmd_set, ovs_flow_cmd_new/set) are reachable via the OVS genl family (GENL_UNS_ADMIN_PERM), but caller-side presence coverage for each helper parameter was not traced within this session's budget before the finalize directive; recorded as the primary remaining surface for this branch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/xfrm/xfrm_user.c",
+      "line": 8,
+      "status": "unresolved",
+      "reason": "xfrm_user.c contains 8 helper functions dereferencing struct nlattr* parameters without own NULL checks (copy_to_user_* style parse helpers); xfrm netlink requires CAP_NET_ADMIN (xfrm_user_rcv_msg), satisfiable in a userns for some handlers; caller-side slot coverage not traced before finalize."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/sched/sch_netem.c",
+      "line": 7,
+      "status": "unresolved",
+      "reason": "sch_netem.c has 7 nlattr-parameter helper candidates (netem qdisc option parsers consuming nested TCA_* attributes); net/sched kind init/change callbacks belong to the kind-callback-tb-gaps branch (i019); helper-parameter NULL-coverage not traced here."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/seg6_local.c",
+      "line": 7,
+      "status": "unresolved",
+      "reason": "seg6_local.c parse_nla_* callbacks (7 candidates) consume per-attribute nlattr* from the seg6local attribute table; the s01 twin audit (fact f014/i014) spot-checked these as caller-gated but the s03 instances were not re-verified line-by-line in this session."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/devlink.c",
+      "line": 5,
+      "status": "unresolved",
+      "reason": "devlink.c has 5 nlattr-parameter deref candidates in its command helpers; devlink genl ops are GENL_UNS_ADMIN_PERM (userns reachable); caller coverage not traced before finalize."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/wireless/nl80211.c",
+      "line": 8,
+      "status": "unresolved",
+      "reason": "nl80211.c contains 8 helper-parameter candidates; nl80211 requires CFG80211 admin capability per op; the per-helper caller audit was not completed here (prior s03 artifacts also listed nl80211 as spot-check-only)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/vxlan.c",
+      "line": 1192,
+      "status": "unresolved",
+      "reason": "vxlan_fdb_parse (line ~1192) and other vxlan helpers consume tb[] slots as parameters without own NULL checks; the prior s03 rtnl audit (fact f008/i013) classified the vxlan_changelink->vxlan_nl2conf path unresolved; per-parameter coverage remains unverified (also listed for i019)."
+    }
+  ],
+  "limitations": [
+    "The helper-parameter surface was enumerated by a static scan over all .c files for functions taking 'struct nlattr *' (or a local holding a slot) that dereference the parameter (nla_get_*/nla_data/nla_len/nla_parse_nested*/nla_validate_nested*/nla_for_each_nested) without an in-function NULL check; 253 candidate functions in 99 files were found, of which only the i40e/ice br_spec flows (reported), lib/nlattr.c, nf_tables_api.c, and rtnetlink.c core (safe) were fully traced; the remaining clusters (openvswitch flow_netlink.c/actions.c/conntrack.c 43 sites, xfrm_user.c 8, sch_netem.c 7, seg6_local.c 7, cls_flower.c 5, devlink.c 5, macsec.c 5, plus ~170 more across 90 files) are unresolved and listed as the bounded remainder for this branch.",
+    "The two reported findings rest on the same static mechanism verified for the s02 twins (fact f003/i009): nlmsg_find_attr returning NULL for an absent optional attribute, nla_for_each_nested expanding to nla_data(nla)/nla_len(nla), and the rtnl_bridge_setlink BRIDGE_FLAGS_SELF raw-nlh forward at net/core/rtnetlink.c:4920; no runtime reproducer or compilation was run (read-only snapshot, no top-level Makefile/Kconfig), and triggering additionally requires an i40e or ice NIC present with the device up (a PF VSI in the vulnerable state), so impact on such hardware is a static hypothesis.",
+    "Permission reachability of RTM_SETLINK/PF_BRIDGE requires CAP_NET_ADMIN in the governing user namespace (satisfiable by an unprivileged user via unshare -Urn); the exact permission check on the rtnl_bridge_setlink doit dispatch was not re-verified line-by-line on this snapshot.",
+    "Search was truncated by the finalize directive: prior-session data (checkpoint + facts f002/f011/f008) was used to delimit the already-reported mac802154_hwsim.c handlers (not re-reported) and the already-audited safe sites (nl802154.c, macsec.c parse_sa_config, ip_vs_ctl.c, netlabel_cipso_v4.c, act_api.c find_dump_kind, mac80211_hwsim.c guards, l2tp_netlink.c, ncsi-netlink.c), so those files' helper-parameter surfaces were not re-scanned in this session.",
+    "Kernel-side dump/notify builders that only construct attributes were excluded from scope per the intent description; no negative proof is claimed for them."
+  ]
+}

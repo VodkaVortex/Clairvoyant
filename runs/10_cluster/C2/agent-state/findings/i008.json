@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "l2-wireless-ie-tlv",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/a2mp.c",
+      "start": 611,
+      "end": 691,
+      "quote": "\t\tif (len > skb->len || !hdr->ident) {\n\t\t\terr = -EINVAL;\n\t\t\tbreak;\n\t\t}",
+      "confidence": "medium",
+      "reason": "Untrusted source: a2mp_chan_recv_cb() iterates A2MP signalling commands received over the L2CAP A2MP fixed channel (net/bluetooth/a2mp.c:603); every byte of hdr (code/ident/len) and the command payload is attacker-controlled remote Bluetooth data. Missing guarantee: the TLV walk at 611-624 consumes the 4-byte a2mp_cmd header via skb_pull(skb, sizeof(*hdr)) and validates the length byte pair BEFORE the pull (len > skb->len checked against the pre-pull skb->len, so the remaining-body check is one header too conservative, not too permissive) and rejects ident==0; however the loop terminates with break when validation fails or a handler errors, and the error path at 682-692 then re-reads 'hdr = (void *) skb->data; BT_DBG(..., hdr->code, err); a2mp_send(mgr, A2MP_COMMAND_REJ, hdr->ident, ...)'. Because skb_pull already advanced skb->data by 4 bytes and the final iteration may have consumed all remaining bytes (e.g. a single 4-byte A2MP command with ident==0, or a handler that consumed its body, or simply skb->len==0 at loop exit), hdr->code and hdr->ident are dereferenced past the end of the (possibly zero-length) skb data region -- a read of packet-adjacent skb memory driven solely by remotely supplied bytes, matching the seed mechanism of pointer/length bookkeeping diverging from true buffer bounds in a TLV command walk. Counterevidence checked: the same file's per-command handlers (a2mp_discover_req/rsp etc.) consistently guard 'le16_to_cpu(hdr->len) < sizeof(*req)' and 'while (len >= sizeof(*cl))' with matching skb_pull of le16_to_cpu(hdr->len) at lines 466/546/598, so the body walks themselves are clamped; the over-read is confined to the 1-2 byte hdr->code/hdr->ident re-dereference on the shared error path (info is not propagated to the peer -- BT_DBG only, and hdr->ident only echoes back a byte the attacker supplied -- so impact is an OOB read visible to KASAN/UMR detectors rather than a proven info leak)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/mac80211/util.c",
+      "line": 785,
+      "status": "safe",
+      "reason": "ieee802_11_parse_elems_crc (line 770) guards the TLV walk with 'while (left >= 2)' before reading id=*pos++ and elen=*pos++ (789-791), then checks 'if (elen > left) { parse_error; break; }' (793-796) before any body dereference; duplicate-element fast path also advances pos+=elen/left-=elen only after that clamp. This is the exact fixed-shape the seed patch added; no missing >=2 check or unvalidated advance found."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/wireless/radiotap.c",
+      "line": 96,
+      "status": "safe",
+      "reason": "ieee80211_radiotap_iterator_init (96-163) enforces max_length >= it_len, bounds each extended-present bitmap read with an explicit '_arg - _rtheader + sizeof(uint32_t) > _max_length' check before dereferencing (128-131, 142-146); iterator_next (212-369) bounds-checks the vendor-namespace OUI/subns/length read (280-283) and every arg advance (316-319) against _max_length before returning the arg. Bitmap is fixed-shape rather than byte-TLV, and every size used is a registered table size, not an attacker length byte."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/a2mp.c",
+      "line": 611,
+      "status": "reported",
+      "reason": "A2MP signalling TLV walk: header consumed via skb_pull before the shared error path re-dereferences hdr->code/hdr->ident from post-pull skb->data which can be at/past the buffer end (finding above)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/a2mp.c",
+      "line": 157,
+      "status": "safe",
+      "reason": "a2mp_discover_req/rsp ext-feature and controller-list loops guard each step with 'len < sizeof(ext_feat)' / 'while (len >= sizeof(*cl))' / 'while (skb->len >= sizeof(*cl))' (157-163, 217-241, 279) and pull exactly the consumed sizes (466, 546, 598); no unvalidated element-length advance."
+    }
+  ],
+  "limitations": [
+    "The audit of branch l2-wireless-ie-tlv was truncated by the finalize directive: only net/mac80211/util.c ieee802_11_parse_elems_crc, net/wireless/radiotap.c, and net/bluetooth/a2mp.c were read in depth; the remaining cfg80211 scan/scan.c and nl80211.c IE walkers, mac80211 rx.c/mlme.c/spectmgmt.c/tdls.c/mesh (mesh_plink.c, ieee80211_mesh_sync) sub-parsers, net/bluetooth/hci_event.c extended-event (LE Extended Advertising Report, AMP) TLV loops, hci_request.c/mgmt.c EIR append walks, l2cap_core.c info/conf option parsing, and drivers/net/wireless vendor IE parsers in s01 were not examined line-by-line.",
+    "The reported a2mp error-path over-read is a 1-2 byte read of hdr->code/hdr->ident from skb tail-adjacent memory whose bytes are not reflected to the attacker (BT_DBG value and echoed ident only); it is confirmed only by source reasoning, not by KASAN/compiled reproducer, and pre-'len > skb->len' header validation makes some but not all exits (ident==0 with exactly 4 bytes left, or a handler consuming the whole body then erroring) leave skb->len==0 at the dereference.",
+    "No check was made of other snapshots (s02, s03) -- out of scope for this intent."
+  ]
+}

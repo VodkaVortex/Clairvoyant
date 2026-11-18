@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "intent_id": "i027",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s07"
+  ],
+  "findings": [
+    {
+      "snapshot": "s07",
+      "path": "drivers/md/raid5-ppl.c",
+      "start": 976,
+      "end": 988,
+      "quote": "for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++) {\n\t\tstruct ppl_header_entry *e = &pplhdr->entries[i];\n\t\tu32 pp_size = le32_to_cpu(e->pp_size);",
+      "confidence": "medium",
+      "reason": "Untrusted source: pplhdr->entries_count is a raw __le32 field of the on-disk Partial Parity Log header (struct ppl_header, include/uapi/linux/raid/md_p.h:420-428), read from the member device by ppl_load_distributed() via sync_page_io() into a single 4096-byte page (raid5-ppl.c:1093-1104). A corrupted or malicious disk / tampered PPL area crosses a trust boundary into kernel state exactly like the seed's wire count. Missing clamp (asymmetric validation): the header-validity gate at the parse site (lines 1106-1143) checks only CRC over PAGE_SIZE, signature, and generation -- none of them constrains entries_count -- and no clamp against the known array capacity PPL_HDR_MAX_ENTRIES = PPL_HDR_ENTRY_SPACE/sizeof(struct ppl_header_entry) = 64 (md_p.h:413-418, entries[64] ends the 4KB page) exists anywhere on the read/recovery path; grep over the whole file shows the only entries_count guards are the >0 test at line 315 and the WRITE-path fullness test 'io->entries_count == PPL_HDR_MAX_ENTRIES' at lines 280-281, i.e. the producing direction enforces the cap the consuming direction omits -- the submit-vs-return mirror asymmetry of the seed. Unsafe use (consumers): ppl_recover() line 976 iterates the unclamped on-disk count and line 977 indexes pplhdr->entries[i] past the 64-entry page for i>=64 (OOB read of the 4096-byte page into e->pp_size/e->checksum/e->data_sector); ppl_load_distributed() line 1151-1153 independently iterates the same unclamped count to advance pplhdr_offset by OOB-fetched pp_size>>9 values, steering subsequent sync_page_io reads; ppl_recover_entry() (lines 799-800) consumes e->pp_size/e->data_size as data_disks = data_size/pp_size and strip_sectors loop bounds with no local cross-check against chunk_sectors/block_size. Counterevidence checked: the write/producing path enforces the cap (line 281, ppl_submit_iounit line 444/456 stores only the kernel-maintained io->entries_count), and the CRC check (line 1107-1111) covers the header page but does not bound the count field; the seed usbip family in s07 is PATCHED (usbip_common.c:482-485 clamps rpdu->number_of_packets to 0 on violation, :685-693 re-validates and resets urb->number_of_packets), so this finding is a different-location variant, not the seed."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s07",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 976,
+      "status": "reported",
+      "reason": "ppl_recover() consumes on-disk pplhdr->entries_count with no clamp against PPL_HDR_MAX_ENTRIES (64); the parse site (ppl_load_distributed 1106-1143) validates only CRC/signature/generation; reported as findings[0]."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 1151,
+      "status": "reported",
+      "reason": "Second unclamped consumer of the same on-disk count in ppl_load_distributed(): 'for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++) pplhdr_offset += le32_to_cpu(pplhdr->entries[i].pp_size) >> 9;' -- same missing cap; part of the reported finding."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 784,
+      "status": "reported",
+      "reason": "ppl_recover_entry() consumes e->pp_size/e->data_size (disk __le32) as data_disks = data_size/pp_size and strip_sectors loop bounds with no local cross-check; for i>=64 these values are themselves OOB-fetched past the header page; part of the reported chain."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 281,
+      "status": "safe",
+      "reason": "Write/producing path enforces the cap: 'io && (io->pp_size == log->entry_space || io->entries_count == PPL_HDR_MAX_ENTRIES)' blocks adding entries, and ppl_submit_iounit loops only over the kernel-maintained io->entries_count before storing it at line 456; this is the enforcing sibling direction proving the asymmetric validation."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 482,
+      "status": "safe",
+      "reason": "Seed family present in s07 but PATCHED: usbip_pack_ret_submit unpack clamps 'if (rpdu->number_of_packets < 0 || rpdu->number_of_packets > urb->number_of_packets) rpdu->number_of_packets = 0;' (482-485) before storing, and usbip_recv_iso re-validates (685-693) and resets urb->number_of_packets; additionally excluded from findings by the seed-never-reportable rule."
+    }
+  ],
+  "limitations": [
+    "The reported finding's attacker is a corrupted/tampered disk or PPL area (on-disk metadata trust boundary), weaker than the seed's remote network peer; forging the CRC/signature requires write access to the PPL area, and impact beyond the OOB 4KB-page read and attacker-steered recovery offsets (what memory follows the page, whether recovered parity data is exposed) was not proven.",
+    "Bounded sweep for this branch: the finalize directive stopped the audit; the deserialization entry points deep-read in s07 were drivers/md/raid5-ppl.c (PPL header load/recover), drivers/md/dm-era-target.c, and the seed usbip family (verified patched). High-hit files located by the wire-count-store sweep (le/be*_to_cpu, get_unaligned, ntoh*) but NOT deep-read include fs/ocfs2/refcounttree.c, fs/ocfs2/xattr.c, fs/f2fs/super.c, fs/ntfs3/fslog.c (range_count at 4565), drivers/net/wireless/ath/ath12k|ath10k wmi/htt handlers, drivers/gpu/drm/amd/amdgpu_discovery.c, and the network admin-queue reply handlers -- an unclamped-wire-count variant there cannot be ruled out.",
+    "parse_dfs_referrals (fs/cifs/misc.c) and other network protocol reply parsers (ceph, 9p, ksmbd, tipc monitor) were examined in sibling snapshots (s05: ceph nsplits reported, tipc/xfrm/nexthop verified clamped) but not re-walked in s07 before the finalize directive; their s07 instances are unexamined for this branch.",
+    "No compilation, static analysis, or runtime reproducer was run (assigned tree is read-only and md/raid5 PPL recovery requires a crafted block device); all conclusions come from direct numbered source reads (awk-verified line windows) of snapshots/s07 only."
+  ]
+}

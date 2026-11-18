@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "intent_id": "i018",
+  "branch": "alloc-multiply-overflow",
+  "status": "complete",
+  "snapshot": "s05",
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C9/agent-state/findings/i018.json",
+  "finding": "drivers/virt/fsl_hypervisor.c:218-240 - ioctl FSL_HV_IOCTL_MEMCPY: userspace u64 param.count truncated to unsigned int num_pages at line 221 ((count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT) with only a U64_MAX 64-bit-wrap guard, then kmalloc(num_pages * sizeof(struct fh_sg_list) + 31) plain 32-bit multiply at 239-240, get_user_pages_fast(num_pages) at 249, and for(i=1;i<num_pages;i++) sg_list[i] fill loop at 274-288 - the seed's truncate->under-allocate->element-loop heap OOB write chain.",
+  "candidates_classified": {
+    "reported": ["drivers/virt/fsl_hypervisor.c:239", "drivers/virt/fsl_hypervisor.c:274"],
+    "safe": ["fbcmap.c:94 (clamped by fb_set_user_cmap E2BIG check)", "enetc_cbdr.c:9 (constant bd_count)", "pvrdma_mr.c:213 (clamped to 128)", "gve_adminq.c:811 (kernel-derived num_entries)", "vringh.c:1295 (no alloc, ring-bounded)", "stm32-adc.c:1906", "fat/dir.c:1339", "bond_alb.c:128", "pci/quirks.c:5289", "amd/pmc.c:200", "sli4.c:4176"],
+    "unresolved": ["drivers/usb/usbip/usbip_common.c:579 (seed verbatim, excluded-by-rule)"]
+  },
+  "limitations": "Sweep bounded to narrow-typed size=count*sizeof assignments and raw-multiply allocator args (128 hits enumerated, narrow-typed ones all classified); remaining raw-multiply hits and count<<shift forms not exhaustively audited after finalize directive."
+}

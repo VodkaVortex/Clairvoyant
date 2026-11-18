@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "intent_id": "i043",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s11"
+  ],
+  "findings": [
+    {
+      "snapshot": "s11",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 240,
+      "quote": "num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: fsl_hv_ioctl_memcpy copies struct fsl_hv_ioctl_memcpy from userspace at line 165 (copy_from_user), so param.count is an attacker-controlled u64 byte count. Violated invariant: the line-218 check only rejects 64-bit wraparound (param.count > U64_MAX - lb_offset - PAGE_SIZE + 1); it does not bound the count before line 221 assigns the u64 byte sum into 'unsigned int num_pages' (declared line 155), a 64-to-32-bit truncating conversion with no clamp. Unsafe use: line 239 kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1, GFP_KERNEL) uses a plain 32-bit multiply-add with no overflow check, unlike the sibling overflow-checked kcalloc(num_pages, sizeof(struct page *), GFP_KERNEL) at line 229 in the same function (asymmetric validation). For param.count near 2^41 (plus lb_offset), num_pages truncates to ~2^29 and the 32-bit product num_pages * 32 wraps toward 0, so kmalloc returns a tiny buffer (as small as sizeof(*sg_list)-1 = 31 bytes). The consuming loops then trust the original num_pages: get_user_pages_fast(param.local_vaddr - lb_offset, num_pages, ...) at lines 249-250 and the element-indexed fill loop 'for (i = 1; i < num_pages; i++)' at lines 274-288 writes sg_list[i].source/.target/.size for every index, overflowing the undersized heap buffer; fh_partition_memcpy(..., num_pages) at lines 290-291 also consumes the full count. Counterevidence checked: the only guards are count==0 and 64-bit wraparound (218-220); no sanity cap on num_pages anywhere in the function; kcalloc at 229 does not protect the kmalloc at 239. Same mechanism instance previously confirmed in sibling snapshots (facts f002/f007/f014/f018/f021/f024/f032/f035/f038/f040). Confidence medium because practical triggering requires pinning ~2^27+ user pages via get_user_pages_fast before the fill loop, and the interface is the Freescale hypervisor /dev/fsl-hv misc device; the truncation and unchecked multiply-add themselves are unambiguous in source. Report is a hypothesis, not an exploit claim."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s11",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 578,
+      "status": "unresolved",
+      "reason": "SEED, EXCLUDED-BY-RULE (never reportable). Confirmed the seed mechanism is UNPATCHED in s11: usbip_alloc_iso_desc_pdu has 'int np = urb->number_of_packets; ssize_t size = np * sizeof(*iso);' at lines 554-555 with kzalloc(size) at 558, and usbip_recv_iso has the same unchecked signed multiply at lines 578-579 with kzalloc at 591 and 'for (i = 0; i < np; i++)' at 610; the wire store urb->number_of_packets = rpdu->number_of_packets is at line 387 and is not clamped on the RET_SUBMIT path (USBIP_MAX_ISO_PACKETS=1024 at usbip_common.h:130 is enforced only in stub_rx.c:368-373 on CMD_SUBMIT). Recorded as the seed instance only; per task rules it is excluded from findings."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/usb/usbip/stub_rx.c",
+      "line": 368,
+      "status": "safe",
+      "reason": "Enforcing sibling: CMD_SUBMIT path rejects number_of_packets < 0 or > USBIP_MAX_ISO_PACKETS before any allocation; demonstrates the asymmetric validation that the RET_SUBMIT direction lacks."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 229,
+      "status": "safe",
+      "reason": "kcalloc(num_pages, sizeof(struct page *), GFP_KERNEL) is the overflow-checked allocator API; the hazard is the plain-multiply kmalloc at lines 239-240 in the same function (reported as the finding)."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/fsi/fsi-occ.c",
+      "line": 283,
+      "status": "unresolved",
+      "reason": "Sweep hit: resp = kzalloc(resp_len << 2, GFP_KERNEL) at line 283 and buf = kzalloc(buf_len << 2, GFP_KERNEL) at line 333; resp_len/buf_len derive from OCC response headers read from device (SBEFIFO/FSI), a trust boundary. Not deep-read this session; left unresolved rather than reported because the truncation threshold and any later count-consuming loop were not verified."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/gpu/drm/msm/adreno/adreno_gpu.c",
+      "line": 529,
+      "status": "safe",
+      "reason": "kvmalloc(size << 2) where size is the (bounded) firmware section size already validated against the downloaded image; constant multiplier and bounded source."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/infiniband/hw/irdma/utils.c",
+      "line": 2448,
+      "status": "safe",
+      "reason": "kzalloc(pg_cnt << 3) with constant multiplier 8 and pg_cnt derived from validated MR lengths; requires implausible counts to wrap and no consumer loop trusts a larger count."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/iommu/dma-iommu.c",
+      "line": 602,
+      "status": "safe",
+      "reason": "Shift/multiply feeds a size bounded by sgtable geometry already validated upstream; not attacker-count driven."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/infiniband/sw/siw/siw_mem.c",
+      "line": 96,
+      "status": "safe",
+      "reason": "Page-count multiplies use 64-bit types (u64/size_t) throughout siw's pbl sizing, matching the upstream fix; verified in sibling snapshots of the same tree family."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/hwtracing/stm/core.c",
+      "line": 866,
+      "status": "safe",
+      "reason": "Multiplier arithmetic on policy/channel counts that are sysfs-created (root-only) and clamped; not a wire/ioctl trust boundary of the seed kind."
+    },
+    {
+      "snapshot": "s11",
+      "path": "block/ldm.c",
+      "line": 268,
+      "status": "unresolved",
+      "reason": "Known shape from sibling research: on-disk LDM metadata counts feeding size computations. Not re-verified line-by-line in s11 this session (bounded by the finalize directive); left unresolved."
+    }
+  ],
+  "limitations": [
+    "Sweep bounded to two regex families across the tree (narrow-typed '>> PAGE_SHIFT' style sizings and kmalloc/kzalloc calls with inline 'x * sizeof'/shift multiplies excluding kcalloc/array_size/struct_size users), plus targeted deep reads of fsl_hypervisor.c and the usbip seed; families such as memcpy-length computations and 'count * sizeof + constant' patterns outside allocations were not run tree-wide.",
+    "The fsi-occ.c device-response allocations (lines 283, 333) and block/ldm.c were identified by sweep but not deep-read in s11; their status remains unresolved.",
+    "The working-directory reset caused one failed relative-path verification; all reported line numbers for fsl_hypervisor.c (155, 165, 218-221, 229, 239-240, 249-250, 274-288, 290-291) were re-verified with absolute paths afterward; usbip_common.c line numbers (387, 554-555, 558, 562, 578-579, 591, 595, 610) were confirmed by grep earlier in the session but not re-printed after the failed call.",
+    "No runtime reproducer or compilation was performed (assigned snapshot is read-only; builds would go under $TMPDIR but the fsl-hv path requires Freescale QorIQ/powerpc hardware plus a hypervisor, so only static evidence is offered).",
+    "Exploitability of the fsl_hypervisor.c finding is bounded: it requires an attacker with access to the root-owned /dev/fsl-hv misc device and the ability to pin a very large number of user pages; the finding is a validated-source hypothesis, not an exploit claim."
+  ]
+}

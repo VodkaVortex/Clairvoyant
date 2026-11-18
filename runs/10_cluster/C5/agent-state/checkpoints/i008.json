@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "vm-shared-desc-rereads",
+  "status": "complete",
+  "snapshot": "s02",
+  "note": "Finalized: audited drivers/vhost/{vhost.c,vringh.c,net.c,vsock.c,scsi.c,test.c}, drivers/virtio/{virtio_ring.c,virtio.c,virtio_pci_*.c}, drivers/net/virtio_net.c, include/linux/virtio_net.h, net/core/skbuff.c. Descriptor tables are consistently snapshotted into a local struct vring_desc before use. Primary reported finding: drivers/net/virtio_net.c receive_buf() re-reads guest/device-writable virtio_net_hdr fields (hdr->hdr.flags read for CHECKSUM_UNNECESSARY decision, then hdr passed again to virtio_net_hdr_to_skb which re-reads flags/csum_start/csum_offset for validation and skb_partial_csum_set) without a single fetch; also num_buffers read twice in receive_mergeable.",
+  "candidates": [
+    {"path": "drivers/net/virtio_net.c", "line": 1018, "status": "reported", "reason": "receive_buf() reads shared vnet hdr flags at 1021 for checksum-validity decision, then re-reads all hdr fields inside virtio_net_hdr_to_skb at 1024; validated copy vs used copy can diverge under racing device/guest writer. No single fetch or READ_ONCE."},
+    {"path": "drivers/vhost/vhost.c", "line": 2071, "status": "safe", "reason": "vhost_get_vq_desc copies each descriptor into local 'struct vring_desc desc' via vhost_copy_from_user once; all later uses (flags/addr/len) read the local copy. next_desc READ_ONCE(desc->next) also reads the local copy."},
+    {"path": "drivers/vhost/vringh.c", "line": 255, "status": "safe", "reason": "__vringh_iov copies each descriptor into local 'struct vring_desc desc' and uses only the local copy including split-range retry arithmetic."},
+    {"path": "drivers/virtio/virtio_ring.c", "line": 698, "status": "safe", "reason": "virtqueue_get_buf_ctx reads used ring id once into local i, validates i < vring.num and desc_state[i].data before detach_buf; no second fetch of the same field."},
+    {"path": "drivers/vhost/vhost.c", "line": 1992, "status": "safe", "reason": "avail ring head read once into ring_head, converted to local head, bounds-checked head >= vq->num before use as index; subsequent loop re-validates each i."},
+    {"path": "drivers/net/virtio_net.c", "line": 765, "status": "unresolved", "reason": "num_buffers read at 765 into local num_buf for loop control; but line ~908 re-reads hdr->num_buffers only for a debug message after loop, so no validated-vs-used divergence. Minor, benign."}
+  ]
+}

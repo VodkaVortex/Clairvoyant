@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "intent_id": "i048",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": ["s12"],
+  "findings": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/scsi/pmcraid.c",
+      "start": 5027,
+      "end": 5033,
+      "quote": "for (i = 0; i < le16_to_cpu(pinstance->cfg_table->num_entries); i++) {\n\t\tif (be16_to_cpu(pinstance->inq_data->fw_version) <=\n\t\t\t\t\tPMCRAID_FW_VERSION_1)\n\t\t\tcfgte = &pinstance->cfg_table->entries[i];",
+      "confidence": "medium",
+      "reason": "Untrusted source: pinstance->cfg_table is a 10256-byte dma_alloc_coherent buffer (pmcraid.c:4401) that the adapter firmware fills via the PMCRAID_QUERY_IOA_CONFIG request (pmcraid_querycfg, pmcraid.c:5112-5157 DMAs sizeof(struct pmcraid_config_table)); the peer is the SCSI adapter, same class of device-written shared-memory protocol as the seed. Violated invariant: pmcraid_init_res_table() loops i < le16_to_cpu(cfg_table->num_entries) (u16 range 0-65535) but the table's entry arrays are fixed at entries[PMCRAID_MAX_RESOURCES]/entries_ext[PMCRAID_MAX_RESOURCES] with PMCRAID_MAX_RESOURCES=256 (pmcraid.h:109,360-370); rg confirms num_entries appears nowhere else in the driver - no clamp, no size cross-check. Asymmetric-validation evidence: sibling SCSI drivers enforce the same kind of reply-count clamp that this path lacks (megaraid_sas_base.c:4714 checks ci->count > MEGASAS_MAX_PD_CHANNELS*MEGASAS_MAX_DEV_PER_CHANNEL and 5050 checks count > MEGASAS_MAX_PD + MAX_LOGICAL_DRIVES_EXT before looping; mwl8k.c:2573 clamps num_of_ampdu_queues to MWL8K_MAX_AMPDU_QUEUES), so the pattern's required MAX check exists as a convention this mirror path skips. Unsafe use: for i>=256 cfgte points past the dma allocation; pmcraid_expose_resource() reads cfgte fields, memcmp uses &cfgte->resource_address, and the found-branch does memcpy(&res->cfg_entry, cfgte, pinstance->config_table_entry_size) (line 5077) copying 40-byte OOB device data into the kernel pmcraid_resource_entry, and the res_entries list is drained from free_res_q so the loop breaks only after 256 list entries are consumed. Counterevidence checked: the only other bound is list_empty(&free_res_q) which limits accepted entries to 256 but does NOT bound the cfgte reads before it; entries_ext has identical 40-byte elements so both branches overflow identically; the querycfg command length field does not validate num_entries.",
+      "conclusion": "PMC MaxRAID adapter-written config table num_entries (le16) is iterated in pmcraid_init_res_table with no clamp against the 256-entry entries[] arrays, so firmware reporting >256 drives OOB reads of cfgte and 40-byte OOB memcpy into kernel resource entries."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 473,
+      "status": "unresolved",
+      "reason": "Seed instance present and unpatched in s12: usbip_pack_ret_submit() stores rpdu->number_of_packets (ret_submit PDU from the remote peer) into urb->number_of_packets with no clamp (line 473), while the sibling submit direction stub_rx.c:379-381 enforces USBIP_MAX_ISO_PACKETS=1024; usbip_recv_iso() (line 659) still uses kzalloc(np*16). Excluded from findings by the never-report-the-seed rule.",
+      "conclusion": "Seed location confirmed unpatched in s12 and excluded by rule; follow up only to confirm it is tracked as the demonstration instance."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/scsi/esas2r/esas2r_main.c",
+      "line": 1443,
+      "status": "unresolved",
+      "reason": "ci->num_targets_backend = le32_to_cpu(ci->num_targets_backend) stores an adapter-provided count into the kernel aif_dev_io/counters struct with no visible clamp at the store site; its consumer loop was not read line-by-line in this session.",
+      "conclusion": "Follow up: read the num_targets_backend consumer loop and check it against the array it indexes (candidate for the same asymmetric-clamp pattern as pmcraid)."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/scsi/qla4xxx/ql4_nx.c",
+      "line": 2640,
+      "status": "unresolved",
+      "reason": "rddfe->count / rdmdio->count (le32) from device minidump template entries are looped on (2735-2765: for (loop_cnt = 0; loop_cnt < count; loop_cnt++) driving MMIO poll/write sequences) with no clamp observed at the conversion sites; only the poll loop bodies were read.",
+      "conclusion": "Follow up: verify the minidump entry-processing path cannot make the unbounded count loop corrupt state past entry-buffer accounting (MMIO-only loop, likely DoS-grade, not memory R/W)."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/wireless/quantenna/qtnfmac/commands.c",
+      "line": 1079,
+      "status": "safe",
+      "reason": "rec->n_limits (u8, max 255) sizes rec_len = sizeof(*rec)+n_limits*4 which must exactly equal the u16 tlv_value_len, then kcalloc(n_limits) and a loop of the same n_limits; the exact-length match transitively bounds the count and alloc/loop always agree.",
+      "conclusion": "n_limits is bounded by the exact TLV length equality check; allocation and loop use the same validated value."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/hisilicon/hns3/hns3vf/hclgevf_main.c",
+      "line": 253,
+      "status": "safe",
+      "reason": "num_tx_desc/num_rx_desc (le16 from PF mailbox reply) are stored unclamped, but the sole array consumer hns3_enet.c:4933 ring->desc_num = desc_num feeds dma_alloc_coherent(size = desc_num*sizeof) (3494) and every loop uses ring->desc_num itself (1986, 3474, 3544); allocation and iteration always use the same value, and hns3_alloc_ring_memory rejects desc_num <= 0.",
+      "conclusion": "Unclamped descriptor counts are used consistently for both allocation and iteration, so no alloc/use size mismatch exists."
+    },
+    {
+      "snapshot": "s12",
+      "path": "fs/smb/client/cifsacl.c",
+      "line": 799,
+      "status": "safe",
+      "reason": "s12 parse_dacl already bounds num_aces by (pdacl->size - sizeof(struct smb_acl))/min-ace-size before the loop (the check that the s11 Fact f044 flagged as missing there), plus per-iteration end_of_acl/num_subauth bounds; the s11-reported instance is fixed in this tree.",
+      "conclusion": "Server-supplied num_aces is clamped against the ACL size in s12; the s11 finding does not reproduce here."
+    },
+    {
+      "snapshot": "s12",
+      "path": "fs/ceph/snap.c",
+      "line": 1046,
+      "status": "safe",
+      "reason": "MDS-supplied num_split_inos/num_split_realms (le32) advance p by 8*count and the subsequent ceph_decode_need(&p, e, sizeof(*ri), bad) at line 1070 rejects any message where the advanced p lacks room, so both split loops (1084, 1128) read within the message buffer.",
+      "conclusion": "Split counts are transitively bounded by the decode_need check after the pointer advances; the s11 open question is resolved as safe."
+    },
+    {
+      "snapshot": "s12",
+      "path": "fs/nfs/blocklayout/dev.c",
+      "line": 558,
+      "status": "safe",
+      "reason": "Server-supplied nr_volumes sizes kcalloc(nr_volumes, sizeof(pnfs_block_volume)) and the per-volume decode uses xdr_inline_decode bounded by the reply pages; simple.nr_sigs is explicitly checked !nr_sigs || > PNFS_BLOCK_MAX_UUIDS (dev.c:128-131); filelayout num_fh is clamped to max(NFS4_PNFS_MAX_STRIPE_CNT, NFS4_PNFS_MAX_MULTI_CNT) (filelayout.c:689-690).",
+      "conclusion": "NFS pNFS device/layout count fields are either explicitly clamped or allocated and consumed at the same validated count."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt_coredump.c",
+      "line": 96,
+      "status": "safe",
+      "reason": "info->segs = total_segments from firmware reply sizes the dest_buf kmalloc, but every copy is bounded by copylen = min_t(u16, len, dest_buf_size - off) with the BNXT_COREDUMP_BUF_LEN guard; no unbounded element-indexed write.",
+      "conclusion": "Coredump segment count drives allocation but all copies are length-bounded; no OOB."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/usb/serial/visor.c",
+      "line": 343,
+      "status": "safe",
+      "reason": "num_ports from the device control reply is forced to 2 when 0 or >2, the transfer length is exact-match checked, and the loop indexes connections[2].",
+      "conclusion": "Device-supplied port count is clamped to 2 before iteration; safe."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/staging/greybus/uart.c",
+      "line": 168,
+      "status": "safe",
+      "reason": "Peer-supplied credit count is rejected when gb_tty->credits would exceed GB_UART_FIRMWARE_CREDITS and the receive-data size is cross-checked against payload_size; no array indexing by the count.",
+      "conclusion": "Greybus peer counts are capped and cross-checked; safe."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/scsi/megaraid/megaraid_sas_base.c",
+      "line": 4714,
+      "status": "safe",
+      "reason": "Firmware-supplied ci->count is checked against MEGASAS_MAX_PD_CHANNELS*MEGASAS_MAX_DEV_PER_CHANNEL (4714), fw_supported_vd_count (4957), and MEGASAS_MAX_PD+MAX_LOGICAL_DRIVES_EXT (5050) before every loop; this is the enforcing-sibling evidence for the asymmetric-validation pattern.",
+      "conclusion": "Reply counts are clamped against driver maxima; used as the sibling-path contrast to pmcraid."
+    }
+  ],
+  "coverage_gaps": [
+    "Only count-style field names (num_*, nr_*, n_*, count, segs, bufs, entries) in le16/le32/be16/be32_to_cpu, get_unaligned, nla_get_u* and copy_from_user sweeps were triaged across drivers/, net/, fs/, sound/, crypto/; differently named counts (n, cnt, nelem, vecs, iovs, nents, nblocks) in media, sound, crypto and block ioctl paths were not swept.",
+    "On-disk metadata count stores grep-enumerated but not read line-by-line (bcachefs sb-downgrade nr_errors, UDF numOfPartitions/numPartitionMaps, exfat clu_count, hfs/hfsplus num_recs/node_count, dm-era nr_bits, dm-zoned nr_chunks); a corrupt-fs threat model was not established for any of them.",
+    "Bluetooth hci_event/hci_mgmt event count fields, 802.15.4/6LoWPAN frame parsers, and AF_ALG/crypto user-socket length paths were not swept in this pass.",
+    "NFS/AFS/Ceph XDR reply decoders were spot-checked at known count sites (yfsclient ACL sizes, nfs42 xattr/list counts, blocklayout and filelayout counts, ceph split counts) and found bounded, but the remainder of nfs4xdr.c/nfs42xdr.c decode functions were not read line-by-line.",
+    "The smartpqi firmware_features->num_elements family (smartpqi_init.c:7788-7868) and iwlwifi n_channels/mcc reply fields were only grep-inspected with visible bounds at the store sites; full consumer loops were not read."
+  ],
+  "limitations": [
+    "The pmcraid finding is a static hypothesis: no adapter or emulation was available to confirm that firmware can return num_entries > 256, and the OOB read lands inside/past a 10256-byte dma_alloc_coherent buffer whose neighboring allocations were not characterized.",
+    "Device/firmware-shared-memory sources (SCSI config tables, NIC admin-queue replies) are reportable under the peer-trust invariant, but exploitability depends on the peer being malicious or compromised, which no in-tree evidence demonstrates.",
+    "The seed usbip store was verified unpatched in s12 but excluded by rule, so this branch's finding rests on the non-seed pmcraid instance alone.",
+    "Twelve candidate classes were triaged within the session budget; the sweeps were bounded by the count-field-name greps described in coverage_gaps and are not an exhaustive proof over s12."
+  ]
+}

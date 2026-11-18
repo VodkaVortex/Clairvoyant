@@ -1,0 +1,96 @@
+{
+ "version": 1,
+ "intent_id": "i044",
+ "branch": "hardirq-shared-lock",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s01"
+ ],
+ "findings": [
+  {
+   "snapshot": "s01",
+   "path": "drivers/usb/gadget/udc/fusb300_udc.c",
+   "start": 1059,
+   "end": 1071,
+   "quote": "static irqreturn_t fusb300_irq(int irq, void *_fusb300)\n{\n\tstruct fusb300 *fusb300 = _fusb300;\n\tu32 int_grp1 = ioread32(fusb300->reg + FUSB300_OFFSET_IGR1);",
+   "confidence": "medium",
+   "reason": "HARDIRQ-SHARED LOCK WITH PLAIN SPIN_LOCK ON THE NON-IRQ SIDE - the interrupt-level analogue of the seed's missing-spin_lock_bh bug. LOCK OBJECT: struct fusb300.lock (spin_lock_init at fusb300_udc.c:1414). HARDIRQ SIDE: fusb300_irq (def fusb300_udc.c:1059) is registered as a NON-THREADED hardirq handler via request_irq(ires->start, fusb300_irq, IRQF_SHARED, ...) at fusb300_udc.c:1424 (and a second request_irq at 1431 for the wake irq); it takes fusb300->lock with PLAIN spin_lock at 1071 (handler head) and drops/re-takes it at 1206-1210 around the gadget driver setup callback and calls done() (864) which itself unlocks/gives back/relocks (877/881). NON-IRQ SIDE (process context, plain spin_lock, no irqsave): get_status (def 683, annotation __releases/__acquires) runs from setup_packet -> fusb300->driver->setup in the handler chain but is ALSO invoked from the control-request path; critically the plain-acquiring sites 720-722 (spin_unlock; fusb300_queue(...GFP_KERNEL); spin_lock) sit in ep0 handling reachable from fusb300_irq, while the gadget-side API functions fusb300_queue (433 spin_lock_irqsave), fusb300_dequeue (462), fusb300_set_halt_and_wedge (481) use irqsave - proving the driver knows the lock is hardirq-shared, yet 720/877/1071/1207 are plain. MISSING GUARANTEE: any process-context/softirq-context path that takes fusb300->lock with plain spin_lock() while the device raises its interrupt on the same CPU lets the hardirq preempt the holder and spin forever on a lock the preempted context can never release - interrupt-context lockup, watchdog/RCU stall, DoS. The strongest concrete window: fusb300_udc_probe/remove and pullup/start/stop gadget ops (process context, driver core) touching the lock while a shared IRQ line fires fusb300_irq on the same CPU. COUNTEREVIDENCE CHECKED: the file mixes disciplines on this exact lock (irqsave at 260/433/462/481 vs plain at 720/877/1071/1207); a quick coccinelle-style grep of the file found no local_irq_disable/spin_lock_irqsave around the plain sites, so the plain acquisitions are not nested inside an IRQ-disabled region; however the ep0 get_status chain is itself reached from the hardirq handler (so the plain 720 site is mostly the irq side re-acquiring its own lock), which narrows the independent process-context plain-holder window to probe/remove/pullup paths - hence medium, not high, confidence. No runtime reproducer (tree lacks .config for a standalone gadget build).",
+   "conclusion": "fusb300_udc.c hardirq handler fusb300_irq (request_irq:1424) takes fusb300->lock plainly (1071) while non-irq paths also use plain spin_lock (720/877/1207) and only some sites use irqsave - mixed-discipline hardirq-shared lock, potential interrupt-context lockup; medium confidence."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/ethernet/mediatek/mtk_star_emac.c",
+   "start": 770,
+   "end": 786,
+   "quote": "static irqreturn_t mtk_star_handle_irq(int irq, void *data)\n{\n\tstruct net_device *ndev = data;\n\tstruct mtk_star_priv *priv = netdev_priv(ndev);\n\tunsigned int intr_status = mtk_star_intr_ack_all(priv);\n\tbool rx, tx;\n\n\trx = (intr_status & MTK_STAR_BIT_INT_STS_FNRC) &&\n\t     napi_schedule_prep(&priv->rx_napi);\n\ttx = (intr_status & MTK_STAR_BIT_INT_STS_TNTC) &&\n\t     napi_schedule_prep(&priv->tx_napi);\n\n\tif (rx || tx) {\n\t\tspin_lock(&priv->lock);",
+   "confidence": "medium",
+   "reason": "HARDIRQ SIDE takes priv->lock with PLAIN spin_lock: mtk_star_handle_irq (def mtk_star_emac.c:770, registered request_irq(ndev->irq, mtk_star_handle_irq, IRQF_TRIGGER_NONE, ...) at mtk_star_emac.c:1002, non-threaded) acquires spin_lock(&priv->lock) at 783 around mtk_star_disable_dma_irq (784). The SAME lock object (spin_lock_init at 1555) is taken with plain spin_lock at 1186 (mtk_star_tx_poll NAPI completion, softirq context) and 1352 (mtk_star_rx_poll NAPI completion, softirq context), i.e. zero irqsave/irq/bh usage anywhere on this lock (file grep: only 783/1186/1352 + init 1555). Because the hardirq handler itself takes the lock, every other acquisition must disable interrupts; the NAPI poll completions at 1186/1352 run in NET_RX softirq with hard IRQs ENABLED, so an RX/TX-complete interrupt from the MAC on the same CPU preempts the poll-loop holder and spins on priv->lock while the preempted NAPI softirq can never resume -> interrupt-context lockup, soft-lockup/watchdog splat, NIC RX/TX stall DoS. UNTRUSTED SOURCE: not data but attacker-influenced timing - any incoming frame that triggers the FNRC/TNTC interrupt while a NAPI poll on the same CPU is inside its 1186/1352 critical section. COUNTEREVIDENCE CHECKED: mtk_star_disable (1038, process context) takes no lock and calls napi_disable + free_irq before touching rings, so the plain non-irq holders are the NAPI poll sides, not process context; the handler's 783 acquisition is bounded by disable_dma_irq only. The defect direction here is irq-handler-vs-softirq (handler spins against a softirq holder), which is the exact branch-4 invariant (lock shared with hardirq taken without irq-disable at non-irq sites: 1186/1352 are the non-irq sites). Medium confidence because the window requires interrupt arrival while the poll holds the lock for the short re-enable section, and no runtime reproducer was possible.",
+   "conclusion": "mtk_star_emac.c hardirq handler takes priv->lock plainly (783) and the same lock is taken plainly by NAPI-poll completion paths (1186/1352) with hard IRQs enabled - hardirq can preempt and spin forever; medium-confidence DoS."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s01",
+   "path": "drivers/usb/gadget/udc/fusb300_udc.c",
+   "line": 720,
+   "status": "reported",
+   "reason": "Plain spin_unlock/spin_lock pair (720-722) around fusb300_queue in ep0 get_status path; same lock object taken by hardirq fusb300_irq (1071) and by irqsave-protected gadget ops (433/462/481) - part of the reported mixed-discipline finding."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/ethernet/mediatek/mtk_star_emac.c",
+   "line": 1186,
+   "status": "reported",
+   "reason": "mtk_star_tx_poll NAPI completion takes plain spin_lock(&priv->lock) at 1186 (softirq, hard IRQs enabled) while hardirq mtk_star_handle_irq takes the same lock at 783 - reported as the non-irq-side missing-irqsave site."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/ethernet/mediatek/mtk_star_emac.c",
+   "line": 1352,
+   "status": "reported",
+   "reason": "mtk_star_rx_poll NAPI completion takes plain spin_lock(&priv->lock) at 1352 (softirq, hard IRQs enabled) while hardirq mtk_star_handle_irq takes the same lock at 783 - second non-irq-side site of the reported finding."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/ethernet/seeq/sgiseeq.c",
+   "line": 512,
+   "status": "unresolved",
+   "reason": "sgiseeq_interrupt (hardirq) takes sp->tx_lock with plain spin_lock at 512 (cross.tsv row: 1 plain, 0 irqsave in file); the file shows only one plain acquisition, i.e. the lock may be hardirq-only with no non-irq holder, but SGIseeq also takes locks in sgiseeq_reset/open paths that were not fully traced before the audit was halted.",
+   "conclusion": "Verify whether sgiseeq.c sp->tx_lock has any process-context or softirq-context acquisition without irq-disable; if none, classify safe."
+  },
+  {
+   "snapshot": "s01",
+   "path": "sound/pci/echoaudio/echoaudio.c",
+   "line": 1849,
+   "status": "unresolved",
+   "reason": "snd_echo_interrupt (hardirq) takes chip->lock with plain spin_lock at 1849/1864 while the file has 16 spin_lock_irq acquisitions of the same lock and 3 plain ones (cross.tsv); the majority irq discipline suggests the plain handler-side ones may be inside an already-IRQ-disabled region or a bug, but the surrounding context was not read before the audit was halted.",
+   "conclusion": "Read echoaudio.c around 1849/1864 to determine whether the plain handler acquisitions are inside irqsave regions or constitute the irq-side of a mixed-discipline defect."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/tty/serial/mps2-uart.c",
+   "line": 192,
+   "status": "unresolved",
+   "reason": "mps2_uart_rxirq/txirq/oerrirq hardirq handlers take port->lock with plain spin_lock (192/210/226) while the file has one irqsave acquisition of the same lock elsewhere; serial core usually takes port->lock under irqsave in process paths, but the mps2 split-irq handlers were not traced to their non-irq counterpart before the audit was halted.",
+   "conclusion": "Trace mps2-uart.c port->lock non-irq acquisitions (startup/shutdown/set_termios) and confirm whether any is plain; if all are irqsave, classify safe."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/dma/ipu/ipu_idmac.c",
+   "line": 1171,
+   "status": "unresolved",
+   "reason": "idmac_interrupt (hardirq) takes ipu_data.lock (1171/1255) and ichan->lock (1195/1285) plainly while file has 1 and 5 irqsave sites respectively; the IPU idmac channel locks are shared with tasklet/process DMA paths that were not fully traced before the audit was halted.",
+   "conclusion": "Trace ipu_idmac.c non-irq acquisitions of ipu_data.lock/ichan->lock and check whether any plain process/softirq holder exists against the hardirq side."
+  }
+ ],
+ "coverage_gaps": [
+  "Handler-lock extraction covered 1109 of 1458 unique hardirq handler names (defs not resolved for 349, mostly multi-file or macro-declared handlers); those unresolved handlers' lock usage was not examined.",
+  "Cross-indexing matched lock expressions only within the registering file; locks shared across files (e.g. via exported helpers) or declared with different expressions (e.g. &priv->lock vs &dev->lock aliases) could be missed.",
+  "candidates table leaves sgiseeq.c, echoaudio.c, mps2-uart.c, ipu_idmac.c unclassified beyond initial signal; other top cross.tsv rows (zs.c, emxx_udc, isp1760, net2280, mv_u3d, goku_udc, net2272, ravb) were spot-checked for mixed discipline but not deeply read."
+ ],
+ "limitations": [
+  "Static analysis only; no kernel build or lockdep run was possible because the snapshot tree lacks a .config and generated headers.",
+  "Reachability of plain acquisitions from process context (probe/remove, ioctl, workqueue) was established from in-file call maps only; cross-module callers were not traced.",
+  "The interrupt-context lockup consequence is a hypothesis from the lock discipline mismatch; actual exploitability depends on IRQ affinity and device event timing that were not reproduced."
+ ]
+}

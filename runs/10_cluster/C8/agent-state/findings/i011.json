@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "net-epidx",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/lan78xx.c",
+      "start": 3762,
+      "end": 3772,
+      "quote": "dev->ep_intr = (intf->cur_altsetting)->endpoint + 2;",
+      "confidence": "high",
+      "reason": "Untrusted source: endpoint[] is the variable-length flex array of usb_host_interface, sized solely by the descriptor-declared bNumEndpoints of the altsetting a physically attacker-controlled USB gadget presents at enumeration; usbcore allocates only bNumEndpoints entries. Missing guarantee: lan78xx_probe indexes the current altsetting's endpoint array at three fixed positions (endpoint + 0, + 1, + 2 at lines 3762-3764) with no bNumEndpoints >= 3 (or > 0/1/2) validation anywhere in the probe path -- the only bNumEndpoints reference in this driver is the loop bound in lan78xx_get_endpoints (line 2879) inside lan78xx_bind, which is a descriptor scan that never validates that three endpoints exist at fixed indexes, and its in/out/status results are not used for these fields (dev->ep_blkin/ep_blkout/ep_intr are overwritten with fixed-index pointers). Unsafe use: the unvalidated endpoint+2 pointer is immediately dereferenced at lines 3769-3772 to program dev->pipe_intr via usb_rcvintpipe(... ep_intr->desc.bEndpointAddress ...) and to take bInterval for the interrupt URB period, then maxp = usb_maxpacket(..., dev->pipe_intr, 0) sizes the kmalloc'd interrupt buffer at line 3774-3775 that is later handed to usb_fill_int_urb -- the same plug-in-triggered OOB-read-of-descriptor-machinery (NULL endpoint pointer or OOB read past the endpoint array) as the seed cx231xx bug. Counterevidence checked: device IDs are matched only by VID/PID (+interface class/number), which a malicious gadget with the same VID/PID can present with fewer endpoints; no usbcore-level guarantee forces >=3 endpoints (usbcore only rejects descriptors claiming more endpoints than parsed, not fewer); sierra_net.c and r8152.c in the same tree show the expected >=3 checks, confirming the invariant is required. Downstream propagation of OOB-read wMaxPacketSize via usb_maxpacket into buffer sizing parallels the seed's alt_max_pkt_size path."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/qmi_wwan.c",
+      "start": 672,
+      "end": 687,
+      "quote": "dev->status = &info->control->cur_altsetting->endpoint[0];",
+      "confidence": "high",
+      "reason": "Untrusted source: endpoint[] flex-array entries exist only up to the descriptor-declared bNumEndpoints of the control altsetting supplied by the USB device. Missing guarantee: qmi_wwan_register_subdriver(), called from qmi_wwan_bind -> usbnet_probe for any of the ~100 matched QMI interfaces, unconditionally takes info->control->cur_altsetting->endpoint[0] whenever a CDC Union descriptor pointed at a separate data interface (info->control != info->data); no bNumEndpoints > 0 check is performed on the control interface (grep shows the only bNumEndpoints uses in this file are the Quectel ==2 reject at line 1496 in probe, which is class-based and does not protect this path). Unsafe use: the pointer's desc is passed to usb_cdc_wdm_register (line 686) as the WDM subdriver's interrupt endpoint descriptor; wdm_create (drivers/usb/class/cdc-wdm.c, read in this session) only tests usb_endpoint_is_int_in(ep) -- which reads fields of the endpoint descriptor -- and then uses usb_endpoint_maxp(ep) to size desc->sbuf and ep->bEndpointAddress/ep->bInterval to program the interrupt URB pipe. A malicious gadget presenting a control interface with bNumEndpoints == 0 makes endpoint[0] read memory beyond the (zero-length) endpoint array at plug-in: the seed's exact trust-boundary flaw. Counterevidence checked: usbnet_get_endpoints(dev, info->data) at line 668 validates only the data interface, not the control interface; cdc_ether.c in the same tree guards the identical pattern with bNumEndpoints == 1 before endpoint[0] (line 294), showing the required check exists in sibling code; wdm_create validates endpoint type but never that the descriptor itself is within the array."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/lan78xx.c",
+      "line": 3762,
+      "status": "reported",
+      "reason": "lan78xx_probe fixed-index endpoint + 0/1/2 (lines 3762-3764) with ep_intr->desc.bEndpointAddress/bInterval used at 3769-3772 to build pipe_intr and interrupt URB; no bNumEndpoints check in probe; only bNumEndpoints use is the lan78xx_get_endpoints loop bound at line 2879."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/qmi_wwan.c",
+      "line": 674,
+      "status": "reported",
+      "reason": "qmi_wwan_register_subdriver takes info->control->cur_altsetting->endpoint[0] unconditionally when control != data; desc passed to usb_cdc_wdm_register/wdm_create which reads endpoint descriptor fields and sizes the WDM interrupt buffer; no bNumEndpoints>0 check for the control interface."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/cdc-phonet.c",
+      "line": 366,
+      "status": "safe",
+      "reason": "usbpn_probe validates data altsetting bNumEndpoints == 2 (and num_altsetting == 2, lines 339-348) before reading endpoint[0]/[1].desc.bEndpointAddress at lines 366-375."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/cdc_ether.c",
+      "line": 294,
+      "status": "safe",
+      "reason": "usbnet_generic_cdc_bind checks info->control->cur_altsetting->desc.bNumEndpoints == 1 before taking endpoint[0] as dev->status (line 294-297); canonical correct pattern."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/r8152.c",
+      "line": 6703,
+      "status": "safe",
+      "reason": "rtl8152_probe returns -ENODEV when intf->cur_altsetting->desc.bNumEndpoints < 3 (line 6703-6704) before alloc_all_mem's alt->endpoint + 2 (line 1819); correct pattern for the exact fixed-index-2 use."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/sierra_net.c",
+      "line": 681,
+      "status": "safe",
+      "reason": "sierra_net_bind rejects numendpoints != 3 (lines 681-686) and uses usbnet_get_endpoints for actual endpoint discovery."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/hso.c",
+      "line": 3147,
+      "status": "safe",
+      "reason": "hso_get_ep (line 3140-3155) and hso_get_mux_ports (3161-3175) iterate i < iface->desc.bNumEndpoints; in_endp/out_endp/intr_endp NULL-checked before use (2505-2521, 2763-2768)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/usbnet.c",
+      "line": 98,
+      "status": "safe",
+      "reason": "usbnet_get_endpoints loops ep < alt->desc.bNumEndpoints per altsetting (lines 88-98) and requires in && out; the generic usbnet_probe path either uses this or fixed pipe numbers from driver_info (.in/.out are endpoint *addresses*, not array indexes, in gl620a.c/cdc_subset.c)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/cdc_ncm.c",
+      "line": 683,
+      "status": "safe",
+      "reason": "cdc_ncm_find_endpoints loops ep < intf->cur_altsetting->desc.bNumEndpoints (line 683-684)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/usb/ipheth.c",
+      "line": 461,
+      "status": "safe",
+      "reason": "loop bounded by hintf->desc.bNumEndpoints with bulk-in/out required before use."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/realtek/rtlwifi/usb.c",
+      "line": 333,
+      "status": "safe",
+      "reason": "_rtl_usb_init iterates epidx < bNumEndpoints (lines 331-346) and only counts in/out endpoints, rejecting too few; endpoint count used later (rtl8192cu_endpoint_mapping) is the counted out_ep_nums, not an assumed index."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless (ath10k, ath6kl, ath9k, carl9170, p54usb, orinoco, mwifiex, libertas, libertas_tf, rtl8xxxu, rsi, mt76, mt7601u, zd1211rw, at76c50x, rt2x00)",
+      "line": 0,
+      "status": "safe",
+      "reason": "All endpoint[]/endpoint+ accesses found in drivers/net/wireless are loop-bounded by bNumEndpoints (ath10k usb.c:837, ath6kl usb.c:314, ath9k hif_usb.c:1230, carl9170 usb.c:1063, p54usb.c:1013 iterates i = bNumEndpoints down, orinoco usb.c:1613, mwifiex usb.c:447, libertas if_usb.c:224, libertas_tf if_usb.c:174, rtl8xxxu core.c:6390, rsi_91x_usb.c:121, mt76 usb.c:254, mt7601u usb.c:237, zd1211rw usb.c:1276 after <2 check at 1272, at76c50x-usb.c:2244, rt2x00usb.c:611); no fixed-index endpoint[] read exists in the wireless tree."
+    }
+  ],
+  "limitations": [
+    "Snapshot s03 carries no Makefile/version metadata; the tree is post-2017 (uses timer_setup/setup_timer era APIs), so lan78xx/qmi_wwan may already differ from upstream history -- conclusions apply only to this snapshot's source.",
+    "Exploit impact was not demonstrated with a live gadget or compile-run; both findings rest on structural source evidence (missing bNumEndpoints validation before fixed-index endpoint[] access) matching the seed mechanism, expressed here as hypotheses.",
+    "Whether qmi_wwan's endpoint[0] OOB read yields a NULL pointer or stale/garbage descriptor contents depends on usbcore allocation details (endpoint array is a flex array at the tail of the parsed altsetting, so a 0-length array reads adjacent heap); classified as OOB read with same consequence class as the seed.",
+    "drivers/net/wwan does not exist in s03 (no wwan directory), so that part of the branch scope is vacuously clean; WWAN-style drivers present are qmi_wwan/cdc_mbim/hso under drivers/net/usb, all covered above.",
+    "interface/altsetting-count gaps (bNumInterfaces/num_altsetting indexing) were intentionally excluded per the branch split and belong to the if-alt-count branch (i013).",
+    "drivers/net/can/usb (ucan, kvaser, peak) was only grep-observed as loop-bounded; it is outside the net-epidx branch scope and was not deep-read."
+  ]
+}

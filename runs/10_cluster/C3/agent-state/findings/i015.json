@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "helper-param-null-deref",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/block/drbd/drbd_nla.c",
+      "line": 31,
+      "status": "safe",
+      "reason": "drbd_nla_parse_nested() -> drbd_nla_check_mandatory() dereferences its nla parameter via nla_data(nla)/nla_len(nla) (lines 9-10) with no in-helper NULL check, but every caller covers the exact attribute: the generated __<struct>_from_attrs() in include/linux/genl_magic_func.h:144-146 does 'struct nlattr *tla = info->attrs[tag_number]; ... if (!tla) return -ENOMSG;' before calling drbd_nla_parse_nested (line 151), and drbd_adm_prepare (drivers/block/drbd/drbd_nl.c:191-194) additionally calls drbd_cfg_context_from_attrs only inside 'if (info->attrs[DRBD_NLA_CFG_CONTEXT])'. Reachability also requires capable(CAP_NET_ADMIN) in the init namespace (drbd_nl.c:169, capable() not ns_capable()), so no unprivileged-userns path exists."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/block/drbd/drbd_nla.c",
+      "line": 44,
+      "status": "safe",
+      "reason": "drbd_nla_find_nested() -> drbd_nla_check_mandatory() derefs nla unguarded, but both callers guard: find_cfg_context_attr (drbd_nl.c:3284-3295) does 'nla = nla_find(..., DRBD_NLA_CFG_CONTEXT); if (!nla) return NULL;' before calling it, and its three dump callers (drbd_adm_dump_devices:3423, dump_connections:3512, dump_peer_devices:3673) only nla_data(resource_filter) inside 'if (resource_filter)'; drbd_adm_get_status_all (4052-4075) checks 'if (!nla) goto dump', then IS_ERR(nla) and 'if (!nla) return -EINVAL' before nla_data(nla)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/ip_tunnel_core.c",
+      "line": 583,
+      "status": "safe",
+      "reason": "ip_tun_parse_opts() derefs attr via nla_validate(nla_data(attr), nla_len(attr), ...) but opens with 'if (!attr) return 0;' (line 590), making ip_tun_get_optlen/ip_tun_set_opts (640-650) NULL-tolerant by construction; the lwt callers pass tb[LWTUNNEL_IP_OPTS]/tb[LWTUNNEL_IP6_OPTS] (667, 679, 954, 966) straight from an optional nested-parse slot, which is exactly the safe pattern."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/seg6_local.c",
+      "line": 1304,
+      "status": "safe",
+      "reason": "parse_nla_bpf() passes attrs[SEG6_LOCAL_BPF] to nla_parse_nested_deprecated (1311-1313) with no in-helper NULL check, but the dispatch loop in seg6_local_build_state/parse_nla_action proves presence: required attributes hit 'if (!attrs[i]) return -EINVAL;' (1682-1683) before param->parse (1687), and parse_nla_optional_attrs skips absent optionals ('if (!(desc->optattrs & SEG6_F_ATTR(i)) || !attrs[i]) continue;', ~1584). Same coverage applies to parse_nla_srh/table/vrftable/nh4/nh6/iif/oif/counters, whose attrs[...] derefs (1077-1078, 1131, 1170, 1201, 1227, 1253, 1276, 1388) all run only through those two gated paths."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/nexthop.c",
+      "line": 2650,
+      "status": "safe",
+      "reason": "rtm_nh_get_timer() derefs attr with nla_get_u32 (2661) but begins 'if (!attr) { *timer_p = fallback; *has_p = false; return 0; }' (2655-2659) \u2014 NULL-safe by construction; nh_valid_dump_nhid (3232) has the same 'if (attr) {...} else' structure. These are the only two nlattr-parameter helpers in the file."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/pmsr.c",
+      "line": 174,
+      "status": "safe",
+      "reason": "pmsr_parse_peer() parses its peer parameter unguarded, but every caller passes an attribute obtained from 'nla_for_each_nested(peer, peers, rem)' (307-309) whose iterator can never yield NULL; the inner tb[] derefs are guarded by 'if (!tb[NL80211_PMSR_PEER_ATTR_ADDR] || !tb[NL80211_PMSR_PEER_ATTR_CHAN] || !tb[NL80211_PMSR_PEER_ATTR_REQ]) return -EINVAL;' (187-192) and 'if (!req[NL80211_PMSR_REQ_ATTR_DATA])' (216). nl80211_pmsr_start checks 'if (!reqattr) return -EINVAL' (260) and 'if (!peers) return -EINVAL' (264) before use; pmsr_parse_ftm receives treq from the same iteration pattern (242-249)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/openvswitch/flow_netlink.c",
+      "line": 2636,
+      "status": "safe",
+      "reason": "validate_and_copy_set_tun() consumes attr via ip_tun_from_nlattr(nla_data(attr), ...) unguarded, but its only caller is the OVS_KEY_ATTR_TUNNEL case in validate_set (2787), which receives 'a' from the 'nla_for_each_nested(a, attr, rem)' loop of __ovs_nla_copy_actions (3047) \u2014 a non-NULL iterator value; ip_tun_from_nlattr itself only iterates nested attrs and length-checks each via check_attr_len before the nla_get_* derefs. Same iterator-provided-argument pattern covers validate_and_copy_dec_ttl/clone/check_pkt_len and the genev/vxlan/erspan_tun_opt_from_nlattr helpers (521/572/628) which receive elements of the nla_for_each_nested iteration."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/openvswitch/flow_netlink.c",
+      "line": 2434,
+      "status": "safe",
+      "reason": "validate_and_copy_sample() builds its own attrs[] table from 'nla_for_each_nested(a, attr, rem)' and then explicitly NULL-checks both consumed slots before use: 'probability = attrs[OVS_SAMPLE_ATTR_PROBABILITY]; if (!probability || nla_len(probability) != sizeof(u32)) return -EINVAL;' (2457-2458) and 'actions = attrs[OVS_SAMPLE_ATTR_ACTIONS]; if (!actions || ...) return -EINVAL;' (2461-2462). The OVS flow/packet command entry points guard the slots that reach ovs_nla_get_match/ovs_nla_copy_actions: ovs_flow_cmd_new 'if (!a[OVS_FLOW_ATTR_KEY])'/if (!a[OVS_FLOW_ATTR_ACTIONS])' (936-942), ovs_packet_cmd_execute 'if (!a[OVS_PACKET_ATTR_PACKET] || !a[OVS_PACKET_ATTR_KEY] || !a[OVS_PACKET_ATTR_ACTIONS])' (563-565); ovs_nla_get_match handles a NULL nla_mask by synthesizing newmask (1792-1808) before parse_flow_mask_nlattrs."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_tables_api.c",
+      "line": 2684,
+      "status": "safe",
+      "reason": "nf_tables_expr_parse()/nft_expr_init() forward nla into nested parses: nft_expr_type_get() returns ERR_PTR(-EINVAL) 'if (nla == NULL)' (2612-2614) covering tb[NFTA_EXPR_NAME]; tb[NFTA_EXPR_DATA] is covered by 'if (tb[NFTA_EXPR_DATA]) { nla_parse_nested_deprecated(...) } else memset(info->tb, 0, ...)' (2702-2711), so info->tb handed to select_ops/init is always defined. The nft_set_elem_expr_alloc() call sites are all gated: 'if (nla[NFTA_SET_EXPR])' (4413), nla_for_each_nested over NFTA_SET_EXPRESSIONS (4429), 'if (nla[NFTA_SET_ELEM_EXPR])' (5754) / NFTA_SET_ELEM_EXPRESSIONS loop (5778); the get/add/del setelem dispatch loops iterate 'nla_for_each_nested(attr, nla[NFTA_SET_ELEM_LIST_ELEMENTS], rem)' after explicit NULL checks (5257-5263, 6019-6034, 6296-6300); nft_set_desc_concat_parse checks 'if (!tb[NFTA_SET_FIELD_LEN]) return -EINVAL;' (4151) and nf_tables_set_desc_parse presence-checks da[NFTA_SET_DESC_SIZE]/da[NFTA_SET_DESC_CONCAT] (4192-4197)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/s390/net/qeth_l2_main.c",
+      "line": 796,
+      "status": "safe",
+      "reason": "qeth_l2_bridge_setlink() parses IFLA_PROTINFO into bp_tb inside the nlmsg_for_each_attr loop and gates all later use: 'if (!has_protinfo) return 0;' (832-833) and 'if (!bp_tb[IFLA_BRPORT_LEARNING_SYNC]) return -EINVAL;' (834) precede 'enable = !!nla_get_u8(bp_tb[IFLA_BRPORT_LEARNING_SYNC]);' (835). The nested nla_parse_nested (808-810) receives 'attr' from the outer nlmsg_for_each_attr iterator, never a slot."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/team/team.c",
+      "line": 2555,
+      "status": "safe",
+      "reason": "team_nl_team_options_set() guards every opt_attrs[] slot it dereferences: 'if (!opt_attrs[TEAM_ATTR_OPTION_NAME] || !opt_attrs[TEAM_ATTR_OPTION_TYPE]) { err = -EINVAL; goto team_put; }' (2557-2560) before nla_get_u8(opt_attrs[TEAM_ATTR_OPTION_TYPE]) (2561) and nla_data(opt_attrs[TEAM_ATTR_OPTION_NAME]) (2593); attr_data is gated by 'if (opt_type != TEAM_OPTION_TYPE_BOOL && !attr_data) return -EINVAL' (2583-2586); PORT_IFINDEX and ARRAY_INDEX are individually if-guarded (2594-2602); the outer loop requires 'if (!info->attrs[TEAM_ATTR_LIST_OPTION])' (2530-2533) and iterates nl_option via nla_for_each_nested. team_nl_team_get checks 'if (!info->attrs[TEAM_ATTR_TEAM_IFINDEX]) return NULL' (2289-2290) before nla_get_u32."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/devlink.c",
+      "line": 272,
+      "status": "safe",
+      "reason": "The devlink *_get_from_attrs helper family each proves presence before the nla_get_* deref of the exact slot: devlink_sb_pool_index_get_from_attrs 'if (!attrs[DEVLINK_ATTR_SB_POOL_INDEX]) return -EINVAL;' (252-253) before nla_get_u16 (255); devlink_sb_pool_type_get_from_attrs (277-278) before nla_get_u8; devlink_sb_th_type_get_from_attrs (304-305); devlink_sb_tc_index_get_from_attrs (326-327); devlink_port_get_from_attrs (169-171) and devlink_sb_get_from_attrs (222-224) wrap the deref in 'if (attrs[X])'. devlink_port_function_set calls devlink_port_fn_state_set (nla_get_u8(attr), 1098) only under 'attr = tb[DEVLINK_PORT_FN_ATTR_STATE]; if (attr)' (1126-1128); devlink_nl_cmd_port_new_doit requires PORT_FLAVOUR and PORT_PCI_PF_NUMBER presence (1284-1286) before their derefs."
+    }
+  ],
+  "limitations": [
+    "Bounded negative: the helper-parameter surface read end-to-end is the priority list named in the intent (nf_tables_api.c expression/set-element helpers, openvswitch flow_netlink.c action parsers, ip_tunnel_core.c, seg6_local.c, nexthop.c, pmsr.c, team.c, qeth_l2_main.c, devlink.c helpers, drbd_nla.c plus its drbd_nl.c/genl_magic_func.h callers); helpers outside these files that take struct nlattr* parameters were enumerated in prior s02 artifacts (f010/f012) but not re-traced here.",
+    "Openvswitch flow_netlink.c contains ~29 helper-parameter dereference candidates; the highest-signal ones (validate_and_copy_sample, validate_and_copy_set_tun, genev/vxlan/erspan_tun_opt_from_nlattr, ip_tun_from_nlattr, __parse_flow_nlattrs, __ovs_nla_copy_actions dispatch, ovs_nla_get_match/metadata and their datapath.c callers) were read end-to-end; validate_and_copy_clone/dec_ttl/check_pkt_len and the conntrack.c/actions.c consumers were verified only for the shared iterator-provides-argument pattern, not line-by-line.",
+    "nf_tables expression .init/.select_ops callbacks beyond nft_bitwise (whose fast path was verified gated by select_ops presence checks on LEN/SREG/DREG plus its own MASK/XOR checks) belong to the kind-callback-tb-gaps branch (i018) and were not exhaustively audited here.",
+    "net/l2tp/l2tp_netlink.c handlers were scanned (guarded ||-of-negations and per-attr if-guards observed, lines 161-178, 200-225, 537-618) and cross-checked against the sibling-snapshot verification (fact f011), but not re-read function-by-function in this session.",
+    "devlink.c direct nla_get_*(info->attrs[...]) doit sites (e.g. lines 1630, 1839, 2095, 2223-2243, 2954, 3042-3048) are direct-index uses belonging to the unchecked-tb-deref branch (i007, fact f012) whose session was truncated before devlink.c was deep-read; only the *_get_from_attrs helper family was verified here.",
+    "No compilation or runtime reproducer was run: the snapshot tree is read-only with no top-level Makefile/Kconfig; all conclusions rest on exact source reading of the guards, the generated genl_magic_func.h macros, and nla_get_*/nla_parse_nested_deprecated semantics in include/net/netlink.h.",
+    "Kernel-side dump/notify builders that only construct attributes (ovs *_to_attr/set_action_to_attr, drbd *_to_skb, devlink *_fill_*) were excluded from scope per the intent description; no negative proof is claimed for them."
+  ]
+}

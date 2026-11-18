@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "intent_id": "i036",
+  "branch": "fixed-epidx-rest",
+  "status": "finalizing",
+  "snapshot": "s09",
+  "notes": "Finalized. ueagle-atm safe (fix at 2156), gigaset absent. Targeted checks: sur40 guarded at 666, pcwd_usb guarded at 628, mmc ushc guarded at 423, cdc-acm guarded at 1353; uwb/wusbcore/isdn/staging-usbvision drivers absent from this modern tree. No live fixed-index endpoint read found in audited scope.",
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2156,
+      "status": "safe",
+      "reason": "bNumEndpoints<1 guard at 2156-2159 precedes endpoint[0].desc.bInterval read at 2172 (usb_fill_int_urb at 2169). Fix present in s09."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "Driver absent; only unrelated rc-siemens-gigaset-rc20.c keymap matches."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/input/touchscreen/sur40.c",
+      "line": 670,
+      "status": "safe",
+      "reason": "bNumEndpoints<5 guard at 666-667 precedes endpoint[4].desc at 670."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/watchdog/pcwd_usb.c",
+      "line": 632,
+      "status": "safe",
+      "reason": "bNumEndpoints<1 guard at 628-629 precedes endpoint[0].desc at 632 plus usb_endpoint_is_int_in validation."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/mmc/host/ushc.c",
+      "line": 423,
+      "status": "safe",
+      "reason": "bNumEndpoints<1 guard at 423-424 in probe precedes endpoint use."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1353,
+      "status": "safe",
+      "reason": "bNumEndpoints<2/==0 guard at 1353-1354 plus ==3/!=3 checks at 1274/1320 bound endpoint reads."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/uwb/hwa-rc.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "drivers/uwb absent from s09."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/wusbcore/wa-nep.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "drivers/usb/wusbcore absent from s09."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/staging/media/usbvision/usbvision-core.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "usbvision absent; staging/media has only atomisp av7110 deprecated imx ipu3 ipu7 max96712 meson sunxi tegra-video."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/usb/atm/speedtch.c",
+      "line": 843,
+      "status": "safe",
+      "reason": "Bounded-loop form &desc->endpoint[i].desc (i over bNumEndpoints); xusbatm.c:47 same loop form."
+    }
+  ]
+}

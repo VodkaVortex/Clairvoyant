@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "intent_id": "i032",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s08"
+  ],
+  "findings": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "start": 973,
+      "end": 988,
+      "quote": "user_msg->len = 0;\n\tuser_msg->count = le32_to_cpu(msg->hdr.count);\n\n\tfor (i = 0; i < user_msg->count; ++i) {",
+      "confidence": "medium",
+      "reason": "Error-unwind poisoned-count chain, verified from source in snapshots/s08. POISONING STORE: decode_message() line 974 copies the device/QSM-supplied 32-bit count from the MHI control-channel response verbatim into the shared kernel object user_msg (struct manage_msg 'msg', kzalloc(QAIC_MANAGE_MAX_MSG_LENGTH + sizeof(*msg)) at qaic_manage_ioctl ~line 1322) with no range check at the store; the sibling request direction of the same QAIC manage protocol enforces a bound in qaic_manage() -- 'if (user_msg->len > QAIC_MANAGE_MAX_MSG_LENGTH || user_msg->count > QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr)) return -EINVAL;' -- so validation is asymmetric between the request and reply directions, exactly the seed's submit-vs-return asymmetry. EARLY RETURNS WITHOUT RESET: every failure exit inside the decode loop leaves user_msg->count set to the unvalidated device value and returns a nonzero error: line 979-980 'if (msg_len > msg_hdr_len - sizeof(*trans_hdr)) return -EINVAL;', lines 984-986 hdr_len/size_add check 'return -EINVAL;', decode_status returns -ECANCELED (line 952, out_trans->status != 0) or -EPIPE (line 954, CRC), decode_passthrough -ENOSPC, default case -EINVAL at ~line 1005, and the final length-mismatch return -EINVAL at ~line 1009; none of these paths resets user_msg->count. ERROR-UNWIND HANDOFF: qaic_manage() propagates the nonzero return while leaving the poisoned count in the shared msg object; qaic_manage_ioctl() then executes the explicit -ECANCELED unwinding path -- 'if (ret == -ECANCELED || !ret) { ... user_msg->len = msg->len; user_msg->count = msg->count; }' (~lines 1345-1351) -- copying the device-controlled, never-clamped count back to the userspace drm ioctl argument, i.e. the failure path is precisely the path that publishes the poisoned field. Unsafe use/state transition: the stored count additionally bounds the decode loop 'for (i = 0; i < user_msg->count; ++i)' (line 976) walking wire_trans_hdr entries at msg->data + msg_len; each iteration re-validates hdr_len against msg_hdr_len (clamped to QAIC_MANAGE_MAX_MSG_LENGTH at lines 968-971) so the loop itself cannot run past the 64K rsp buffer, but the count is consumed and re-exported without ever being range-checked against QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr), the exact maximum the request sibling enforces. Attacker: malicious or compromised MHI device/QSM peer (remote endpoint of the device protocol), analogous to the seed's remote usbip peer. Counterevidence checked: the consuming loop is internally bounded by the per-iteration hdr_len validation against msg_hdr_len <= QAIC_MANAGE_MAX_MSG_LENGTH, so no kernel OOB from the count alone was demonstrated -- impact is state poisoning plus propagation of an unvalidated device count to userspace on the error path, hence medium confidence for the invariant violation and low for end-to-end memory-corruption impact."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s08",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 974,
+      "status": "reported",
+      "reason": "Poisoning store: device-supplied le32 reply count stored unclamped into shared struct manage_msg; request-direction sibling qaic_manage() enforces the QAIC_MANAGE_MAX_MSG_LENGTH-based clamp the reply direction omits (asymmetric validation); all decode-loop failure exits return without resetting it."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 952,
+      "status": "reported",
+      "reason": "decode_status early return -ECANCELED (and -EPIPE at 954) with user_msg->count still set to the unvalidated device value; part of the reported chain."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 1346,
+      "status": "reported",
+      "reason": "Error-unwind consumer: qaic_manage_ioctl's 'if (ret == -ECANCELED || !ret)' path copies msg->count (poisoned) back to userspace user_msg->count -- the failure path publishes the field; part of the reported chain."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 473,
+      "status": "unresolved",
+      "reason": "Seed mechanism verbatim and UNPATCHED in s08: usbip_pack_ret_submit unpack stores 'urb->number_of_packets = rpdu->number_of_packets;' (line 473) with no clamp; usbip_recv_iso computes 'int size = np * sizeof(*iso);' (line 665, np = urb->number_of_packets line 664) then kzalloc(size) at 677 and a per-element loop at 699-703; error returns -EPIPE at ~692 (recv short) and ~714 (total_length mismatch) never reset urb->number_of_packets, which the completion path (usb_hcd_giveback_urb) later hands to URB consumers; USBIP_MAX_ISO_PACKETS is enforced only on the CMD_SUBMIT sibling direction -- the asymmetric-validation signature. EXCLUDED from findings per the seed-never-reportable rule (usbip/recv_iso/number_of_packets must never be the finding itself); recorded only to document snapshot-local seed presence."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 976,
+      "status": "reported",
+      "reason": "Second error-unwind/count-consumption chain on the on-disk metadata trust boundary: ppl_recover() iterates 'for (i = 0; i < le32_to_cpu(pplhdr->entries_count); i++)' (line 976) and ppl_load_distributed() advances 'pplhdr_offset += le32_to_cpu(pplhdr->entries[i].pp_size) >> 9;' under the same unclamped count (line 1151-1153), with no clamp against PPL_HDR_MAX_ENTRIES (the entries[64] capacity of the 4KB header page) anywhere on the read/recovery path -- the write/producing path enforces the cap (io->entries_count == PPL_HDR_MAX_ENTRIES blocks adding entries at lines 280-281), so the mirror read direction omits the bound the producing direction enforces. ppl_load_distributed's early-continue/abandon path (invalid header -> try next offset) leaves the loaded unclamped count in the shared page that ppl_recover later iterates. Same instance as fact f017 (reported for s07); verified present at the same lines in s08."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/md/raid5-ppl.c",
+      "line": 281,
+      "status": "safe",
+      "reason": "Write/producing path enforces the cap the read path omits: 'io && (io->pp_size == log->entry_space || io->entries_count == PPL_HDR_MAX_ENTRIES)' blocks adding entries and ppl_submit_iounit loops only over the kernel-maintained io->entries_count; asymmetric-validation evidence, not itself vulnerable on this branch."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/core/urb.c",
+      "line": 448,
+      "status": "safe",
+      "reason": "usb_submit_urb re-validates isochronous URBs before any HCD path: 'if (urb->number_of_packets <= 0) return -EINVAL;' plus the per-descriptor len<0/len>max rejection loop initializes status/actual_length on the way; the driver-local consumers enumerated (btusb.c:1612/1689, uvc_video.c:1536/1954, pwc-if.c:344/478, msi2500.c:390/519, usbdux*.c constant 1, mon_bin.c:515-520 ISODESC_MAX-clamped, mon_text.c:230-233 clamped) all set number_of_packets themselves from local constants/loop indices or clamp it, so no peer-poisoned count reaches them outside the excluded usbip family."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 637,
+      "status": "unresolved",
+      "reason": "fastmap parse loop 'for (i = 0; i < be32_to_cpu(fmhdr->free_peb_count); i++)' consumes on-flash counts; the fastmap anchor is CRC/EC-protected but whether each embedded count is cross-checked against the actually-read fastmap image size before the add_to_av/alloc paths, and whether any early-return leaves a count in shared ubi_attach state that teardown iterates, was not deep-read before the finalize directive."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/md/dm-era-target.c",
+      "line": 1611,
+      "status": "safe",
+      "reason": "era->nr_blocks / era->nr_sets are consumed only after metadata validation in the dm persistent-data layer and the in-core bitset/array is allocated from the same kernel-validated size (era->nr_blocks != new_size triggers resize, not an unbounded iterate); no early-return leaves a device-supplied count in shared state that a completion handler later walks unchecked in the read window (1560-1640)."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: the finalize directive stopped the audit after deep-reading the qaic control-channel chain, the raid5-ppl load/recover chain, the seed usbip family (excluded by rule), dm-era, and enumerating number_of_packets consumers and ubi fastmap count stores; error-unwind patterns in other subsystems (vhost/virtio ring teardown, 9p/fuse request abort paths, scsi scatterlist teardown, netlink abort paths, HID/NCI, io_uring) were only enumerated, not deep-read, so an on-branch error-unwind-poisoned-count variant elsewhere in s08 cannot be ruled out.",
+    "The reported qaic finding's kernel-memory impact is not proven: the consuming decode loop is internally bounds-checked against msg_hdr_len <= QAIC_MANAGE_MAX_MSG_LENGTH, so no OOB from the count alone was demonstrated; demonstrated impact is state poisoning plus export of the unvalidated device count to userspace on the -ECANCELED error path (same low-confidence instance family previously reported for s01/s03/s06 in facts f012/f014/f028).",
+    "The raid5-ppl candidate (drivers/md/raid5-ppl.c:976/1151) is the same instance as fact f017 reported for s07; it is reported here only because the finalize directive required using the evidence already collected, and its attacker is a corrupted/tampered disk/PPL area (on-disk metadata trust boundary), weaker than the seed's remote network peer; what follows the 4KB header page and whether recovered data is exposed were not proven.",
+    "Whether qaic msg_xfer cross-checks the actually received MHI response length against rsp->hdr.len before decode_message walks it (a short response with a large claimed hdr.len would make the count/len parse read uninitialized heap) was flagged unresolved in prior snapshots and not re-audited in this session.",
+    "The seed usbip chain is present UNPATCHED in s08 (usbip_common.c:473 store, :664-665 multiply, :677 kzalloc, :699-703 loop; error returns ~692/~714 skip reset) and is excluded from findings per the seed-never-reportable rule; recorded as an excluded-by-rule candidate only.",
+    "No compilation, static analysis, or runtime reproducer was performed (assigned snapshot is read-only; generated artifacts belong under $TMPDIR and none were needed for the source-level analysis); all line numbers come from direct numbered sed/awk/rg reads of snapshots/s08 verified in this session, with qaic_manage_ioctl copy-back lines (~1345-1351) counted from the sed window."
+  ]
+}

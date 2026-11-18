@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "uapi-double-fetch",
+  "status": "complete",
+  "snapshot": "s02",
+  "findings": [
+    "s02:drivers/usb/core/devio.c:1804-1815 proc_submiturb(): copy_from_user(&uurb, arg, sizeof(uurb)) snapshots the struct (including iso_frame_desc) once; number_of_packets validated on the kernel copy (lines 1551-1557) and isofrmlen derived from it, but the pointer consumed by memdup_user(iso_frame_desc, isofrmlen) at line 1559 is a second independent fetch '(((struct usbdevfs_urb __user *)arg)->iso_frame_desc)' at line 1812. Same pattern in compat arm proc_submiturb_compat() line 2016 after get_urb32(). Validated count vs used buffer can diverge under a racing writer; consumed pointer only via memdup_user so no kernel OOB demonstrated (confidence low, mechanism-match)."
+  ],
+  "candidates_classified": [
+    "reported: drivers/usb/core/devio.c:1812 native iso_frame_desc re-fetch",
+    "reported: drivers/usb/core/devio.c:2016 compat iso_frame_desc re-fetch",
+    "safe: drivers/misc/genwqe/card_dev.c:1075 single get_user of io->num, validated local used",
+    "safe: drivers/media/v4l2-core/v4l2-compat-ioctl32.c:553 re-fetch is re-validated on the consuming copy",
+    "safe: drivers/staging/comedi/comedi_compat32.c:178 single __get_user per field into compat buffer",
+    "safe: drivers/isdn/capi/capi.c:779 single fetch of data.contr per ioctl",
+    "safe: drivers/tty/tty_io.c:2473 whole-struct copy_from_user once",
+    "safe: fs/select.c:648 fdsets/pollfds copied once, sizes from syscall args",
+    "safe: net/compat.c:138 cmsg_len fetched once into local, validated and used from local",
+    "safe: drivers/scsi/hpsa.c:6137 each member fetched once into arg64",
+    "safe: kernel/trace/trace.c:1226 byte-wise single fetch per location",
+    "safe: drivers/video/fbdev/sbuslib.c:127 distinct fields fetched once each"
+  ],
+  "unexamined_clusters": [
+    "arch/*/kernel/signal*.c sigreturn frame parsing (highest fetch counts)",
+    "fs/xfs/xfs_ioctl32.c bulkstat compat",
+    "sound/core/pcm_compat.c, control_compat.c",
+    "v4l2-compat-ioctl32.c non-window ioctls, drm_ioc32.c",
+    "kernel/compat.c, fs/compat_ioctl.c, block/compat_ioctl.c",
+    "net/socket.c ifr window, net/sctp/socket.c",
+    "drivers/scsi/megaraid.c, megaraid_mm.c",
+    "infiniband ucm/ucma/uverbs, KVM compat paths",
+    "mtdchar MEMWRITE/MEMERASE family"
+  ],
+  "scan_artifacts": [
+    "agent-state/tmp/proj_001-i007-explore/fetch_windows.json (597 dense fetch windows)",
+    "agent-state/tmp/proj_001-i007-explore/token_hits.json (2595 same-token repeat hits)",
+    "agent-state/tmp/proj_001-i007-explore/field_hits.json (171 field-path repeats)",
+    "agent-state/tmp/proj_001-i007-explore/ptr_hits.json (564 pointer-path repeat fetches)"
+  ],
+  "final_artifact": "agent-state/findings/i007.json"
+}

@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "sysctl-unbounded-knob",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/sctp/sysctl.c",
+      "start": 265,
+      "end": 270,
+      "quote": ".procname\t= \"addip_noauth_enable\",\n\t\t.data\t\t= &init_net.sctp.addip_noauth,\n\t\t.maxlen\t\t= sizeof(int),\n\t\t.mode\t\t= 0644,\n\t\t.proc_handler\t= proc_dointvec,",
+      "confidence": "medium",
+      "reason": "Security-relevant boolean sysctl knob exposed to unbounded parsing. net.sctp.addip_noauth_enable is writable (mode 0644, CAP_NET_ADMIN in netns) via proc_dointvec with no extra1/extra2 range limits, while neighboring security booleans in the same subsystem (net.sctp.l3mdev_accept, pf_expose, encap_port, udp_port) all use proc_dointvec_minmax with SYSCTL_ZERO/SYSCTL_ONE. The int is consumed as a boolean gate that disables the SCTP AUTH requirement for ASCONF/ASCONF-ACK processing: net/sctp/sm_statefuns.c:3910-3911 'if (!net->sctp.addip_noauth && !chunk->auth)) return sctp_sf_pdiscard(...)' and the identical gate at sm_statefuns.c:4053, plus sm_make_chunk.c:2017 'if (net->sctp.addip_noauth) return 1;' and input.c:1278 'if (have_auth || net->sctp.addip_noauth)'. Any nonzero value written (e.g. 2, -1, INT_MAX) silently enables the no-auth backward-compat mode that accepts ASCONF address-configuration chunks without the SCTP AUTH chunk mandated by ADD-IP Section 4.1, weakening authentication enforcement on address changes; counterevidence: writes require CAP_NET_ADMIN in the owning netns, and unlike the seed there is no parser-return/initialization defect (proc_dointvec fully defines .data on success), so impact is a policy-posture weakening knob, not memory disclosure."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/sysctl_net_ipv4.c",
+      "start": 1387,
+      "end": 1391,
+      "quote": ".procname\t= \"tcp_challenge_ack_limit\",\n\t\t.data\t\t= &init_net.ipv4.sysctl_tcp_challenge_ack_limit,\n\t\t.maxlen\t\t= sizeof(int),\n\t\t.mode\t\t= 0644,\n\t\t.proc_handler\t= proc_dointvec",
+      "confidence": "medium",
+      "reason": "Security-relevant (RFC 5961 blind-data-injection mitigation) integer knob parsed without bounds. net.ipv4.tcp_challenge_ack_limit accepts any int via proc_dointvec with no extra1/extra2; consumer net/ipv4/tcp_input.c:4054-4066 treats the value with implicit semantics: 'if (ack_limit == INT_MAX) goto send_ack' (INT_MAX = disabled sentinel) and otherwise computes 'u32 half = (ack_limit + 1) >> 1' then 'get_random_u32_inclusive(half, ack_limit + half - 1)'. Writing 0 or a negative value collapses the challenge-ACK rate limit (count never > 0, so no ACKs sent), and writing INT_MAX silently disables the challenge-ACK mitigation entirely; get_random_u32_inclusive with the degenerate/underflowing range from a negative int is invoked before any lower-bound guard. Counterevidence: writer must hold CAP_NET_ADMIN over init_net (root-writable 0644), and no memory-safety defect exists (validated-equals-used holds: proc_dointvec defines the int on success); this is an enforcement-posture variant of the branch (unbounded knob altering a security mitigation), not a stack leak."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/xfrm/xfrm_sysctl.c",
+      "start": 30,
+      "end": 34,
+      "quote": ".procname\t= \"xfrm_larval_drop\",\n\t\t.maxlen\t\t= sizeof(int),\n\t\t.mode\t\t= 0644,\n\t\t.proc_handler\t= proc_dointvec",
+      "confidence": "low",
+      "reason": "IPsec policy knob parsed without bounds. net.xfrm.xfrm_larval_drop is a per-netns proc_dointvec int with no extra1/extra2; consumers treat it as a boolean that changes XFRM lookup failure behavior: net/xfrm/xfrm_policy.c:3253 'if (net->xfrm.sysctl_larval_drop) { ... err = -EREMOTE; goto error; }' (drop traffic lacking an SA instead of EAGAIN/queue), and xfrm_policy.c:3036 forces early return of an unqueued XFRM dst. Any nonzero value (negative, huge) selects the hard-drop posture; however this knob changes packet-handling policy (availability) rather than authentication/crypto enforcement, and the sibling acq_expires entry (line 39, also unbounded) only feeds lifetime arithmetic. Bounded by CAP_NET_ADMIN; reported as the weakest of the three variants."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/sctp/sysctl.c",
+      "line": 269,
+      "status": "reported",
+      "reason": "addip_noauth_enable: security boolean (SCTP AUTH bypass for ASCONF) via bare proc_dointvec with no extra1/extra2 while sibling security knobs use proc_dointvec_minmax; consumers at sm_statefuns.c:3910, 4053 and sm_make_chunk.c:2017 gate chunk->auth checks on this int as boolean."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/sysctl_net_ipv4.c",
+      "line": 1391,
+      "status": "reported",
+      "reason": "tcp_challenge_ack_limit: RFC 5961 mitigation knob via bare proc_dointvec with no bounds; tcp_input.c:4054 assigns INT_MAX the meaning 'mitigation disabled' and computes (ack_limit+1)>>1 / get_random_u32_inclusive on the unvalidated value; 0/negative/INT_MAX writes all alter enforcement."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/xfrm/xfrm_sysctl.c",
+      "line": 33,
+      "status": "reported",
+      "reason": "xfrm_larval_drop: per-netns IPsec lookup-failure knob via bare proc_dointvec without extra1/extra2; xfrm_policy.c:3253 branches on it as boolean to hard-drop (-EREMOTE) packets without SAs; low severity policy knob."
+    },
+    {
+      "snapshot": "s02",
+      "path": "crypto/fips.c",
+      "line": 49,
+      "status": "safe",
+      "reason": "fips_enabled entry uses proc_dointvec without bounds but is registered with mode 0444 (read-only), so no user write path exists; fips_fail_notify only tests truthiness; no invariant violation."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sunrpc/xprtrdma/transport.c",
+      "line": 134,
+      "status": "safe",
+      "reason": "rdma_pad_optimize has maxlen sizeof(unsigned int) (unsigned int data) with proc_dointvec, a maxlen/handler type mismatch by strict typing; however the value is only tested as a boolean for padding behavior, both types are 4 bytes on all supported ABIs, and the sibling rdma_memreg_strategy (the crypto/registration-strategy selector) correctly uses proc_dointvec_minmax with min_memreg/max_memreg bounds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/sysctl_net_ipv4.c",
+      "line": 579,
+      "status": "safe",
+      "reason": "cipso_cache_enable/cipso_cache_bucket_size/cipso_rbm_optfmt/cipso_rbm_strictvalid (lines 579-600) are bare proc_dointvec but consumers defensively guard: cipso_v4_cache_add (net/ipv4/cipso_ipv4.c:298-302) checks 'bkt_size <= 0' before list growth and cipso_v4_rbm_strictvalid is only used as a boolean at cipso_ipv4.c:1604; the same pattern holds for calipso_cache_enabled/calipso_cache_bucketsize in net/ipv6/calipso.c:272-292 ('calipso_cache_bucketsize <= 0' guard). Values outside {0,1} are functionally boolean; no mismatch exploitation path."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/xfrm/xfrm_sysctl.c",
+      "line": 39,
+      "status": "safe",
+      "reason": "xfrm_acq_expires via proc_dointvec without bounds feeds only lifetime timers (xfrm_state.c:1592, 1870 ktime_set(net->xfrm.sysctl_acq_expires, 0)); ktime_set accepts s64 seconds so any int is representable; not security-enforcement state."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/route.c",
+      "line": 3484,
+      "status": "safe",
+      "reason": "ipv4 route gc_thresh and ipv6 route gc_thresh/max_size (net/ipv6/route.c:6567) are unbounded proc_dointvec but are memory-pressure thresholds consumed as 'entries < ops->gc_thresh' comparisons (route.c:3387 style), not auth/crypto/enforcement knobs; branch scope excludes pure memory knobs."
+    },
+    {
+      "snapshot": "s02",
+      "path": "security/apparmor/lsm.c",
+      "line": 2328,
+      "status": "safe",
+      "reason": "unprivileged_userns_apparmor_policy and siblings are unbounded proc_dointvec ints consumed as booleans (policy.c:900 '!= 0'), but writes are gated 0600 plus aa_current_policy_admin_capable(NULL) CAP_MAC_ADMIN check inside apparmor_dointvec before proc_dointvec; the exposure is an admin-only boolean, no unbounded-range enforcement effect."
+    },
+    {
+      "snapshot": "s02",
+      "path": "security/yama/yama_lsm.c",
+      "line": 449,
+      "status": "safe",
+      "reason": "ptrace_scope correctly uses yama_dointvec_minmax wrapping proc_dointvec_minmax with SYSCTL_ZERO/max_scope and locks the max on write; counterexample confirming the kernel's correct pattern, not a finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/sysctl_net_ipv4.c",
+      "line": 1131,
+      "status": "safe",
+      "reason": "tcp_fastopen via bare proc_dointvec with no bounds; bit-flag consumers (tcp_fastopen.c:444, af_inet.c:217) use '&' against TFO_* masks so out-of-range bits are inert beyond known flags; mode 0644 admin-only; same class as tcp_max_syn_backlog/igmp knobs - performance, not auth/crypto posture."
+    },
+    {
+      "snapshot": "s02",
+      "path": "kernel/signal.c",
+      "line": 4980,
+      "status": "safe",
+      "reason": "exception-trace/print-fatal-signals are debug-only booleans via proc_dointvec; not security enforcement state."
+    }
+  ],
+  "limitations": [
+    "Search bounded to static table-entry analysis of .proc_handler=proc_dointvec/proc_douintvec assignments (202 + 11 hits tree-wide, all triaged by subsystem name and consumer inspection); drivers/ subtree entries outside security-relevant names (hpet, mac_hid, md, nfs, coda, ntfs, io_uring) were name-triaged but their consumers were not individually deep-read.",
+    "Branch-4 semantics require the knob to alter enforcement/auth/crypto posture; pure memory-threshold and performance knobs (gc_thresh, tcp_max_orphans, tcp_notsent_lowat, ip_local_port_step_width) were classified safe on branch-scope grounds without exhaustively proving no secondary security effect.",
+    "maxlen/proc_handler type-mismatch scan (rg -U multiline over all 961 .proc_handler entries) produced one hit (net/sunrpc/xprtrdma/transport.c rdma_pad_optimize, unsigned int + proc_dointvec); it was classified safe because both are 4-byte and boolean-consumed; a stricter ABI (where int != unsigned int semantics) was not runtime-tested since the snapshot is not buildable in this sandbox.",
+    "No runtime/write-path dynamic testing was performed; findings rest on source-level evidence that the parsed int reaches boolean/enforcement gates without range validation, mirroring the seed's 'out-of-range or garbage values alter enforcement posture' consequence minus the seed's uninitialized-memory defect."
+  ]
+}

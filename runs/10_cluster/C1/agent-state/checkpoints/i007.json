@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "drm-userif-divisor",
+  "phase": "final",
+  "snapshot": "s02",
+  "status": "complete - 1 high-confidence finding, 12 classified candidates, artifact written to agent-state/findings/i007.json",
+  "candidates": [
+    "smu_v11_0_set_fan_speed_rpm smu11/smu_v11_0.c:1217 - reported (8*speed wrap, only speed==0 checked)",
+    "vega10_thermal.c:310, vega20_thermal.c:194, arcturus_ppt.c:1270, smu_v13_0.c:1229 - safe (UINT_MAX/8 bounds present)",
+    "smu7_thermal.c:280 - safe (u8*100 rpm bounds)",
+    "radeon ci_dpm.c:1172 / si_dpm.c:6199 - safe (#if 0 dead code)",
+    "smu7_hwmgr.c:5542 / vega10_hwmgr.c:5642 - safe (input_clk revalidated, not a divisor)",
+    "smu_v13_0_0_ppt.c:1815 - safe (firmware od_min/max range checks)",
+    "nouveau therm base.c:250 - safe (clamped duty bounds)",
+    "amdgpu_pm.c:2845 fan1_target entry - reported (part of finding call chain)",
+    "amdgpu_smu.c:2725 smu_set_fan_speed_rpm - reported (part of finding call chain)"
+  ],
+  "notes": "Finding: smu_v11_0_set_fan_speed_rpm lacks the UINT_MAX/8 bound its four sibling ASIC implementations carry; user u32 speed from hwmon fan1_target sysfs wraps 8*speed to 0 in u32 and divides tach_period by the wrapped zero."
+}

@@ -1,0 +1,21 @@
+{
+  "intent_id": "i011",
+  "branch": "sysfs-store-attr-terminator",
+  "snapshot": "s03",
+  "status": "finalizing",
+  "phase": "final_artifact_write",
+  "notes": "Bounded audit of s03 sysfs/kernfs ->store() and analogous attribute-store paths. kernfs core (fs/kernfs/file.c:293-319) always allocates len+1 and sets buf[len]='\\0' before ops->write, so all DEVICE_ATTR/DRIVER_ATTR/BUS_ATTR/CLASS_ATTR/module_param stores receive NUL-terminated, PAGE_SIZE-bounded buf; no exception found in-snapshot. Cross-checked every copy_from_user/memdup_user write handler reachable from attribute-like stores. Strongest candidate: proc_scsi_host_write (drivers/scsi/scsi_proc.c:64-87) copies user data into a full PAGE and passes (page,count) unmodified to shost->hostt->write_info callbacks; wd33c93_write_info (drivers/scsi/wd33c93.c:1996-2059) writes buf[len]='\\0' at the exact last byte of the page -> off-by-one out-of-bounds write when count==PAGE_SIZE (PROC_BLOCK_SIZE=PAGE_SIZE), plus unterminated strncmp/simple_strtoul scanning when count==PAGE_SIZE-1... buf[len] at last byte is in-bounds for len<=PAGE_SIZE-1; for len==PAGE_SIZE it writes 1 byte past the page. scsi_debug_write_info and proc_scsi_devinfo_write handle termination safely.",
+  "candidates": [
+    "wd33c93_write_info: off-by-one OOB write at buf[len] when len==PAGE_SIZE; reported",
+    "proc_scsi_devinfo_write: length<PAGE_SIZE adds NUL, length==PAGE_SIZE requires buffer[PAGE_SIZE-1] NUL else -EINVAL; safe",
+    "nsim_bus_dev_max_vfs_write: count<sizeof(buf) then buf[count]='\\0'; safe",
+    "inject_data_ue_store (versal_edac): len=min(count,sizeof(buf)) then buf[len]='\\0'; safe",
+    "kfd_debugfs_hang_hws_write: memset(tmp,0,16) + size<16 guard; safe",
+    "sdebug_error_write (scsi_debug.c:1025): kzalloc(count+1); safe",
+    "scsi_debug_write_info: memcpy minLen<=15 into arr[16], arr[minLen]='\\0'; safe",
+    "bpmp_debug_store: memdup_user then raw byte payload to firmware, no string parse; safe",
+    "nsim_dev_trap_fa_cookie_write: memdup_user then hex2bin of (count-1)/2 bytes; no string parse; safe",
+    "kernfs_fop_write_iter core: always NUL-terminates; safe"
+  ],
+  "timestamp": "2026-11-12"
+}

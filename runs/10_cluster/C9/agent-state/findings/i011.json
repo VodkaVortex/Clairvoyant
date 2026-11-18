@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/bluetooth/hci_event.c",
+      "start": 7279,
+      "end": 7301,
+      "quote": "u8 num_reports = *ptr;",
+      "confidence": "medium",
+      "reason": "Untrusted source: hci_store_wake_reason() (defined net/bluetooth/hci_event.c:7247) parses an HCI event skb whose payload is controller/virtual-controller supplied (HCI event data crosses a trust boundary for virtual or remote HCI transports; the LE meta subevent payload is peer-supplied). Violated invariant: at line 7283 'u8 num_reports = *ptr;' the wire count is fetched raw from skb->data with no hci_ev_skb_pull()/min_len validation and no range check, and its non-zero value (line 7288) is then used as proof that at least one complete report structure follows: 'adv = (void *)(ptr + 1);' (line 7289) is immediately dereferenced by 'bacpy(&hdev->wake_addr, &adv->bdaddr); hdev->wake_addr_type = adv->bdaddr_type;' (lines 7295-7296) and the DIRECT_ADV/EXT_ADV variants, storing attacker-influenced OOB-read bytes into persistent hdev state (hdev->wake_addr/wake_addr_type). Asymmetric validation (the branch's key signal): every sibling handler of the same HCI event family validates the payload length first via hci_ev_skb_pull(hdev, skb, event, ev->min_len) (see net/bluetooth/hci_event.c:7503 and pull sites at 3042, 4419, 4809, 4840, 5075, 7212), but this mirror wake-reason path performs none, so a truncated LE meta event (e.g. subevent HCI_EV_LE_ADVERTISING_REPORT with plen too small for one report) is read past the skb tail. Counterevidence checked: path is gated on hdev->suspended && !hdev->wake_reason, only the first wake event is consumed, and the read is bounded to the report-struct layout (bdaddr+type), so this is an OOB read into persistent state, not the seed's OOB write; impact is a hypothesis, and the exact skb length precondition at the hci_store_wake_reason call site was not re-verified in this session."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/bluetooth/hci_event.c",
+      "line": 7283,
+      "status": "reported",
+      "reason": "Wire count num_reports read without any length validation (no hci_ev_skb_pull/min_len, no range check) and used to gate dereference of a report struct at ptr+1, whose fields are copied into persistent hdev->wake_addr/wake_addr_type; sibling HCI event handlers all validate via hci_ev_skb_pull."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/virtio_net.c",
+      "line": 1307,
+      "status": "unresolved",
+      "reason": "Peer (virtio device/host) supplied count: 'num_buf = virtio16_to_cpu(vi->vdev, hdr->num_buffers);' consumed by loops at lines 1222, 1250, 1820, 2045-2053 and the frag-append path near line 2185 ('frag = &shinfo->frags[shinfo->nr_frags++];'). One sub-path clamps ('if (*num_buf > MAX_SKB_FRAGS + 1)' at line 2158) \u2014 asymmetric validation \u2014 but the main receive_mergeable frag-append loop's upper-bound guard was not fully verified before the search was stopped."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/can/bcm.c",
+      "line": 359,
+      "status": "unresolved",
+      "reason": "'unsigned int datalen = head->nframes * op->cfsiz;' in the RX_SETUP path multiplies a user-supplied (setsockopt) count by element size; the TX_SEND sibling clamps nframes to [1, MAX_NFRAMES] at line 935, but whether the RX_SETUP/alloc path applies the same clamp before this multiply was not fully verified before the search was stopped."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/can/bcm.c",
+      "line": 935,
+      "status": "safe",
+      "reason": "TX_SEND explicitly clamps the wire count: 'if (msg_head->nframes < 1 || msg_head->nframes > MAX_NFRAMES) return -EINVAL;' before any use in loops or copies."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ceph/osd_client.c",
+      "line": 558,
+      "status": "safe",
+      "reason": "ceph_osdc_alloc_request enforces the known maximum before allocation: 'BUG_ON(num_ops > CEPH_OSD_MAX_OPS);' with CEPH_OSD_MAX_OPS=16 defined in include/linux/ceph/osd_client.h:102, and the sizing uses struct_size(); num_ops is kernel-derived, not wire-derived."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/batman-adv/translation-table.c",
+      "line": 513,
+      "status": "safe",
+      "reason": "num_vlan/num_entries at lines 513-529 (and 799-830) are computed by iterating the kernel-side vlan list with atomic_read, not copied from the wire; the OGM/TTVN reply parse direction was not reached in this session (noted in limitations)."
+    }
+  ],
+  "limitations": [
+    "The hci_store_wake_reason call site and its skb length precondition (whether HCI_EVENT_HDR_SIZE/LE meta header was already pulled and min plen checked upstream) were not re-verified in this session; the OOB-read hypothesis rests on the absent hci_ev_skb_pull/min_len validation inside the function itself.",
+    "drivers/net/virtio_net.c receive_mergeable main frag-append loop (around lines 2124-2196) was not fully read to its loop entry guard; num_buf clamp asymmetry (line 2158 clamps only the XDP linearize sub-path) is recorded as unresolved and overlaps branch peer-trusted-transport.",
+    "net/can/bcm.c RX_SETUP allocation path around line 359 (datalen = head->nframes * op->cfsiz) was not traced to its clamp; only TX_SEND was verified clamped.",
+    "Other deserialization entry points in snapshots/s03 (9p virtio msize, fuse notification counts, ksmbd/cifs response counts, NFC NCI, HID report descriptor counts, xen-blkback nr_segments) were planned but not examined before the search was stopped; this result is bounded to the sites listed above."
+  ]
+}

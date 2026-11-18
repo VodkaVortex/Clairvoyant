@@ -1,0 +1,16 @@
+{
+  "intent_id": "i047",
+  "branch": "alloc-multiply-overflow",
+  "snapshot": "s12",
+  "status": "started",
+  "progress": "usbip seed present in s12 and UNPATCHED (usbip_common.c:664-665 int size = np * sizeof(*iso); unclamped store at 473; USBIP_MAX_ISO_PACKETS=1024 only enforced on submit direction per stub_rx). Recorded as excluded-by-rule candidate. Next: broad regex sweep for other multiply-overflow sites.",
+  "candidates": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 665,
+      "status": "unresolved",
+      "reason": "SEED mechanism verbatim and UNPATCHED in s12: usbip_recv_iso keeps int size = np * sizeof(*iso) (line 665) with np = urb->number_of_packets (line 664) stored unclamped from the wire by usbip_pack_ret_submit (line 473), kzalloc(size) at ~677, and a per-element recv/copy loop. Excluded from findings per the seed-never-reportable rule; recorded to document snapshot-local seed presence."
+    }
+  ]
+}

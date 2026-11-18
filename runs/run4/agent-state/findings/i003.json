@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "vhost-virtio-guestmem",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2822,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc_n() declares local 'struct vring_desc desc' (line 2822) and fills it via vhost_get_desc() -> vhost_copy_from_user(vq, desc, vq->desc + idx, sizeof(*desc)) (vhost.c:1582), a single-fetch snapshot of guest-writable memory. All validation (i < vq->num at 2851, found-loop at 2858, VRING_DESC_F_INDIRECT at 2870, VRING_DESC_F_WRITE at 2889) and all consumption (translate_desc(vq, vhost64_to_cpu(vq, desc.addr), vhost32_to_cpu(vq, desc.len), ...) at 2902-2903, log addr/len at 2916-2917) dereference the local copy, never re-reading guest memory. The next-index walk goes through next_desc() at 2695 which does READ_ONCE(desc->next) on the same local copy."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2707,
+      "status": "safe",
+      "reason": "get_indirect() reads indirect->len once into local u32 len (2707), validates len % sizeof desc (2710), translates indirect->addr once (2720), and then pulls each indirect descriptor into a local 'struct vring_desc desc' (2705) via copy_from_iter_full (2745) before the nested-indirect flag check (2748), the WRITE flag check (2756-2759) and translate_desc of desc.addr/desc.len (2761-2762). Both the checked and the used values come from the one local snapshot; the shared indirect table is never re-dereferenced for a field after it was validated."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vringh.c",
+      "line": 312,
+      "status": "safe",
+      "reason": "__vringh_iov() copies each descriptor into a local 'struct vring_desc desc' via the copy callback (copydesc_user/copydesc_kern/copydesc_iotlb at line 312-315, each a copy_from_user/memcpy/copy_from_iotlb of the whole struct) before rcheck() range validation (line 340, 405) and iovec construction. The re-reads of desc.len/desc.addr at lines 412-421 ('if (unlikely(len != vringh32_to_cpu(vrh, desc.len)))' and the addr/len fixup loop) operate on the LOCAL desc copy, not on the guest ring, so a concurrent guest write cannot make the consumed iovec differ from the validated one."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vringh.c",
+      "line": 44,
+      "status": "safe",
+      "reason": "__vringh_get_head() reads the avail ring head exactly once (getu16 at line 55-57) into a local u16 head, validates head < vrh->vring.num (line 61-63) using that same local, and returns it; callers pass the returned local index onward. vhost's parallel path vhost_get_avail_head (vhost.c:1555-1559) likewise fetches once via get_user and vhost_get_vq_desc_n validates the same local ring_head (vhost.c:2854). No second dereference of avail->ring between check and use."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/scsi.c",
+      "line": 1230,
+      "status": "safe",
+      "reason": "vhost_scsi_get_req() copies the full virtio-scsi request header from the guest iovecs into the stack-local v_req/v_req_pi (copy_from_iter_full at line 1230); the lun byte, target index, tag, task_attr, cdb and pi_bytesout/in consumed afterwards all come from that kernel-local copy. Response sizing uses iov_length() over the kernel-computed vq->iov, not a re-read of guest descriptors."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vsock.c",
+      "line": 377,
+      "status": "safe",
+      "reason": "vhost_vsock_alloc_skb() copies the virtio_vsock_hdr out of the guest iovec into the skb (copy_from_iter at line 377), then reads payload_len from the copied header (385) and validates payload_len + sizeof(*hdr) > len against the iov_length-derived local len (392); the subsequent skb_copy_datagram_from_iter uses the same validated local payload_len. handle_rx (lines 144-243) likewise derives everything from vhost_get_vq_desc's local iovecs."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/net.c",
+      "line": 712,
+      "status": "safe",
+      "reason": "vhost_net_build_xdp() copies the packet including the virtio_net_hdr into a kernel page-frag buffer (copy_from_iter at line 712) and only then parses gso->csum_start/csum_offset/hdr_len from that local buffer (lines 715-730); the validation (hdr_len > len) and the later consumption both read the local copy. handle_tx_copy/handle_tx_zerocopy send the guest iovecs through sock->ops->sendmsg where the generic socket path copies data itself; len comes from iov_length over vhost_get_vq_desc_n's kernel-side iovecs."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vhost.c",
+      "line": 3164,
+      "status": "safe",
+      "reason": "vhost_notify() fetches the used-event index once into a local '__virtio16 event' via vhost_get_used_event (3156-3159, get_user-based) and feeds the same local to vring_need_event (3164); vhost_get_avail_idx caches the avail index into vq->avail_idx (1535) with an smp_rmb, and the head fetch is separately single-shot, so a guest racing avail->idx cannot desynchronize the checked head index from the consumed one."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vhost/vdpa.c",
+      "line": 363,
+      "status": "unresolved",
+      "reason": "vhost_vdpa ioctl handlers use copy_from_user for config/status/features (e.g. lines 310, 363, 390, 479, 787), which are one-shot snapshots of ioctl buffers, not guest-writable shared rings; no double-fetch observed, but the vdpa_config_ops backends feeding those ioctls were not audited per-driver in this pass."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vdpa/vdpa_user/vduse_dev.c",
+      "line": 1481,
+      "status": "unresolved",
+      "reason": "VDUSE userspace daemon shares iova domains with the kernel, and vq_state packed.last_avail_idx is passed to/from userspace (lines 296-297, 621, 1481), but the full message-processing and iova-copy paths in this 2486-line file were not deeply read within the line budget of this intent; no double-fetch was observed in the sections examined."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/vdpa/mlx5/net/mlx5_vnet.c",
+      "line": 2393,
+      "status": "unresolved",
+      "reason": "mlx5 control vq uses vringh_getdesc_iotlb/vringh_iov_pull_iotlb (lines 2208, 2300, 2339, 2350, 2393-2421), i.e. the already-audited single-fetch vringh helpers; however the surrounding cvq setup and the vdpa_sim sibling consumers (drivers/vdpa/vdpa_sim/vdpa_sim_blk.c lines 123-319) were only spot-checked, not fully audited."
+    }
+  ],
+  "limitations": [
+    "Negative result is bounded to the vhost/virtio core descriptor-consumer paths actually read line-by-line: drivers/vhost/vhost.c (vhost_get_vq_desc_n, get_indirect, next_desc, translate_desc, vhost_notify, vq_meta_prefetch, vhost_add_used*), drivers/vhost/vringh.c (__vringh_get_head, __vringh_iov, __vringh_complete, __vringh_need_notify and all copy callbacks), drivers/vhost/scsi.c, drivers/vhost/vsock.c, drivers/vhost/net.c, and the vhost/vdpa/scsi/vsock/test ioctl copy_from_user call sites.",
+    "drivers/vdpa/vdpa_user/vduse_dev.c and drivers/vdpa/vdpa_user/iova_domain.c (2486 + 685 lines) were only spot-checked for vring access; a deep audit of the VDUSE message/iova paths remains open.",
+    "drivers/vdpa/vdpa_sim/*, drivers/vdpa/mlx5/net/mlx5_vnet.c, drivers/vdpa/pds and drivers/net/caif/caif_virtio.c were confirmed to route through the vringh single-fetch helpers but their own ancillary buffer handling was not exhaustively audited.",
+    "virt/kvm/*.c (guest_memfd, coalesced_mmio, pfncache) was listed but not audited in this branch; it is peripheral to the vring desc/avail/used invariant.",
+    "tools/virtio/vringh_test.c is a test harness, not a production guest-memory consumer, and was excluded.",
+    "No dynamic compilation or runtime reproducer was run; the classification rests on source reading of the fetch sites, which for the audited files is complete for the descriptor-consumer functions."
+  ]
+}

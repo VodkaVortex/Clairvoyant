@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "firmware-table-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "start": 1215,
+      "end": 1217,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "medium",
+      "reason": "Untrusted fan RPM value reaches smu_v11_0_set_fan_speed_rpm via the hwmon fan RPM store path for Navi1x/Sienna Cichlid ASICs (registered in navi10_ppt.c:3589 and sienna_cichlid_ppt.c:3199 ppt function tables). Validation at line 1206 checks only the raw input ('if (speed == 0) return -EINVAL;') while the divisor actually used at line 1217 is the fixed-width u32 expression (8 * speed), which wraps to 0 whenever speed > UINT_MAX/8 — the exact missing invariant of the seed (checks validate f's input, not f's output at division width). Sibling implementations in the same snapshot (vega20_thermal.c:194 'speed > UINT_MAX/8', arcturus_ppt.c:1270, smu_v13_0.c:1229) carry the upstream bound, making this the unpatched analogue. Counterevidence checked: the division is a plain u32 '/' that oopses on wrapped-zero (DoS, not memory corruption); reachability requires the hwmon rpm attribute and an smu11 asic using this generic function rather than its own override. This is a user-interface-sourced divisor rather than a firmware-table-sourced one, so it is cross-branch; the firmware-table branch itself (VBIOS/atom, ACPI, EDID, DT parsing divisions) was checked and produced no credible variant."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "line": 1217,
+      "status": "reported",
+      "reason": "smu_v11_0_set_fan_speed_rpm: only 'speed == 0' checked (line 1206); '8 * speed' wraps in u32 and divides at line 1217. Registered for Navi10 (navi10_ppt.c:3589) and Sienna Cichlid (sienna_cichlid_ppt.c:3199)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "line": 6722,
+      "status": "safe",
+      "reason": "si_fan_ctrl_set_fan_speed_rpm contains the identical '60 * xclk * 10000 / (8 * speed)' expression but the entire function is inside an '#if 0' dead-code block (lines 6680-6729), so it is not compiled."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/amdgpu/atom.c",
+      "line": 695,
+      "status": "safe",
+      "reason": "atom_op_div (and atom_op_div32 at line 715) explicitly guard 'if (src != 0)' before dividing firmware/interpreter-supplied operands; zero divisors map to 0 results instead of faulting."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/smumgr/vegam_smumgr.c",
+      "line": 764,
+      "status": "safe",
+      "reason": "do_div(temp, ref_clock) where ref_clock = amdgpu_asic_get_xclk() is a per-ASIC driver-side constant (nonzero), not a raw firmware-table field; polaris10_smumgr.c:933/948 is the same pattern."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/amdgpu/si.c",
+      "line": 1734,
+      "status": "safe",
+      "reason": "do_div(fb_div, ref_freq) with ref_freq = adev->clock.spll.reference_freq, populated from the atombios clock-parse as a fixed reference frequency in 10kHz units; not attacker-influenced and effectively nonzero, unlike a raw table field divisor."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "line": 1281,
+      "status": "safe",
+      "reason": "get_fan_speed path divides by tach_status read from CG_TACH_STATUS only inside 'if (tach_status)' guard (zero handled with warning); arcturus_ppt.c:1222 same pattern."
+    }
+  ],
+  "limitations": [
+    "The firmware-table-divisor branch proper (ACPI methods, SMBIOS, EDID, device-tree properties, EEPROM parses outside drm/amd) was only sampled through AMD VBIOS/powerplay and atom interpreter paths; a full sweep of e.g. drivers/acpi, drivers/gpu/drm/amd/display EDID parsing, and of_property divisions was not completed before finalization.",
+    "The reported smu_v11_0.c finding was not confirmed by compilation or runtime: reachability depends on navi10/sienna_cichlid hwmon fan RPM store passing the value unchanged (not re-verified line-by-line in this session) and on no earlier clamp in the smu sysfs layer.",
+    "Other do_div/div_u64 sites in drivers/gpu/drm/amd/display/dc (162 helper matches total across AMD dirs) were not all individually triaged; the strongest candidates were prioritized per the twelve-candidate budget."
+  ]
+}

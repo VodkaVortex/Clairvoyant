@@ -1,0 +1,15 @@
+{
+  "intent_id": "i009",
+  "branch": "csum-partial-consumer-trust",
+  "status": "near_complete",
+  "snapshot": "s02",
+  "phase": "evidence_collected",
+  "candidates": [
+    {"path": "drivers/net/ethernet/freescale/fec_main.c", "lines": "325-339", "fn": "fec_enet_clear_csum", "status": "report-candidate", "note": "writes __sum16 at skb->head + csum_start + csum_offset with no bounds validation; consumers of CHECKSUM_PARTIAL skbs"},
+    {"path": "net/core/dev.c", "fn": "skb_checksum_help", "status": "safe", "note": "BUG_ON(offset >= skb_headlen) and BUG_ON(offset + 2 > skb_headlen) guard; consumes trusted producer values"},
+    {"path": "net/core/skbuff.c", "fn": "skb_checksum_setup + skb_partial_csum_set", "status": "safe", "note": "validates csum_start/csum_end against headlen before setting"},
+    {"path": "net/ipv4/fou.c", "lines": "925-934", "status": "safe", "note": "checks csum_start < hdrlen; converts csum_start and csum_offset into remote-csum header fields, no memory deref from them"},
+    {"path": "net/hsr/hsr_forward.c", "lines": "108-109,171-172", "status": "safe", "note": "only adjusts csum_start by +/-HSR_HLEN, consistent with headroom change, no deref"}
+  ],
+  "updated_at": "2026-11-12"
+}

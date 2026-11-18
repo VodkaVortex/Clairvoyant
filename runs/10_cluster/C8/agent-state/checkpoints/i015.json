@@ -1,0 +1,14 @@
+{
+  "intent_id": "i015",
+  "branch": "net-epidx",
+  "snapshot": "s04",
+  "status": "complete",
+  "candidates": [
+    {"path": "drivers/net/usb/lan78xx.c", "line": 3582, "status": "reported", "reason": "endpoint + 0/1/2 fixed indices with no bNumEndpoints check; ep_intr->desc read programs pipe_intr, bInterval, and URB buffer sizing"},
+    {"path": "drivers/net/usb/r8152.c", "line": 1357, "status": "reported", "reason": "ep_intr = alt->endpoint + 2, no bNumEndpoints validation anywhere; bInterval feeds usb_fill_int_urb at open"},
+    {"path": "drivers/net/wireless/ath/ath9k/hif_usb.c", "line": 1224, "status": "reported", "reason": "send_eject_command reads endpoint[r] r=1..0 at probe with no bNumEndpoints check; bEndpointAddress programs bulk pipe"},
+    {"path": "drivers/net/wireless/zydas/zd1211rw/zd_usb.c", "line": 1283, "status": "reported", "reason": "eject_installer (original of ath9k copy) reads endpoint[1]/[0] with no bNumEndpoints check at probe"},
+    {"path": "drivers/net/usb/qmi_wwan.c", "line": 304, "status": "unresolved", "reason": "control->cur_altsetting->endpoint[0] without visible bNumEndpoints check; upstream validation path not fully traced"}
+  ],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/findings/i015.json"
+}

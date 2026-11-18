@@ -1,0 +1,25 @@
+{
+  "intent_id": "i016",
+  "branch": "tx-cow-head-realloc",
+  "snapshot": "s05",
+  "status": "finalizing",
+  "candidates": [
+    {"path": "net/mac80211/wpa.c", "line": 815, "status": "reported", "reason": "ieee80211_crypto_cs_encrypt: hdr captured at 799 from skb->data; pskb_expand_head(skb, iv_len, 0, GFP_ATOMIC) at 812 (runs when headroom < iv_len, nhead>0 forces new head buffer); stale hdr->frame_control read at 815 drives hdrlen used as memmove length at 818"},
+    {"path": "net/batman-adv/routing.c", "line": 237, "status": "reported", "reason": "batadv_recv_my_icmp_packet: icmph captured at 227; skb_linearize at 234; stale icmph passed to batadv_socket_receive_packet at 237 which copies header bytes"},
+    {"path": "net/batman-adv/network-coding.c", "line": 1145, "status": "reported", "reason": "batadv_nc_code_packets: packet1/packet2 captured at 1113-1114/1124-1125; skb_linearize of both skb_dest and skb_src at 1145; stale packet1->ttl/dest/ttvn and packet2->dest/ttl/ttvn read at 1155-1169"},
+    {"path": "net/mac80211/tdls.c", "line": 1940, "status": "reported", "reason": "ieee80211_process_tdls_channel_switch: tf captured at 1924; skb_linearize at 1934; tf->action_code read at 1940 without refetch"},
+    {"path": "net/ipv4/ip_tunnel_core.c", "line": 91, "status": "safe", "reason": "s01 sibling finding (iptunnel_pmtud_build_icmp) does not exist in s05 (grep negative); __iptunnel_pull_header captures eh after the second pskb_may_pull"},
+    {"path": "net/ipv4/ip_tunnel.c", "line": 811, "status": "safe", "reason": "ip_tunnel_xmit/ip_md_tunnel_xmit: all inner_iph uses (571,612,620 and 683,727,793,804) precede skb_cow_head at 626/811; nothing uses inner_iph after the cow"},
+    {"path": "net/ipv4/ip_gre.c", "line": 607, "status": "safe", "reason": "ipgre_xmit captures tnl_params AFTER skb_cow_head at 607; erspan_fb_xmit/gre_fb_xmit use fresh ip_hdr(skb)/ipv6_hdr(skb) accessor calls after their cow_head calls"},
+    {"path": "net/ipv6/seg6_iptunnel.c", "line": 120, "status": "safe", "reason": "seg6_do_srh_encap/inline: inner_hdr (125) and oldhdr (183) captured AFTER skb_cow_head at 120/181; seg6_output hdr at 332 not used after cow at 369"},
+    {"path": "net/ipv6/calipso.c", "line": 1332, "status": "safe", "reason": "calipso_skbuff_setattr: explicit refetch 'ip6_hdr = ipv6_hdr(skb); /* Reset as skb_cow() may have moved it */' at 1332 after skb_cow at 1328; delattr refetches at 1387"},
+    {"path": "net/sched/act_pedit.c", "line": 314, "status": "safe", "reason": "tcf_pedit_act: skb_unclone at 314 executes before any header pointer capture; offset-based access computed after unclone"},
+    {"path": "drivers/net/ipvlan/ipvlan_core.c", "line": 608, "status": "safe", "reason": "ipvlan_xmit_mode_l2: skb_share_check never relocates skb->head (returns same skb or a clone sharing the identical head buffer), so eth captured at 599 stays valid for the eth->h_dest read at 619"},
+    {"path": "net/xfrm/xfrm_ipcomp.c", "line": 112, "status": "safe", "reason": "ipcomp_input: skb_linearize_cow at 112 precedes the ipch capture at 118; ipcomp_compress captures start at 139 after the caller's linearize at 178"}
+  ],
+  "notes": [
+    "Scanner (same-function capture->realloc->no-refetch->use over net/ and drivers/) produced 3 hits: tdls.c:1934 (tf), wpa.c:812 (hdr), ipvlan_core.c:608 (eth); batman-adv sites required manual reading because captures are inside if/else branches the scanner's regex missed",
+    "mt7925 MCU linearize site reported in s01/s03 siblings does not exist in s05: no drivers/net/wireless/mediatek/mt76/mt7925 directory; grep of mt76 tree found zero skb_linearize calls",
+    "pskb_expand_head doc quote verified in s05 net/core/skbuff.c:1481/1912: 'All the pointers pointing into skb header may change and must be reloaded'"
+  ]
+}

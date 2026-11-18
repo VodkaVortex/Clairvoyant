@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "l2-wireless-ie-tlv",
+  "phase": "final",
+  "snapshot": "s03",
+  "status": "two findings classified reported; remaining candidates classified",
+  "findings": [
+    {
+      "path": "net/wireless/util.c",
+      "lines": "2022-2037",
+      "class": "reported",
+      "issue": "skip_ie() reads ies[pos+1] length byte whenever pos < ielen (pos == ielen-1 passes caller check), one-byte OOB; loop advances by 2+len without validating pos+1 < ielen or pos+2+len <= ielen; skip_ie return can exceed ielen, causing ieee80211_ie_split_ric to return pos > ielen, then mlme.c:2372 skb_put_data(skb, assoc_data->ie + offset, noffset - offset) copies past the user-supplied assoc IE buffer"
+    },
+    {
+      "path": "net/bluetooth/eir.c",
+      "lines": "372-386",
+      "class": "reported",
+      "issue": "eir_get_service_data() reads get_unaligned_le16(eir) on returned data pointer without ensuring dlen >= 2 (EIR field_len==2 gives dlen==1), two-byte OOB read of remotely controlled periodic advertising data; also eir_len -= dlen underflows when dlen==eir_len (loop termination then relies on eir_get_data eir_len<2 check)"
+    }
+  ],
+  "candidates_classified": [
+    {"path": "net/mac80211/util.c:2414-2418 ieee80211_ie_split_vendor", "status": "safe", "reason": "same ies[pos+1] OOB when pos==ielen-1 exists but callers (mesh.c:362, mlme.c:2369) pass offset 0 derived from user-set IEs later re-appended to skb; risk of copying OOB bytes into transmitted frames is lower; primary split_ric path reported separately"},
+    {"path": "net/wireless/util.c cfg80211_get_p2p_attr (1898-1993)", "status": "safe", "reason": "explicit 'if (len < 2) return -EILSEQ' before length read and iedatalen+2 > len check; inner attr loop checks iedatalen < 3"},
+    {"path": "net/wireless/radiotap.c iterator", "status": "safe", "reason": "_max_length checks before bitmap reads and after each _arg advance; vendor ns length bounded by -EINVAL check"},
+    {"path": "net/bluetooth/mgmt.c eir_has_uuids (10158-10208)", "status": "safe", "reason": "checks eir_len - parsed < field_len + 1 before reading eir[1]... but reads eir[1] when only field_len+1==1? No: field_len>=1 enforced by field_len==0 break, and check requires field_len+1 <= eir_len - parsed; with parsed=eir_len-1 and field_len=0 breaks; field_len>=1 means >=2 bytes available for eir[0],eir[1]"},
+    {"path": "net/bluetooth/hci_event.c eir_get_length (5092-5106)", "status": "safe", "reason": "reads only eir[0] (field_len) within bounds; no second-byte read"},
+    {"path": "net/bluetooth/eir.h eir_get_data (62-86)", "status": "safe", "reason": "checks eir_len >= 2 and parsed > eir_len break before returning &eir[2] with field_len-1"}
+  ],
+  "timestamp": "2026-11-12"
+}

@@ -1,0 +1,106 @@
+{
+ "version": 1,
+ "intent_id": "i039",
+ "branch": "tasklet-napi-softirq-lock",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s10"
+ ],
+ "findings": [
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/ethernet/sun/cassini.c",
+   "start": 545,
+   "end": 560,
+   "quote": "static void cas_spare_recover(struct cas *cp, const gfp_t flags)\n{\n\tstruct list_head list, *elem, *tmp;\n\tint needed, i;\n\n\t/* check inuse list. if we don't need any more free buffers,\n\t * just free it\n\t */\n\n\t/* make a local copy of the list */\n\tINIT_LIST_HEAD(&list);\n\tspin_lock(&cp->rx_inuse_lock);",
+   "confidence": "high",
+   "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency, not data - remote/local traffic causes RX completions that run the NAPI poll (cas_poll, netif_napi_add at cassini.c:5095, napi_schedule from the cas_interrupt family at 2450/2501/2557) under NET_RX softirq, while RX-buffer pressure in cas_page_dequeue (621-645, raise counter at 640-642) schedules cp->reset_task via schedule_work at 635-638, and local admin activity (open 4264-4265, close 4294/4326, suspend 5209) aligns the process side. VIOLATED INVARIANT: locks cp->rx_inuse_lock and cp->rx_spare_lock (spin_lock_init 5021-5022) are shared between NAPI-softirq code and process/workqueue code, but EVERY site on both sides uses plain spin_lock() (rx_inuse_lock: 501,531,556,592,1369,2237; rx_spare_lock: 505,518,535,579,597,614,626,631); grep shows no spin_lock_bh/local_bh_disable on these locks anywhere in the file. SOFTIRQ SIDE: cas_poll (2572) -> cas_rx_ringN (2279) -> cas_post_page (2178) -> cas_page_swap (1379) -> cas_page_spare (1357) takes spin_lock(&cp->rx_inuse_lock) at 1369 after cas_page_dequeue (621) takes rx_spare_lock at 626/631; also cas_rx_ringN -> cas_post_rxds_ringN (2206) takes rx_inuse_lock at 2237, and cas_page_dequeue itself calls cas_spare_recover (545) taking rx_inuse_lock 556/592 and rx_spare_lock 579/597 inside the poll. PROCESS SIDE: workqueue worker cas_reset_task (3993, INIT_WORK 5041) calls cas_spare_recover(cp, GFP_ATOMIC) at 4027 with plain spin_lock on both locks; cas_open (4264-4265) and cas_close (4294/4326) call cas_spare_init/cas_spare_recover/cas_spare_free (499-643) taking the same locks plainly; cas_clean_rxds (1395) -> cas_page_swap -> cas_page_spare (1369) runs from cas_reset_task/suspend/resume (4047/4052, 5217/5242) and close (4322) under cas_lock_all_save which irq-saves only cp->lock+tx_locks (definition 240-262), NOT a bottom-half disable for rx_inuse/rx_spare. MISSING GUARANTEE: plain spin_lock only disables preemption; a NET_RX softirq on the same CPU executing cas_poll -> cas_page_spare/cas_spare_recover spins forever on rx_inuse_lock/rx_spare_lock held by the preempted worker/process holder that can never resume - soft-lockup, RCU stall, RX stall DoS, the tasklet/NAPI-softirq analogue of the ks7010 seed. COUNTEREVIDENCE CHECKED: cas_close does napi_disable at 4309 before cas_spare_free/cas_clean_rings (4322-4326), so the close path is quiesced; cas_open's cas_spare_recover at 4265 runs before napi_enable at 4280, so open-side exposure is marginal; the worker path at 4027 runs with cp->opened true and is NOT napi-disabled (netif_device_detach at 4018 does not stop a poll already scheduled or running on another CPU, and scheduling on the poll's own CPU hits the fatal schedule-while-running case), leaving the worker-vs-poll window live.",
+   "conclusion": "Cassini cp->rx_inuse_lock/rx_spare_lock are taken with plain spin_lock in the cas_reset_task workqueue worker (4027->556/579/592/597) and open/close process paths while NAPI cas_poll takes the same locks under NET_RX softirq (1369/2237), so a same-CPU softirq spins forever against the preempted holder (soft-lockup DoS)."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/ethernet/ti/cpmac.c",
+   "start": 715,
+   "end": 722,
+   "quote": "static void cpmac_hw_error(struct work_struct *work)\n{\n\tstruct cpmac_priv *priv =\n\t\tcontainer_of(work, struct cpmac_priv, reset_work);\n\n\tspin_lock(&priv->rx_lock);",
+   "confidence": "medium",
+   "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency, not data - any received frame schedules the NAPI poll (cpmac_irq at cpmac.c:786-789 napi_schedule_prep+__napi_schedule, netif_napi_add 1118) under NET_RX softirq, and a MAC host-error/status interrupt (cpmac_check_status ~738-760, schedule_work at 759) or the poll's own fatal_error path (504-529) schedules priv->reset_work - RX traffic and hardware error events are enough to align both sides. VIOLATED INVARIANT: priv->rx_lock (spin_lock_init 1121) is shared between the NAPI softirq poll and workqueue context, but both sides use plain spin_lock (408 in cpmac_poll, 720 in cpmac_hw_error) with zero spin_lock_bh/local_bh_disable in the whole file. SOFTIRQ SIDE: cpmac_poll (400) takes spin_lock(&priv->rx_lock) at 408 and holds it through the descriptor walk (unlock 524 or fatal_error unlock 522); it runs under NET_RX softirq via __napi_schedule. PROCESS SIDE: cpmac_hw_error (715, work_struct callback, INIT_WORK 978) takes spin_lock(&priv->rx_lock) at 720 and calls cpmac_clear_rx (675) which walks and rewrites the entire rx descriptor ring under the lock; scheduled from cpmac_check_status at 759 out of the hardirq path and from cpmac_poll's fatal_error path at 528 (after napi_complete 523 and napi_disable 524). MISSING GUARANTEE: no spin_lock_bh at 720 (or 408), so preemption-disable cannot exclude the NAPI softirq; once the worker holds rx_lock, a NET_RX softirq on the same CPU entering cpmac_poll spins forever while the worker can never resume - soft-lockup/RCU-stall/RX-stall DoS, the NAPI-softirq analogue of the seed. COUNTEREVIDENCE CHECKED: the poll-side fatal_error path calls napi_disable at 524 before schedule_work at 528 (closes the window for polls scheduled after that point), and cpmac_close does napi_disable (1019) before cancel_work_sync (1021); the residual exposure is the hardirq-scheduled reset_work (759) plus any poll already executing when the worker runs, hence medium confidence. The identical cpmac_poll-vs-cpmac_hw_error rx_lock shape was previously confirmed high-confidence in sibling snapshot s12, corroborating the mechanism.",
+   "conclusion": "Cpmac priv->rx_lock is taken with plain spin_lock in the cpmac_hw_error workqueue worker (720) while NAPI cpmac_poll takes the same lock under NET_RX softirq (408), so a same-CPU softirq can spin forever against the preempted worker (soft-lockup DoS)."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/ethernet/silan/sc92031.c",
+   "start": 1081,
+   "end": 1096,
+   "quote": "static void sc92031_tx_timeout(struct net_device *dev)\n{\n\tstruct sc92031_priv *priv = netdev_priv(dev);\n\n\t/* Disable interrupts by clearing the interrupt mask.*/\n\tsc92031_disable_interrupts(dev);\n\n\tspin_lock(&priv->lock);",
+   "confidence": "medium",
+   "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency, not data - any device interrupt (traffic or TX-done) schedules priv->tasklet (tasklet_schedule at sc92031.c:892 inside the ISR; tasklet_init at 1449 with callback sc92031_tasklet), so remote/local traffic plus a TX watchdog timeout on the same CPU align both sides. VIOLATED INVARIANT: priv->lock (spin_lock_init 1446) is shared between the TASKLET_SOFTIRQ callback and process context with mixed discipline: the softirq side sc92031_tasklet takes it plainly (841) and the xmit path sc92031_start_xmit takes it plainly (945), while process-side sites use spin_lock_bh (914, 1019, 1053, 1073, 1127, 1240, 1260, 1287, 1317, 1363, 1517, 1542), but sc92031_tx_timeout (1081) takes spin_lock(&priv->lock) at 1088 with no BH disable. PROCESS SIDE: sc92031_tx_timeout is the ndo_tx_timeout hook invoked by the networking core watchdog (dev_watchdog), a BH-enabled kworker-like context; it calls sc92031_disable_interrupts (1086) then spin_lock at 1088 and _sc92031_reset (1092) under the lock. SOFTIRQ SIDE: sc92031_tasklet (832, spin_lock at 841) runs in TASKLET_SOFTIRQ on any CPU with a pending entry; sc92031_disable_interrupts only masks the device interrupt line - it neither flushes nor kills an already-scheduled tasklet - so a tasklet running while tx_timeout holds priv->lock spins forever while the holder can never resume. MISSING GUARANTEE: no spin_lock_bh at 1088 despite the driver's own eleven _bh sites on the same lock, proving the convention is BH-disable and this site violates it. COUNTEREVIDENCE CHECKED: whether dev_watchdog can run with BH already disabled was not proven from core source in this pass, hence medium confidence; the identical sc92031_tx_timeout shape was previously confirmed high-confidence in sibling snapshot s03.",
+   "conclusion": "sc92031_tx_timeout takes priv->lock with plain spin_lock (1088) while the ISR-scheduled RX/TX tasklet takes the same lock in softirq (841), so the missing spin_lock_bh lets the tasklet spin forever against the preempted timeout holder (soft-lockup DoS)."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/wireless/marvell/mwl8k.c",
+   "line": 4642,
+   "status": "safe",
+   "reason": "mwl8k_tx_poll tasklet (tasklet_init 6123, scheduled from the A2H ISR at 4599) takes spin_lock(&priv->tx_lock) at 4642 plainly, but every process-context site of the same lock uses spin_lock_bh (1573/1581/1586/1588/1592/1626 in mwl8k_tx_wait_empty, 2059/2079/2120 in mwl8k_txq_xmit); the discipline is inverted (softirq side plain, process side BH-disabled), which cannot produce the seed's softirq-vs-holder deadlock because the dangerous direction is a plain process-context holder and none exists.",
+   "conclusion": "mwl8k tx_lock is safe for this branch: the tasklet takes it plainly but all process-context acquirers use spin_lock_bh, so no plain process holder exists to be preempted by the tasklet."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+   "line": 452,
+   "status": "safe",
+   "reason": "tse_poll (NAPI) calls tse_tx_complete which takes priv->tx_lock plainly (452), and the process side tse_start_xmit uses spin_lock_bh on the same tx_lock (568); the only plain process-context pairing is tse_shutdown's spin_lock(&priv->tx_lock) at 1286, but it runs after napi_disable at 1274 and free_irq at 1279-1280, so no schedulable NAPI softirq remains; rxdma_irq_lock is taken with irqsave in the poll path (511) and the plain 532/539 sites are the hardirq ISR itself.",
+   "conclusion": "altera_tse is safe for this branch: the plain NAPI-side tx_lock has no BH-enabled process partner (xmit uses spin_lock_bh; shutdown's plain site runs after napi_disable+free_irq)."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/ethernet/marvell/mvneta.c",
+   "line": 3722,
+   "status": "safe",
+   "reason": "All seven plain spin_lock(&pp->lock) sites (3722/3782/3800/3903/4195/4753/4833) sit in cpuhp notifiers, mvneta_stop/suspend and mvneta_config_rss; those paths mask the port interrupts on every CPU (on_each_cpu(mvneta_percpu_mask_interrupt...)) and napi_synchronize/napi_disable the NAPI instances before or around the acquisition (e.g. mvneta_config_rss 4166-4172 disables NAPI before 4195), and mvneta_poll never takes pp->lock at all, so no live NAPI softirq can contend on pp->lock with a plain holder.",
+   "conclusion": "mvneta is safe for this branch: pp->lock plain sites are all in NAPI-quiesced notifier/config paths and the NAPI poll itself never takes pp->lock."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/wireless/ath/ath5k/base.c",
+   "line": 1125,
+   "status": "unresolved",
+   "reason": "ath5k's tasklet side takes locks plainly: ath5k_tasklet_rx -> spin_lock(&ah->rxbuflock) at 1550, ath5k_tx_processq (from ath5k_tasklet_tx) -> spin_lock(&txq->lock) at 1740 and spin_lock(&ah->txbuflock) at 1774, ath5k_tasklet_beacon -> spin_lock(&ah->block) at 2202. Process side: ath5k_drain_tx_buffs uses spin_lock_bh(&txq->lock) (830/1119) but takes ah->txbuflock plainly at 1125 inside the loop; it is called from ath5k_stop_hw (2716) and ath5k_reset (2881) after ath5k_stop_tasklets (2789) tasklet_kill's rxtq/txtq/beacontq/ani_tasklet, which should prevent the txtq side, but whether ani_tasklet or a cross-CPU scheduled tasklet, or another plain process-context acquirer of txbuflock/rxbuflock (plain 1125/1774/1550 vs irqsave 1635/1653 in the tx path), can overlap was not fully resolved before the deadline.",
+   "conclusion": "Follow up: resolve whether ath5k_drain_tx_buffs' plain spin_lock(&ah->txbuflock) at 1125 can race a still-schedulable tasklet (ani_tasklet or cross-CPU rxtq/txtq) or another process-context plain acquirer of txbuflock/rxbuflock."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/ethernet/chelsio/cxgb3/sge.c",
+   "line": 2611,
+   "status": "unresolved",
+   "reason": "cxgb3 sge.c has the highest remaining plain spin_lock density among tasklet/NAPI users (12 plain sites including 1491/1529/1700/1749/1785/2611) with napi_schedule at 1861/2597 (ofld_poll/napi_rx_handler poll family); the per-queue q->lock is taken plainly in both poll-side helpers and control paths, but which process-context helpers run BH-enabled (versus being serialized by the t3 adapter locks or disable-offload state) was not traced before the deadline.",
+   "conclusion": "Follow up: trace cxgb3 sge.c process-context callers of plain spin_lock(&q->lock) (restart/ctrl/cmd helpers around 1491-1785) and decide whether any runs BH-enabled alongside the NAPI poll's plain acquisition of the same queue lock."
+  },
+  {
+   "snapshot": "s10",
+   "path": "drivers/net/ethernet/tundra/tsi108_eth.c",
+   "line": 830,
+   "status": "unresolved",
+   "reason": "tsi108_eth.c appeared in the ranked NAPI-with-plain-locks list (3 plain spin_lock sites plus a NAPI poll), but the per-site contexts (NAPI poll body vs tsi108 open/stop/mii process paths) were not opened before this intent's deadline.",
+   "conclusion": "Follow up: open tsi108_eth.c and classify its three plain spin_lock sites against its NAPI poll body to decide whether a process-context plain holder shares a lock with the NET_RX softirq side."
+  }
+ ],
+ "coverage_gaps": [
+  "Tasklet/NAPI lock correlation was done by textual lock-expression base name per file; locks reached via differently named pointers, container_of aliases, or per-queue lock arrays between softirq and process sites could not be matched automatically.",
+  "Only the tasklet callback body plus the NAPI poll function and their same-file direct callees were treated as the softirq side; locks reached through deeper indirect calls (ops->, hw->, dmaops->, function-pointer tables, cross-file statics) were not resolved.",
+  "The ~200-file tasklet_init/tasklet_setup inventory (sound/, drivers/dma/, drivers/crypto/, drivers/mmc/, drivers/tty/, drivers/usb/, drivers/s390/, drivers/infiniband/, drivers/media/) was ranked by plain spin_lock density but only network-driver entries were deep-read; non-network tasklet bodies were not audited for a plain-spin_lock process partner.",
+  "NAPI poll registration was found via netif_napi_add/napi_schedule greps; polls registered in files where the schedule site lives elsewhere, and net core/protocol tasklet users (mac80211, can/bcm, dccp ccid2, tcp_output, iucv, rds), were not deep-read in this pass.",
+  "Process-context sites that disable BH via local_bh_disable() nesting or via a spin_lock_bh on an outer lock around a plain inner acquisition were only manually resolved for the classified candidates; the full tree was not audited for that pattern."
+ ],
+ "limitations": [
+  "All findings are static hypotheses; no runtime reproducer or lockdep run was possible because the s10 snapshot has no .config or generated headers for building drivers standalone.",
+  "The cpmac finding is medium confidence because cpmac_poll's fatal_error path calls napi_disable before schedule_work and close cancels the work after napi_disable; residual exposure is the hardirq-scheduled reset_work (cpmac_check_status) and polls already executing when the worker runs.",
+  "The sc92031 finding is medium confidence because whether dev_watchdog runs with BH disabled was not proven from core source in this pass; the identical shape is high-confidence in sibling snapshot s03.",
+  "The cassini finding's open-side exposure (cas_open cas_spare_recover at 4265) is marginal because it runs before napi_enable; the primary live exposure is the cas_reset_task worker path at 4027 which is not napi-disabled.",
+  "mvneta, altera_tse, mwl8k and the ath5k txq->lock family were cleared only on the code paths read in this session; unexamined paths in those files may pair differently.",
+  "cxgb3/cxgb4 sge.c (highest remaining plain-spin_lock density among NAPI users) and tsi108_eth were left unresolved rather than audited to completion."
+ ]
+}

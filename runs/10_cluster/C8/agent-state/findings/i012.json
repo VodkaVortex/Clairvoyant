@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "fixed-epidx-rest",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2172,
+      "status": "safe",
+      "reason": "uea_boot's usb_fill_int_urb reads intf->cur_altsetting->endpoint[0].desc.bInterval, but line 2156 has 'if (intf->cur_altsetting->desc.bNumEndpoints < 1) { ret = -ENODEV; goto err0; }' immediately before the kmalloc/usb_alloc_urb/usb_fill_int_urb sequence (verified by direct read of 2140-2200). This snapshot carries the guard that sibling snapshots s01/s04/s05/s06/s07 lack (facts f022/f009/f020/f021/f019), so the interrupt-URB bInterval pattern flagged unresolved at s01 is fixed in s03."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/staging/media/usbvision/usbvision-video.c",
+      "line": 1504,
+      "status": "safe",
+      "reason": "The per-altsetting loop reads uif->altsetting[i].endpoint[1].desc.wMaxPacketSize at 1504-1505, but each iteration first executes 'if (uif->altsetting[i].desc.bNumEndpoints < 2) { ret = -ENODEV; goto err_pkt; }' at 1500-1503 (verified by direct read of 1488-1518), and the pre-loop endpoint[1] use at 1452 is guarded by 'interface->desc.bNumEndpoints < 2' at 1447-1451. The unguarded loop form reported for s01/s04/s05/s06/s07 (facts f005/f026/f014/f011/f017) is fixed in s03. The model-index actconfig->interface[...] branch at 1435-1436 is interface-count indexing owned by the if-alt-count branch and already reported by fact f012 for s03; not re-reported here."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/staging/uwb/hwa-rc.c",
+      "line": 680,
+      "status": "safe",
+      "reason": "hwarc_neep_init takes epd = &iface->cur_altsetting->endpoint[0].desc (line 680) and programs usb_fill_int_urb at 689-691, but hwarc_probe validates 'if (iface->cur_altsetting->desc.bNumEndpoints < 1) return -ENODEV;' at line 809 before touching endpoint[0] at 811, and neep_init is only installed as uwb_rc->start (line 831) and executed after probe; the interface has a single allowed altsetting (comment at 798-800), so the validated altsetting equals the used one. Guard verified by direct read of 770-831."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/staging/uwb/i1480/dfu/usb.c",
+      "line": 231,
+      "status": "safe",
+      "reason": "epd = &i1480_usb->usb_iface->cur_altsetting->endpoint[0].desc at lines 231 and 288 has no local guard in those helper functions, but the probe path checks 'if (iface->cur_altsetting->desc.bNumEndpoints < 1) return -ENODEV;' at line 352 before kzalloc (354) and i1480_usb_create (~374) which reaches the epd functions; the HW-quirk usb_set_interface at 343-345 runs BEFORE the guard, and the guard reads the post-switch cur_altsetting, so the validated object equals the used object. Verified by direct read of 340-380 plus function/grep map (only epd fetches at 231/288)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/storage/alauda.c",
+      "line": 1114,
+      "status": "safe",
+      "reason": "init_alauda reads altsetting->endpoint[0].desc.bEndpointAddress (1114) with no local bNumEndpoints check, but the usb-storage core get_pipes() (drivers/usb/storage/usb.c:728-745, read directly) runs usb_find_common_endpoints(alt, &ep_in, &ep_out, ...) on us->pusb_intf->cur_altsetting during usb_stor_probe2 (call at usb.c:1035) and fails the probe when no bulk in+out endpoints exist; a gadget with fewer than 2 endpoints never reaches alauda's attach, so index 0 is covered. Validated object (cur_altsetting scanned by get_pipes) equals the used object (same cur_altsetting re-read in init_alauda); no usb_set_interface occurs between."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1282,
+      "status": "safe",
+      "reason": "epctrl/epread/epwrite fixed-index fetches at 1282-1284 are preceded by 'if (data_interface->cur_altsetting->desc.bNumEndpoints < 2 || control_interface->cur_altsetting->desc.bNumEndpoints == 0)' at 1278-1279, with earlier path-specific checks at 1207 (==3) and 1239 (==3). Correct count-validated pattern."
+    },
+    {
+      "snapshot": "s03",
+      "path": "sound/usb/quirks.c",
+      "line": 305,
+      "status": "unresolved",
+      "reason": "create_standard_midi_quirk reads 'msepd = (struct usb_ms_endpoint_descriptor *)alts->endpoint[0].extra;' and alts->endpoint[0].extralen at 305-306 with no local bNumEndpoints check in the function; quirks.c contains 5 bNumEndpoints references but none was verified to precede this read on the MIDI-interface quirk dispatch path, and whether the caller (snd_usb_create_quirk / midi.c construction) guarantees an endpoint on that altsetting was not deep-read within this intent's budget. Left unresolved rather than safe or reported."
+    },
+    {
+      "snapshot": "s03",
+      "path": "sound/usb/stream.c",
+      "line": 579,
+      "status": "unresolved",
+      "reason": "parse_uac_endpoint reads 'alts->endpoint[0].extra' and '.extralen' at 579; the sibling endpoint[1] access at 583 is guarded by 'if (!csep && altsd->bNumEndpoints >= 2)' at 582, proving per-index guards exist in this function, but the endpoint[0] read's caller-side guarantee (only 2 bNumEndpoints references exist in stream.c and the second one's location relative to 579 was not verified) was not traced within the budget. Left unresolved."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/mmc/host/ushc.c",
+      "line": 474,
+      "status": "safe",
+      "reason": "usb_fill_int_urb reads cur_altsetting->endpoint[0].desc.bEndpointAddress (474) and .bInterval (477) after 'if (intf->cur_altsetting->desc.bNumEndpoints < 1)' at 425 in the probe path; index 0 count-validated."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/input/touchscreen/sur40.c",
+      "line": 672,
+      "status": "safe",
+      "reason": "endpoint[4] fetch at 672 preceded by 'if (iface_desc->desc.bNumEndpoints < 5) return -ENODEV;' at 668 (direct read of 655-700); the assumed index 4 is count-validated and the descriptor is further checked against TOUCH_ENDPOINT."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/watchdog/pcwd_usb.c",
+      "line": 633,
+      "status": "safe",
+      "reason": "endpoint[0] fetch at 633 preceded by 'if (iface_desc->desc.bNumEndpoints < 1) return -ENODEV;' at 629 (direct read of 615-665); wMaxPacketSize-derived intr_size and the int pipe are built from the validated descriptor."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/staging/wusbcore/wa-nep.c",
+      "line": 257,
+      "status": "safe",
+      "reason": "wa_nep_create takes &iface->cur_altsetting->endpoint[0].desc with no local check, but its only caller wa_create (drivers/staging/wusbcore/wa-hc.c) rejects 'if (iface->cur_altsetting->desc.bNumEndpoints < 3)' at line 28 before calling wa_nep_create at ~45-46 (direct read of 25-50); index 0 is covered by the sibling validation of the same altsetting."
+    }
+  ],
+  "limitations": [
+    "Variable-index endpoint[i]/endpoint[e] accesses outside drivers/media/usb and drivers/net were not individually re-read in this s03 pass (the literal fixed-index and 'endpoint + N' pointer-arithmetic forms were exhaustively enumerated: 47 literal hits, zero pointer-arithmetic hits outside excluded trees); sibling-snapshot audits (fact f023 for s02, ~70 variable-index sites) found them predominantly loop-bounded by bNumEndpoints, but s03-specific verification of every variable-index site is bounded and unexamined.",
+    "sound/usb residuals: quirks.c:305-306 (alts->endpoint[0].extra in create_standard_midi_quirk) and stream.c:579 (alts->endpoint[0].extra in parse_uac_endpoint) remain unresolved; whether the MIDI quirk dispatch path or the audio-interface parser guarantees a nonzero endpoint count for the altsetting was not verified within this intent's call budget. sound/usb misc/ua101.c fixed altsetting[1] literals (1003/1011) are endpoint-level covered by the 'bNumEndpoints != 1' validation of altsetting 1 seen at 906-909, but the altsetting[1] index half is if-alt-count branch ownership and was not audited here.",
+    "drivers/isdn contains no gigaset directory in s03 (drivers/isdn/{capi,hardware,mISDN} only; find for '*gigaset*' over the tree matches nothing), so the usb-gigaset/bas-gigaset fixed-index pattern reported in s01/s04/s06/s07 (facts f022/f021/f024/f019) is vacuously absent in this snapshot.",
+    "drivers/usb/image/mdc800.c:510 'mdc800->endpoint[0]' is a local struct field (device-driver state), not a descriptor-array index; mdc800's descriptor-derived endpoint scanning was not audited beyond the literal-index grep (no descriptor endpoint[N] hits in that file).",
+    "drivers/usb/misc/adutux.c, legousbtower.c and other usb/misc consumers produced no literal endpoint[N] hits in this snapshot; their variable-index/scan forms were not re-verified here.",
+    "No compilation, static analyzer, or USB-gadget reproducer was run: the snapshot is read-only and any build/test output would live under $TMPDIR only; all safe classifications rest on direct source reads of the guard-adjacent window plus file-level grep of bNumEndpoints occurrence counts, not dynamic verification.",
+    "The core allocation semantics premise (drivers/usb/core/config.c allocates alt->endpoint only when num_ep > 0) was not re-read in this session; it is carried over from sibling facts that read it in their own snapshots, and no finding in this artifact depends on it since no site was reported."
+  ]
+}

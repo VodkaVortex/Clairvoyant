@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "drm-userif-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c",
+      "start": 1196,
+      "end": 1217,
+      "quote": "tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);",
+      "confidence": "high",
+      "reason": "Untrusted source: local user writes a u32 to hwmon fan1_target; amd/pm/amdgpu_pm.c amdgpu_hwmon_set_fan1_target() kstrtou32()s the value (no range check beyond pwm_mode == AMD_FAN_CTRL_MANUAL) and calls amdgpu_dpm_set_fan_speed_rpm() -> amd/pm/swsmu/amdgpu_smu.c smu_set_fan_speed_rpm(), which rejects only speed == U32_MAX (line 2758) before dispatching to the ppt_funcs hook used by Navi10/Sienna Cichlid and other SMU v11 ASICs (navi10_ppt.c:3589, sienna_cichlid_ppt.c:3199). Violated invariant: the only check in smu_v11_0_set_fan_speed_rpm is `if (speed == 0)` (line 1207) on the raw input, while the actual divisor is the fixed-width expression `8 * speed` in uint32_t arithmetic; for any speed in [0x20000000, 0xFFFFFFFE] the product wraps modulo 2^32 to 0 (e.g. 8 * 0x20000000 == 0), so a nonzero validated input becomes a zero divisor at the exact division width. Unsafe use: line 1217 `tach_period = 60 * crystal_clock_freq * 10000 / (8 * speed);` executes a 32-bit integer division by the wrapped-to-zero denominator, causing a kernel divide-by-zero oops during tach-period (CG_TACH_CTRL TARGET_PERIOD) programming, structurally identical to the seed vega10 bug. Counterevidence checked: every sibling implementation of the same computation already carries the wrap guard `(!speed || speed > UINT_MAX/8)` (smu7_thermal.c:270, vega10_thermal.c:315, vega20_thermal.c:194, smu_v13_0.c:1229, arcturus_ppt.c:1270); smu_v11_0.c uniquely omits it, and the upstream U32_MAX-only check in amdgpu_smu.c does not block 0x200000000-range values, confirming the gap is real rather than defended elsewhere."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c",
+      "line": 2758,
+      "status": "reported",
+      "reason": "smu_set_fan_speed_rpm() guard `if (speed == U32_MAX) return -EINVAL;` blocks only the single value U32_MAX; wrapped-divisor values such as 0x20000000 (8*speed == 0 mod 2^32) pass through to smu_v11_0_set_fan_speed_rpm; part of the reported finding's call chain."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 315,
+      "status": "safe",
+      "reason": "vega10_fan_ctrl_set_fan_speed_rpm has `(!speed || speed > UINT_MAX/8)` before the identical `60 * crystal_clock_freq * 10000 / (8 * speed)` at line 320 (this is the already-patched seed site)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_thermal.c",
+      "line": 270,
+      "status": "safe",
+      "reason": "smu7_fan_ctrl_set_fan_speed_rpm checks `(!speed || speed > UINT_MAX/8)` plus ulMinRPM/ulMaxRPM bounds before `/(8 * speed)` at line 280."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega20_thermal.c",
+      "line": 194,
+      "status": "safe",
+      "reason": "vega20_fan_ctrl_set_fan_speed_rpm checks `(!speed || speed > UINT_MAX/8)` before `/(8 * speed)` at line 204."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0.c",
+      "line": 1229,
+      "status": "safe",
+      "reason": "smu_v13_0_set_fan_speed_rpm checks `(!speed || speed > UINT_MAX/8)` before `/(8 * speed)` at line 1236."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/swsmu/smu11/arcturus_ppt.c",
+      "line": 1270,
+      "status": "safe",
+      "reason": "arcturus_set_fan_speed_rpm checks `(!speed || speed > UINT_MAX/8)` before `/(8 * speed)` at line 1273."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/legacy-dpm/si_dpm.c",
+      "line": 6744,
+      "status": "safe",
+      "reason": "si_fan_ctrl_set_fan_speed_rpm uses the same `/(8 * speed)` but speed is bounded by adev->pm.fan_min_rpm/fan_max_rpm, which are u8 bios fields (amdgpu_dpm.h:351, legacy_dpm.c:698-699) capped at 255, so 8*speed cannot reach 2^32; no zero-speed check exists but min_rpm==0 only re-allows speed==0 if fan_max also admits it, and the explicit min/max comparison with a u8-derived max keeps the product far below wrap."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/therm/fan.c",
+      "line": 162,
+      "status": "safe",
+      "reason": "do_div(tach, (end - start)) divides by a u64 timer delta between GPIO tach edges, not a user-supplied numeric parameter scaled in fixed width; no sysfs/ioctl store path feeds it."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/smu7_hwmgr.c",
+      "line": 5105,
+      "status": "safe",
+      "reason": "smu7_set_sclk_od/smu7_set_mclk_od clamp value > 20 and divide by constant 100 (od percentage), the untrusted value is a multiplicand, not a divisor; same for vega20_set_sclk_od (vega20_hwmgr.c:1504) and vega20_set_mclk_od."
+    }
+  ],
+  "limitations": [
+    "Audit bounded to the DRM tree in snapshots/s04 only (sysfs/hwmon/debugfs/ioctl fan/clock/power paths); non-DRM chardev ioctls and firmware-table parsing are separate intents (i010-i017) and were not searched.",
+    "No runtime reproduction: no SMU v11 hardware/VM available; the wrap is verified arithmetically (8 * 0x20000000 == 0 mod 2^32) and by source comparison with the five sibling implementations that carry the UINT_MAX/8 guard, not by an executed oops.",
+    "Practical triggerability depends on the hwmon fan1_target node being writable (root-owned 0644 on most distros, same trust boundary as the seed CVE, which was also classified as a local-user hwmon write); pwm_mode must first be set to AMD_FAN_CTRL_MANUAL via pwm1_enable.",
+    "Other DRM debugfs/ioctl handlers (i915, xe, msm, amdgpu_debugfs.c) were only keyword-searched for tach/fan/rpm-scaled divisors; no exhaustive negative proof over all DRM ioctls was attempted.",
+    "The profile-restore path (amdgpu_smu.c:521 re-applying smu->user_dpm_profile.fan_speed_rpm) routes through the same vulnerable smu_v11_0_set_fan_speed_rpm entry and was not separately audited."
+  ]
+}

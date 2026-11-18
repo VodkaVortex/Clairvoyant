@@ -1,0 +1,30 @@
+{
+  "intent_id": "i025",
+  "branch": "if-alt-count",
+  "snapshot": "s06",
+  "phase": "finalizing",
+  "searched": [
+    "actconfig->interface[ literal-index sites",
+    "altsetting[ literal-index sites",
+    "intf_cache[ altsetting count sites",
+    "num_altsetting uses in media/net/serial (usbtv safe)",
+    "bNumInterfaces guards near interface[] derefs"
+  ],
+  "findings": [
+    "s06 drivers/media/usb/gspca/stv06xx/stv06xx.c:320,333 altsetting[1] literal index, no num_altsetting/bNumEndpoints in file; OOB r/w of endpoint[0].desc.wMaxPacketSize at VIDIOC_STREAMON; isoc_init 321-322, isoc_nego 334/342/344; overlaps f011 (media-epidx)",
+    "s06 drivers/media/usb/gspca/xirlink_cit.c:2653,2676 same copied pattern; 2654/2677/2684/2686; overlaps f011 (media-epidx)",
+    "s06 drivers/hid/wacom_sys.c:2256,2262 config->interface[1]/[2] in wacom_wireless_work, no bNumInterfaces in wacom_sys.c/wacom_wac.c; pattern proven s03/s05/s07",
+    "s06 drivers/media/usb/usbvision/usbvision-video.c:1442-1443 model-index interface[] without bNumInterfaces check (sibling ifnum branch 1444-1445 has it); bNumEndpoints<2 1453, endpoint[1] 1458; all in-tree .interface values 0 or -1"
+  ],
+  "safe": [
+    "usbvision-video.c:1492 interface[0] always exists",
+    "usbtv-core.c:78 num_altsetting != 2 rejected"
+  ],
+  "unexamined": [
+    "sound/usb set_alt handlers",
+    "cdc_ncm/cdc MBIM alt switching",
+    "qcserial/sierra num_altsetting==2 switch paths",
+    "V4L2 VIDIOC_S_ALT handlers"
+  ],
+  "next": "write final artifact findings/i025.json and call done"
+}

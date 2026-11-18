@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "intent_id": "i023",
+  "branch": "unclamped-wire-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s06"
+  ],
+  "findings": [
+    {
+      "snapshot": "s06",
+      "path": "net/bluetooth/hci_event.c",
+      "start": 7254,
+      "end": 7264,
+      "quote": "u8 num_reports = *ptr;",
+      "confidence": "medium",
+      "reason": "Untrusted source: hci_store_wake_reason() (net/bluetooth/hci_event.c:7222) parses the HCI event skb whose payload is controller-supplied and crosses a trust boundary for any virtual/remote HCI transport (VHCI, HCI-over-UART/BT-USB controllers, emulation), exactly the remote-endpoint peer of the seed's protocol. Violated invariant (unclamped wire count): at line 7258 'u8 num_reports = *ptr;' the wire count is fetched raw from skb->data one byte past the LE meta header with no length validation of any kind - no hci_ev_skb_pull(), no skb->len check, no min_len check - and its non-zero value (line 7263 'num_reports') is then used as proof that at least one complete report structure follows: 'adv = (void *)(ptr + 1);' (line 7264, also direct_adv/ext_adv) is dereferenced at lines 7270-7279 (e.g. 'bacpy(&hdev->wake_addr, &adv->bdaddr); hdev->wake_addr_type = adv->bdaddr_type;') storing OOB-read bytes into persistent hdev state (hdev->wake_addr/wake_addr_type). A 1-byte HCI_EV_LE_META event (subevent only) makes the *ptr fetch itself read past skb->data, and a 2-byte event (subevent + num_reports=1) makes the bacpy read struct hci_ev_le_advertising_info fields beyond the buffer (9 bytes needed past ptr+1). Asymmetric validation: every sibling handler of the same HCI event family validates the wire payload length before touching counts/entries - hci_le_meta_evt (line ~7160) enforces 'skb->len < subev->min_len' per subevent, and hci_ev_skb_pull() sites at lines 3031, 4408, 4797, 4828 all check length before parsing report arrays - but this wake-reason mirror path, which runs BEFORE hci_event_func at line 7534, performs none. Downstream consumer: the poisoned hdev->wake_addr/wake_addr_type persist in the shared struct hci_dev and are returned to userspace via the mgmt wake-reason API. Counterevidence checked: the read is OOB-read-only (no allocation sized by num_reports, so no heap overflow of the seed's write kind), it is reachable only while hdev->suspended && !hdev->wake_reason (line 7236), and no runtime reproducer was built because the snapshot is read-only and the transport needs a controller/peer; line numbers verified by direct file reads in s06."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 664,
+      "status": "unresolved",
+      "reason": "Seed mechanism present unpatched in s06: usbip_common.c:664 'int np = urb->number_of_packets;' with 665 'int size = np * sizeof(*iso);' feeding kzalloc, and the wire store at usbip_common.c:473 ('urb->number_of_packets = rpdu->number_of_packets;' in usbip_pack_ret_submit unpack) has no clamp; USBIP_MAX_ISO_PACKETS (usbip_common.h:130) is enforced only on the CMD_SUBMIT sibling path (stub_rx.c:379-381), the asymmetric-validation signature. Excluded from findings per the explicit rule that the seed must never be reported; recorded as excluded-by-rule, not as a vulnerability finding."
+    },
+    {
+      "snapshot": "s06",
+      "path": "fs/ceph/snap.c",
+      "line": 1046,
+      "status": "safe",
+      "reason": "MDS-supplied num_split_inos/num_split_realms (le32_to_cpu at 1046-1047) only advance a pointer (p += sizeof(u64) * count, lines 1067-1069) and ceph_decode_need(&p, e, sizeof(*ri), bad) at 1070 bounds-checks before any dereference; ceph_has_room (include/linux/ceph/decode.h:52-55) uses pointer subtraction with 'end >= *p && n <= end - *p' so a wrapped huge p fails the check; no allocation or copy is sized by these counts. The realm-info counts at 805-806/835-841 are likewise guarded by ceph_decode_need before dup_array."
+    },
+    {
+      "snapshot": "s06",
+      "path": "net/can/bcm.c",
+      "line": 1095,
+      "status": "safe",
+      "reason": "RX_SETUP stores the setsockopt wire count into persistent struct bcm_op but clamps first: 'if (msg_head->nframes > MAX_NFRAMES + 1) return -EINVAL;' (line 1095) before kmalloc_array/kcalloc (972-976) and memcpy_from_msg sized by the clamped count; the update path rejects growth ('msg_head->nframes > op->nframes' -> -E2BIG, 1117-1118); TX_SEND sibling clamps at 915. bcm_send_to_user's 'unsigned int datalen = head->nframes * op->cfsiz' (line 338) uses nframes set from op->nframes (line 891), i.e. the clamped stored value, so no unclamped wire count survives."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/usb/gadget/legacy/inode.c",
+      "line": 1119,
+      "status": "safe",
+      "reason": "gadgetfs event ring: 'event = &dev->event[dev->ev_next++]; BUG_ON(dev->ev_next > N_EVENT);' (1119-1120) with N_EVENT=5 fixed array at line 127; ep0_write clamps 'len = min_t(size_t, len, dev->setup_wLength)' (line 1140) before copy_from_user into req->buf allocated by setup_req(dev->gadget->ep0, dev->req, len) which kmallocs exactly len; ep_read/ep_write_iter use iov_iter_count-driven kmalloc(len) with matching copy lengths. No unclamped count into shared state."
+    },
+    {
+      "snapshot": "s06",
+      "path": "fs/fuse/ioctl.c",
+      "line": 150,
+      "status": "safe",
+      "reason": "FUSE verity enable ioctl: salt_size/sig_size copied from userspace are checked 'enable.salt_size > max_buffer_len || enable.sig_size > max_buffer_len' (line 150) against FUSE_VERITY_ENABLE_ARG_MAX_PAGES * PAGE_SIZE before any buffer sizing. Clamped parse entry point recorded as required by the branch instructions."
+    }
+  ],
+  "limitations": [
+    "The audit was bounded by the finalize directive to six high-signal query families plus deep reads of the strongest candidates: netfilter/nft nla_len count stores, le/be16/32_to_cpu wire-count extraction in drivers/net/ethernet, net/core, fs/ceph, fs/nfs, peer-message-sized allocations (struct_size/array_size/kcalloc near msg/hdr/pdu/resp), fuse/9p nr_segs/nbuf counts, vhost/9p/nbd reply counts, and usb/gadget+fuse copy_from_user count fields. Other deserialization entry points (ksmbd/smb response counts, NFC NCI, HID report descriptors, bluetooth L2CAP/AMP, dm-era/dm-zoned metadata, qaic ioctl counts, on-disk filesystem superblock counts) were enumerated from prior-round facts but not deep-read in this session.",
+    "The reported hci_store_wake_reason finding is an OOB-read variant, not the seed's heap-overflow write: num_reports never sizes an allocation, and impact is bounded by what lies adjacent to skb->data plus persistence of wake_addr in hdev; exploitability (mgmt exposure of the poisoned wake_addr to userspace) was argued from the code structure, not reproduced at runtime.",
+    "Reachability of the reported finding is restricted to a suspended adapter receiving its first event while hdev->wake_reason is unset (hci_event.c:7236 'if (!hdev->suspended || hdev->wake_reason) goto unlock;'), and a real controller normally emits well-formed events; a malicious/virtual controller or compromised peer transport is the realistic attacker.",
+    "drivers/usb/usbip/usbip_common.c:664-665 shows the seed's own unclamped wire count and overflow arithmetic present and unpatched in s06 (clamp only on the stub_rx.c:379-381 submit direction); it is recorded as excluded-by-rule rather than reported, consistent with the treatment in earlier snapshots (facts f004/f005).",
+    "Line numbers were obtained by direct sed/rg reads of the snapshot; no compilation or static analyzer run was performed on the read-only tree."
+  ]
+}

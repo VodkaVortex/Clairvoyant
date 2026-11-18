@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "if-alt-count",
+  "status": "complete",
+  "snapshot": "s02",
+  "note": "Final state. Two findings: (1) stv06xx_isoc_init/stv06xx_isoc_nego index actconfig->intf_cache[0]->altsetting[1].endpoint[0].desc.wMaxPacketSize without num_altsetting>1 or bNumEndpoints checks, including a 16-bit write in the nego path (medium confidence; same pattern in xirlink_cit.c:2645/2668); (2) usbvision probe model-index path indexes actconfig->interface[model->interface]->altsetting[0] without bNumInterfaces check while the sibling ifnum path validates (high confidence). Safe: gspca.c audio loop, xusbatm, qcserial, cx231xx-audio (seed family). Unresolved: sound/usb altsetting[1] literals. Final artifact written to findings/i009.json.",
+  "candidates": [
+    {"path": "drivers/media/usb/gspca/stv06xx/stv06xx.c", "line": 313, "status": "reported"},
+    {"path": "drivers/media/usb/gspca/xirlink_cit.c", "line": 2645, "status": "reported"},
+    {"path": "drivers/staging/media/usbvision/usbvision-video.c", "line": 1436, "status": "reported"},
+    {"path": "sound/usb/pcm.c", "line": 393, "status": "unresolved"},
+    {"path": "drivers/media/usb/gspca/gspca.c", "line": 1474, "status": "safe"},
+    {"path": "drivers/usb/atm/xusbatm.c", "line": 45, "status": "safe"},
+    {"path": "drivers/usb/serial/qcserial.c", "line": 234, "status": "safe"},
+    {"path": "drivers/media/usb/cx231xx/cx231xx-audio.c", "line": 610, "status": "safe"}
+  ]
+}

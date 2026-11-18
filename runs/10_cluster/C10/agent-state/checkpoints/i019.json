@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "intent_id": "i019",
+  "branch": "terminator-write-off-by-one",
+  "phase": "finalized-negative",
+  "snapshot": "s02",
+  "known_reported": [
+    "drivers/edac/versal_edac.c:863 inject_data_ue_store (char buf[6], len=min_t(size_t,count,sizeof(buf)), buf[len]=0 -> buf[6] when count>=6)",
+    "drivers/edac/zynqmp_edac.c:311 inject_ue_write (same pattern)"
+  ],
+  "triage": {
+    "method": "grep terminator writes at variable index (340 raw) -> 121 with usercopy within 30 lines -> per-site bound analysis",
+    "bulk_safe": "count >= sizeof(buf) rejected before terminator (fnic 152/509, snic 120, mt7915 68/1073/1337, mt7996 70/912, mac80211 133/189/280/397, trace 5361/7096, trace_hwlat 694, trace_osnoise 2223, user_namespace 1234, netdevsim 259, i40e 1700, ixgbe 83/166, vgaarb 1175, test_udelay 112, sched/debug 138/182/233, lkdtm 247/324 PAGE_SIZE, srm_env 107 PAGE_SIZE, scsi_devinfo 732 length<PAGE_SIZE branch, habanalabs 495/558, hisilicon qm 3687 / hpre 888 / sec2 776 / zip 745 / debugfs 768, iommu 697 cnt>63, viafbdev 1470 count<1||count>63, adf_heartbeat 172 count!=2, yurex 460 min(...-1,...), i915 1040/1121/304 len>=sizeof, drm_debugfs 419, armada 69, lsdc 647, libipw 233, cxgb4 674/1294, dma/debug 760, pkeys 152, tlb 1327, spufs 125, libfs 1319, picolcd 48, wiimote 141, iio 415, chipidea 88, toshiba 1490/1671/1742, ath5k/ath6kl/ath9k/ath10k/ath11k all clamp sizeof(buf)-1, kstrtox 403/417, acpi/proc 103, rtas-proc 269, lpar 514/611, via-pmu 933, intel/pmc 930, sunrpc cache 1521/svcauth_gss 1420, smackfs 493/1620/1687/1765/2201/2859, binfmt_elf 1524/1341 len<ELF_PRARGSZ, wil6210 kmalloc(len+1), i40e:776 kmalloc(count+1), rvu_debugfs:1006 memdup_user(count+1), wd33c93:2021 len<=3072<4096 safe)"
+  },
+  "pending": [
+    "apparmorfs.c:502 profile_remove: data->data[size]=0 with alloc size+1 -> verify in-bounds (looks safe: alloc_size=size+1, write at index size)",
+    "verify no other len=count acceptance: scan for 'count == sizeof' patterns near usercopy",
+    "check scsi_proc.c ->write_info PAGE_SIZE boundary confirmed safe (PROC_BLOCK_SIZE=3072)",
+    "double-check lib/kstrtox.c 403/417 (library helpers, safe pattern)",
+    "check svcauth_gss/cache small buffers"
+  ],
+  "candidates": [
+    {
+      "path": "drivers/edac/versal_edac.c:863",
+      "status": "known-reported",
+      "reason": "cited as known per intent, not re-reported"
+    },
+    {
+      "path": "drivers/edac/zynqmp_edac.c:311",
+      "status": "known-reported",
+      "reason": "cited as known per intent, not re-reported"
+    }
+  ],
+  "timestamp": "2026-11-14",
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C10/agent-state/findings/i019.json",
+  "findings": [
+    {
+      "path": "drivers/net/wireless/ath/ath5k/debug.c",
+      "line": 614,
+      "confidence": "low"
+    }
+  ],
+  "result": "bounded negative: no new off-by-one terminator site in s02 beyond known versal/zynqmp pair; ath5k family unresolved residue"
+}

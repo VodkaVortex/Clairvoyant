@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "debugfs-write-memdup-sscanf",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 315,
+      "end": 320,
+      "quote": "kern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &len);",
+      "confidence": "high",
+      "reason": "Untrusted source: debugfs 'regrd' file (registered via bnad_debugfs_op_regrd at line 454 with .write = bnad_debugfs_write_regrd, mode 0644) gives an attacker full control of both nbytes and buffer contents. Violated invariant: memdup_user(buf, nbytes) allocates exactly nbytes bytes and copies exactly nbytes user bytes with no NUL terminator slot and no terminator check. Unsafe use: sscanf(kern_buf, \"%x:%x\", &addr, &len) is a C-string consumer that scans until NUL, reading past the end of the nbytes-sized heap allocation when the user supplies nbytes non-NUL bytes (e.g. write(2) of exactly 'f': hexadecimal digits with no trailing newline/NUL). Consequence: out-of-bounds heap read (KASAN slab-OOB, crash/info disclosure to driver log). This is the direct structural twin of the scsi bfa seed: same Brocade BFA driver family, same memdup_user->sscanf pattern, same fix primitive available (memdup_user_nul). Counterevidence checked: no terminator write between memdup_user and sscanf in lines 315-319; no count+1 allocation; the kernel tree still uses memdup_user (not memdup_user_nul) here, unlike the fixed bfad_debugfs.c."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 375,
+      "end": 380,
+      "quote": "kern_buf = memdup_user(buf, nbytes);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trc = sscanf(kern_buf, \"%x:%x\", &addr, &val);",
+      "confidence": "high",
+      "reason": "Untrusted source: debugfs 'regwr' file (bnad_debugfs_op_regwr, .write = bnad_debugfs_write_regwr at line 462). Violated invariant: memdup_user(buf, nbytes) gives an exactly-nbytes allocation with no NUL terminator. Unsafe use: sscanf(kern_buf, \"%x:%x\", &addr, &val) scans until NUL past the allocation when nbytes non-NUL bytes are written. Same mechanism as the seed's regwr fix (9f30b674759b sibling commit). Counterevidence checked: no terminator slot or check between copy and sscanf; fix primitive memdup_user_nul is not used."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "start": 174,
+      "end": 186,
+      "quote": "cmd_buf = memdup_user(buf, count);\n\tif (IS_ERR(cmd_buf))\n\t\treturn PTR_ERR(cmd_buf);\n\n\tmodule = ice_find_module_by_dentry(pf, dentry);\n\tif (module < 0) {\n\t\tdev_info(dev, \"unknown module\\n\");\n\t\treturn -EINVAL;\n\t}\n\n\tcnt = sscanf(cmd_buf, \"%s\", user_val);",
+      "confidence": "high",
+      "reason": "Untrusted source: per-PF debugfs fwlog 'module' file (debugfs_create_file at line 618, mode 0600). Attacker controls count (bounded to <=8 by the *ppos/count check at line 172) and all bytes. Violated invariant: memdup_user(buf, count) allocates exactly count bytes with no NUL terminator; a write of 8 non-NUL bytes leaves the heap buffer completely unterminated. Unsafe use: sscanf(cmd_buf, \"%s\", user_val) scans forward until a NUL byte, reading past the end of the count-sized (kmalloc-8 bucket, but parser reads to the next NUL which may lie beyond the object) allocation; additionally the %s conversion copies unboundedly into the 16-byte stack array user_val, so a longer adjacent-string read can also overflow the stack buffer. Consequence: OOB heap read + potential stack overflow of user_val[16]. Secondary defect: cmd_buf is never kfreed on any path in this function (memory leak), evidencing that termination was never considered. Counterevidence checked: no terminator between copy and sscanf; memdup_user_nul/strndup_user absent in this file."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "start": 260,
+      "end": 266,
+      "quote": "cmd_buf = memdup_user(buf, count);\n\tif (IS_ERR(cmd_buf))\n\t\treturn PTR_ERR(cmd_buf);\n\n\tret = sscanf(cmd_buf, \"%s\", user_val);",
+      "confidence": "high",
+      "reason": "Untrusted source: debugfs fwlog 'nr_messages' file (line 625, mode 0600), count<=4 enforced. Violated invariant: memdup_user(buf, count) exact-size allocation, no NUL terminator; 4 non-NUL bytes leave the buffer unterminated. Unsafe use: sscanf(cmd_buf, \"%s\", user_val) with user_val[8] scans until NUL past the allocation. Consequence: OOB heap read. Same pattern as the seed, only with a tighter count bound; the parser still reads to the next NUL byte outside the object. Counterevidence checked: no terminator slot; result then passed to kstrtos16 on the stack copy only."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "start": 335,
+      "end": 341,
+      "quote": "cmd_buf = memdup_user(buf, count);\n\tif (IS_ERR(cmd_buf))\n\t\treturn PTR_ERR(cmd_buf);\n\n\tret = sscanf(cmd_buf, \"%s\", user_val);",
+      "confidence": "high",
+      "reason": "Untrusted source: debugfs fwlog 'enable' file (line 631, mode 0600), count<=2 enforced. Violated invariant: memdup_user exact-size copy without NUL terminator; writing 2 non-NUL bytes (e.g. 'on') leaves the allocation unterminated. Unsafe use: sscanf(cmd_buf, \"%s\", user_val) scans until a NUL beyond the object boundary. Consequence: OOB heap read (small objects from kmalloc-8 bucket; the next NUL typically lies in an adjacent object or beyond the slab page). Counterevidence checked: no terminator between copy and parse; kstrtobool is applied to the stack copy, not the heap buffer."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "start": 431,
+      "end": 437,
+      "quote": "cmd_buf = memdup_user(buf, count);\n\tif (IS_ERR(cmd_buf))\n\t\treturn PTR_ERR(cmd_buf);\n\n\tret = sscanf(cmd_buf, \"%s\", user_val);",
+      "confidence": "high",
+      "reason": "Untrusted source: debugfs fwlog 'log_size' file (line 634, mode 0600), count<=5 enforced. Violated invariant: memdup_user(buf, count) exact-size, unterminated; 5 non-NUL bytes ('128K', '256K', '512K', '1M', '2M' are all accepted formats and '128K '+'X' style writes can fill all 5 bytes) leave no NUL in the object. Unsafe use: sscanf(cmd_buf, \"%s\", user_val) with user_val[8] reads until NUL past the allocation. Consequence: OOB heap read. Counterevidence checked: no terminator handling; sysfs_match_string applied to stack copy afterwards."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/qedf/qedf_debugfs.c",
+      "start": 173,
+      "end": 178,
+      "quote": "kern_buf = memdup_user(buffer, count);\n\tif (IS_ERR(kern_buf))\n\t\treturn PTR_ERR(kern_buf);\n\n\trval = kstrtouint(kern_buf, 10, &val);\n\tkfree(kern_buf);",
+      "confidence": "high",
+      "reason": "Untrusted source: qedf debugfs 'debug' entry (qedf_debugfs_ops table lists { \"debug\", NULL }, registered 0600 via debugfs_create_file in qedf_dbg_host_init). Attacker controls count and all buffer bytes with only !count and *ppos checks. Violated invariant: memdup_user(buffer, count) allocates exactly count bytes and copies count user bytes with no NUL terminator. Unsafe use: kstrtouint(kern_buf, 10, &val) is documented (lib/kstrtox.c line 214: 'The string must be null-terminated') and its _parse_integer/strtoull path scans characters until a non-digit or NUL; with count non-NUL bytes the scan walks past the end of the allocation. Consequence: OOB heap read of adjacent slab data (parsed as garbage value or -EINVAL; KASAN slab-out-of-bounds report). Counterevidence checked: no terminator write between memdup_user and kstrtouint; memdup_user_nul is not used in this file."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 315,
+      "status": "reported",
+      "reason": "bnad_debugfs_write_regrd: memdup_user(buf, nbytes) then sscanf(kern_buf, \"%x:%x\"); no NUL terminator. Reported as finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 375,
+      "status": "reported",
+      "reason": "bnad_debugfs_write_regwr: same memdup_user->sscanf pattern without termination. Reported as finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 174,
+      "status": "reported",
+      "reason": "ice_debugfs_module_write: memdup_user then sscanf %s on unterminated buffer; also cmd_buf leak. Reported as finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 260,
+      "status": "reported",
+      "reason": "ice_debugfs_nr_messages_write: memdup_user then sscanf %s. Reported as finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 335,
+      "status": "reported",
+      "reason": "ice_debugfs_enable_write: memdup_user then sscanf %s. Reported as finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "line": 431,
+      "status": "reported",
+      "reason": "ice_debugfs_log_size_write: memdup_user then sscanf %s. Reported as finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/qedf/qedf_debugfs.c",
+      "line": 173,
+      "status": "reported",
+      "reason": "qedf_dbg_debug_cmd_write: memdup_user then kstrtouint (NUL-terminating-dependent parser) on unterminated buffer. Reported as finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 1002,
+      "status": "safe",
+      "reason": "rvu_dbg_qsize_write: memdup_user(buffer, count + 1) then cmd_buf[count] = '\\0' before strchr/strsep; explicit +1 terminator slot, safe."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "rvu_dbg_lf_reset_write (around line 890, uses strsep on cmd_buf) was identified as an octeontx2 debugfs write but not fully read; qsize_write itself is safe; lf_reset_write still uses memdup_user(buffer, count + 1) + terminator pattern per surrounding code so likely safe, but not line-verified."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/infiniband/hw/hfi1/debugfs.c",
+      "line": 745,
+      "status": "safe",
+      "reason": "__i2c_debugfs_write: memdup_user(buf, count) then i2c_write(ppd, target, i2c_addr, offset, buff, count); raw length-based byte write, no C-string API."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/infiniband/hw/hfi1/debugfs.c",
+      "line": 852,
+      "status": "safe",
+      "reason": "__qsfp_debugfs_write: memdup_user(buf, count) then qsfp_write(..., buff, count); raw bytes, no string parse."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/cmd.c",
+      "line": 1451,
+      "status": "safe",
+      "reason": "data_write: memdup_user stored raw in dbg->in_msg and consumed by mlx5_cmd_exec(dev, dbg->in_msg, dbg->inlen, ...) with explicit length; no string API."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/cmd.c",
+      "line": 1517,
+      "status": "safe",
+      "reason": "outlen_write: copy_from_user into char outlen_str[8] = {0} with count<=6 pre-check; zero-initialized buffer leaves 2 spare NUL bytes, so sscanf(outlen_str, \"%d\") is bounded."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/firmware/tegra/bpmp-debugfs.c",
+      "line": 380,
+      "status": "safe",
+      "reason": "bpmp_debug_store: memdup_user(buf, count) then mrq_debug_write(bpmp, filename, databuf, count) which takes sz_data; raw length-based firmware write, no string parse."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/infiniband/hw/qib/qib_fs.c",
+      "line": 333,
+      "status": "safe",
+      "reason": "flash_write requires count == sizeof(struct qib_flash) and passes raw bytes to qib_eeprom_write; no string parse."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/ath/wil6210/debugfs.c",
+      "line": 981,
+      "status": "safe",
+      "reason": "wil_write_file_txmgmt: frame passed as params.buf/params.len raw to wil_cfg80211_mgmt_tx; binary mgmt frame, no string parse."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/ath/wil6210/debugfs.c",
+      "line": 1018,
+      "status": "safe",
+      "reason": "wil_write_file_wmi: raw WMI command bytes with explicit len to wmi_send; no string parse."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/realtek/rtw89/debug.c",
+      "line": 3233,
+      "status": "safe",
+      "reason": "rtw89_hex2bin_user: buf consumed by hex2bin(bin, buf, num) with num = count/2; length-bounded hex parse, no NUL assumption."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/silabs/wfx/debug.c",
+      "line": 216,
+      "status": "safe",
+      "reason": "wfx_send_pds_write: buf,count passed to wfx_send_pds() which parses TLV chunks by explicit length (get_unaligned_le16, chunk_len vs len checks); no C-string API on the buffer."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/silabs/wfx/debug.c",
+      "line": 258,
+      "status": "safe",
+      "reason": "wfx_send_hif_msg_write: validates le16_to_cpu(request->len) == count and passes raw message to wfx_cmd_send; no string parse."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/ti/wlcore/debugfs.c",
+      "line": 1141,
+      "status": "safe",
+      "reason": "mem write: raw bytes to wlcore_raw_write(wl, 0, buf, bytes, false); no string parse."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/char/nvram.c",
+      "line": 271,
+      "status": "safe",
+      "reason": "nvram_misc_write: memdup_user then nvram_write(tmp, count, ppos) length-based raw write; not a string path (misc device, listed only for completeness)."
+    }
+  ],
+  "limitations": [
+    "Search was bounded to debugfs/debug-control write handlers in snapshot s03 identified via memdup_user/memdup_user_nul call sites plus debugfs_create_file users; other copy primitives (kmalloc+copy_from_user in debugfs write paths without memdup_user) were not exhaustively enumerated.",
+    "kmalloc(count)+copy_from_user variants inside debugfs write handlers were not systematically audited; only memdup_user-family call sites were enumerated tree-wide.",
+    "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c rvu_dbg_lf_reset_write (near line 890) was seen but not line-verified; it appears to follow the same count+1+terminator pattern as qsize_write.",
+    "Reported candidates are hypotheses backed by source structure, not runtime reproductions; no KASAN or syzkaller harness was executed because snapshot compilation of the ice/bna/qedf drivers was not attempted.",
+    "ice_debugfs handlers are gated behind CONFIG_ICE and require an Intel E810/E800 PF plus root/debugfs access (mode 0600); bnad requires a Brocade BNA NIC; qedf requires a QLogic QL41xx FC adapter - physical-hardware reachability limits real-world exploitability but the code defect is present."
+  ]
+}

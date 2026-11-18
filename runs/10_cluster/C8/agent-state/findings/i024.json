@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "intent_id": "i024",
+  "branch": "fixed-epidx-rest",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s06"
+  ],
+  "findings": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "start": 2206,
+      "end": 2212,
+      "quote": "endpoint[0].desc.bInterval);",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: actconfig->interface[0]->altsetting[0].desc.bNumEndpoints and the variable-length endpoint[] flex array of that altsetting are descriptor data supplied at enumeration by a physically attacker-controlled USB gadget spoofing the Eagle/ADI930 device IDs; usbcore allocates only bNumEndpoints endpoint entries (and leaves the array NULL for a 0-endpoint altsetting). MISSING GUARANTEE: this is exactly the site fact f002 flagged unresolved and this intent directs to classify; grep of ueagle-atm.c returns ZERO bNumEndpoints occurrences in the whole file, and uea_bind's only interface-level check is 'if (ifnum != UEA_INTR_IFACE_NO)' (line 2540, UEA_INTR_IFACE_NO==0 defined at line 345), so no code path validates that altsetting[0] declares at least 1 endpoint before endpoint[0] is read in uea_boot at device plug-in. UNSAFE USE: usb_fill_int_urb(sc->urb_int, sc->usb_dev, usb_rcvintpipe(sc->usb_dev, UEA_INTR_PIPE), intr, size, uea_intr, sc, sc->usb_dev->actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval) (lines 2206-2210) uses the unvalidated index-0 descriptor's bInterval to program the interrupt URB's polling interval, and the URB is immediately usb_submit_urb'd at line 2212; the interface[0]/altsetting[0] levels are structurally in-bounds (a bound config parses >=1 interface and altsetting[0] always exists), so the violation is purely the unvalidated endpoint[0] index: an OOB read past a short endpoint array or NULL-deref for a 0-endpoint altsetting at plug-in, whose leaked value is installed as kernel URB state - the seed's untrusted-endpoint-count vs assumed-index invariant in a different driver (usb/atm, not cx231xx). COUNTEREVIDENCE CHECKED: no other endpoint-count reference anywhere in the file; no usb_set_interface between bind and this read; only one endpoint[ occurrence in the entire file (line 2210)."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "start": 706,
+      "end": 748,
+      "quote": "endpoint = &hostif->endpoint[1].desc;",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: hostif is the probed interface's altsetting 0 (gigaset_probe guards hostif->desc.bInterfaceNumber==0 and bAlternateSetting==0 at lines ~675-683 but never the endpoint count); its endpoint[] flex-array length is solely the device-declared bNumEndpoints presented at enumeration, and grep of the ENTIRE drivers/isdn/gigaset/ directory returns zero bNumEndpoints occurrences (usb-gigaset.c, bas-gigaset.c, ser-gigaset.c, common.c all clean). MISSING GUARANTEE: fixed assumed indices 0 (line 708, 'endpoint = &hostif->endpoint[0].desc;') and 1 (line 727, 'endpoint = &hostif->endpoint[1].desc;') are taken with no bNumEndpoints > 0 / > 1 validation anywhere in the driver. UNSAFE USE: endpoint[0].desc.wMaxPacketSize (line 710) sizes ucs->bulk_out_buffer = kmalloc(buffer_size) (713) and usb_endpoint_num(endpoint) sets bulk_out_epnum (712) used for the bulk-out pipe; endpoint[1].desc.wMaxPacketSize (737) sizes ucs->rcvbuf = kmalloc(buffer_size) (739), and usb_fill_int_urb (742-746) programs usb_rcvintpipe(udev, usb_endpoint_num(endpoint)) plus endpoint->bInterval from the OOB-read descriptor, with the URB submitted at line 748 (usb_submit_urb). A gadget spoofing the driver's matched Siemens gigaset vendor/product IDs with a 0- or 1-endpoint altsetting triggers OOB descriptor reads at plug-in whose leaked wMaxPacketSize sizes kernel kmalloc buffers and whose bEndpointAddress/bInterval program URB pipes - the seed's untrusted-descriptor-count vs assumed-index invariant in a non-media, non-net USB consumer (drivers/isdn). COUNTEREVIDENCE CHECKED: interface-number, altsetting-number and interface-class guards exist in gigaset_probe but no endpoint-count guard exists in any gigaset file; no other endpoint[] indexing exists in usb-gigaset.c."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2210,
+      "status": "reported",
+      "reason": "uea_boot programs the interrupt URB's interval from actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval with zero bNumEndpoints occurrences in the whole file and only an ifnum==0 check (line 2540) in uea_bind; URB submitted at line 2212. Classified reported (high): OOB read past short endpoint array or NULL-deref for 0-endpoint altsetting at plug-in."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "line": 708,
+      "status": "reported",
+      "reason": "gigaset_probe takes &hostif->endpoint[0].desc with no bNumEndpoints check anywhere in drivers/isdn/gigaset/ (grep clean); wMaxPacketSize at line 710 sizes the bulk_out kmalloc buffer (713) and usb_endpoint_num sets the bulk-out pipe. Reported as part of the gigaset finding."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "line": 727,
+      "status": "reported",
+      "reason": "gigaset_probe takes &hostif->endpoint[1].desc assuming >=2 endpoints with no bNumEndpoints check; wMaxPacketSize at 737 sizes rcvbuf kmalloc (739) and usb_fill_int_urb at 742-746 uses the OOB-read bEndpointAddress (pipe) and bInterval (period) before usb_submit_urb at 748. Reported as the primary gigaset finding line."
+    }
+  ],
+  "limitations": [
+    "The full fixed-epidx-rest sweep of s06 (drivers/usb/serial, drivers/usb/class, drivers/usb/misc, drivers/usb/storage, sound/usb, HID and input USB drivers, staging USB trees) was not completed in this session; only the ueagle-atm site explicitly directed by this intent (unresolved in fact f002) and the usb-gigaset site (flagged unresolved in sibling fact f009 for s04) were deep-read with exact-line evidence. All other non-media, non-net USB consumer trees in s06 remain unexamined and are bounded residual search space.",
+    "No compilation, Kconfig check, or USB-gadget reproducer was run (read-only snapshot; builds would go under $TMPDIR only); both findings are static source hypotheses supported by grep-proven absence of bNumEndpoints guards and exact line reads.",
+    "The exact fault mode for a 0-endpoint altsetting depends on usbcore allocation details (drivers/usb/core/config.c allocates alt->endpoint only when num_ep > 0): NULL-deref vs adjacent-heap OOB read; the direction of the invariant violation is certain, the exact fault is not.",
+    "Gigaset triggering requires a device presenting the driver's matched Siemens vendor/product IDs with a shrunken endpoint array; whether every in-tree gigaset model always enumerates 2 endpoints was not verified, so the attack requires ID spoofing by a physically attacker-controlled gadget.",
+    "ueagle-atm reachability requires the usbatm core to call uea_bind/uea_boot at plug-in for a device matching the Eagle USB IDs; the firmware-version-dependent branches inside uea_boot were not individually traced, but the usb_fill_int_urb statement at 2206-2210 sits on the main boot path before them.",
+    "Interface/altsetting-count forms (actconfig->interface[idx], num_altsetting assumptions, runtime alt-switch revalidation) and the media-usb/net-usb trees are owned by sibling intents (i022, i023, i025) and were excluded here."
+  ]
+}

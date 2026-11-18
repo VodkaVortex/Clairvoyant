@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "xmit-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s06"
+  ],
+  "findings": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "start": 761,
+      "end": 768,
+      "quote": "napi_disable(&fep->napi);\n\tphy_stop(dev->phydev);\n\n\tspin_lock_irqsave(&fep->lock, flags);\n\tspin_lock(&fep->tx_lock);",
+      "confidence": "medium",
+      "reason": "Lock fs_enet_private.tx_lock is shared between softirq-context and process-context code with the process side missing bottom-half disable (exact seed shape). UNTRUSTED TRIGGER: any packet or event that runs the driver's NAPI poll under NET_RX softirq or ndo_start_xmit under NET_TX softirq, plus any device close (ifconfig down). SOFTIRQ SIDE: fs_enet_interrupt (request_irq at fs_enet-main.c:733) -> napi_schedule_prep/__napi_schedule (lines 344/352) -> fs_enet_napi (NAPI poll, line 86) takes the SAME fep->tx_lock with plain spin_lock at line 99 and reaps TX descriptors; additionally fs_enet_start_xmit (ndo_start_xmit, netdev_ops line 897) takes the same plain spin_lock at line 523 in NET_TX softirq context. PROCESS SIDE: fs_enet_close (line 754) calls netif_stop_queue (758) and napi_disable(&fep->napi) (761), then takes spin_lock_irqsave(&fep->lock) at 764 and plain spin_lock(&fep->tx_lock) at 765. The outer spin_lock_irqsave disables hard interrupts on the local CPU but does NOT disable bottom halves, and there is no spin_lock_bh/local_bh_disable anywhere in the file (rg 'spin_lock_bh' = 0 hits in fs_enet-main.c). A NET_TX/NET_RX softirq that runs on the same CPU while fs_enet_close holds tx_lock (between 765 and 767, including the ->stop hardware quiesce which is slow register access) spins on tx_lock forever while the holder can never resume, the exact self-deadlock the seed patch fixed with spin_lock_bh. COUNTEREVIDENCE CHECKED: napi_disable() at 761 does synchronize with an in-flight fs_enet_napi poll, and netif_stop_queue at 758 stops new xmits, which narrows the window; however the window is not closed: the IRQ remains requested (free_irq comes later at 772), so fs_enet_interrupt can still run and __napi_schedule a new poll, and an already-running fs_enet_start_xmit (plain spin_lock at 523) on another queue path or a poll that raced just after napi_disable's grace window can be dispatched as a softirq on the close-holding CPU. Reported as a medium-confidence hypothesis: static pairing is proven (same lock object, plain acquisition on both sides, zero BH-disable anywhere in the file), runtime reproduction was not performed.",
+      "confidence_note": "medium"
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "start": 249,
+      "end": 256,
+      "quote": "for (i = 0; i < N_TX_RINGS; i++)\n\t\tspin_lock_nested(&cp->tx_lock[i], i);",
+      "confidence": "medium",
+      "reason": "Lock cas.tx_lock[] is shared between softirq-context TX-completion code and process/workqueue-context code with the process side missing bottom-half disable. SOFTIRQ SIDE: cas_poll (NAPI poll, scheduled from cas_interrupt/cas_interruptN/cas_interrupt1 hardirq handlers via napi_schedule at lines 2462/2513/2569) -> cas_tx (line 1927) -> cas_tx_ringN takes spin_lock(&cp->tx_lock[ring]) with plain spin_lock at line 1862 (unlock 1924); cas_interrupt hardirq itself also calls cas_tx directly at line 2562. PROCESS SIDE: cas_reset_task (workqueue worker, line 4005, scheduled from cas_tx_timeout at 2721, cas_abnormal_irq at 2740/2740b, and link handling at 1829/1833/3879/3884) calls cas_lock_all_save (line 4032) which does spin_lock_irq(&cp->lock) then cas_lock_tx (line 249) acquiring every tx_lock with plain spin_lock_nested - hard interrupts are excluded but bottom halves are NOT disabled; cas_open (4256) and cas_close (4295) and the link-reset path (cas_link_reset, cas_lock_tx at 4103) use the same helpers. The xmit path itself (cas_xmit_tx_ringN, line 2775) correctly uses spin_lock_irqsave, which proves the driver knows the xmit side runs with IRQs/BH active, yet the workqueue/open/close/link-reset side only disables IRQs, not BH. A NET_RX/NET_TX softirq on the same CPU while the reset worker holds tx_lock[ring] spins forever on that lock (cas_poll/cas_tx_ringN) while the preempted worker can never resume -> soft lockup / RCU stall / TX stall DoS, the exact seed mechanism. COUNTEREVIDENCE CHECKED: cas_reset_task first calls netif_device_detach(cp->dev) (line 4030) before taking locks, which discourages new xmits, but NAPI polls already scheduled by the hardirq are not quiesced (no napi_disable in the reset path; cas_close does napi_disable before locking but cas_open's request_irq precedes later locking sections and cas_poll runs as softirq); no spin_lock_bh exists anywhere in cassini.c (rg count 0). Reported as a medium-confidence hypothesis: static lock-context pairing is proven, runtime reproduction was not performed.",
+      "confidence_note": "medium"
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 523,
+      "status": "reported",
+      "reason": "Plain spin_lock(&fep->tx_lock) in fs_enet_start_xmit (NET_TX softirq) and fs_enet_napi (line 99, NET_RX softirq) while fs_enet_close (line 765) takes the same lock in process context without BH disable; zero spin_lock_bh in the file."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "line": 1862,
+      "status": "reported",
+      "reason": "cas_tx_ringN plain spin_lock(&cp->tx_lock[ring]) reachable from NAPI poll (cas_poll -> cas_tx) and hardirq, while workqueue cas_reset_task/open/close/link-reset take the same tx_lock via cas_lock_tx (plain spin_lock_nested, line 249) under only spin_lock_irq(&cp->lock) - IRQs disabled, BH not; no spin_lock_bh in the file."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/staging/ks7010/ks7010_sdio.c",
+      "line": 342,
+      "status": "safe",
+      "reason": "The seed bug itself is present unpatched in s06 (spin_lock(&priv->tx_dev.tx_dev_lock) at ks7010_sdio.c:342 in ks_wlan_hw_tx, xmit callback ks_wlan_start_xmit and workqueue hostif_sme_work chains); explicitly excluded from reporting per the never-report-the-seed rule."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 10,
+      "status": "unresolved",
+      "reason": "Ranked #4 by plain spin_lock density among s06 files with an ndo_start_xmit entry (10 plain spin_lock, 1 spin_lock_bh); per-site context attribution was not completed before the finalize deadline."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/ethernet/nvidia/forcedeth.c",
+      "line": 9,
+      "status": "unresolved",
+      "reason": "Ranked #5 by plain spin_lock density among s06 files with an ndo_start_xmit entry (9 plain spin_lock, 2 spin_lock_bh); per-site context attribution was not completed before the finalize deadline."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/wan/sbni.c",
+      "line": 12,
+      "status": "unresolved",
+      "reason": "12 plain spin_lock, 0 spin_lock_bh, has hard_start_xmit; WAN driver whose xmit may run under NET_TX softirq; not analyzed before the finalize deadline."
+    },
+    {
+      "snapshot": "s06",
+      "path": "drivers/net/cris/eth_v10.c",
+      "line": 13,
+      "status": "unresolved",
+      "reason": "13 plain spin_lock, 0 spin_lock_bh, has hard_start_xmit; not analyzed before the finalize deadline."
+    }
+  ],
+  "limitations": [
+    "Search bounded to snapshot s06 only, as required; other snapshots were not inspected.",
+    "Static analysis only: lock-context pairing was established by source reading; no runtime reproduction, lockdep run, or compilation was performed, so both findings remain hypotheses about exploitability.",
+    "For fs_enet, napi_disable() at line 761 and netif_stop_queue at 758 narrow the close-path window substantially; the finding depends on the residual window (free_irq at 772 happens later, so fs_enet_interrupt can still schedule a new NAPI poll, and in-flight xmit under NET_TX softirq at line 523 is only discouraged, not synchronized, by netif_stop_queue).",
+    "For cassini, cas_reset_task calls netif_device_detach before taking locks, which reduces but does not eliminate softirq-side contention (NAPI polls already scheduled are not quiesced by netif_device_detach; the driver has no napi_disable in the reset path).",
+    "Candidate ranking covered drivers/net and drivers/staging files that define ndo_start_xmit/hard_start_xmit (441 files) and were filtered by plain spin_lock presence; the top unresolved entries (altera_tse, forcedeth, sbni, cris/eth_v10, and mid-ranked files like mvneta, ixgbe, igb, cpmac, ravb, team, rionet) were not per-site attributed before the finalize deadline.",
+    "drivers outside net/ (e.g., non-net spinlock users reachable from softirq) were not enumerated for this branch."
+  ]
+}

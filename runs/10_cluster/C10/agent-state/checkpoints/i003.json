@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "sysfs-store-attr-terminator",
+  "snapshot": "s01",
+  "status": "complete",
+  "notes": "Analyzed kernfs/sysfs write plumbing (termination guaranteed at fs/kernfs/file.c:296-346: kmalloc(len+1)/prealloc(len+1) and buf[len]='\\0'). Automated scan of all *_store* functions in s01 for own-copy/memcpy(count)+string-parse patterns; deep-read nvme dhchap, target alua/configfs, scsi_sysfs, versal_edac candidates.",
+  "candidates": [
+    {
+      "path": "drivers/target/target_core_alua.c",
+      "line": 1919,
+      "status": "reported",
+      "reason": "core_alua_store_tg_pt_gp_info: count>TG_PT_GROUP_NAME_BUF(256) check is off-by-one; count==256 fills whole buf[256] via memcpy, no terminator slot; strstrip->strlen and strcmp scan past stack array end."
+    },
+    {
+      "path": "drivers/target/target_core_configfs.c",
+      "line": 2450,
+      "status": "reported",
+      "reason": "target_dev_alua_lu_gp_store: same off-by-one bound (count>LU_GROUP_NAME_BUF(256)) allows memcpy of 256 bytes into buf[256]; strcmp(strstrip(buf),\"NULL\") on unterminated stack buffer."
+    },
+    {
+      "path": "fs/kernfs/file.c",
+      "line": 296,
+      "status": "safe",
+      "reason": "kernfs_fop_write_iter: kmalloc(len+1) (line 306) and buf[len]='\\0' (line 318); prealloc_buf = kmalloc(len+1) at line 673; writes capped at PAGE_SIZE/atomic_write_len."
+    },
+    {
+      "path": "fs/sysfs/file.c",
+      "line": 127,
+      "status": "safe",
+      "reason": "sysfs_kf_write/sysfs_kf_bin_write pass the kernfs-terminated page buffer directly to ops->store/battr->write; no additional copy or terminator loss."
+    },
+    {
+      "path": "drivers/nvme/host/sysfs.c",
+      "line": 562,
+      "status": "safe",
+      "reason": "nvme_ctrl_dhchap_secret_store: kzalloc(count+1) then memcpy(dhchap_secret,buf,count); byte at index count stays 0 -> NUL-terminated before strcmp/nvme_auth_generate_key."
+    },
+    {
+      "path": "drivers/nvme/host/sysfs.c",
+      "line": 620,
+      "status": "safe",
+      "reason": "nvme_ctrl_dhchap_ctrl_secret_store: identical kzalloc(count+1)+memcpy(count) pattern; terminator slot exists."
+    },
+    {
+      "path": "drivers/scsi/scsi_sysfs.c",
+      "line": 198,
+      "status": "safe",
+      "reason": "store_shost_state: strncmp(name,buf,len) short-circuits at kernfs buf[count]='\\0' before buf[len] is evaluated; buf[len] read only when len<=count, inside PAGE_SIZE+1 buffer."
+    },
+    {
+      "path": "drivers/scsi/scsi_sysfs.c",
+      "line": 795,
+      "status": "safe",
+      "reason": "store_state_field: same strncmp+buf[len]=='\\n' pattern, safe due to kernfs trailing NUL and short-circuit evaluation."
+    },
+    {
+      "path": "drivers/edac/versal_edac.c",
+      "line": 848,
+      "status": "unresolved",
+      "reason": "inject_data_ue_store: len=min(count,sizeof(buf)) with char buf[6]; buf[len]='\\0' writes buf[6] (1-byte stack OOB write) when count>=6. File-based (debugfs-style) write handler, not a sysfs ->store; belongs to the debugfs branch; not fully audited here."
+    },
+    {
+      "path": "drivers/accessibility/speakup/kobjects.c",
+      "line": 386,
+      "status": "unresolved",
+      "reason": "synth_store flagged by automated memcpy(count)+string-parse scan; not deeply read in finalize phase."
+    }
+  ]
+}

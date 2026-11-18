@@ -1,0 +1,82 @@
+{
+  "intent_id": "i004",
+  "branch": "xmit-softirq-lock",
+  "status": "complete",
+  "snapshot": "s03",
+  "stage": "finalized",
+  "candidates": [
+    {
+      "path": "drivers/staging/ks7010/ks7010_sdio.c",
+      "line": 374,
+      "status": "excluded",
+      "reason": "Exact seed present in s03; must never be reported."
+    },
+    {
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 765,
+      "status": "reported",
+      "reason": "Process-context plain spin_lock(&fep->tx_lock) in fs_enet_stop vs same plain lock at line 99 in NAPI poll fs_enet_napi (NET_RX softirq) and line 523 in fs_enet_start_xmit (NET_TX softirq); no spin_lock_bh in file."
+    },
+    {
+      "path": "drivers/net/ethernet/cisco/enic/enic_main.c",
+      "line": 231,
+      "status": "reported",
+      "reason": "wq_lock plain in NAPI-serviced enic_wq_service (231) and enic_hard_start_xmit (659); softirq-vs-softirq variant, low confidence."
+    },
+    {
+      "path": "drivers/net/ethernet/faraday/ftgmac100.c",
+      "line": 715,
+      "status": "safe",
+      "reason": "Both tx_lock sites softirq (NAPI poll + ndo xmit); no process-context site."
+    },
+    {
+      "path": "drivers/net/ethernet/faraday/ftmac100.c",
+      "line": 621,
+      "status": "safe",
+      "reason": "Twin of ftgmac100; both sites softirq."
+    },
+    {
+      "path": "drivers/net/ethernet/micrel/ks8851.c",
+      "line": 940,
+      "status": "safe",
+      "reason": "statelock plain site at 940 is itself NET_TX softirq; site 1025 under netif_addr_lock_bh; IRQ handler threaded uses mutex."
+    },
+    {
+      "path": "drivers/net/wireless/wl3501_cs.c",
+      "line": 1128,
+      "status": "safe",
+      "reason": "Plain lock only inside hardirq handler; all other sites irqsave."
+    },
+    {
+      "path": "drivers/net/wireless/intel/ipw2x00/ipw2100.c",
+      "line": 3352,
+      "status": "safe",
+      "reason": "Plain lock only in hardirq handler ipw2100_interrupt; others irqsave."
+    },
+    {
+      "path": "drivers/net/wireless/intel/ipw2x00/ipw2200.c",
+      "line": 10531,
+      "status": "safe",
+      "reason": "Plain irq_lock only in ipw_isr; others irqsave."
+    },
+    {
+      "path": "drivers/net/ethernet/marvell/mvneta.c",
+      "line": 3574,
+      "status": "unresolved",
+      "reason": "pp->lock plain in process contexts (stop/rss/hotplug); softirq side not traced."
+    },
+    {
+      "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_main.c",
+      "line": 8345,
+      "status": "unresolved",
+      "reason": "fdir_perfect_lock plain at process sites 4812/8329/8345/8692; softirq side not located."
+    },
+    {
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 444,
+      "status": "unresolved",
+      "reason": "tx_lock sites 444/584 not fully classified."
+    }
+  ],
+  "notes": "Final artifact written to agent-state/findings/i004.json with findings fs_enet (high) and enic (low); unresolved: mvneta, ixgbe fdir, bcm63xx_enet."
+}

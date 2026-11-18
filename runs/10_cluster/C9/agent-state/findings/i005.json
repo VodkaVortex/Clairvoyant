@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "start": 204,
+      "end": 214,
+      "quote": "u16 gb_msg_len = le16_to_cpu(gb_frame->hdr.size);",
+      "confidence": "medium",
+      "reason": "Peer-trusted-transport variant, verified from source in snapshots/s01. UNTRUSTED SOURCE: hdlc_rx_greybus_frame() (drivers/greybus/gb-beagleplay.c:204-214) parses a Greybus message delivered by the remote peer MCU over the serdev UART/HDLC link (ADDRESS_GREYBUS dispatch in hdlc_rx_frame(), line 449); the attacker is the remote endpoint of this virtual-bus protocol, exactly the seed's threat model. MISSING LOCAL LIMIT CHECK: the peer-controlled 16-bit header field is extracted at line 208 (gb_msg_len = le16_to_cpu(gb_frame->hdr.size)) and passed as the delivered length to greybus_data_rcvd() at line 213, while the locally known real frame length \u2014 len = bg->rx_buffer_len - 4 computed at line 439 and passed in as the 'len' parameter \u2014 is entirely ignored; gb_msg_len is never compared to len, to the frame buffer, or to any kernel-known maximum for this receive path. The downstream validation is vacuous: gb_connection_recv() (drivers/greybus/operation.c:1027-1066) re-reads msg_size = le16_to_cpu(header.size) from the very same peer-supplied bytes (line 1049) and only tests 'if (size < msg_size)' (line 1050) \u2014 for this caller size == msg_size by construction, so the check can never fire; the validation fetch is not independent of the used value. UNSAFE USE: for a request-direction message, gb_operation_create_incoming() (operation.c:626-655) computes request_size = size - sizeof(header) and, after gb_operation_message_alloc() bounds message_size <= hd->buffer_size_max (operation.c:367-372, a per-host constant registered by gb_hd_create at gb-beagleplay.c:939 and clamped to <= U16_MAX at hd.c:155-158), executes memcpy(operation->request->header, data, size) (operation.c:648) \u2014 reading up to buffer_size_max peer-declared bytes from &gb_frame->hdr inside the fixed-size rx_buffer[MAX_HDLC] array of the heap-allocated struct gb_beagleplay (gb-beagleplay.c:81-83), when only len (~ a few hundred at most) bytes are valid. The response direction memcpy(message->buffer, data, size) (operation.c:1012) is capped at the locally known message_size = sizeof(header)+payload_size, but that copy still reads size bytes from the same rx_buffer, so any peer reply whose hdr.size exceeds the real HDLC payload drives an OOB read there too (peer controls result/errno, so the EMSGSIZE clamp to header-only is bypassable by setting result=0). CONSEQUENCE: remotely (peer-MCU) triggerable heap out-of-bounds read past the fixed rx_buffer array inside struct gb_beagleplay; the over-read bytes are copied into a gb_message and parsed by greybus protocol request handlers in workqueue context \u2014 kernel heap info disclosure into parsing state, with no OOB write identified because every destination buffer is allocated from the same peer size and bounded by buffer_size_max. Asymmetric-validation signal present: the TX/request-generation side of the same greybus core enforces GB_OPERATION_MESSAGE_SIZE_MAX (U16_MAX, include/linux/greybus/operation.h:45) and buffer_size_max at allocation time, but the beagleplay RX path never cross-checks the peer length against the bytes actually received. Counterevidence checked: es2.c USB-bridge sibling host driver is safe (cport_in_callback at es2.c:830-841 checks actual_length >= sizeof(*header) and actual_length is host-controller-truncated to transfer_buffer_length = ES2_GBUF_MSG_SIZE_MAX; arpc_in_callback at es2.c:1042 copies only fixed sizeof(*resp) after the same minimum check; apb_get_cport_count at es2.c:1221-1225 clamps the device-supplied cport count to U8_MAX), which shows the core API is safe when the caller passes a locally bounded length \u2014 the beagleplay caller is the component that supplies the unchecked peer length."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 208,
+      "status": "reported",
+      "reason": "Peer-field source: gb_msg_len = le16_to_cpu(gb_frame->hdr.size) taken from the remote MCU's HDLC-framed Greybus message; part of the reported finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 439,
+      "status": "reported",
+      "reason": "Locally known limit that is ignored: hdlc_rx_frame() computes len = bg->rx_buffer_len - 4 (real received frame payload length, CRC-checked at 431-435) and passes it to hdlc_rx_greybus_frame(bg, buf, len) at line 449, but hdlc_rx_greybus_frame never uses len \u2014 the missing cross-check of the reported finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/operation.c",
+      "line": 1049,
+      "status": "reported",
+      "reason": "Vacuous validation: gb_connection_recv() re-reads msg_size from the same peer bytes it was handed as size, so 'if (size < msg_size)' at line 1050 cannot fire for the beagleplay caller; validated value is not independent of used value; part of the reported finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/operation.c",
+      "line": 648,
+      "status": "reported",
+      "reason": "Consuming copy: memcpy(operation->request->header, data, size) in gb_operation_create_incoming() copies peer-declared size bytes from the fixed rx_buffer[MAX_HDLC] (gb-beagleplay.c:83) into the freshly allocated request message \u2014 destination bounded by buffer_size_max, source over-read; part of the reported finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/es2.c",
+      "line": 840,
+      "status": "safe",
+      "reason": "cport_in_callback (es2.c:802-848) passes urb->transfer_buffer/urb->actual_length to greybus_data_rcvd; actual_length is set by the host controller and cannot exceed transfer_buffer_length (buffers allocated kmalloc(ES2_GBUF_MSG_SIZE_MAX) at es2.c:1342), and the >= sizeof(*header) minimum is enforced at es2.c:830, so the delivered length is locally bounded \u2014 no peer length beyond the controller-truncated value. This sibling host driver demonstrates the core API is safe with a bounded caller, isolating the defect to gb-beagleplay.c."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/es2.c",
+      "line": 1042,
+      "status": "safe",
+      "reason": "arpc_in_callback checks urb->actual_length >= sizeof(*resp) (line 1042) and then copies only the fixed struct size, memcpy(rpc->resp, resp, sizeof(*resp)), into a kzalloc'd struct from the ARPC_IN_SIZE_MAX-sized urb buffer (es2.c:1368); no peer-supplied variable length reaches a copy or allocation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/es2.c",
+      "line": 1221,
+      "status": "safe",
+      "reason": "apb_get_cport_count() reads the device-supplied le16 cport count via usb_control_msg and clamps it before use: 'if (retval > U8_MAX) { retval = U8_MAX; ... }' (es2.c:1221-1225); num_cports drives ida_alloc_range with the clamped value \u2014 peer count properly cross-checked against a kernel-known limit."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/greybus/gb-beagleplay.c",
+      "line": 481,
+      "status": "safe",
+      "reason": "hdlc_rx() byte-collection loop guards every store with 'if (bg->rx_buffer_len < MAX_RX_HDLC)' before writing rx_buffer[rx_buffer_len] (gb-beagleplay.c:481-484) and cc1352_bootloader_rx guards 'if (count > sizeof(bg->rx_buffer) - bg->rx_buffer_len)' (gb-beagleplay.c:620-633), so serdev RX accumulation into the fixed buffer is range-checked; the unchecked propagation happens only at line 208/213 via gb_msg_len."
+    }
+  ],
+  "limitations": [
+    "Sweep bounded to the greybus transport family in s01: es2.c (USB-bridge host driver), gb-beagleplay.c (serdev/HDLC host driver), and the shared receive core operation.c/connection.c/hd.c were deep-read; other peer-transport reply handlers present in s01 (virtio/vhost vring processing, 9p trans_virtio/trans_fd/trans_xen/trans_rdma, nbd, ceph, cifs, rpmsg/qcom_glink, ntb, hv, mctp, virtio_rpmsg) were enumerated by directory listing only and not deep-read before the finalize directive.",
+    "Impact is bounded to a heap OOB read: destination buffers are allocated from the same peer-supplied size and enforced <= hd->buffer_size_max by gb_operation_message_alloc (operation.c:367-372), so no OOB write was identified on this chain; the over-read length is capped by buffer_size_max (beagleplay registers TX_CIRC_BUF_SIZE via gb_hd_create at gb-beagleplay.c:939, clamped <= U16_MAX at hd.c:155-158).",
+    "No runtime reproducer or compilation was performed (read-only snapshot; the transport requires a serdev UART peer MCU); the chain was verified by direct source reading of the cited lines only.",
+    "The exact numeric values of MAX_RX_HDLC/RX_HDLC_PAYLOAD and TX_CIRC_BUF_SIZE were not re-read before the finalize directive; the OOB-read bound is therefore expressed in terms of those constants (fixed compile-time array rx_buffer[MAX_HDLC] at gb-beagleplay.c:83) rather than concrete byte counts.",
+    "Whether the over-read bytes are exfiltrated back to userspace (e.g., via greybus protocol responses or debugfs) was not traced to the individual protocol request handlers; confidence is medium for the invariant violation and the OOB read, lower for end-to-end information disclosure."
+  ]
+}

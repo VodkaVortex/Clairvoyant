@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "af-packet-tpacket-rings",
+  "status": "complete",
+  "snapshot": "s01",
+  "note": "Finalized. Reported finding: tpacket_snd() vnet_hdr hdr_len double fetch (validate at L2826 via __packet_snd_vnet_parse, unvalidated re-read at L2830-2831 into copylen used for skb sizing/copy; third re-read at L2869). Non-candidates classified with evidence.",
+  "candidates": [
+    {
+      "path": "net/packet/af_packet.c",
+      "line": 2830,
+      "status": "reported",
+      "reason": "hdr_len re-read into copylen after validation at L2826"
+    },
+    {
+      "path": "net/packet/af_packet.c",
+      "line": 2649,
+      "status": "safe",
+      "reason": "tpacket_parse_header single-fetches tp_len/off into locals"
+    },
+    {
+      "path": "net/packet/af_packet.c",
+      "line": 2546,
+      "status": "safe",
+      "reason": "packet_snd_vnet_parse uses copy_from_iter_full snapshot"
+    },
+    {
+      "path": "net/packet/af_packet.c",
+      "line": 2228,
+      "status": "safe",
+      "reason": "tpacket_rcv kernel-writer path"
+    },
+    {
+      "path": "include/linux/virtio_net.h",
+      "line": 97,
+      "status": "safe",
+      "reason": "csum re-read re-validated via pskb_may_pull/skb_partial_csum_set"
+    }
+  ]
+}

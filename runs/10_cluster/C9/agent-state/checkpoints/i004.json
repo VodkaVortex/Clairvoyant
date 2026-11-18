@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "snapshot": "s01",
+  "branch": "error-unwind-poisoned-count",
+  "status": "complete",
+  "findings": [
+    {
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "start": 964,
+      "end": 1010,
+      "confidence": "low",
+      "note": "decode_message stores device-supplied reply count unclamped at 979; request sibling clamped at 1259-1261 (asymmetric); early returns leave poisoned count; propagated to userspace on -ECANCELED unwind; consuming loop per-iteration re-validated so no kernel OOB demonstrated."
+    }
+  ],
+  "candidates": [
+    {
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 979,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 944,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 1259,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 482,
+      "status": "safe"
+    }
+  ]
+}

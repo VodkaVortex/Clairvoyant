@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "chardev-ioctl-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/iio/adc/ad7192.c",
+      "start": 981,
+      "end": 991,
+      "quote": "div = st->fclk / (val * ad7192_get_f_order(st) * 1024);",
+      "confidence": "medium",
+      "reason": "Untrusted source: 'val' is the sampling frequency an unprivileged user writes through the IIO chardev/sysfs path (iio_write_channel_info in drivers/iio/industrialio-core.c:1010 calls indio_dev->info->write_raw(indio_dev, chan, val, val2, info), val parsed by kstrtol from the user string; ad7192_write_raw registered as .write_raw at ad7192.c:1100/1110/1118). Violated invariant: the check at line 982 validates only the raw input (!val), but the actual divisor is the scaled expression val * ad7192_get_f_order(st) * 1024 computed in 32-bit signed int arithmetic at line 987. ad7192_get_f_order (ad7192.c:743-756, based on ad7192_compute_f_order at 726) returns oversampling-ratio-dependent factors 1, 8, or 16; the multiply is (val * f_order) then * 1024 in int width. For any val such that val * f_order * 1024 wraps to 0 modulo 2^32 (f_order=1 requires val to be a multiple of 2^22; f_order=16 allows val = 2^18 = 262144 or any val*f_order*1024 == 2^32), the denominator passed to '/' is exactly 0 and the kernel divides by zero (integer divide -> oops on x86, ~0x80000000 result on arm64), exactly the seed's pattern (8 * speed wrapping to a zero tach divisor in u32). val=262144 with default f_order=1 is not a wrap; f_order=16 occurs only when chop/sinc filter settings select ratio>1 oversampling; concretely val*f_order*1024 = 2^32 needs val*f_order = 2^22, i.e. val in {4194304, 2097152(f_order 2 n/a), 262144*16=4194304}: with f_order=16, val=262144 reproduces wrap-to-zero; with f_order=1, val=4194304 (=2^22) reproduces it. Also overflowed negative divisors are not range-checked. Counterevidence checked: IIO core does no numeric validation of SAMP_FREQ before write_raw (industrialio-core.c:972-1010); ad7192_read_raw avail lists do not constrain the write path; the div range check at line 988 happens only after the division executes, so it cannot prevent the oops. Uncertainty: whether a deployed AD7192 system exposes f_order values 8/16 (requires AD7192_MODE_AVG/chop enabled via prior writes) alongside val=262144, and whether the build enables CONFIG_AD7192, is platform-dependent; impact is a kernel divide error/DoS in process context, not memory corruption."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/dvb-frontends/stv0367.c",
+      "line": 2322,
+      "status": "safe",
+      "reason": "TRLTimeOut = 100000000 / p->symbol_rate at 2322 and CRLTimeOut divisors p->symbol_rate/1000 at 2366 would truncate to 0 for symbol_rate<1000 (seed pattern), but every registration of this driver in s04 sets ops.info.symbol_rate_min = 870000 (stv0367.c:2840 cab ops, 3246 ddb ops) and dvb_frontend_check_parameters (dvb-core/dvb_frontend.c:964-1001) rejects c->symbol_rate < symbol_rate_min for SYS_DVBC_ANNEX_A; additionally stv0367ddb_set_frontend (stv0367.c:2988-2993) explicitly rejects symbol_rate==0. So the scaled divisor is >= 870 at division width and cannot be zero. Unlike s03 (reported there in i012), this snapshot's registrations close the gap."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/dvb-frontends/tda10023.c",
+      "line": 192,
+      "status": "safe",
+      "reason": "tda10023_set_symbolrate divides BDRI /= sr at line 192 by the raw user symbol_rate (no driver-side zero check), but tda10023_attach (tda10023.c:547-548) always overwrites ops.info.symbol_rate_min = sysclk/128 (~225937 for default 28.912MHz xtal) and symbol_rate_max = sysclk/32, so dvb_frontend_check_parameters rejects sr==0 and sr < ~225937 before set_frontend; divisor is the raw value (no scaling), so no wrapped/truncated-zero divisor exists."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/tuners/msi001.c",
+      "line": 216,
+      "status": "safe",
+      "reason": "uitmp = gcd(k_thresh, k_frac) followed by k_thresh /= uitmp (line 217) could divide by zero only if k_thresh==k_frac==0; at the lowest clamped RF frequency 49000000 Hz the AM band entry (band_lut[0].rf=50000000, div_lo=16) gives k = f_vco mod (DIV_PRE_N*F_REF) = 16000000 and k_thresh = 96000000/16 = 6000000, so k_frac = k*k_thresh/(DIV_PRE_N*F_REF) = 1000000 > 0 and gcd > 0 (verified numerically); for f_rf >= 50000000 the VCO frequency stays above 202 MHz so k cannot be 0. No user-derived zero divisor found."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/usb/msi2500/msi2500.c",
+      "line": 774,
+      "status": "safe",
+      "reason": "msi2500_s_frequency clamps f_adc to bands[0] = [1200000,15000000] (msi2500.c:1041-1043) before msi2500_set_usb_adc; the only divisions are div_u64_rem(f_vco, DIV_PRE_N*F_REF) and div_u64(..., DIV_PRE_N*F_REF) with the constant 48000000 as divisor (lines 781-782); no user-derived divisor."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/media/dvb-frontends/ds3000.c",
+      "line": 953,
+      "status": "safe",
+      "reason": "value = 29777 / (c->symbol_rate / 1000) at 953/961/969/975 divides by the truncated symbol_rate/1000, but ds3000_set_frontend explicitly range-checks the raw c->symbol_rate against ds3000_ops.info.symbol_rate_min = 1000000 (ds3000.c:942-949), so symbol_rate/1000 >= 1000; the raw-input minimum is far above the truncation threshold, closing the gap (same as s03 analysis)."
+    }
+  ],
+  "limitations": [
+    "The ad7192 finding is a source-level hypothesis: reachability of the zero divisor requires a build with CONFIG_AD7192, an AD7192/AD7193/AD7194/AD7195 device bound, chop/sinc/oversampling settings selecting f_order in {8,16} (or val=2^22 with f_order=1), and a user with access to the IIO device (typically root or group iio); it was not compiled or executed against the snapshot.",
+    "The exact int-arithmetic wrap analysis of val * ad7192_get_f_order(st) * 1024 was done by reasoning about C usual arithmetic conversions (all operands int), not by a runtime reproducer; ad7192_compute_f_order return values were read from source but the full filter-mode matrix was not exhaustively enumerated.",
+    "The search was bounded to the highest-signal divisor sinks: DVB frontend/tuner symbol-rate-derived expressions (stv0367, tda10023, ds3000, msi001, msi2500 and the dvb-core parameter path) and the drivers/iio write_raw/set_tuner set_tuner/set_usb_adc paths where '/' or '%'-by-user-derived-value appeared; a full sweep of every media/HID/input/misc/tty/ioctl handler in s04 (e.g. v4l2 control handlers of other SDR/tuner drivers, CAN bit-timing ioctls, RTC, PWM, watchdog, TCG) was not completed.",
+    "Candidates left unexamined after the finalize order: all other IIO drivers' write_raw handlers beyond the '/' or '%'-by-(val-like) grep hits, and all chardev ioctl families outside media/DVB and IIO."
+  ]
+}

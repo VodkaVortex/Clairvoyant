@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "tx-cow-head-realloc",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "start": 843,
+      "end": 896,
+      "quote": "wh = (struct ieee80211_hdr *)skb->data;\n\n\thdrlen = ieee80211_hdrlen(wh->frame_control);",
+      "confidence": "medium",
+      "reason": "mwl8k_add_dma_header() (TX/edit path, called from mwl8k_encapsulate_tx_frame at line 940 and directly at line 1945 in mwl8k_txq_xmit) caches the 802.11 header pointer wh = (struct ieee80211_hdr *)skb->data at line 857, then when priv->ap_fw and hdrlen < sizeof(struct ieee80211_cts) + REDUCED_TX_HEADROOM calls pskb_expand_head(skb, REDUCED_TX_HEADROOM, 0, GFP_ATOMIC) at line 867. pskb_expand_head() is documented in this same tree (net/core/skbuff.c lines 2266-2278: 'All the pointers pointing into skb header may change and must be reloaded after call to this function') and reallocates the head via skb_copy()/kfree of the old data area, so the pre-call wh points into freed slab memory when headroom expansion actually triggers (skb_headroom < 8 with cloned or short-headroom skbs arriving from mac80211). After the call the stale wh is dereferenced with no refetch: ieee80211_is_data_qos(wh->frame_control) read at line 881, pointer compared against &tr->wh and used as memmove source at lines 885-886 (memmove(&tr->wh, wh, hdrlen) copies hdrlen bytes through the stale pointer, where hdrlen was derived from the same freed frame_control). This is exactly the seed's invariant violation on the TX side: a pointer into skb head/data kept alive across a helper documented to free/reallocate the head, then read (and used as copy source) without refetching from skb->data. Untrusted source: wh->frame_control comes from the frame handed to the TX queue (host-generated or mac80211-forwarded frames, e.g. 4-address data frames in AP firmware mode), and it also gates whether the reallocating call executes. Counterevidence checked: the skb_push at line 879 does not reallocate; the guard 'if (wh != &tr->wh)' shows the author was aware wh could point elsewhere but only compares addresses, never reloads wh; caller mwl8k_txq_xmit refreshes wh only after mwl8k_encapsulate_tx_frame returns (line 1947), too late. Impact: slab use-after-free read of up to hdrlen (max ~30) bytes and a wild-pointer memmove source when the old head is reused, KASAN-detectable, matching the pep_get_sb() bug class. Confidence medium rather than high because triggering requires priv->ap_fw plus the headroom condition, and the driver is old Marvell 88w8364/8687 hardware; the mechanism itself (stale wh across pskb_expand_head) is directly evidenced by the literal source."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 867,
+      "status": "reported",
+      "reason": "See finding: wh captured at line 857, pskb_expand_head at line 867, stale reads at lines 881 and 886 without reload."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/seg6_iptunnel.c",
+      "line": 154,
+      "status": "safe",
+      "reason": "All skb_cow_head uses (lines 154, 256, 352, 537, 623) capture inner_hdr/oldhdr only after the cow call, or re-read ipv6_hdr(skb) post-push; no pre-cow pointer dereferenced afterwards."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/netfilter/nf_flow_table_ip.c",
+      "line": 612,
+      "status": "safe",
+      "reason": "nf_flow_tunnel_ipip_push copies tos/ttl/frag_off out of iph before skb_cow_head and refetches iph = ip_hdr(skb) after skb_push; no stale dereference. Same shape for ip6ip6 variant at line 682."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/netfilter/xt_TCPMSS.c",
+      "line": 155,
+      "status": "safe",
+      "reason": "tcpmss_mangle_packet refetches tcph from skb_network_header(skb) + tcphoff immediately after pskb_expand_head (line 159); the opt walk then uses the refreshed tcph."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 603,
+      "status": "safe",
+      "reason": "ipv6_rpl_srh_rcv refreshes oldhdr = ipv6_hdr(skb) inside the pskb_expand_head branch (line 617) before memmove, mirroring the seed's fix; hdr is not used after the expand (skb_pull already consumed it and values were saved)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/batman-adv/fragmentation.c",
+      "line": 278,
+      "status": "safe",
+      "reason": "batadv_frag_merge_packets reads packet->total_size before pskb_expand_head but does not dereference packet afterwards; all post-expand accesses re-derive from skb_out->data or mac header."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/ip_tunnel.c",
+      "line": 836,
+      "status": "safe",
+      "reason": "ip_tunnel_xmit's inner_iph is only read before skb_cow_head for scalar values (frag_off, ecn, ttl); no pointer dereference occurs after the cow at lines 649/836."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c",
+      "line": 338,
+      "status": "safe",
+      "reason": "brcmf_netdev_start_xmit takes eh = (struct ethhdr *)skb->data only after the pskb_expand_head block (line 348), so no stale pointer exists."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/ip_gre.c",
+      "line": 677,
+      "status": "safe",
+      "reason": "ipgre_xmit calls skb_cow_head before reading tnl_params from skb->data (line 681 tnl_params = (const struct iphdr *)skb->data is after the cow); erspan_xmit has no header pointer across its cow."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/batman-adv/routing.c",
+      "line": 801,
+      "status": "safe",
+      "reason": "All eight skb_cow sites in batadv_recv_* RX/forwarding handlers reassign the cached pointer from skb->data immediately after the cow (e.g. lines 239, 307, 377, 682, 803); the pattern is consistently correct."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/ip_tunnel_core.c",
+      "line": 235,
+      "status": "unresolved",
+      "reason": "iptunnel_xmit/gre/icmp helpers (ip_tunnel_core.c lines 235, 338) call skb_cow before building the new header; body not fully read line-by-line due to finalization cutoff, but a quick scan showed headers constructed via skb_push after the cow with no obvious pre-cow header pointer captured. Left as bounded residual."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mpls/af_mpls.c",
+      "line": 451,
+      "status": "unresolved",
+      "reason": "mpls_xmit skb_cow at lines 451 and 2498 not deeply read; hdr = mpls_hdr(skb) pattern in the iptunnel variant was verified safe, but af_mpls.c bodies beyond the grep context were not read before the finalization instruction. Bounded residual for follow-up."
+    }
+  ],
+  "limitations": [
+    "Search was bounded to s04's net/ and drivers/net (479 raw matches for the realloc-helper family); drivers/ outside drivers/net, net/ipv6/ioam6, l2tp, openvswitch, sch_frag, tipc, xfrm, and the remaining skb_linearize/skb_unclone/skb_share_check call sites were triaged by grep context only, not full function reads.",
+    "ip_tunnel_core.c (lines 235, 338) and net/mpls/af_mpls.c (lines 451, 2498) skb_cow sites remain classified unresolved: grep context shows header construction after the cow but the complete functions were not read line-by-line.",
+    "The mwl8k finding's exploitability was not dynamically tested (no hardware; no KASAN reproducer built) - it is a source-evidence hypothesis; the reallocating branch requires priv->ap_fw (STA firmware excluded) and hdrlen < sizeof(ieee80211_cts) + 8, reachable with short 802.11 headers (e.g. 16-byte 4-address or 10-byte null-function frames) under headroom pressure.",
+    "mac80211's own skb_cow_head users (net/mac80211/rx.c, tx.c) and drivers/net/ethernet rmnet/vmxnet3/fdma paths appeared in the helper census but were only partially inspected; no complete-function audit was performed for them."
+  ]
+}

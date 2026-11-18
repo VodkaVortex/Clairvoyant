@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "intent_id": "i011",
+  "branch": "sysfs-store-attr-terminator",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/wd33c93.c",
+      "start": 1996,
+      "end": 2024,
+      "quote": "\tbuf[len] = '\\0';\n\tfor (bp = buf; *bp; ) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: /proc/scsi/<driver>/<host> write syscall; proc_scsi_host_write (drivers/scsi/scsi_proc.c:64-87) allows count up to PROC_BLOCK_SIZE (== PAGE_SIZE), copies exactly count user bytes into a freshly __get_free_page'd page with NO terminator slot (copy at line 80, page passed unmodified at line 82), then calls this ->write_info callback. Violated invariant: wd33c93_write_info assumes it may write a NUL at buf[len] (line 2019), but the validated region is exactly len bytes of a PAGE_SIZE allocation; when the attacker writes count==PAGE_SIZE non-NUL bytes, buf[len] is one byte past the end of the page allocation -> 1-byte heap/page out-of-bounds write, and the subsequent for(bp=buf; *bp;) loop plus strncmp(bp,\"debug:\",6)/simple_strtoul parsing (lines 2020-2054) then scans a still-unterminated buffer for any len value where the user data contains no NUL, reading past the page until a stray NUL is hit (OOB read analogue of the seed's sscanf-on-memdup_user bug). Same call site also reached via gvp11.c:224, a3000.c:204, a2091.c:187, mvme147.c:80. Counterevidence checked: the proc write path itself never NUL-terminates and never shrinks count (PROC_BLOCK_SIZE == PAGE_SIZE, drivers/scsi/scsi_proc.c:71-72), and PROC_INTERFACE is enabled for these drivers; this is a genuine terminator-slot violation rather than a kernfs store (kernfs always provides buf[len]='\\0'). Impact not fully proven: the OOB write is a single NUL byte into adjacent allocator metadata/page, and reachability requires the wd33c93 driver (m68k/early ARM hardware), so confidence is medium. Fix primitive would be a count+1 allocation or copy of at most PAGE_SIZE-1 bytes."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_proc.c",
+      "line": 80,
+      "status": "reported",
+      "reason": "proc_scsi_host_write copies count (up to PAGE_SIZE) user bytes into an exactly-PAGE_SIZE page with no +1 terminator slot and passes (page, count) to ->write_info; combined with wd33c93_write_info's buf[len]='\\0' this is the seed's exactly-sized-usercopy-then-string-parser invariant under a proc-attr interface. Reported as part of the finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_devinfo.c",
+      "line": 733,
+      "status": "safe",
+      "reason": "proc_scsi_devinfo_write adds buffer[length]='\\0' when length<PAGE_SIZE and rejects length==PAGE_SIZE unless buffer[PAGE_SIZE-1] is already NUL (lines 733-738) before scsi_dev_info_list_add_str parses it; termination enforced."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_debug.c",
+      "line": 6437,
+      "status": "safe",
+      "reason": "scsi_debug_write_info clamps minLen to 15, memcpy into char arr[16], arr[minLen]='\\0' before sscanf; bounded and terminated."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/scsi/scsi_debug.c",
+      "line": 1033,
+      "status": "safe",
+      "reason": "sdebug_error_write allocates kzalloc(count+1) before copy_from_user, guaranteeing the terminator slot the seed's fix primitive requires."
+    },
+    {
+      "snapshot": "s03",
+      "path": "fs/kernfs/file.c",
+      "line": 319,
+      "status": "safe",
+      "reason": "kernfs_fop_write_iter allocates len+1 (or prealloc_buf sized likewise) and sets buf[len]='\\0' (line 319) before ops->write; every DEVICE_ATTR/DRIVER_ATTR/BUS_ATTR/CLASS_ATTR/module_param store therefore receives a NUL-terminated, PAGE_SIZE-bounded buffer. The 736 in-snapshot *_store functions sampled (sscanf/strtol/strcmp/strchr/strscpy on buf) rely on this guarantee and need no per-site fix."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/edac/versal_edac.c",
+      "line": 863,
+      "status": "safe",
+      "reason": "inject_data_ue_store clamps len=min(count,sizeof(buf)) into char buf[6] and writes buf[len]='\\0' before strsep/kstrtou8; terminated."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/netdevsim/dev.c",
+      "line": 259,
+      "status": "safe",
+      "reason": "nsim_bus_dev_max_vfs_write rejects count>=sizeof(buf) (10) and sets buf[count]='\\0' before kstrtouint; terminated and bounded."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/gpu/drm/amd/amdkfd/kfd_debugfs.c",
+      "line": 51,
+      "status": "safe",
+      "reason": "kfd_debugfs_hang_hws_write memset(tmp,0,16) and rejects size>=16 before copy_from_user of size bytes; last byte always NUL."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/netdevsim/dev.c",
+      "line": 188,
+      "status": "safe",
+      "reason": "nsim_dev_trap_fa_cookie_write memdup_user(count) then hex2bin of (count-1)/2 bytes; binary consumption, no C-string parser on the buffer."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/firmware/tegra/bpmp-debugfs.c",
+      "line": 380,
+      "status": "safe",
+      "reason": "bpmp_debug_store memdup_user(count) passes raw databuf/count to mrq_debug_write firmware call; no string parsing of the buffer."
+    },
+    {
+      "snapshot": "s03",
+      "path": "kernel/user_namespace.c",
+      "line": 1232,
+      "status": "unresolved",
+      "reason": "copy_from_user(kbuf, buf, count) at line 1232 was identified in the bulk copy-site scan but the surrounding allocation size and downstream string use were not fully read before the bounded search was concluded; the adjacent line 942 site already uses memdup_user_nul. Listed as a residual, not a finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/sunrpc/cache.c",
+      "line": 915,
+      "status": "unresolved",
+      "reason": "copy_from_user(kaddr, buf, count) write paths in sunrpc cache (lines 915, 1519) and svcauth_gss.c:1417 were surfaced by the bulk scan; their downstream string handling was not deeply read within the candidate budget. Residual limitation."
+    }
+  ],
+  "limitations": [
+    "The bulk copy-site scan script errored partway (bad rg invocation in the harness), so per-site string-consumer proximity was instead established with targeted multiline rg queries over ~90 files containing copy_from_user/memdup_user in write handlers; file-based (debugfs/proc/char-dev) write handlers outside attribute-style stores were only spot-checked, and full coverage belongs to the sibling debugfs/proc/ioctl branch intents for s03.",
+    "kernel/user_namespace.c:1232, net/sunrpc/cache.c:915/1519, and net/sunrpc/auth_gss/svcauth_gss.c:1417 copy_from_user sites were not deeply classified (unresolved candidates above).",
+    "The reported wd33c93 finding's exploitability depends on the wd33c93 driver being built (m68k/early-ARM platforms: gvp11, a3000, a2091, mvme147) and on a 1-byte OOB write plus OOB read across the page boundary; no runtime PoC was compiled because the affected configs are not buildable in this environment, so impact is expressed as a hypothesis with medium confidence.",
+    "module_param cb handlers and sysfs stores reached through kernfs were sampled, not exhaustively enumerated (~736 *_store functions found); the kernfs buf[len]='\\0' core guarantee (fs/kernfs/file.c:304-319, including the atomic_write_len and prealloc_buf paths) makes per-site defects structurally unlikely but not impossible."
+  ]
+}

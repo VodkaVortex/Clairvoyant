@@ -1,0 +1,7 @@
+{
+  "intent_id": "i008",
+  "branch": "error-unwind-poisoned-count",
+  "snapshot": "s02",
+  "status": "finalizing",
+  "progress": "Deep-read DLM recovery slots chain in s02: midcomms.c:81-101 validates peer h_length (msglen <= ci_buffer_size and <= actual len) but never bounds rf_num_slots against it; rcom.c:266 receive_sync_reply memcpy's peer message into shared ls->ls_recover_buf (kmalloc(dlm_config.ci_buffer_size)); member.c:118 dlm_slots_copy_in stores num_slots = le16_to_cpu(rf->rf_num_slots) with only !num_slots check, then member.c:124-127 walks ro0 for num_slots iterations with in-place le32/le16 read-modify-write (OOB RMW past heap buffer), member.c:132 second matching loop, log_slots at 129 also iterates. Sibling dlm_slots_assign enforces max_slots = (ci_buffer_size - sizeof(dlm_rcom) - sizeof(rcom_config))/sizeof(rcom_slot) with num > max_slots reject at member.c:~276-281 - asymmetric validation. Error-unwind facet: copy_in early returns -1 at ~141-144/153-156 leave ls->ls_generation updated and memb->slot partially populated from the OOB walk. Seed usbip present unpatched at usbip_common.c:392 (urb->number_of_packets = rpdu->number_of_packets) - excluded by rule. Other candidates enumerated not deep-read: xfs_log_recover.c:4616 h_num_logops, cifs/misc.c:676 NumberOfReferrals, bfa_core.c:1290 num_uf_bufs, qede_fp.c:998 GRO skb count, 8390-net hdr->count."
+}

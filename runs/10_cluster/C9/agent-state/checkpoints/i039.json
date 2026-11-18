@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "intent_id": "i039",
+  "branch": "alloc-multiply-overflow",
+  "snapshot": "s10",
+  "status": "finalized",
+  "progress": "Sweeps: narrow-typed size=count*sizeof assignments + allocator-calls-with-inline-multiply over drivers/fs/net/block/sound/crypto. Primary finding: drivers/virt/fsl_hypervisor.c:221 truncating num_pages -> kmalloc(32-bit multiply) at 239-240 -> fill loop at 274 (userspace u64 param.count via copy_from_user at 165). Seed usbip PATCHED in s10 (clamp at 685, kcalloc at 699). ldm.c safe (perbuf caller bound), sctp stream_len self-consistent, be_cmds img_hdrs_size feeds bounds check not allocation. fbcmap.c:95 left unresolved (not re-verified in s10). Finalizing per directive.",
+  "candidates": [
+    "s10:drivers/virt/fsl_hypervisor.c:221 reported",
+    "s10:drivers/virt/fsl_hypervisor.c:239 reported",
+    "s10:drivers/virt/fsl_hypervisor.c:274 reported",
+    "s10:drivers/virt/fsl_hypervisor.c:229 safe",
+    "s10:drivers/usb/usbip/usbip_common.c:685 safe (seed patched, excluded by rule)",
+    "s10:block/partitions/ldm.c:1247 safe",
+    "s10:net/sctp/sm_make_chunk.c:3653 safe",
+    "s10:drivers/net/ethernet/emulex/benet/be_cmds.c:2929 safe",
+    "s10:drivers/video/fbdev/core/fbcmap.c:95 unresolved",
+    "s10:drivers/infiniband/hw/vmw_pvrdma/pvrdma_mr.c:218 safe",
+    "s10:drivers/s390/cio/vfio_ccw_cp.c:514 safe",
+    "s10:drivers/net/ethernet/google/gve/gve_adminq.c:1160 safe"
+  ],
+  "timestamp": "2026-11-15"
+}

@@ -1,0 +1,58 @@
+{
+  "intent_id": "i017",
+  "branch": "peer-trusted-transport",
+  "snapshot": "s04",
+  "status": "final",
+  "updated_at": "2026-11-11T14:58:06Z",
+  "summary": "Reported: drivers/hv/hv_balloon.c balloon_down()/free_balloon_pages() consume host-supplied DM_UNBALLOON_REQUEST range_count and per-range page_cnt/start_page with no clamp or locally-known cross-check; pfn_to_page()+__free_page() loop on host-chosen PFNs; OOB read of static recv_buffer via unclamped range_count loop; asymmetric validation vs DM_MEM_HOT_ADD_REQUEST path (hdr.size check present there, absent on unballoon).",
+  "candidates": [
+    {
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1354,
+      "status": "reported",
+      "reason": "range_count = req->range_count (peer u32) drives free_balloon_pages loop with no range check vs recvlen or any max; dispatch at 1516-1519 checks only recvlen>0"
+    },
+    {
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1194,
+      "status": "reported",
+      "reason": "num_pages = range_array->finfo.page_cnt (24-bit host field) and start_frame (40-bit host PFN) drive pfn_to_page()+__free_page() loop with no pfn_valid/ballooned-list cross-check"
+    },
+    {
+      "path": "drivers/block/nbd.c",
+      "line": 541,
+      "status": "safe",
+      "reason": "nbd_read_stat: magic checked, tag resolved via blk_mq tag tables bounded by nr_hw_queues, data read into request's own bvec segments via sock_xmit/iov_iter bounded by bvec.bv_len"
+    },
+    {
+      "path": "net/9p/trans_virtio.c",
+      "line": 154,
+      "status": "safe",
+      "reason": "req_done uses virtqueue len only as boolean; probe tag_len is u16 config field, kmalloc bounded <=65535"
+    },
+    {
+      "path": "drivers/net/virtio_net.c",
+      "line": 818,
+      "status": "safe",
+      "reason": "num_buf loops per-buffer bound: len>truesize rejected (833), MAX_SKB_FRAGS forces new skb (836), xdp_linearize_page checks page_off+buflen+tailroom>PAGE_SIZE before memcpy"
+    },
+    {
+      "path": "fs/cifs/smb2misc.c",
+      "line": 105,
+      "status": "safe",
+      "reason": "NegotiateContextCount validated: nc_offset>=non_ctxlen and len < nc_offset+neg_count*sizeof(neg_context); data area clamped off>4096, len>128K"
+    },
+    {
+      "path": "drivers/virt/vboxguest/vboxguest_utils.c",
+      "line": 576,
+      "status": "safe",
+      "reason": "copy_to_user length is min(src_parm host size, dst_parm local size) - host size capped by local destination size"
+    },
+    {
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1512,
+      "status": "safe",
+      "reason": "DM_BALLOON_REQUEST num_pages loop bounded by PAGE_SIZE bl_resp->hdr.size check (line ~1232) and alloc_pages failure; failure path frees only self-built range_array entries"
+    }
+  ]
+}

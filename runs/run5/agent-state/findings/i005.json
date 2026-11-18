@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "xsk-umem-fetch",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 199,
+      "status": "safe",
+      "reason": "xskq_cons_read_desc() performs exactly the correct single-fetch pattern: '*desc = ring->desc[idx];' copies the whole struct xdp_desc (addr/len/options, 16 bytes) from the user-mmap'd TX ring into kernel-private memory in one structure assignment (line 199), then validates only that private copy via xskq_cons_is_valid_desc() (line 200 -> xp_aligned_validate_desc/xp_unaligned_validate_desc lines 133-170), and every downstream consumer (xsk_build_skb, drivers via xsk_tx_peek_desc) reads the private copy. No re-read of ring->desc[idx] occurs between validation and use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 224,
+      "status": "safe",
+      "reason": "xskq_cons_read_desc_batch() (lines 214-236) copies each descriptor with 'descs[nb_entries] = ring->desc[idx];' into pool->tx_descs, a kvcalloc'd kernel array (xp_alloc_tx_descs, net/xdp/xsk_buff_pool.c:36-42), and validates that copy at line 225. Driver batch consumers (dpaa2-xsk.c:354-355/410, i40e_xsk.c:492-493, ice_xsk.c:923-924) then use pool->tx_descs entries, i.e. the validated private copies, never the shared ring."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 115,
+      "status": "safe",
+      "reason": "__xskq_cons_read_addr_unchecked() (lines 115-121) fetches the fill-ring u64 address once into the caller's local 'addr'; xp_check_unaligned/xp_check_aligned (net/xdp/xsk_buff_pool.c:409-421) validate and normalize that local, and __xp_alloc (lines 424-466) / xp_alloc_new_from_fq (lines 539-579) build xskb addresses from the validated local. Single fetch, private copy, no second read."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 133,
+      "status": "safe",
+      "reason": "Bounds arithmetic cannot wrap to bypass: xp_aligned_validate_desc checks chunk = addr & chunk_mask < pool->addrs_cnt and, when len != 0, that addr+len-1 lands in the same chunk, so a wrapping addr near U64_MAX is rejected because its aligned chunk exceeds addrs_cnt. xp_unaligned_validate_desc checks len <= chunk_size, base_addr < addrs_cnt, and addr (48-bit base + 16-bit offset, no u64 overflow) < addrs_cnt; xp_desc_crosses_non_contig_pg (include/net/xsk_buff_pool.h:175-190) computes (addr & (PAGE_SIZE-1)) + len with operands bounded by PAGE_SIZE and u32 len. All checks are applied to the private desc copy from line 199/224."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk.c",
+      "line": 443,
+      "status": "safe",
+      "reason": "xsk_build_skb_zerocopy() (lines 424-465) takes 'addr = desc->addr; len = desc->len;' from the private struct xdp_desc filled by xskq_cons_peek_desc and uses only these locals for page iteration (pool->umem->pgs[addr >> PAGE_SHIFT]) and skb length; no shared-memory re-read."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk.c",
+      "line": 489,
+      "status": "safe",
+      "reason": "xsk_build_skb() (lines 466-512) uses 'len = desc->len' to size sock_alloc_send_skb(hr + len + tr) and skb_put(skb, len), and 'xsk_buff_raw_get_data(xs->pool, desc->addr)' then skb_store_bits(skb, 0, buffer, len) - all from the private descriptor validated by xp_validate_desc; the UMEM bytes copied are packet content, whose concurrent modification is inherent to AF_XDP, not a validated-offset TOCTOU."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk.c",
+      "line": 317,
+      "status": "safe",
+      "reason": "xsk_tx_peek_desc() (lines 317-345) fills the caller's struct xdp_desc through xskq_cons_peek_desc (single copy + validate) and uses desc->addr of that private copy for the completion-ring reservation xskq_prod_reserve_addr(pool->cq, desc->addr); no second fetch of ring memory for the decision."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/freescale/dpaa2/dpaa2-xsk.c",
+      "line": 354,
+      "status": "safe",
+      "reason": "dpaa2_xsk_tx_build_fd() uses xdp_desc->addr/len sourced from pool->tx_descs filled by xsk_tx_peek_release_desc_batch (line 410), i.e. the kernel-private validated batch array; xsk_buff_raw_get_dma/xsk_buff_raw_dma_sync_for_device consume that same private copy."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/igc/igc_main.c",
+      "line": 2781,
+      "status": "safe",
+      "reason": "igc_clean_xdp_tx() obtains each frame via xsk_tx_peek_desc(pool, &xdp_desc) into a local struct and uses xdp_desc.addr/len from that local for DMA (lines 2791-2792); same single-fetch pattern in ixgbe_xsk.c:415-419, i40e_xsk.c:472-493, ice_xsk.c:896-924, mlx5 en/xsk/tx.c:84-97, stmmac_main.c:2435-2445."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xdp/xsk.c",
+      "line": 802,
+      "status": "unresolved",
+      "reason": "The seed fix site xsk_skb_metadata() (and the whole TX-metadata feature of commit 48eb03dd2630) does not exist in s04: grep across the entire tree finds no xsk_tx_metadata, XDP_TXMD_FLAGS_*, tx_metadata_len, tx_sw_csum, or csum_start/csum_offset in net/xdp; include/uapi/linux/if_xdp.h contains no struct xsk_tx_metadata or XDP_UMEM_TX_METADATA_LEN option. Marked unresolved only because the seed site is excluded from reporting by definition; it is structurally absent."
+    }
+  ],
+  "limitations": [
+    "Driver TX consumers beyond the eight inspected in depth (dpaa2, i40e, ice, igc, ixgbe, mlx5, nfp, stmmac) were verified only by grep for the desc-flow APIs; each follows the same xsk_tx_peek_desc/xsk_tx_peek_release_desc_batch private-copy contract, but a line-by-line read of every driver was not completed.",
+    "Concurrent modification of packet CONTENTS inside UMEM frames (which zero-copy DMA inherently exposes) is out of scope; this audit only covers the validated-field TOCTOU invariant on ring/header values (addr/len/offset/flags) that drive kernel bounds decisions.",
+    "RX-side ring production (xskq_prod_*) writes kernel-chosen values into shared rings and reads only producer/consumer indices once per batch via smp_load_acquire/READ_ONCE; only a spot check of those index fetches was performed, not a proof.",
+    "The vhost/virtio, AF_PACKET TPACKET, and generic TX csum_start/csum_offset branches are covered by separate intents (i006-i017) and were not searched here."
+  ]
+}

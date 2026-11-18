@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "intent_id": "i050",
+  "branch": "peer-trusted-transport",
+  "snapshot": "s12",
+  "status": "finalized",
+  "finding": "drivers/hv/hv_balloon.c:1344-1350 balloon_down iterates host-supplied unclamped dm_unballoon_request.range_count with only recvlen>0 gate (line 1493); OOB read past 4096-byte recv_buffer[HV_HYP_PAGE_SIZE] (line 493) into range_array[], then free_balloon_pages (1182-1196) frees pfn_to_page(start_frame+i) for OOB-derived counts; vmbus_recvpacket/hv_ringbuffer_read truncates >4096 so primitive is OOB-read + arbitrary page free, not linear OOB write. confidence=medium.",
+  "safe_candidates": [
+    "drivers/greybus/gb-beagleplay.c:208 peer hdr.size re-validated in gb_connection_recv (operation.c:1050 size<msg_size reject; message_alloc hd->buffer_size_max clamp; response memcpy bounded at 1012)",
+    "drivers/greybus/es2.c:844 actual_length bounded by USB core + cport_id_valid + downstream gb_connection_recv checks; arpc_in copies fixed sizeof(*resp) and id-lookup",
+    "net/9p trans_xen:210 / trans_fd:339 / trans_usbg:210 all enforce h.size > req->rc.capacity against locally chosen msize; p9_client_rpc client.c:529 re-check",
+    "drivers/block/xen-blkfront.c:1383 num_grant from guest-private shadow req, not backend response; id/rsp_prod/operation checked in blkif_interrupt; nbd_handle_reply reads only via locally sized bvec iov_iter",
+    "net/vmw_vsock virtio_transport.c:644+652 and vhost_vsock.c:341-393 validate len and hdr->len against local skb/iov bounds"
+  ],
+  "unresolved_candidates": [
+    "drivers/rpmsg/qcom_glink_native.c:952 intentless kmalloc(chunk_size+left_size) with peer SMEM head/tail avail gate; per-fragment re-check exists (line 981); fragment interleaving desync not proven/refuted",
+    "drivers/usb/usbip/usbip_common.c:665 seed verbatim, excluded-by-rule (never reportable)"
+  ],
+  "artifact": "findings/i050.json written, execution_status complete"
+}

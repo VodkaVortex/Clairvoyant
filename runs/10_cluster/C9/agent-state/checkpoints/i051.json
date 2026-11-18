@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "intent_id": "i051",
+  "branch": "alloc-multiply-overflow",
+  "status": "finalizing",
+  "snapshot": "s13",
+  "notes": "Two candidates verified. (1) fsl_hypervisor.c ioctl_memcpy: untrusted u64 param.count from copy_from_user, num_pages = (count + lb_offset + PAGE_SIZE-1) >> PAGE_SHIFT assigned to unsigned int truncates (needs count >= 2^32), kmalloc(num_pages*sizeof(struct fh_sg_list) + ...) at line 236-237, fill loop for (i=1; i<num_pages; i++) writes sg_list[i] OOB when count >= 4GiB wraps num_pages. Caller controls 64-bit count. Known CVE-2013-0656-family shape, CONFIRMED present in s13. (2) ldm.c ldm_frag_add: kmalloc(sizeof(*f) + size*num) but num constrained 1..4 by explicit check, size from vblk_size (on-disk, only !=0 check) but loop reads only size-16 bytes per rec from a 512-byte sector; no multiply overflow (num<=4). Excluded by structural bound. usbip seed code present unpatched (int size = np * sizeof(*iso) line 616) - excluded by rule.",
+  "candidates": [
+    {"path": "drivers/virt/fsl_hypervisor.c", "line": 236, "status": "reported", "reason": "u64 ioctl count truncated into unsigned int num_pages, multiplied by sizeof(struct fh_sg_list) in plain kmalloc, then per-element fill loop writes num_pages entries"},
+    {"path": "block/partitions/ldm.c", "line": 1275, "status": "safe", "reason": "num bounded 1..4 by explicit check before kmalloc(sizeof(*f)+size*num); size read from disk only checked non-zero; no 32-bit overflow possible with num<=4"},
+    {"path": "drivers/usb/usbip/usbip_common.c", "line": 616, "status": "unresolved", "reason": "seed-mechanism code present unpatched; excluded by rule (seed demonstration only)"}
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "intent_id": "i024",
+  "branch": "timer-dwork-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s09"
+  ],
+  "findings": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/chelsio/cxgb4/sge.c",
+      "start": 4270,
+      "end": 4298,
+      "quote": "spin_lock(&adap->ptp_lock);",
+      "confidence": "medium",
+      "reason": "Lock object adapter->ptp_lock (spin_lock_init at drivers/net/ethernet/chelsio/cxgb4/cxgb4_ptp.c:432) is shared between a TIMER_SOFTIRQ callback and BH-enabled process-context transmit code with NO bottom-half disable at either the timer side or the xmit holder side - the timer-softirq analogue of the seed's missing spin_lock_bh invariant, and the same lock-object shape already confirmed in sibling snapshot s01 (fact f024). UNTRUSTED SOURCE (attacker-influenced concurrency, not data): any PTP event frame transmitted through the Chelsio interface (is_ptp_enabled(skb, dev) branch at sge.c:2473) aligns the process-context holder, and pending tx-timer expiry (s->tx_timer is re-armed whenever TX descriptors are outstanding) aligns the timer side on the same CPU; ordinary traffic plus timer expiry is enough. TIMER-SOFTIRQ SIDE: timer_setup(&s->tx_timer, sge_tx_timer_cb, 0) at sge.c:5200 registers sge_tx_timer_cb (body at sge.c:4270) which takes adap->ptp_lock with plain spin_lock at sge.c:4290 (unlock 4297) while reclaiming ptptxq TX descriptors, and executes in call_timer_fn from TIMER_SOFTIRQ with no BH disable. PROCESS SIDE (holder): t4_start_xmit (netdev .ndo_start_xmit, sge.c:2462) takes spin_lock(&adap->ptp_lock) plainly at sge.c:2477 around cxgb4_eth_xmit(skb, dev) in the PTP-enabled branch; ndo_start_xmit runs in BH-enabled process context (direct xmit from __dev_queue_xmit only disables preemption via local_bh_disable around the qdisc lock, and the PTP branch is also reached from qdisc dequeue under NET_TX softirq where BH is enabled after the qdisc root_lock is dropped); the loopback PTP path also takes the same lock plainly at cxgb4_ptp.c:115 (cxgb4_ptp_read_hwstamp, called from t4_tx_hststamp sge.c:3549->3555 invoked at sge.c:3738 inside cxgb4_eth_xmit while the 2477 plain hold is on the stack). MISSING GUARANTEE: no spin_lock_bh/local_bh_disable at 2477, 4290 or cxgb4_ptp.c:115; the only _bh site on this lock in the snapshot is the teardown at sge.c:4966 (spin_lock_bh(&adap->ptp_lock) in t4_free_sge ptptxq cleanup), proving the driver knows the lock requires BH disable at process-context sites. CONSEQUENCE: a TIMER_SOFTIRQ firing on the same CPU while the plain xmit-side holder is between 2477 and 2479 spins forever on ptp_lock while the preempted holder can never resume - softirq/soft-lockup, RCU stall, device TX stall, repeatable DoS; the exact timer-softirq analogue of the ks7010 tx_dev_lock seed mechanism. COUNTEREVIDENCE CHECKED: no spin_lock_bh/irqsave variant exists at any non-teardown ptp_lock site (only 2477, 4290, cxgb4_ptp.c:115, 4966); the window requires PTP hardware timestamping enabled (is_ptp_enabled) and a tx-timer expiry coinciding with a PTP frame transmission on the same CPU; no runtime reproducer was possible (snapshot lacks .config/generated headers)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/chelsio/cxgb4/sge.c",
+      "line": 2477,
+      "status": "reported",
+      "reason": "Process-holder side of the reported finding: t4_start_xmit (ndo_start_xmit, sge.c:2462) takes spin_lock(&adap->ptp_lock) plainly at 2477 around cxgb4_eth_xmit; same lock object taken plainly in TIMER_SOFTIRQ by sge_tx_timer_cb at 4290 and in the PTP loopback read at cxgb4_ptp.c:115; the only _bh site on this lock is teardown sge.c:4966."
+    },
+    {
+      "snapshot": "s09",
+      "path": "net/bridge/br_multicast.c",
+      "line": 651,
+      "status": "safe",
+      "reason": "The br->multicast_lock timer-branch shape reported in sibling snapshots (s04:931/950, s06:1110/1121, s07:1110/1121, s10:890/901, s11:890/901, s12:915/934, s14:897/908) is NOT present in s09: every process-context enable/disable/delete site uses spin_lock_bh (br_multicast_del_port 2036, br_multicast_enable_port_ctx 2113, br_multicast_disable_port_ctx 2150, plus 2017/2071/4081), so the timer callbacks (group_expired:651, port_group_expired:863, group_src_expired:1319, router_expired:1654, local_router_expired:1700, querier_expired:1733, port_group_rexmit:1945, port_query_expired:1903, query_expired:4045) are the softirq side only, where plain spin_lock is acceptable. The remaining plain sites (1566 br_multicast_add_group, 2910/3048 IGMPv3/MLD2 report processing, 3500/3583/3667 ip4/ip6 query handling, 3851/3864/3935 PIM/MRD, 4045 query_expired) all sit in IGMP/MLD receive paths executed under NET_RX softirq where BH is already disabled. No BH-enabled process-context plain holder exists; invariant satisfied in this snapshot."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 2249,
+      "status": "safe",
+      "reason": "TIMER-SOFTIRQ SIDE: iscsi_check_transport_timeouts (timer_setup at 3197, body 2243) takes spin_lock(&session->frwd_lock) plainly at 2249 and iscsi_tmf_timedout (timer_setup at 3065, body 1900) takes it plainly at 1905 - both run in call_timer_fn from TIMER_SOFTIRQ (plain is acceptable on the softirq side). HOLDER SIDE VERIFIED: every BH-enabled process-context acquisition of frwd_lock in s09 uses spin_lock_bh, including the exact function that was the vulnerable holder in sibling snapshots s05/s12/s14 (iscsi_eh_cmd_timed_out at 2076 uses spin_lock_bh(&session->frwd_lock) at 2090, unlock_bh 2238), plus iscsi_xmit paths (1433, 1475, 1544, 1575, 1604, 1767, 3205, 3256, 3270, 3320, 3396, 3420, 3443, 3458), eh_abort/eh_reset (1926, 1953, 1988, 2014, 2317, 2362, 2445, 2526, 2566, 2589, 2615, 2645, 2688, 2728) and iscsi_conn_unbind (2317). The remaining plain sites are all RX-path back_lock/frwd_lock swaps inside back_lock-held softirq/socket contexts (__iscsi_complete_pdu 1248, iscsi_handle_reject 1139, iscsi_complete_pdu 1358, eh_abort back_lock 2091/2171/2388, timer callbacks 1905/2249) where BH is already disabled. The sibling-snapshot bug family (plain process-context holder of frwd_lock) is NOT present in s09; the invariant is satisfied."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/tun.c",
+      "line": 387,
+      "status": "safe",
+      "reason": "Plain spin_lock(&tun->lock) at 387 is inside the tun_flow_cleanup timer callback (the TIMER_SOFTIRQ side itself, where plain is acceptable); every other acquisition of tun->lock in the file uses spin_lock_bh (351, 366, 432, 2239). No BH-enabled process-context plain holder exists for a timer softirq to spin against; invariant satisfied."
+    },
+    {
+      "snapshot": "s09",
+      "path": "net/802/garp.c",
+      "line": 419,
+      "status": "safe",
+      "reason": "Plain spin_lock(&app->lock) sites at 419 (garp_join_timer body, TIMER_SOFTIRQ side) and 534 (garp_pdu_parse_msg, NET_RX softirq side) are the softirq sides themselves; all process-context sites use spin_lock_bh (363, 383, 624). Invariant satisfied."
+    },
+    {
+      "snapshot": "s09",
+      "path": "net/802/mrp.c",
+      "line": 604,
+      "status": "safe",
+      "reason": "Plain spin_lock(&app->lock) sites at 604/610 (mrp_join_timer, TIMER_SOFTIRQ side), 626 (mrp_periodic_timer, TIMER_SOFTIRQ side) and 818 (PDU parse, NET_RX softirq side) are the softirq sides; process-context sites use spin_lock_bh (543, 568, 909, 918). Invariant satisfied."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 290,
+      "status": "unresolved",
+      "reason": "Sibling snapshots classified bcm_enet_refill_rx_timer as safe (only two rx_lock sites: timer callback + NAPI poll, both softirq, no process-context plain holder). The s09 copy was not re-verified line-by-line before the finalize directive; carried as unresolved rather than confirmed safe in this snapshot."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/wireless/intel/iwlwifi/pcie/tx.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "Sibling snapshots (f015/f018/f023) flagged iwl_pcie_txq_stuck_timer taking plain spin_lock(&txq->lock) inside a timer_list callback; whether every non-timer site of the same txq->lock uses spin_lock_irqsave (which would also exclude the timer softirq via hard-IRQ disable) was not enumerated in s09 before the finalize directive. Unresolved, not reported."
+    },
+    {
+      "snapshot": "s09",
+      "path": "net/sched/sch_pie.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "Sibling snapshots flagged qdisc root_lock perturbation/adaptation timers (sch_pie pie_timer, sch_sfq sfq_perturbation, sch_red red_adaptative_timer) taking plain spin_lock in timer callbacks; the s09 copies and their process-context tc change/reset/dump sites were not examined before the finalize directive. Unresolved, not reported."
+    }
+  ],
+  "limitations": [
+    "Search bounded to snapshot s09 only, as required by the intent; no other snapshot was inspected.",
+    "Bounded by the finalize directive: the systematic whole-tree enumeration of timer_list/hrtimer/delayed_work callback bodies containing plain spin_lock (the ~60-70 callback family enumerated in sibling passes) was not re-run for s09; deep lock-object pairing was completed only for the highest-priority timer-branch shapes: br_multicast br->multicast_lock, libiscsi session->frwd_lock, cxgb4 adap->ptp_lock, tun tun->lock, garp.c/mrp.c app->lock.",
+    "Unresolved candidates left for follow-up in s09: iwlwifi pcie/tx.c txq->lock stuck-timer, qdisc root_lock in sch_pie/sch_sfq/sch_red perturbation timers, bcm63xx_enet refill-rx timer, hostap ap_handle_timer sta_table_lock, and the remaining timer callbacks enumerated in sibling passes (xfrm, ipvs, neighbour, taprio, watchdogs, eql, sunrpc xprt transport_lock) that were not re-verified here.",
+    "hrtimer handlers and delayed_work timer-expiry callbacks were not separately enumerated in s09; delayed_work user callbacks run in worker (process) context so only direct timer_list callbacks were treated as the timer-softirq side.",
+    "The cxgb4 finding is a static hypothesis: no runtime reproducer, lockdep run, or compile was performed (the s09 tree lacks .config and generated headers for standalone builds); the deadlock window additionally requires PTP hardware timestamping enabled on a Chelsio T5+ interface (is_ptp_enabled(skb, dev), sge.c:2473) and a tx-timer expiry coinciding with a PTP frame transmission on the same CPU, which is reflected in medium confidence.",
+    "Whether the t4_start_xmit PTP branch at 2477 can also run under NET_TX softirq with a BH state that makes the plain lock safe was not separately proven; the process-context direct-xmit entry (the dangerous direction) plus the timer softirq side is the reported basis.",
+    "The literal ks7010 seed is absent from s09 (no drivers/staging/ks7010 directory); per instructions the seed must never be reported regardless."
+  ]
+}

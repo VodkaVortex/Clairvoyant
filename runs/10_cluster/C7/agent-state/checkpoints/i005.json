@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "xmit-softirq-lock",
+  "status": "complete",
+  "snapshot": "s04",
+  "progress": "Finalized. Reported finding: mwl8k.c stream_lock plain spin_lock in softirq-reachable xmit path (mwl8k_tx->mwl8k_txq_xmit 1977/2041/2064/2114) vs process/workqueue holders (watchdog_ba_events 3817, cmd_set_new_stn_del 4147, ampdu_action 5437); tx_lock uses spin_lock_bh in same function (2049) proving BH-enabled xmit context. Unresolved: cw1200 wsm_cmd.lock/event_queue_lock, hostap sta_table_lock, iwlwifi rxq->lock.",
+  "candidates": [
+    {
+      "path": "drivers/net/wireless/mwl8k.c",
+      "line": 1977,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/wireless/cw1200/wsm.c",
+      "line": 1093,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/net/wireless/cw1200/sta.c",
+      "line": 124,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/net/wireless/hostap/hostap_ap.c",
+      "line": 230,
+      "status": "unresolved"
+    },
+    {
+      "path": "drivers/net/wireless/iwlwifi/pcie/rx.c",
+      "line": 185,
+      "status": "unresolved"
+    }
+  ],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i005.json",
+  "timestamp": "2026-11-11"
+}

@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "peer-trusted-transport",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/hv/hv_balloon.c",
+      "start": 1353,
+      "end": 1363,
+      "quote": "int range_count = req->range_count;\n\tstruct dm_unballoon_response resp;\n\tint i;\n\tunsigned int prev_pages_ballooned = dm->num_pages_ballooned;\n\n\tfor (i = 0; i < range_count; i++) {\n\t\tfree_balloon_pages(dm, &range_array[i]);",
+      "confidence": "medium",
+      "reason": "Untrusted source: balloon_onchannelcallback() (drivers/hv/hv_balloon.c:1488-1545) receives the Hyper-V host's DM_UNBALLOON_REQUEST into the static __u8 recv_buffer[PAGE_SIZE] (line 506) via vmbus_recvpacket(dev->channel, recv_buffer, PAGE_SIZE, &recvlen, &requestid) (lines 1491-1493); hv_ringbuffer_read() (drivers/hv/ring_buffer.c) sets *buffer_actual_len = packetlen from the host-written ring descriptor and only guards packetlen > buflen (i.e. <= PAGE_SIZE), so the message content including req->range_count is entirely host/peer-controlled. Missing local limit check (asymmetric validation): the dispatch at case DM_UNBALLOON_REQUEST (lines 1519-1523) calls balloon_down() with the only gate being recvlen > 0 (line 1495) - no hdr.size == sizeof(struct) check, no cross-check of range_count against recvlen/PAGE_SIZE, and no comparison against the guest's own ballooned-page bookkeeping - while the sibling message type of the same protocol, DM_MEM_HOT_ADD_REQUEST (line 1530 'if (ha_msg->hdr.size == sizeof(struct dm_hot_add))'), does validate the host header size: the mirror path of the same vmbus dynamic-memory protocol enforces a limit that the unballoon path does not. Unsafe use: balloon_down() (lines 1353-1363) fetches 'int range_count = req->range_count;' (line 1357) - a raw peer __u32 - and iterates 'for (i = 0; i < range_count; i++) free_balloon_pages(dm, &range_array[i]);' (lines 1362-1363) with no bound: range_count up to 2^31-1 walks range_array[] far past the PAGE_SIZE recv_buffer (OOB read of .bss/static memory), and each fetched union dm_mem_page_range then drives free_balloon_pages() (lines 1193-1206): 'int num_pages = range_array->finfo.page_cnt; __u64 start_frame = range_array->finfo.start_page;' (lines 1196-1197) -> 'pg = pfn_to_page(i + start_frame); __free_page(pg); dm->num_pages_ballooned--; ' (lines 1202-1204) - freeing host-chosen PFNs with no pfn_valid() check and underflowing num_pages_ballooned. This is the peer-trusted-transport invariant: peer-supplied count/length fields cross the guest-host channel into kernel iteration/allocation without cross-check against locally-known limits, exactly the seed's mechanism on a guest-host virtual bus. Counterevidence checked: hv_ringbuffer_read bounds the delivered recvlen to PAGE_SIZE (so the OOB is driven by range_count, not a short/long receive); alloc_balloon_pages()'s own error unwind (lines 1341-1345) frees only ranges the guest itself built; the DM_BALLOON_REQUEST path's num_pages is bounded by the PAGE_SIZE bl_resp->hdr.size accumulation check (line 1223) and alloc_pages failure. Attacker model is the hypervisor/host peer (semi-trusted in the drivers/hv threat model), which bounds real-world exploitability; no runtime reproducer was built (read-only snapshot, requires a Hyper-V host injecting a crafted DM_UNBALLOON_REQUEST)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/rpmsg/qcom_glink_native.c",
+      "start": 787,
+      "end": 790,
+      "quote": "chunk_size = le32_to_cpu(hdr.chunk_size);\n\tleft_size = le32_to_cpu(hdr.left_size);\n\n\tif (avail < sizeof(hdr) + chunk_size) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: qcom_glink_rx_data() (drivers/rpmsg/qcom_glink_native.c:762-875) peeks the glink TX_DATA header out of the shared-memory RX fifo of the Qualcomm glink transport to the remote subsystem (modem/SSR peer) - a kernel-side client of a remote virtual device transport. The peer fields hdr.chunk_size and hdr.left_size (raw __le32 written by the remote peer, lines 787-788) are the only sizing inputs. Missing local limit check: the sole validation at line 790 'if (avail < sizeof(hdr) + chunk_size)' compares the peer field against glink_smem_rx_avail() (drivers/rpmsg/qcom_glink_smem.c:57-76), whose avail is itself computed from peer-writable SMEM words 'head = le32_to_cpu(*pipe->head); tail = le32_to_cpu(*pipe->tail);' (lines 70-71) pointing into the remote-partition SMEM item (qcom_smem_get at lines 60-68) - the bound is derived from the same attacker-controlled memory it is meant to validate, and chunk_size is never compared to pipe->native.length or any kernel-known maximum. Unsafe use: the intentless branch allocates 'intent->data = kmalloc(chunk_size + left_size, GFP_ATOMIC);' (line 813, unsigned int sum that can wrap) and 'intent->size = chunk_size + left_size;' (line 821), then the copy 'qcom_glink_rx_peak(glink, intent->data + intent->offset, sizeof(hdr), chunk_size);' (lines 850-851) and the advance 'ALIGN(sizeof(hdr) + chunk_size, 8)' (line 873) all trust the raw peer field; glink_smem_rx_peak copies count bytes with only a wraparound min() against native.length (qcom_glink_smem.c:82-97), so a peer-posted head beyond its fifo partition (or chunk_size beyond the real fifo length with a forged avail) drives an OOB read of shared memory into the kmalloc'ed intent buffer and later into the rpmsg callback. Counterevidence checked: the non-intentless branch's liid lookup drops unknown intents (lines 832-841); the 'intent->size - intent->offset < chunk_size' check (line 843) bounds the write into a previously negotiated intent but is itself computed from the kmalloc'ed peer sum at 813/821 for the intentless case; qcom_glink_handle_intent (lines 942+) uses struct_size + avail checks (the clamped sibling pattern) showing the same file does validate peer counts elsewhere. Attacker is the remote subsystem peer over SMEM; exploitation additionally requires the peer to post head/tail beyond its own fifo partition or a malicious modem-side firmware; no runtime reproducer was built."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1357,
+      "status": "reported",
+      "reason": "balloon_down(): peer-supplied req->range_count (raw __u32 of DM_UNBALLOON_REQUEST in static recv_buffer[PAGE_SIZE]) drives the free_balloon_pages() loop with no range check vs recvlen, PAGE_SIZE, or the guest's ballooned bookkeeping; dispatch path checks only recvlen > 0 (line 1495); reported as finding 1."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1196,
+      "status": "reported",
+      "reason": "free_balloon_pages(): host-supplied 24-bit page_cnt and 40-bit start_frame (finfo fields, lines 1196-1197) drive pfn_to_page(i + start_frame) + __free_page() (lines 1202-1204) with no pfn_valid() and no cross-check against dm->num_pages_ballooned; num_pages_ballooned-- underflows; consuming use of finding 1."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/rpmsg/qcom_glink_native.c",
+      "line": 790,
+      "status": "reported",
+      "reason": "Only validation of peer chunk_size is 'avail < sizeof(hdr) + chunk_size' where avail comes from glink_smem_rx_avail() reading peer-writable SMEM head/tail (qcom_glink_smem.c:70-76); kmalloc(chunk_size + left_size) at line 813 sizes a buffer from the same raw peer fields and the peak/copy at 850-851 advances by chunk_size; reported as finding 2."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/rpmsg/qcom_glink_smem.c",
+      "line": 70,
+      "status": "reported",
+      "reason": "head = le32_to_cpu(*pipe->head) / tail = le32_to_cpu(*pipe->tail) read from the remote-partition SMEM item acquired via qcom_smem_get (lines 60-68); the RX availability bound used to validate chunk_size is itself peer-controlled and never clamped to pipe->native.length; bound-source evidence for finding 2."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1530,
+      "status": "safe",
+      "reason": "Sibling DM_MEM_HOT_ADD_REQUEST path validates the host header ('if (ha_msg->hdr.size == sizeof(struct dm_hot_add))'), the asymmetric-validation evidence that the same protocol enforces limits on one message type but not DM_UNBALLOON_REQUEST (1519-1523); this path itself is not the unclamped consumer."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hv/ring_buffer.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "hv_ringbuffer_read() sets *buffer_actual_len = packetlen from the ring descriptor and returns -ENOBUFS when packetlen > buflen, guaranteeing recvlen <= PAGE_SIZE and an exact-length memcpy into recv_buffer; the balloon OOB is driven by the peer range_count field, not by a mis-bounded receive."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/hv/hv_balloon.c",
+      "line": 1510,
+      "status": "safe",
+      "reason": "DM_BALLOON_REQUEST path: host num_pages only bounds the guest allocation loop, which is itself bounded by the PAGE_SIZE bl_resp->hdr.size accumulation check (line 1223) and alloc_pages failure; the error unwind (1341-1345) frees only ranges the guest built in range_array; no peer count drives an unbounded kernel loop or allocation."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/ntb/ntb_transport.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "NTB peer-transport (ring/window based, peer-controlled MW/entries) was enumerated as present in s02 but not deep-read before the finalize directive; peer-field validation there is unverified."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/9p/trans_virtio.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "9p virtio/socket transports (net/9p trans_virtio.c, trans_fd.c, trans_rdma.c, trans_xen.c and fs/9p consumers) present in s02 but only enumerated, not deep-read in this session; whether peer reply counts/lengths are cross-checked against client->msize locally is unverified here (prior rounds on other snapshots found them clamped)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/block/nbd.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "NBD client reply handler present in s02 but not deep-read in this session; handle/tag cross-check and data-length handling unverified."
+    },
+    {
+      "snapshot": "s02",
+      "path": "fs/cifs/misc.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "CIFS/ceph (fs/cifs, fs/ceph) server-reply parsers present in s02 but only enumerated, not deep-read in this session; server-supplied counts (e.g. DFS referral NumberOfReferrals) unverified in this tree."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/rpmsg/virtio_rpmsg_bus.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "virtio_rpmsg_bus.c and qcom_smd.c (alternate rpmsg framings of the same peer transport) present but not deep-read; peer message-length handling there is unverified."
+    }
+  ],
+  "limitations": [
+    "The audit was bounded by the finalize directive: peer transports deep-read in s02 were drivers/hv/hv_balloon.c (+hv/ring_buffer.c receive semantics) and drivers/rpmsg/qcom_glink_native.c + qcom_glink_smem.c; ntb_transport, 9p trans_fd/virtio/rdma/xen, nbd, virtio_net receive_mergeable, vhost/vringh, cifs/ceph reply parsers, hv_kvp/hv_fcopy/hv_snapshot utils channels, xen pvcalls/xenbus, and network admin-queue reply handlers were enumerated by directory/grep listing only and remain unverified (recorded as unresolved candidates).",
+    "Both findings are source-level invariant violations, not proven exploits: the hv_balloon attacker is the Hyper-V host peer (semi-trusted hypervisor in the drivers/hv threat model, weaker than a remote network attacker), and impact of range_count > ~PAGE_SIZE/16 is an OOB read of static .bss beyond recv_buffer plus pfn_to_page()/__free_page() on host-chosen PFNs without pfn_valid() - corruption/crash is argued from source, not demonstrated at runtime.",
+    "The glink finding requires the remote subsystem peer to post head (or chunk_size) beyond its own fifo partition / forge avail in shared SMEM, or unsigned wrap in kmalloc(chunk_size + left_size); which glink transport instances (smem vs rpm) are actually bound in s02's build configs was not verified, and no path delivering the copied bytes to userspace was traced.",
+    "greybus (the f002/f013 beagleplay/es2 analogue) does not exist in s02 (drivers/greybus absent), so that variant family is not applicable to this snapshot; the seed usbip code is excluded by rule and was not examined.",
+    "No compilation, static-analyzer run, or runtime reproducer was performed (assigned tree is read-only); all line numbers come from direct sed/grep reads in this session, with the balloon_down/free_balloon_pages/callback windows and the glink rx_data/smem_avail windows re-verified line-by-line before reporting."
+  ]
+}

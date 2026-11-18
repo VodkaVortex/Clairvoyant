@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "intent_id": "i038",
+  "branch": "tasklet-napi-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": ["s09"],
+  "findings": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "start": 691,
+      "end": 709,
+      "quote": "static int fs_enet_close(struct net_device *dev)\n{\n\tstruct fs_enet_private *fep = netdev_priv(dev);\n\tunsigned long flags;\n\n\tnetif_stop_queue(dev);\n\tnapi_disable(&fep->napi);\n\tcancel_work(&fep->timeout_work);\n\tphylink_stop(fep->phylink);\n\n\tspin_lock_irqsave(&fep->lock, flags);\n\tspin_lock(&fep->tx_lock);",
+      "confidence": "medium",
+      "reason": "TASKLET/NAPI-softirq analogue of the seed's missing-BH-disable invariant in snapshot s09. LOCK OBJECT: struct fs_enet_private.tx_lock (spin_lock_init at fs_enet-main.c:952). SOFTIRQ SIDE (NAPI poll, NET_RX softirq via napi_schedule): hardirq fs_enet_interrupt (request_irq with IRQF_SHARED at fs_enet-main.c:670) does napi_schedule_prep(&fep->napi) at line 322 and __napi_schedule(&fep->napi) at line 331; NAPI poll fs_enet_napi (def line 89, registered via netif_napi_add_weight at line 971) takes the SAME fep->tx_lock with plain spin_lock at line 101 and completes TX descriptors under it. PROCESS SIDE (holder, missing BH disable): fs_enet_close (.ndo_stop at netdev_ops line 835, def line 691) runs in process context (ifconfig down / netlink) and acquires the SAME fep->tx_lock with plain spin_lock at line 702, nested inside spin_lock_irqsave(&fep->lock) at line 701 - the outer irqsave disables hard IRQs on the local CPU but does NOT disable bottom halves. MISSING GUARANTEE: grep count of spin_lock_bh in fs_enet-main.c is 0; the only tx_lock sites are plain 101 (NAPI), 487 (xmit, excluded branch scope), 702 (close) plus spin_lock_init 952. UNTRUSTED SOURCE: attacker-influenced concurrency - any inbound packet or TX completion on the shared IRQ firing the hardirq that schedules the NAPI poll, plus a device-down operation on the same CPU. IMPACT: a NET_RX softirq executing fs_enet_napi on the same CPU spins on tx_lock while the preempted close path can never resume (soft-lockup, RCU stall, DoS). COUNTEREVIDENCE: napi_disable at line 697 waits out an in-flight poll before the lock section, but free_irq only happens at line 709 AFTER the lock section, so the still-registered shared IRQ can call __napi_schedule during the 701-705 window and the newly scheduled NAPI poll runs after local IRQ state restore - window narrowed, not closed; netif_stop_queue (696) only discourages xmit, it does not synchronize it. Same lock-object bug family confirmed in sibling snapshots s01 (f029), s03 (f003), s04 (f033), s06 (f013/f030), s07 (f008/f031)."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "start": 1002,
+      "end": 1008,
+      "quote": "\t/* disable and reset the MAC, empties fifo */\n\tspin_lock(&priv->mac_cfg_lock);\n\tspin_lock(&priv->tx_lock);",
+      "confidence": "low",
+      "reason": "Second instance of the same invariant violation in s09. LOCK OBJECT: struct altera_tse_private.tx_lock (spin_lock_init at altera_tse_main.c:1385). SOFTIRQ SIDE (NAPI poll, NET_RX softirq): hardirq altera_isr (request_irq at 924 rx and 933 tx, IRQF_SHARED) does napi_schedule_prep(&priv->napi) at 521 and __napi_schedule(&priv->napi) at 526; NAPI poll tse_poll (registered netif_napi_add at 1382) calls tse_tx_complete(priv) at 482, which takes the SAME priv->tx_lock with plain spin_lock at line 435 and reaps TX descriptors / wakes the queue while holding it. PROCESS SIDE (holder, missing BH disable): tse_shutdown (.ndo_stop at 1027, def 982) runs in process context and takes plain spin_lock(&priv->tx_lock) at line 1005 (nested after plain spin_lock(&priv->mac_cfg_lock) at 1004), holding it across reset_mac work - no bottom-half disable anywhere in the shutdown path. MISSING GUARANTEE: the only spin_lock_bh in the whole file is the xmit site at line 551, proving the driver knows this lock requires BH disable in BH-enabled context, yet the NAPI side (435) and shutdown side (1005) use plain spin_lock. UNTRUSTED SOURCE: any inbound packet or DMA completion firing the shared hardirq that schedules the NAPI poll, plus device close on the same CPU. COUNTEREVIDENCE (why low confidence): tse_shutdown calls napi_disable(&priv->napi) at 991 and free_irq at 1000-1001 BEFORE the plain tx_lock at 1005, so the window requires a NAPI poll scheduled before napi_disable completed and still queued to run during the 1004-1010 lock section; the verified defect is the lock-discipline violation (plain acquisition of a NAPI-softirq-shared lock, with the correct _bh pattern present at 551), same family as sibling findings s06 f030 and s07 f017/f031."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 101,
+      "status": "reported",
+      "reason": "NAPI-softirq side of finding 1: fs_enet_napi (netif_napi_add_weight at 971; scheduled from hardirq fs_enet_interrupt request_irq:670 via napi_schedule_prep:322/__napi_schedule:331) takes plain spin_lock(&fep->tx_lock) at 101 while process-context fs_enet_close takes the same lock plainly at 702 with zero spin_lock_bh in the file."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 702,
+      "status": "reported",
+      "reason": "Process-holder side of finding 1: fs_enet_close (.ndo_stop at 835) plain spin_lock(&fep->tx_lock) at 702 nested inside spin_lock_irqsave(&fep->lock) at 701 - IRQs disabled, bottom halves NOT; free_irq only at 709 after the lock section."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 435,
+      "status": "reported",
+      "reason": "NAPI-softirq side of finding 2: tse_tx_complete takes plain spin_lock(&priv->tx_lock) at 435, called from NAPI poll tse_poll at 482 (netif_napi_add at 1382; scheduled from hardirq altera_isr at 521/526, request_irq 924/933)."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 1005,
+      "status": "reported",
+      "reason": "Process-holder side of finding 2: tse_shutdown (.ndo_stop at 1027) plain spin_lock(&priv->tx_lock) at 1005 after napi_disable(991)/free_irq(1000-1001); the only _bh site in the file is the xmit path at 551, proving the missing-BH defect at 435/1005."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 487,
+      "status": "safe",
+      "reason": "fs_enet_start_xmit (.ndo_start_xmit) plain spin_lock(&fep->tx_lock) at 487 is the xmit-callback path excluded from this branch per intent scope (covered by the xmit-softirq-lock branch); recorded only as same-lock-object evidence."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 551,
+      "status": "safe",
+      "reason": "spin_lock_bh(&priv->tx_lock) at 551 (tse_xmit path) is the correctly-disciplined site proving the driver knows this lock needs BH disable; used as evidence for finding 2, not a defect."
+    },
+    {
+      "snapshot": "s09",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 4781,
+      "status": "unresolved",
+      "reason": "mwl8k tasklet mwl8k_tx_poll takes priv->tx_lock plainly (tasklet softirq side, acceptable), and every process-context tx_lock site in the file uses spin_lock_bh per the sibling xmit-branch pass on this same snapshot (fact f009), so the holder side disables BH; however the per-site plain-spin_lock enumeration for mwl8k stream_lock against tasklet/NAPI paths and the qtnfmac trans.c resp_lock / cw1200 wsm.c candidates carried from the s09 xmit pass (f009) were not re-traced for the tasklet/NAPI branch before the finalize directive."
+    }
+  ],
+  "limitations": [
+    "Finalize directive halted the audit early: the systematic whole-tree enumeration of tasklet_schedule/tasklet_hi_schedule callback bodies and NAPI poll functions containing plain spin_lock (e.g. iwlwifi pcie/rx.c rxq->lock/rba->lock/irq_lock, mt76 tx.c q->lock, ath9k/ath5k tasklet locks, hostap tasklet paths, qtnfmac, cw1200) was not executed for s09 in this session; only the two known branch-family shapes (fs_enet tx_lock, altera_tse tx_lock) were line-verified, both present and reported.",
+    "Unresolved candidates carried from the prior s09 xmit-softirq-lock pass (fact f009): qtnfmac trans.c resp_lock (whether the pcie control RX path runs in NAPI/softirq rather than bus workqueue context), cw1200 wsm.c wsm_cmd.lock, and cassini.c (29 plain spin_lock sites) were not re-examined for tasklet/NAPI sharing before finalization.",
+    "Static source analysis only: no kernel build, lockdep run or runtime reproducer was performed (the s09 tree lacks .config and generated headers for standalone builds); contexts were attributed from grep-visible wiring (request_irq at fs_enet-main.c:670 and altera_tse_main.c:924/933, netif_napi_add at 971/1382, .ndo_stop at 835/1027) rather than tracing.",
+    "The fs_enet window is narrowed by napi_disable at 697: the residual deadlock needs the still-registered shared IRQ (free_irq only at 709) to schedule a new NAPI poll, or an already-scheduled poll to run, on the same CPU during the 701-705 lock section - reflected in medium confidence.",
+    "The altera_tse window is further narrowed by napi_disable at 991 and free_irq at 1000-1001 before the plain tx_lock at 1005; only an already-queued NAPI poll racing the shutdown sequence remains - reported at low confidence.",
+    "Branch scope excluded ndo_start_xmit chains (fs_enet_start_xmit:487, altera_tse xmit:551) covered by the xmit-softirq-lock branch and timer-callback chains covered by the timer-dwork-softirq-lock branch (cxgb4 ptp_lock was reported there by fact f028); hardirq-analogue shapes are branch-4 scope.",
+    "The staging ks7010 seed (tx_dev_lock) is absent from s09 (no drivers/staging/ks7010 directory in the s09 listing where present); even if present it would be excluded from findings per the never-report-the-seed rule."
+  ]
+}

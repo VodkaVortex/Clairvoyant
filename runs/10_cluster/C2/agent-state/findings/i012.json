@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "optsize-body-clamp",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/sched/sch_cake.c",
+      "start": 960,
+      "end": 981,
+      "quote": "while (length > 0) {\n\t\tint opcode = *ptr++;\n\t\tint opsize;\n\n\t\tif (opcode == TCPOPT_EOL)\n\t\t\tbreak;\n\t\tif (opcode == TCPOPT_NOP) {\n\t\t\tlength--;\n\t\t\tcontinue;\n\t\t}\n\t\topsize = *ptr++;",
+      "confidence": "high",
+      "reason": "Untrusted source: TCP options bytes of a packet traversing a CAKE qdisc (ack-filter path). cake_get_tcpopt walks the option area after consuming the kind byte and immediately dereferences '*ptr++' to read the opsize field with NO 'if (length < 2) break;' guard between the two reads - exactly the invariant violation fixed for mptcp_get_options/tcp_parse_options (seed class, upstream fix 9609dad263f8 shape). When length==1 the loop reads the opcode, then executes opsize = *ptr++ one byte past the end of the option area. Reachability: cake_get_tcphdr (line 949-950) fetches only min(__tcp_hdrlen(tcph), bufsize) bytes with bufsize==64 (stack buffers _tcph/_tcph_check at lines 1154-1155); for a TCP header with doff > 16 the option walk is driven by the full __tcp_hdrlen-derived length but runs over a 64-byte stack buffer, so reads past byte 64 hit adjacent stack memory (uninitialized/adjacent-variable info leak, KASAN stack-out-of-bounds on doff<=16 truncated packets). The same unguarded shape is duplicated in cake_tcph_may_drop (lines 1097-1109). Counterevidence checked: the main in-tree TCP option walkers in this tree DO have the guard - net/ipv4/tcp_input.c tcp_parse_mss_option (line 3935), tcp_parse_options (line 3986), tcp_parse_md5sig_option (line 4154, loop precondition length >= TCPOLEN_MD5SIG and opsize<2||opsize>length check), net/mptcp/options.c mptcp_get_options (line 359, seed already fixed here), net/netfilter/nf_conntrack_proto_tcp.c (lines 358, 420) and net/netfilter/nf_synproxy_core.c (line 53); only sch_cake's copy of the walker lacks it. Note the guard also clamps option advance: without the length<2 return, a length==1 trailing opcode byte is consumed as opsize; body reads such as get_unaligned_be32(ptr) in cake_tcph_may_drop TCPOPT_TIMESTAMP (line 1124) remain gated by opsize==TCPOLEN_TIMESTAMP, so the primary over-read is the unguarded opsize byte plus walk-past-buffer when header data was truncated to the 64-byte stack buffer."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/sched/sch_cake.c",
+      "line": 960,
+      "status": "reported",
+      "reason": "cake_get_tcpopt: opcode=*ptr++ then opsize=*ptr++ with no length<2 guard (lines 960-971); duplicated in cake_tcph_may_drop (lines 1097-1109); stack-buffer option walk bounded at 64 bytes by cake_get_tcphdr caller."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/sched/sch_cake.c",
+      "line": 1097,
+      "status": "reported",
+      "reason": "Second instance of the identical unguarded walk in cake_tcph_may_drop: opcode=*ptr++ (1098) then opsize=*ptr++ (1107) without length<2 check."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 3986,
+      "status": "safe",
+      "reason": "tcp_parse_options has 'if (length < 2) return;' before opsize=*ptr++ (line 3988), plus opsize<2 and opsize>length guards; tcp_parse_fastopen_option clamps cookie len to TCP_FASTOPEN_COOKIE_MIN..MAX (4..16) before memcpy; smc_parse_options requires opsize >= TCPOLEN_EXP_SMC_BASE(6) before get_unaligned_be32(ptr); TCPOPT_EXP fastopen requires opsize >= TCPOLEN_EXP_FASTOPEN_BASE(4) before get_unaligned_be16(ptr)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 3924,
+      "status": "safe",
+      "reason": "tcp_parse_mss_option has 'if (length < 2) return mss;' at line 3935 before reading opsize."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4138,
+      "status": "safe",
+      "reason": "tcp_parse_md5sig_option loops only while length >= TCPOLEN_MD5SIG (18) and checks opsize < 2 || opsize > length; body is only reached with opsize == TCPOLEN_MD5SIG."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mptcp/options.c",
+      "line": 348,
+      "status": "safe",
+      "reason": "mptcp_get_options contains the upstream fix 'if (length < 2) return;' (line 359) before opsize=*ptr++ (line 361); mptcp_parse_option sub-option handlers validate opsize against fixed TCPOLEN_* constants (strict size checking) before fixed-size reads, and RM_ADDR clamps opsize to BASE+1..BASE+MPTCP_RM_IDS_MAX."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_conntrack_proto_tcp.c",
+      "line": 347,
+      "status": "safe",
+      "reason": "tcp_options (get_options) has 'if (length < 2) return;' (line 358) before opsize=*ptr++ (line 360); tcp_sack (line 409 walk) has the same guard (line 420) and SACK block loop bounded by opsize-TCPOLEN_SACK_BASE after opsize<=length check."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nf_synproxy_core.c",
+      "line": 42,
+      "status": "safe",
+      "reason": "synproxy_parse_options has 'if (length < 2) return true;' (line 53) before opsize=*ptr++ (line 55), and all body reads are gated on exact TCPOLEN_* equality."
+    }
+  ],
+  "limitations": [
+    "Audit was bounded to network option parsers reachable via 'opsize'/'optlen'-style walkers in net/: the fully examined walkers are tcp_input.c (3 loops), mptcp/options.c, nf_conntrack_proto_tcp.c (2 loops), nf_synproxy_core.c, and sch_cake.c (2 loops); a grep for other 'while (length' loops in net/ surfaced no further packet-option walks of the same shape (remaining hits are non-option codepaths in ip_output.c, ip6_output.c, x_tables.c, tls_sw.c, ceph, datagram, tcp.c zero-copy).",
+    "Wireless/Bluetooth IE parsers and IP exthdr TLV walkers were out of scope for this branch (covered by intents i005-i010); not examined here.",
+    "Exploit impact of the sch_cake over-read is a hypothesis: for linear skbs with headroom the 1-byte read may stay inside the pulled header area; the strongest consequence requires doff > 16 so that cake_get_tcphdr copies only 64 bytes into the stack buffer while the walk continues to length = doff*4 - 20 up to 40 bytes further.",
+    "Compilation/reproducer testing was not performed (no Kconfig build environment available in the read-only snapshot); classification is based on direct source reading of the loops, callers, skb_header_pointer semantics (include/linux/skbuff.h lines 3681-3699), and skb_copy_bits bounds behavior (net/core/skbuff.c lines 2245-2263)."
+  ]
+}

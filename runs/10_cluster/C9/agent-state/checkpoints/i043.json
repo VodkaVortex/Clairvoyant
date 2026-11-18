@@ -1,0 +1,25 @@
+{
+  "intent_id": "i043",
+  "branch": "alloc-multiply-overflow",
+  "snapshot": "s11",
+  "status": "finalized",
+  "primary_finding": {
+    "path": "drivers/virt/fsl_hypervisor.c",
+    "lines": "218-240",
+    "evidence": "copy_from_user param.count (line 165, u64) -> only 64-bit wraparound check (218-220) -> truncating u64-to-unsigned-int shift at 221 -> kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1) unchecked 32-bit multiply-add at 239-240 (sibling kcalloc at 229) -> get_user_pages_fast(..., num_pages, ...) at 249-250 and fill loop 'for (i = 1; i < num_pages; i++)' at 274-288 writing sg_list[i].source/.target/.size -> fh_partition_memcpy(..., num_pages) at 290-291"
+  },
+  "seed_status": "UNPATCHED in s11 (usbip_common.c 554-555/578-579 int np * sizeof(*iso), kzalloc 558/591, store 387, clamp only stub_rx.c 368-373) - excluded-by-rule, recorded as unresolved candidate, never reported",
+  "candidates_classified": [
+    "drivers/usb/usbip/usbip_common.c:578 unresolved (seed, excluded-by-rule)",
+    "drivers/usb/usbip/stub_rx.c:368 safe",
+    "drivers/virt/fsl_hypervisor.c:229 safe (kcalloc sibling)",
+    "drivers/fsi/fsi-occ.c:283 unresolved",
+    "drivers/gpu/drm/msm/adreno/adreno_gpu.c:529 safe",
+    "drivers/infiniband/hw/irdma/utils.c:2448 safe",
+    "drivers/iommu/dma-iommu.c:602 safe",
+    "drivers/infiniband/sw/siw/siw_mem.c:96 safe",
+    "drivers/hwtracing/stm/core.c:866 safe",
+    "block/ldm.c:268 unresolved"
+  ],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C9/agent-state/findings/i043.json"
+}

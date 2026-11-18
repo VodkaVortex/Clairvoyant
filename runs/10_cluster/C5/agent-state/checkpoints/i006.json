@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "xsk-umem-rereads",
+  "status": "complete",
+  "snapshot": "s02",
+  "notes": "Full review of net/xdp (xsk.c 796 lines, xsk_queue.h 264, xsk_queue.c, xdp_umem.c, xdp_sock.h, uapi if_xdp.h) and both AF_XDP driver consumers in s02 (i40e_xsk.c, ixgbe_xsk.c). s02 is an early AF_XDP tree with no TX metadata support at all. All shared-memory descriptor fetches funnel through xskq_validate_desc/xskq_validate_addr which use READ_ONCE into a local struct that is both validated and consumed; xsk_umem_consume_tx then passes local copies (desc.addr/desc.len) to drivers. No double-fetch or missing-snapshot of any UMEM-resident field found. options field never read. Seed mechanism absent (xsk_skb_metadata does not exist in this tree).",
+  "candidates": [
+    {"path": "net/xdp/xsk_queue.h", "line": 193, "status": "safe", "reason": "READ_ONCE(ring->desc[idx]) snapshot into local desc; xskq_is_valid_desc validates and callers consume the same local copy"},
+    {"path": "net/xdp/xsk.c", "line": 173, "status": "safe", "reason": "xsk_umem_consume_tx uses validated local desc.addr/desc.len for dma/len"},
+    {"path": "net/xdp/xsk_queue.h", "line": 96, "status": "safe", "reason": "FQ addr fetched once via READ_ONCE and masked; validated copy consumed"},
+    {"path": "net/xdp/xsk.c", "line": 233, "status": "safe", "reason": "generic xmit uses local desc snapshot"},
+    {"path": "include/uapi/linux/if_xdp.h", "line": 97, "status": "unresolved", "reason": "xdp_desc.options defined but never read anywhere in tree; seed-relevant field, no consumer in this snapshot"}
+  ]
+}

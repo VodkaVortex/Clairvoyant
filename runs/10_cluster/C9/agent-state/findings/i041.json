@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "intent_id": "i041",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s10"
+  ],
+  "findings": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "start": 964,
+      "end": 1015,
+      "quote": "user_msg->count = le32_to_cpu(msg->hdr.count);",
+      "confidence": "medium",
+      "reason": "Untrusted source: hdr.count of the MHI device manage reply (rsp returned by qaic_manage_msg_xfer) is device/peer-controlled. Violated invariant: decode_message() stores user_msg->count = le32_to_cpu(msg->hdr.count) at line 979 with no range check, while the sibling request path qaic_manage() at lines 1259-1261 rejects user_msg->count > QAIC_MANAGE_MAX_MSG_LENGTH / sizeof(struct qaic_manage_trans_hdr) -- asymmetric validation of the same protocol count field. Poisoned error unwind: decode_message()'s failure returns at lines 985, 991, 1007, 1010 and 1015 (and helper failures decode_status -ECANCELED at 957, -EPIPE at 959, decode_passthrough -ENOSPC at 845/867 and -EINVAL at 843/880) return early without resetting user_msg->count or the partially incremented user_msg->len in the shared manage_msg object. Later consuming use: qaic_manage() propagates the error, and qaic_manage_ioctl() at lines 1349-1352 on the -ECANCELED path copies msg->data back to userspace and exports the poisoned device-controlled count via user_msg->count = msg->count. Counterevidence checked: the decode loop at 981 is bounded by the msg_hdr_len checks at 984/987, and user_msg->len is bounded by QAIC_MANAGE_MAX_MSG_LENGTH via the -ENOSPC checks at 845/867/944, so the copy_to_user length is bounded and no direct kernel OOB from the loop was proven; impact is an unvalidated device-controlled count stored in shared state on failure paths and exported to userspace during error unwind. Same device-reply-count family reported in sibling snapshots."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s10",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 979,
+      "status": "reported",
+      "reason": "Device-reply hdr.count stored into shared manage_msg with no clamp; decode_message error returns (985/991/1007/1010/1015) and decode_status/decode_passthrough failures (-ECANCELED 957, -EPIPE 959, -ENOSPC 845/867) skip any reset; qaic_manage_ioctl 1349-1352 exports the poisoned count to userspace on the -ECANCELED error path; request-direction sibling qaic_manage 1259-1261 enforces the count clamp the decode path lacks."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 685,
+      "status": "safe",
+      "reason": "Seed mechanism is patched in s10: usbip_recv_iso clamps np (np <= 0 || np > USBIP_MAX_ISO_PACKETS -> error at 685-687 and zeroes urb->number_of_packets per comment at 689) and sizes with kcalloc; usbip_pack_ret_submit additionally clamps rpdu->number_of_packets to [0, urb->number_of_packets] at 482-485 before storing at 485. Verified by direct grep of s10 source."
+    }
+  ],
+  "limitations": [
+    "Finalize directive stopped the broad error-path sweep after the top prior lead; only qaic_control.c and the usbip seed family were read in s10, so error-unwind count chains elsewhere in the tree are unexamined.",
+    "The qaic finding is a state-poisoning/error-unwind-export hypothesis: the decode loop is bounded by msg_hdr_len checks and msg->len by QAIC_MANAGE_MAX_MSG_LENGTH, so no direct kernel OOB was proven; only the unvalidated device count reaching userspace on the -ECANCELED path is established.",
+    "Prior-lead files named in the intent were not audited in s10 (drivers/md/dm-era-target.c, drivers/md/dm-zoned-metadata.c, mtd/ubi fastmap count stores, bnxt TPA/ring counts, drivers/net/ethernet/google/gve/gve_adminq.c, ixgbe_e610 admin queue); their error paths and consuming loops remain open leads in this tree.",
+    "No compilation, static analysis, or runtime reproducer was run (read-only snapshot; finalize budget limited calls to source-line reads)."
+  ]
+}

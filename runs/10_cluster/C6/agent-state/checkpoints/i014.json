@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "loop-parser-stale-state",
+  "status": "complete",
+  "snapshot": "s04",
+  "progress": "Static scan (custom pull-vs-capture analysis, $TMPDIR/i014/find_stale.py) over net/ produced 66 same-function candidates; 2 with pull inside loop context. Deep-read triage: garp_pdu_parse_attr (net/802/garp.c) = same-function duplicate of pep_get_sb bug, reported; x25_decode = refetches after every pull, safe; batadv_bla_process_claim = refetches ethhdr after pskb_may_pull, safe; nci_hci_data_received_cb and nfc_hci_recv_shdl_chain = refetch after pull, safe. Final artifact written.",
+  "candidates": [
+    {"path": "net/802/garp.c", "func": "garp_pdu_parse_attr", "status": "reported", "reason": "ga captured at line 449, pskb_may_pull(skb, ga->len) at 453 (attacker length), ga->event read at 461 and ga->data passed to garp_attr_lookup at 485 without refetch"},
+    {"path": "net/x25/x25_subr.c", "func": "x25_decode", "status": "safe", "reason": "frame = skb->data refetched immediately after every pskb_may_pull (lines 296, 314)"},
+    {"path": "net/batman-adv/bridge_loop_avoidance.c", "func": "batadv_bla_process_claim", "status": "safe", "reason": "explicit 'pskb_may_pull() may have modified the pointers' comment; ethhdr refetched at line 1138"},
+    {"path": "net/nfc/nci/hci.c", "func": "nci_hci_data_received_cb", "status": "safe", "reason": "packet refetched from hcp_skb->data at line 496 after the pskb_may_pull at 490"},
+    {"path": "net/nfc/hci/core.c", "func": "nfc_hci_recv_shdl_chain", "status": "safe", "reason": "packet refetched at line 917 after pskb_may_pull at 912"}
+  ]
+}

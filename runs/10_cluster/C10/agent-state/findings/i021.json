@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "intent_id": "i021",
+  "branch": "terminator-write-off-by-one",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/edac/versal_edac.c",
+      "start": 854,
+      "end": 863,
+      "quote": "char buf[6], *pbuf, *token[2];\n\tu32 val0 = 0, val1 = 0;\n\tu8 len, ue0, ue1;\n\tint i, ret;\n\n\tlen = min_t(size_t, count, sizeof(buf));\n\tif (copy_from_user(buf, data, len))\n\t\treturn -EFAULT;\n\n\tbuf[len] = '\\0';",
+      "confidence": "high",
+      "reason": "Untrusted source: inject_data_ue_store (drivers/edac/versal_edac.c:848) is the .write handler of the debugfs file inject_ue (registered at drivers/edac/versal_edac.c:924 via edac_debugfs_create_file(\"inject_ue\", 0200, ...), fops xddr_inject_ue_fops at :904 with .write = inject_data_ue_store), so count and buffer contents are attacker-chosen through write(2) by anyone with write access to the debugfs node (typically root / a user-writable debugfs mount). Violated invariant (validated-equals-used / terminator-slot accounting): line 859 len = min_t(size_t, count, sizeof(buf)) clamps count to at most sizeof(buf) == 6 WITHOUT the -1 (contrast the correct sibling pattern len = min(count, sizeof(buf) - 1) used in the same tree at arch/x86/mm/pkeys.c:147, kernel/dma/debug.c:756, drivers/usb/chipidea/debug.c:83, drivers/iio/industrialio-core.c:411, and ~50 ath/rtw89/amdgpu sites). Unsafe use: line 863 buf[len] = '\\0' with len == 6 when the user writes >= 6 bytes writes one byte past the end of the 6-byte stack array (valid indices 0..5): a deterministic 1-byte NUL out-of-bounds stack write (KASAN stack-out-of-bounds / stack corruption) whenever count >= 6; count in 0..5 keeps it in bounds, which is why normal short 'echo 1,2' use never trips it. This settles the recorded f008-vs-f015 contradiction in favor of f015: f008's claim that 'an index bounded by sizeof(buf) = 6 stays in bounds' is wrong because buf[6] is one past the array. A C reproducer with the exact clamp+terminator lines compiled with AddressSanitizer under $TMPDIR reports 'stack-buffer-overflow WRITE of size 1' at the buf[len] assignment. Counterevidence checked: the full function (lines 848-902) contains no count > sizeof(buf) - 1 rejection and no -1 in the clamp; the sibling inject_data_ce_store and inject_ce_write in zynqmp_edac.c use kstrtou8_from_user (no manual copy/terminate) and are safe. This is the seed's fix primitive (explicit NUL terminator slot) misapplied - the inverse of the seed's missing-terminator OOB read under the same terminator-slot accounting root cause. Impact is limited to a single controlled NUL byte one past a 6-byte stack array in a 0200 debugfs write path, hence reachability is root/debugfs-gated like the seed."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/edac/zynqmp_edac.c",
+      "start": 294,
+      "end": 311,
+      "quote": "char buf[6], *pbuf, *token[2];\n\tu64 ue_bitpos;\n\tint i, ret;\n\tu8 len;\n\n\tif (!data)\n\t\treturn -EFAULT;\n\n\tlen = min_t(size_t, count, sizeof(buf));\n\tif (copy_from_user(buf, data, len))\n\t\treturn -EFAULT;\n\n\tbuf[len] = '\\0';",
+      "confidence": "high",
+      "reason": "Untrusted source: inject_ue_write (drivers/edac/zynqmp_edac.c:294) is the .write handler of the debugfs file inject_ue_bitpos (registered at drivers/edac/zynqmp_edac.c:359 via edac_debugfs_create_file(\"inject_ue_bitpos\", 0644, priv->debugfs_dir, edac_dev, &inject_ue_fops), fops at :343 with .write = inject_ue_write), so count and contents are attacker-chosen (0644 node under /sys/kernel/debug/edac/ocm). Violated invariant: line 307 len = min_t(size_t, count, sizeof(buf)) clamps to sizeof(buf) == 6 with no -1; line 311 buf[len] = '\\0' then writes buf[6] when count >= 6 - one byte past the end of the 6-byte stack array (char buf[6], line 299). Unsafe use: the terminator write itself is the out-of-bounds store (1-byte NUL stack OOB write, KASAN stack-out-of-bounds / potential stack canary or adjacent-local corruption), before strsep/kstrtou8 consume the buffer. Same mechanism, byte-for-byte, as the versal_edac finding (lines 859/863), in the sibling Xilinx ZynqMP OCM EDAC driver. Counterevidence checked: full function read (lines 294-342): no count > sizeof(buf) - 1 rejection anywhere; the sibling inject_ce_write (lines 250-279) uses kstrtou8_from_user directly and is safe. The ASan harness for the identical clamp+terminate lines demonstrates the 1-byte OOB write. Reachability is root/debugfs-gated (0644 under debugfs), impact is one controlled NUL byte past a 6-byte stack array."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/edac/versal_edac.c",
+      "line": 863,
+      "status": "reported",
+      "reason": "buf[len] = '\\0' with len = min_t(size_t, count, sizeof(buf)) on char buf[6]: len can equal 6, writing one byte past the array; reported as finding 1."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/edac/zynqmp_edac.c",
+      "line": 311,
+      "status": "reported",
+      "reason": "Identical clamp-without-minus-1 then buf[len] = '\\0' on char buf[6]; reported as finding 2."
+    },
+    {
+      "snapshot": "s04",
+      "path": "arch/x86/kernel/cpu/resctrl/pseudo_lock.c",
+      "line": 1261,
+      "status": "safe",
+      "reason": "buf_size = min(count, (sizeof(buf) - 1)) (line 1257) before buf[buf_size] = '\\0'; terminator index capped at sizeof(buf)-1, in bounds."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/base/regmap/regmap-debugfs.c",
+      "line": 315,
+      "status": "safe",
+      "reason": "buf_size = min(count, (sizeof(buf)-1)) (line 312) before buf[buf_size] = 0; in-bounds terminator."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/mfd/aat2870-core.c",
+      "line": 287,
+      "status": "safe",
+      "reason": "buf_size = min(count, (size_t)(sizeof(buf)-1)) (line 282) before buf[buf_size] = 0; in-bounds terminator."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/chipidea/debug.c",
+      "line": 88,
+      "status": "safe",
+      "reason": "count = min_t(size_t, sizeof(buf) - 1, count) (line 83) before buf[count] = '\\0'; in-bounds."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/hid/hid-wiimote-debug.c",
+      "line": 141,
+      "status": "safe",
+      "reason": "len = min((size_t) 15, s) (line 137) with char buf[16] (line 130); buf[len] at index <= 15 is the last in-bounds byte."
+    },
+    {
+      "snapshot": "s04",
+      "path": "arch/powerpc/platforms/cell/spufs/file.c",
+      "line": 125,
+      "status": "safe",
+      "reason": "size = min(sizeof(attr->set_buf) - 1, len) (line 120) before attr->set_buf[size] = '\\0'; in-bounds."
+    },
+    {
+      "snapshot": "s04",
+      "path": "arch/powerpc/kernel/rtas-proc.c",
+      "line": 321,
+      "status": "safe",
+      "reason": "count is capped to MAX_LINELENGTH - 1 (line 316-317 'if (count >= MAX_LINELENGTH) count = MAX_LINELENGTH -1;') before progress_led[count] = 0; in-bounds on the MAX_LINELENGTH array."
+    },
+    {
+      "snapshot": "s04",
+      "path": "kernel/dma/debug.c",
+      "line": 760,
+      "status": "safe",
+      "reason": "len = min(count, (size_t)(NAME_MAX_LEN - 1)) (line 756) on char buf[NAME_MAX_LEN]; buf[len] in bounds."
+    },
+    {
+      "snapshot": "s04",
+      "path": "arch/alpha/kernel/srm_env.c",
+      "line": 107,
+      "status": "safe",
+      "reason": "count >= PAGE_SIZE is rejected (line 101-102) and buf is a full __get_free_page page, so buf[count] with count <= PAGE_SIZE-1 is in bounds."
+    },
+    {
+      "snapshot": "s04",
+      "path": "fs/kernfs/file.c",
+      "line": 319,
+      "status": "safe",
+      "reason": "kernfs_fop_write_iter allocates kmalloc(len + 1) (or prealloc_buf sized likewise) and writes buf[len] = '\\0' into the +1 slot; the underlying guarantee for all sysfs ->store buffers."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/edac/zynqmp_edac.c",
+      "line": 260,
+      "status": "safe",
+      "reason": "Sibling handler inject_ce_write uses kstrtou8_from_user(data, count, 0, ...) - no manual copy or terminator write at all."
+    }
+  ],
+  "limitations": [
+    "The tree-wide sweep enumerated 2945 buf[idx] = 0/'\\0' terminator-write sites via regex and triaged the ~418 whose index is count/size/len/cnt-family or min-clamped; every min-clamp site outside the two edac drivers uses the correct sizeof(buf)-1 (or equivalent -1) form (ath5k x6, ath6kl x7, ath9k, ath10k, ath11k, rtw89 x7, amdgpu_pm, toshiba_acpi, ntb_tool, iio, pseudo_lock, regmap-debugfs, aat2870, chipidea, hid-wiimote, spufs, dma-debug, nf_conntrack_amanda, pktgen, kdb, bpf helpers, plpks, ipl_vmparm, prom_init), so the two reported edac sites are the only clamp-without-minus-1 terminator writes found in s04.",
+    "Terminator sites whose index is a plain loop counter or a kernel-computed length (e.g. bcachefs/fs.c:1419 name[name_len] with name_len = min_t(unsigned, dirent_name.len, NAME_MAX) into name[NAME_MAX+1-class buffers]) were spot-checked as safe but not every one of the 2945 was deep-read; a site whose index derives from an unclamped user length through a helper (not a direct min_t/min assignment) could evade the regex window.",
+    "No kernel build or in-kernel KASAN run was performed (snapshot is read-only); the OOB classification for both findings rests on line-level bound analysis of char buf[6] plus an AddressSanitizer userspace reproducer of the exact clamp+terminator lines (reports stack-buffer-overflow WRITE of size 1), not on a live kernel trigger.",
+    "Both findings are debugfs write paths (versal inject_ue mode 0200, zynqmp inject_ue_bitpos mode 0644 under /sys/kernel/debug/edac/), so practical reachability is root/debugfs-gated like the seed; impact is a single controlled NUL byte one past a 6-byte stack array, not a full arbitrary write.",
+    "The f008-vs-f015 contradiction is settled as f015 being correct: buf[len] with len == sizeof(buf) is one byte past the array, because valid indices of char buf[6] are 0..5; f008's 'safe' classification for the identical s04 versal_edac.c site is superseded by this artifact."
+  ]
+}

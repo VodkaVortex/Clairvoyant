@@ -1,0 +1,178 @@
+{
+  "version": 1,
+  "intent_id": "i032",
+  "branch": "fixed-epidx-rest",
+  "execution_status": "complete",
+  "snapshots_checked": ["s08"],
+  "findings": [
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/fcp.c",
+      "start": 1078,
+      "end": 1092,
+      "quote": "epd = get_endpoint(intf->altsetting, 0);\n\t\tprivate->bInterfaceNumber = desc->bInterfaceNumber;",
+      "confidence": "medium",
+      "reason": "Untrusted source: descriptors supplied by a physically attacker-controlled USB gadget at enumeration; a malicious Focusrite-emulating device can present a vendor-specific (bInterfaceClass==255) interface with zero endpoints. fcp_find_fc_interface() is called from snd_fcp_init() during USB-audio card setup (probe path). The loop copies config->interface[i] and immediately does get_endpoint(intf->altsetting, 0) == &intf->altsetting[0].endpoint[0].desc with no preceding altsetting[0].desc.bNumEndpoints > 0 check and no NULL test of altsetting->endpoint. Counterevidence checked: drivers/usb/core/config.c line 619-626 only allocates alt->endpoint via kzalloc when num_ep > 0, so for bNumEndpoints==0 the flex array pointer is NULL and the read at &epd->bEndpointAddress is a NULL-pointer dereference (not merely OOB); when bNumEndpoints>0 the descriptor content itself is attacker-controlled. Downstream use: private->bEndpointAddress/wMaxPacketSize/bInterval program an interrupt URB (bInterval) and size kmalloc(wMaxPacketSize) buffers in scarlett2-equivalent fcp notification logic; verified get_endpoint macro in sound/usb/helper.h line 31 is (&(alt)->endpoint[ep].desc). Sibling code sound/usb/mixer_scarlett2.c lines 8246-8260 (scarlett2_find_fc_interface) is the identical pattern with the identical missing bNumEndpoints guard, submitted by the same FCP driver family, reinforcing the mechanism. Not fully proven: I did not compile or run a reproducer (read-only snapshot), and did not trace every caller that could pre-filter zero-endpoint vendor interfaces before snd_fcp_init; the class check bInterfaceClass != 255 is the only filter found.",
+      "conclusion": "fcp_find_fc_interface reads endpoint[0].desc of any vendor-class interface with no bNumEndpoints check; a gadget declaring 0 endpoints yields NULL-pointer deref at USB-audio probe, and attacker descriptor values flow into URB setup and buffer sizing."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/mixer_scarlett2.c",
+      "line": 8255,
+      "status": "reported",
+      "reason": "scarlett2_find_fc_interface (lines 8240-8264) iterates config->interface[i], matches only bInterfaceClass != 255, then epd = get_endpoint(intf->altsetting, 0) and consumes epd->wMaxPacketSize/bInterval into private state used by scarlett2_init_notify to build usb_fill_int_urb and kmalloc(wMaxPacketSize). Same missing bNumEndpoints>0 guard as the reported fcp.c finding; same NULL flex-array for zero-endpoint altsettings. Counterevidence: no upstream caller-side bNumEndpoints validation found between the interface scan and the endpoint read.",
+      "conclusion": "Same-class twin of the reported fcp.c finding: scarlett2_find_fc_interface reads endpoint[0] of a vendor-class interface without bNumEndpoints validation; zero-endpoint gadget causes NULL deref at probe."
+    },
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/stream.c",
+      "line": 596,
+      "status": "safe",
+      "reason": "parse_uac_endpoint_attributes dereferences alts->endpoint[0].extra unconditionally, but its callers are guarded: __snd_usb_parse_audio_interface (stream.c line 1151) rejects altsettings with altsd->bNumEndpoints < 1 before calling audio_format_alloc_init/parse_uac_endpoint_attributes, and the QUIRK_MIDI_FIXED_IN_EP path via snd_usbmidi_create_endpoints_midiman checks intfd->bNumEndpoints (midi.c line 2311) before get_endpoint(hostif, 0/2/4).",
+      "conclusion": "endpoint[0].extra / fixed-index endpoint reads in sound/usb/stream.c are preceded by bNumEndpoints>=1 or equivalent midiman count checks, so no missing-validation variant found here."
+    },
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/endpoint.c",
+      "line": 735,
+      "status": "safe",
+      "reason": "endpoint_set_syncinterval does desc = get_endpoint(alts, ep->ep_idx) with no local bounds check, but ep->ep_idx comes from fp->sync_ep_idx which is only set to 1 in pcm.c line 408 after the explicit altsd->bNumEndpoints < 2 / fmt->ep_idx > 0 rejection at pcm.c line 356, and implicit-fb paths set sync_ep_idx=0 from a validated get_endpoint(alts,0) (implicit.c line 100); quirk fixed-fmt paths enforce altsd->bNumEndpoints <= fp->ep_idx rejection (quirks.c line 186).",
+      "conclusion": "ep_idx used for get_endpoint is validated upstream (bNumEndpoints<2 rejection before sync_ep_idx=1), so no missing-validation variant found in endpoint.c sync interval handling."
+    },
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/pcm.c",
+      "line": 366,
+      "status": "safe",
+      "reason": "get_endpoint(alts, 1) reads (lines 366-391) are guarded by the explicit 'if (fmt->ep_idx > 0 || altsd->bNumEndpoints < 2) return 0;' at line 356-357; implicit.c is_pioneer_implicit_fb reads get_endpoint(alts,1) at line 224 only after 'alts->desc.bNumEndpoints != 2' rejection at line 216; all other implicit.c get_endpoint(alts,0) sites (127, 156, 185, 219, 251) have preceding bNumEndpoints<1 checks at lines 125/141/249 or are reached via roland_sanity_check_iface.",
+      "conclusion": "Sound USB implicit-feedback and sync-pipe fixed-index reads are covered by preceding bNumEndpoints checks, so no variant found in implicit.c/pcm.c."
+    },
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/quirks.c",
+      "line": 330,
+      "status": "safe",
+      "reason": "create_std_midi_quirk reads alts->endpoint[0].extra/extralen (lines 330-331) with no local bNumEndpoints check, but its only caller create_auto_midi_quirk (lines 342-375) already rejected altsd->bNumEndpoints < 1 at line 355 before calling it; the fixed-stream quirk path validates altsd->bNumEndpoints <= fp->ep_idx at line 186, and create_auto_pcm_quirk / create_uaxx_quirk validate bNumEndpoints at lines 240/419/445.",
+      "conclusion": "quirks.c endpoint[0] accesses are reached only after caller-side bNumEndpoints validation, so no missing-validation variant found."
+    },
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/misc/ua101.c",
+      "line": 982,
+      "status": "safe",
+      "reason": "ua->intf[INTF_*]->altsetting[1].endpoint[0].desc reads at lines 982/990 are preceded by the interface validation helper (lines 872-890) which rejects num_altsetting != 2, altsetting[0].bNumEndpoints != 0, and altsetting[1].bNumEndpoints != 1 before returning the format descriptors.",
+      "conclusion": "ua101.c altsetting[1].endpoint[0] reads are preceded by exact bNumEndpoints checks, so no variant found."
+    },
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/midi.c",
+      "line": 2316,
+      "status": "safe",
+      "reason": "snd_usbmidi_create_endpoints_midiman indexes get_endpoint(hostif, 0/2/4) but first rejects intfd->bNumEndpoints < (out_cables > 0x0001 ? 5 : 3) at line 2311; detect loops at midi.c 1995/2161 iterate i < bNumEndpoints; snd_usbmidi_switch_roland_altsetting checks intfd->bNumEndpoints != 2 at line 2119 before get_endpoint(hostif,1); midi2.c loops i < hostif->desc.bNumEndpoints (line 652) and rejects !bNumEndpoints at line 1095.",
+      "conclusion": "MIDI fixed-index (0/2/4) and loop endpoint reads in sound/usb/midi.c and midi2.c are all preceded by bNumEndpoints count checks, so no variant found."
+    },
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/mixer.c",
+      "line": 3141,
+      "status": "safe",
+      "reason": "BADD path reads get_endpoint(&iface->altsetting[1], 0) only after 'if (altsd->bNumEndpoints < 1) return -EINVAL;' at line 3137; snd_usb_mixer_status_create checks get_iface_desc(mixer->hostif)->bNumEndpoints < 1 at line 3567 before get_endpoint(mixer->hostif, 0); mixer_quirks.c audigy2 get endpoint path checks bNumEndpoints < 1 at line 1896; helper.c snd_usb_parse_datainterval get_endpoint(alts,0) is only called from format parsing paths that already enforced bNumEndpoints >= 1 (stream.c line 1151, quirks.c lines 186/240).",
+      "conclusion": "Mixer and datainterval endpoint[0] reads are guarded by preceding bNumEndpoints checks, so no variant found in mixer.c/mixer_quirks.c/helper.c."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2172,
+      "status": "safe",
+      "reason": "The interrupt-URB bInterval read flagged unresolved in fact f002 is present here but is now guarded: line 2156 'if (intf->cur_altsetting->desc.bNumEndpoints < 1)' returns -ENODEV before usb_fill_int_urb reads endpoint[0].desc.bInterval at line 2172. speedtch.c loops i < desc->desc.bNumEndpoints (line 842) and xusbatm loops j < alt->desc.bNumEndpoints (line 46).",
+      "conclusion": "ueagle-atm.c in s08 contains the bNumEndpoints >= 1 check before the endpoint[0].desc.bInterval URB setup, so this previously unresolved pattern is classified safe in this snapshot; other usb/atm files loop on the declared count."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/storage/alauda.c",
+      "line": 1124,
+      "status": "unresolved",
+      "reason": "init_alauda reads altsetting->endpoint[0].desc.bEndpointAddress (cur_altsetting of the storage interface) with no bNumEndpoints check anywhere in alauda.c; the read feeds info->wr_ep = usb_sndbulkpipe(...). However init_alauda is a usb-storage protocol initializer invoked from the unusual_alauda.h table, and the generic usb-storage probe (drivers/usb/storage/usb.c get_pipes/associate_finish) configures bulk-in/bulk-out endpoints before protocol init, which strongly suggests the interface must expose bulk endpoints for the device to have been bound at all; I did not complete the trace proving the generic probe necessarily rejects a zero-endpoint or one-endpoint interface for this vendor/product match, and endpoint[0] could be an IN endpoint on a gadget declaring an out-of-order single bulk endpoint. No counterevidence of an explicit bNumEndpoints check was found in alauda.c itself.",
+      "conclusion": "Follow-up needed: trace drivers/usb/storage/usb.c probe-to-init_alauda path to confirm whether generic usb-storage endpoint discovery guarantees at least one endpoint and the desired OUT endpoint before init_alauda's unvalidated endpoint[0] read."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1338,
+      "status": "safe",
+      "reason": "epctrl/epread/epwrite fixed-index reads at lines 1338-1340 are preceded by the explicit 'data_interface->cur_altsetting->desc.bNumEndpoints < 2 || control_interface->cur_altsetting->desc.bNumEndpoints == 0' rejection at lines 1334-1336; cdc-wdm.c wdm_probe rejects iface->desc.bNumEndpoints != 1 at line 1167 before ep = &iface->endpoint[0].desc at line 1169.",
+      "conclusion": "USB class cdc-acm and cdc-wdm fixed-index endpoint reads are preceded by exact bNumEndpoints validation, so no variant found."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/serial/qcserial.c",
+      "line": 259,
+      "status": "safe",
+      "reason": "qcprobe's endpoint[0]/endpoint[1] reads at lines 259-260 are inside the conjunction gated by 'intf->desc.bNumEndpoints == 2' at line 258; usb-serial.c find_endpoints loops i < iface_desc->desc.bNumEndpoints (line 835); pl2303_endpoint_hack, keyspan find_ep, ftdi_set_max_packet_size, and io_edgeport EPIC loops all iterate i/alt->desc.bNumEndpoints (lines 357/1697/1608/2797).",
+      "conclusion": "USB serial fixed-index read in qcserial.c is guarded by an exact bNumEndpoints == 2 check and all other serial endpoint accesses loop on the declared count, so no variant found in drivers/usb/serial."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/hid/usbhid/hid-core.c",
+      "line": 1116,
+      "status": "safe",
+      "reason": "usbhid_start loops n < interface->desc.bNumEndpoints before &interface->endpoint[n].desc (line 1111-1116); usbhid_probe counts interrupt-in endpoints with the same bounded loop (lines 1375-1377); the only fixed-index access usb_get_extra_descriptor(&interface->endpoint[0], HID_DT_HID, ...) at line 1009 is explicitly guarded by '!interface->desc.bNumEndpoints ||' at line 1008. usbkbd.c (line 277) and usbmouse.c (line 121) read interface->endpoint[0].desc; usbmouse checks bInterfaceProtocol mouse/boot before, and usbkbd checks bInterfaceProtocol == keyboard, but neither shows an explicit bNumEndpoints check in the visible excerpt.",
+      "conclusion": "usbhid/hid-core.c endpoint loops and its guarded endpoint[0] extra-descriptor read are safe; the boot-protocol keyboard/mouse endpoint[0] reads in usbkbd.c/usbmouse.c remain unprobed for an explicit count check."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/hid/usbhid/usbkbd.c",
+      "line": 277,
+      "status": "unresolved",
+      "reason": "usb_kbd_probe reads endpoint = &interface->endpoint[0].desc at line 277; the visible function head (not fully re-read before finalize) checks the HID boot-keyboard protocol but I did not confirm whether a bNumEndpoints >= 1 check precedes the endpoint[0] dereference in this snapshot's copy; the sibling usbmouse.c line 121 has the same shape. If absent, a zero-endpoint HID boot-keyboard gadget would NULL-deref the same way as the reported fcp.c finding, but the actual guard text must be verified before reporting.",
+      "conclusion": "Follow-up needed: read usbkbd.c and usbmouse.c probe functions to confirm whether a bNumEndpoints check precedes the unguarded endpoint[0].desc dereference at lines 277/121."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/input/tablet/hanwang.c",
+      "line": 390,
+      "status": "safe",
+      "reason": "hanwang_probe checks 'intf->cur_altsetting->desc.bNumEndpoints < 1' at line 322 before the later endpoint[0].desc read at line 390; the delay between check and use (many intervening allocations) does not reintroduce unvalidated indices.",
+      "conclusion": "hanwang.c endpoint[0] read is preceded by a bNumEndpoints >= 1 check at probe entry, so no variant found."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/input/misc/ims-pcu.c",
+      "line": 1684,
+      "status": "safe",
+      "reason": "ims_pcu_parse_cdc_data checks alt->desc.bNumEndpoints < 1 for the control interface (line 1681) and != 2 for the data interface (line 1693) before reading endpoint[0] and endpoint[1] (lines 1684/1700/1715).",
+      "conclusion": "ims-pcu.c fixed-index endpoint reads are preceded by exact bNumEndpoints checks, so no variant found."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/input/touchscreen/sur40.c",
+      "line": 670,
+      "status": "safe",
+      "reason": "sur40_probe rejects 'iface_desc->desc.bNumEndpoints < 5' at lines 666-667 before reading endpoint[4].desc at line 670; onetouch.c checks bNumEndpoints != 3 before endpoint[2] (lines 175-178); iforce-usb.c checks < 2 before endpoint[0]/[1] (lines 199-206); ati_remote2 checks < 1 plus !alt->endpoint for both interfaces (lines 782-789, 806-812); cm109/powermate/yealink/acecad/kbtab/pegasus_notetaker check < 1 or != 1 before endpoint[0] (lines 691/304/827/121/117/289); appletouch, synaptics_usb, keyspan_remote, usbtouchscreen, and xpad all loop i < bNumEndpoints; mdc800.c checks bNumEndpoints != 4 before its j<4 loop; microtek.c checks != MTS_EP_TOTAL before its loop; thrustmaster checks < 2 before endpoint[1] (lines 164-170); ushc checks < 1 before endpoint[0] (line 423); bfusb checks < 2 before endpoint[0]/[1] (line 609); btusb/btmtk/nfcmrvl loop i < bNumEndpoints.",
+      "conclusion": "Input, HID-thrustmaster, storage-onetouch, image, bluetooth, nfc and mmc-host USB consumers in s08 all validate bNumEndpoints (or loop on it) before fixed-index endpoint reads, so these subsystems are swept clean."
+    },
+    {
+      "snapshot": "s08",
+      "path": "drivers/usb/core/hub.c",
+      "line": 1859,
+      "status": "safe",
+      "reason": "Hub and core code: hub.c line 1859 checks usb_endpoint_is_int_in(&desc->endpoint[0].desc) inside hub_probe after the hub descriptor was fetched via usb_get_descriptor and after get_hub_descriptor validation, and the hub driver is core infrastructure that already validated the interrupt endpoint during hub descriptor validation (hub->descriptor obtained by control transfer, not the interface flex array without check); config.c/devio.c/driver.c/message.c/usb.c/hcd.c/xhci.c accesses are either inside loops bounded by bNumEndpoints or inside the descriptor parser that allocates the array. Note core trees were only spot-checked, not exhaustively audited.",
+      "conclusion": "USB core host/hub/config endpoint accesses inspected are loop-bounded or parser-internal; core infrastructure was only spot-checked, not exhaustively audited."
+    }
+  ],
+  "coverage_gaps": [
+    "drivers/hid/usbhid/usbkbd.c and usbmouse.c boot-protocol endpoint[0].desc reads were located but their probe functions were not fully re-read to confirm the presence or absence of a bNumEndpoints check before finalization.",
+    "drivers/usb/storage/alauda.c init_alauda's unvalidated endpoint[0] read could not be conclusively cleared because the generic usb-storage probe path (drivers/usb/storage/usb.c get_pipes / associate_finish) was not traced end-to-end in this snapshot.",
+    "USB core files (drivers/usb/core/{hub,config,devio,driver,message,usb}.c, drivers/usb/host/xhci.c) were spot-checked rather than exhaustively audited, since most accesses are parser-internal or loop-bounded; a dedicated core-focused pass was not performed.",
+    "Other interface consumers outside the grep-visible endpoint[ pattern (e.g. accesses via usb_pipe_endpoint(), usb_endpoint_descriptor pointers cached in midlayers, or via #define wrappers other than sound/usb get_endpoint) were not separately enumerated.",
+    "drivers/usb/misc and drivers/usb/misc/usbtest.c were only checked for bNumEndpoints presence (idmouse < 1, uss720 < 2, usbtest loop) and not audited line-by-line for other unvalidated indices."
+  ],
+  "limitations": [
+    "The reported fcp.c/mixer_scarlett2.c finding is a static-analysis hypothesis: no reproducer gadget, compilation, or runtime crash was performed because the assigned snapshot is read-only and no USB emulation harness was built under $TMPDIR.",
+    "The NULL-vs-OOB distinction for zero-endpoint altsettings relies on the reading of drivers/usb/core/config.c lines 618-626 (endpoint array allocated only when num_ep > 0), which was verified in this snapshot but not cross-checked against the exact kernel version's allocation semantics for a one-element dummy.",
+    "Caller-side pre-filtering that could prevent snd_fcp_init/scarlett2_init_private from seeing a zero-endpoint vendor-class interface (e.g. earlier UAC descriptor parsing failures on other interfaces aborting card creation) was not exhaustively traced; confidence is accordingly medium.",
+    "The twelve-plus candidate triage budget and finalize directive stopped the investigation before the unresolved usbkbd.c/usbmouse.c and alauda.c follow-ups could be completed."
+  ]
+}

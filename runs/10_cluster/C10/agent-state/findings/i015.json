@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "sysfs-store-attr-terminator",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "fs/kernfs/file.c",
+      "line": 293,
+      "status": "safe",
+      "reason": "kernfs_fop_write_iter() allocates kmalloc(len + 1) (or prealloc_buf sized likewise via atomic_write_len/PAGE_SIZE clamp) and does copy_from_iter(buf, len, iter) followed by buf[len] = '\\0' with the comment 'guarantee string termination' before invoking ops->write. This is the underlying guarantee that makes every standard sysfs DEVICE_ATTR/DRIVER_ATTR/BUS_ATTR/CLASS_ATTR/kobj_attribute ->store() buffer NUL-terminated at count, so case (a) of the invariant (own copy_from_user into exact-size buffer then string parse) does not arise for regular kernfs-backed attributes in this tree."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/edac/versal_edac.c",
+      "line": 848,
+      "status": "safe",
+      "reason": "inject_data_ue_store is the only _store-named handler in s04 that performs its own copy_from_user. It is actually a debugfs file_operations .write (registered via edac_debugfs_create_file at line 924, xddr_inject_ue_fops at line 905), not a sysfs attribute. len = min_t(size_t, count, sizeof(buf)) with char buf[6], copy_from_user(buf, data, len), then explicit buf[len] = '\\0' at line 863 before strsep/kstrtou8. The terminator index len is bounded by sizeof(buf)=6, so the write stays in bounds and the subsequent string parsing (strsep, kstrtou8) always sees a NUL inside the buffer. Invariant upheld; no variant."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/edac/synopsys_edac.c",
+      "line": 1019,
+      "status": "safe",
+      "reason": "inject_data_error_store (true DEVICE_ATTR store, line 1019) does no usercopy at all; it calls kstrtoul(data, 0, &priv->poison_addr) directly on the buffer passed by kernfs, which kernfs_fop_write_iter guarantees is NUL-terminated at count (fs/kernfs/file.c:319). Invariant upheld."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/scsi/bfa/bfad_debugfs.c",
+      "line": 253,
+      "status": "unresolved",
+      "reason": "The seed pattern itself is present in s04 (memdup_user(buf, nbytes) at lines 253 and 320 feeding sscanf in bfad_debugfs_write_regrd/regwr), but these are debugfs .write handlers, i.e. the debugfs-write-memdup-sscanf branch (intent i014), not sysfs ->store(). Not reported under this sysfs-store-attr-terminator branch; recorded for cross-branch visibility."
+    }
+  ],
+  "limitations": [
+    "Store-callback audit relied on high-signal greps: all 212 memdup_user/vmemdup_user call sites enumerated (none inside a sysfs ->store()); rg -B2 -A12 over 'static ssize_t ..._store(struct' found copy_from_user in only versal_edac.c (safe, terminated); multiline rg for '_store(device_attribute/kobj_attribute) { ... copy_from_user' returned 0 matches; buf[count]/buf[len]/buf[size]/buf[cnt] audit (411 hits) surfaced only in-bounds terminator writes (buf[x] = 0/'\\0') or unrelated non-store code.",
+    "Helper-function indirection was not exhaustively traced: a ->store() that delegates to a helper which does its own copy_from_user could evade the regex pair only when the attribute-type and copy_from_user do not co-occur within the searched window; the file-level intersection (files containing both device_attribute/kobj_attribute and copy_from_user, ~40+ files incl. kernel/events/core.c, mm/mempolicy.c, drivers/ata/libata-scsi.c, drivers/nvdimm/bus.c, net/rfkill/core.c) was spot-checked only for the store-signature grep hits, not every file line-by-line.",
+    "module_param .set handlers and non-kernfs kobject attribute mechanisms were not individually audited; they receive kernel-internal command-line/insmod strings rather than direct usercopy in this tree's usage, but an exotic caller passing a raw user pointer was not proven absent.",
+    "Case (b) of the intent (indexing buf[count] while trusting count over the real string length) was bounded to the buf[count]/buf[len]/buf[size]/buf[cnt] pattern families; other index spellings (buf[n], buf[bytes], attr-specific names) were not exhaustively enumerated."
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "rx-pull-stale-hdr",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "start": 2556,
+      "end": 2566,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: remote 802.11 data frames whose 802.3-converted payload carries ETH_P_TDLS reach this ieee80211 RX data handler (ieee80211_rx_h_data, the block following __ieee80211_data_to_8023); the frame bytes at rx->skb->data are fully attacker-controlled. VIOLATED INVARIANT: tf is captured as a direct cast of rx->skb->data at line 2558 and must be refetched after any call that can reallocate skb->head. UNSAFE USE: pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) at line 2560 calls __pskb_pull_tail()/pskb_expand_head() and frees/replaces skb->head when the wireless RX skb is non-linear (common for A-MSDU/frag'd hardware paths); because the pull is the left operand of &&, on success lines 2562-2565 immediately dereference the stale pre-pull tf (tf->payload_type, tf->category, tf->action_code) with no refetch — the exact pep_get_sb() shape (ph captured, pskb_may_pull, ph->sb_type read) on a receive-path parser. The bytes read gate whether the frame is queued into local->skb_queue_tdls_chsw for kernel-side TDLS channel-switch state processing (kernel state transition driven by possibly-freed memory). COUNTEREVIDENCE: triggering requires a non-linear skb at that offset (pull must actually expand the head); if the frame is already linear within offsetof(...,u) the pull is a no-op and tf stays valid. No runtime reproducer was built (static analysis only), and the post-pull reads are read-only (no write like the seed's ph->sb_len -= 2). KASAN-detectable slab use-after-free read of 3 header bytes."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bridge/br_multicast.c",
+      "start": 1429,
+      "end": 1478,
+      "quote": "const struct ipv6hdr *ip6h = ipv6_hdr(skb);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: br_ip6_multicast_query() parses network-received MLD/MLDv2 query packets (ICMPV6_MGM_QUERY delivered via br_ip6_rcv/br_multicast_rcv on a bridge port); header bytes are attacker-controlled. VIOLATED INVARIANT: ip6h is captured at line 1430 via ipv6_hdr(skb) (a pointer into skb->head) and never reassigned (only other use in the function is line 1474). UNSAFE USE: pskb_may_pull(skb, offset + sizeof(*mld)) at line 1450 and pskb_may_pull(skb, offset + sizeof(*mld2q)) at line 1459 run inside the query-length branch and can call __pskb_pull_tail -> pskb_expand_head, freeing and reallocating skb->head when the MLD skb is non-linear; line 1474 then reads saddr.u.ip6 = ip6h->saddr through the stale pre-pull pointer, with no refetch (contrast the correct in-function handling of mld/mld2q, which are re-derived from icmp6_hdr(skb) AFTER each pull at lines 1454/1463). The stale source address feeds br_multicast_query_received() (bridge multicast querier state), i.e. kernel state driven by freed slab memory — same class as the seed's ph->sb_type read. COUNTEREVIDENCE: the pull only reallocates for a non-linear skb; the read is a 16-byte read-only copy into a local struct; no runtime KASAN trace produced, and the pull length is a fixed sizeof, not attacker-variable (unlike the seed's ph->sb_len)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/tdls.c",
+      "start": 1921,
+      "end": 1941,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)skb->data;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: ieee80211_process_tdls_channel_switch() consumes skbs queued by the mac80211 RX path TDLS block (net/mac80211/rx.c:2565-2568 skb_queue_tail(&local->skb_queue_tdls_chsw, rx->skb)), i.e. remote attacker-supplied TDLS channel-switch frames processed in the tdls_chsw_work worker. VIOLATED INVARIANT: tf is captured as a cast of skb->data at line 1923 and must be reloaded after skb_linearize(). UNSAFE USE: skb_linearize(skb) at line 1933 (comment 'we want to access the entire packet') calls pskb_may_pull(skb, skb->len) and, for a non-linear skb (only offsetof(struct ieee80211_tdls_data, u) bytes were pulled on the RX side at rx.c:2560, the rest may still be in frags), __pskb_pull_tail/pskb_expand_head frees the old head; line 1939 then reads tf->action_code through the stale pointer with no refetch, and its value selects between the REQUEST/RESPONSE handlers that re-drive TDLS channel-switch kernel state. Same structural shape as pep_get_sb() (capture, reallocating pull, post-pull header-field read). COUNTEREVIDENCE: exploitation requires the queued skb to still be non-linear after the RX-side partial pull (hardware/driver dependent); the use is a single-byte read; if the skb is already fully linear, skb_linearize is a no-op and tf remains valid. Static analysis only, no reproducer."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/ip6_output.c",
+      "start": 306,
+      "end": 352,
+      "quote": "struct ipv6hdr *hdr = ipv6_hdr(skb);",
+      "confidence": "low",
+      "reason": "UNTRUSTED SOURCE: ip6_forward_proxy_check() runs on forwarded IPv6 packets (called from ip6_forward) whose header bytes are attacker-controlled. VIOLATED INVARIANT: hdr is captured at line 308 via ipv6_hdr(skb) and never reassigned within the function. UNSAFE USE: for packets whose next header is IPPROTO_ICMPV6, pskb_may_pull(skb, skb_network_header(skb) + offset + 1 - skb->data) at line 323 may call __pskb_pull_tail -> pskb_expand_head and free/reallocate skb->head when the skb is non-linear at the ICMPv6 type byte; line 350 then evaluates ipv6_addr_type(&hdr->daddr) through the stale pre-pull hdr with no refetch, and its result gates the proxy-forward decision (kernel forwarding state from possibly-freed memory). COUNTEREVIDENCE: hdr->nexthdr is read at line 309 before any pull (safe); the stale read at 350 is read-only and only the ICMPv6-nexthdr path performs the pull; triggering requires a non-linear forwarded skb where the pull actually expands the head, which was not demonstrated; the IPv6 base header is normally already linear, so the realloc precondition is unproven. Reported at low confidence as the same capture->pull->stale-read class."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/xfrm4_policy.c",
+      "start": 108,
+      "end": 133,
+      "quote": "const struct iphdr *iph = ip_hdr(skb);",
+      "confidence": "low",
+      "reason": "UNTRUSTED SOURCE: _decode_session4() decodes the flow of network-received/transmitted IPv4 packets for XFRM policy lookups (decode_session4 called from xfrm policy resolution); the IP header bytes are attacker-controlled. VIOLATED INVARIANT: iph is captured at line 109 and xprth at line 110 from iph->ihl; iph is never reassigned. UNSAFE USE: in every protocol branch, pskb_may_pull(skb, xprth + N - skb->data) at lines 129/142/155/167/178/191 can call __pskb_pull_tail -> pskb_expand_head and free skb->head when transport-header bytes live in frags; after the pull, line 132 (and 145/158/170/182/195) re-derives xprth = skb_network_header(skb) + iph->ihl * 4 — re-reading iph->ihl through the stale pre-pull iph pointer — a validation-style fetch of ihl at line 110 pre-pull followed by an independent post-pull fetch of the same untrusted field used to compute the transport-header pointer that fl4 selector fields are then read from. Same capture->pull->stale-deref class as pep_get_sb(). COUNTEREVIDENCE: the IP header itself is guaranteed linear by the IP receive path, so the pull only reallocates when transport bytes extend into frags; the re-read value is semantically identical to the pre-pull ihl (a 1-byte read); no runtime proof that pskb_expand_head triggers on this path. Low-confidence report of the structural pattern."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/phonet/pep.c",
+      "line": 67,
+      "status": "reported",
+      "reason": "Seed itself present unpatched in s02 (lines shifted +10): ph = skb_header_pointer(skb, 0, 2, &h) at 67, pskb_may_pull(skb, ph->sb_len) at 68 with attacker-controlled length, ph->sb_len -= 2 at 70 and *ptype = ph->sb_type at 71 through the stale pointer. Reported as the baseline reference, not a new variant."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "line": 2558,
+      "status": "reported",
+      "reason": "ieee80211_rx_h_data TDLS block: tf cast from rx->skb->data at 2558; pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) at 2560; stale tf->payload_type/category/action_code reads at 2562-2565. Raised as high-confidence finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bridge/br_multicast.c",
+      "line": 1430,
+      "status": "reported",
+      "reason": "br_ip6_multicast_query: ip6h captured 1430; pskb_may_pull at 1450 and 1459; ip6h->saddr read at 1474 after the pulls with no reassignment; contrast mld/mld2q which are correctly re-derived after each pull. Raised as medium-confidence finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/tdls.c",
+      "line": 1923,
+      "status": "reported",
+      "reason": "ieee80211_process_tdls_channel_switch: tf captured 1923; skb_linearize(skb) at 1933 frees/reallocates head for non-linear skb; tf->action_code read at 1939 without refetch. Raised as medium-confidence finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/ip6_output.c",
+      "line": 308,
+      "status": "reported",
+      "reason": "ip6_forward_proxy_check: hdr captured 308; pskb_may_pull at 323 in the ICMPV6 nexthdr branch; ipv6_addr_type(&hdr->daddr) read at 350 through the possibly stale hdr. Raised as low-confidence finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/xfrm4_policy.c",
+      "line": 109,
+      "status": "reported",
+      "reason": "_decode_session4: iph captured 109; per-protocol pskb_may_pull at 129/142/155/167/178/191; iph->ihl re-read post-pull at 132/145/158/170/182/195 to recompute xprth. Raised as low-confidence finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/icmp.c",
+      "line": 741,
+      "status": "safe",
+      "reason": "icmp_socket_deliver(): iph captured at 741 and protocol = iph->protocol read at 744 BEFORE the pull; pskb_may_pull(skb, iph->ihl * 4 + 8) at 747 uses the attacker-controlled ihl but the read happens pre-pull; after the pull the code only calls raw_icmp_error(skb, ...) and ipprot->err_handler(skb, info), never touching iph again. No stale dereference."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/igmp.c",
+      "line": 897,
+      "status": "safe",
+      "reason": "igmp_heard_query(): ih3 captured at 897 via igmpv3_query_hdr(skb); both pskb_may_pull calls (sizeof(struct igmpv3_query), and sizeof + ntohs(ih3->nsrcs)*4) are followed by explicit refetches 'ih3 = igmpv3_query_hdr(skb);' before any post-pull dereference — the correctly-written analogue of the seed's fix."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "line": 3785,
+      "status": "unresolved",
+      "reason": "ieee80211_invoke_fast_rx(): hdr captured at 3785 as (void *)skb->data; pskb_may_pull(skb, snap_offs + sizeof(*payload)) at 3855; post-pull uses of hdr exist (ieee80211_sta_rx_notify(rx->sdata, hdr) and ieee80211_has_protected(hdr->frame_control) near 3900-3913). Not fully read: whether those uses are on a path that crosses the 3855 pull depends on the branch structure (SNAP translation vs plain path) that was not completely traced before the search was halted. Left unresolved; promising same-shape candidate."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/udp_offload.c",
+      "line": 26,
+      "status": "unresolved",
+      "reason": "__skb_udp_tunnel_segment(): uh captured at 26 via udp_hdr(skb); the heuristic flagged a post-pull 'uh->len' occurrence at ~37, but the surrounding text ('We cannot rely on the value contained in uh->len as it is possible that the actual value exceeds...') appears to be a comment, not executable code. The full function was not read line-by-line to confirm no other stale deref; left unresolved, likely safe."
+    }
+  ],
+  "limitations": [
+    "Search was static and heuristic ($TMPDIR find_stale.py: same-function capture->pull->stale-deref scan over net/ only); drivers/ (including drivers/net wireless/wired RX paths) was not scanned for this branch.",
+    "The regex only recognized pointer captures of the form 'type *var = <skb->data cast / skb_header_pointer / *_hdr(skb)>'; pointers passed into helpers, captured in outer loops, or returned by custom accessors may be missed, and cross-function stale-pointer propagation was not analyzed.",
+    "No dynamic reproducer or KASAN trace was produced: for every reported finding, the reallocation precondition (non-linear or cloned skb reaching the specific pull, causing __pskb_pull_tail/pskb_expand_head to actually free the head) is argued from documented skbuff semantics, not demonstrated on s02.",
+    "net/mac80211/rx.c ieee80211_invoke_fast_rx (hdr used after pskb_may_pull at 3855) and net/ipv4/udp_offload.c __skb_udp_tunnel_segment were left unresolved because the branch structure around the pull was not fully traced before the bounded search was halted.",
+    "GRO/frag-list and TLV loop-parser shapes of the same mechanism are assigned to parallel intents (i005/i008 analogues) and were deliberately not covered here."
+  ]
+}

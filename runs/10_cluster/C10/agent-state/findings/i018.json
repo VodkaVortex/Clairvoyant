@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "intent_id": "i018",
+  "branch": "terminator-write-off-by-one",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/edac/versal_edac.c",
+      "start": 859,
+      "end": 863,
+      "quote": "len = min_t(size_t, count, sizeof(buf));\n\tif (copy_from_user(buf, data, len))\n\t\treturn -EFAULT;\n\n\tbuf[len] = '\\0';",
+      "confidence": "high",
+      "reason": "Untrusted source: inject_data_ue_store is the .write handler of the Xilinx Versal EDAC debugfs file 'inject_ue' (fops xddr_inject_ue_fops at line 904-907 with .write = inject_data_ue_store at line 906, registered via edac_debugfs_create_file(\"inject_ue\", 0200, priv->debugfs, ...) at line 924), so count and buffer contents are fully attacker-controlled via write(2). Violated invariant (validated-equals-used off-by-one): line 854 declares 'char buf[6]'; line 859 clamps 'len = min_t(size_t, count, sizeof(buf))' WITHOUT -1, so len can equal sizeof(buf) == 6; there is no 'count > sizeof(buf)-1' rejection. Unsafe use: line 863 'buf[len] = \\0' writes buf[6] - one byte PAST the end of the 6-byte stack array - whenever the attacker writes count >= 6 bytes (a 6+ byte write is a normal input like '12,34\\n'). This is the seed's fix primitive (an explicit NUL terminator slot) misapplied: the terminator write itself lands out of bounds, a 1-byte stack out-of-bounds WRITE with a fixed zero value - the inverse consequence of the seed's missing-terminator OOB read under the same terminator-slot accounting root cause. The subsequent strsep(token)/kstrtou8 consumers run on the terminated buffer, so the OOB is exactly the terminator write. Counterevidence checked: full function read (lines 848-901); no -1 in the clamp; no rejection of count >= sizeof(buf); contrast with the correct sibling patterns in this snapshot - drivers/iio/industrialio-core.c:411 'count = min(count, sizeof(buf) - 1)' before buf[count] = 0 at line 415, and drivers/net/netdevsim/dev.c:252 'if (count >= sizeof(buf)) return -ENOSPC' before buf[count] = '\\0' at line 259. This settles the f011-unresolved classification: line-level bound analysis confirms the OOB write. Reachability: root-only 0200 debugfs node, requires CONFIG_EDAC_VERSAL_EDAC (Xilinx Versal platform). Impact: 1-byte NUL stack OOB write (KASAN stack-buffer-overflow WRITE of size 1)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/edac/zynqmp_edac.c",
+      "start": 307,
+      "end": 311,
+      "quote": "len = min_t(size_t, count, sizeof(buf));\n\tif (copy_from_user(buf, data, len))\n\t\treturn -EFAULT;\n\n\tbuf[len] = '\\0';",
+      "confidence": "high",
+      "reason": "Untrusted source: inject_ue_write is the .write handler of the Xilinx ZynqMP OCM EDAC debugfs file 'inject_ue_bitpos' (inject_ue_fops at line 343-346 with .write = inject_ue_write at line 345, registered via edac_debugfs_create_file(\"inject_ue_bitpos\", 0644, priv->debugfs, ...) at line 359), so count and contents are attacker-controlled; 0644 means any user with debugfs mounted read-write can write. Violated invariant: line 299 declares 'char buf[6]'; line 307 clamps 'len = min_t(size_t, count, sizeof(buf))' with NO -1; nothing rejects count >= 6. Unsafe use: line 311 'buf[len] = \\0' writes buf[6], one byte past the 6-byte stack array, whenever count >= 6 (the documented input 'echo <bit_pos0 val>,<bit_pos1 val> > inject_ue_bitpos' easily reaches 6 bytes, e.g. '128,64\\n'). Identical byte-for-byte pattern to the versal_edac finding, present in s01 as the intent directed to examine. Counterevidence checked: full function read (lines 294-341); the only early check is 'if (!data) return -EFAULT', which does not bound count; no memchr/strnlen; the strsep/kstrtou8 consumers run after the terminator write so they cannot be the OOB. Reachability: root/debugfs-writable on ZynqMP UltraScale+ with CONFIG_EDAC_ZYNQMP. Impact: 1-byte NUL stack OOB write (KASAN stack-buffer-overflow WRITE of size 1)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/edac/versal_edac.c",
+      "line": 863,
+      "status": "reported",
+      "reason": "char buf[6] (line 854); len = min_t(size_t, count, sizeof(buf)) at 859 (no -1); buf[len] = '\\0' at 863 writes buf[6] when count >= 6. Resolves the f011-unresolved candidate: line-level bound analysis confirms a 1-byte stack OOB write. Reported as finding 1."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/edac/zynqmp_edac.c",
+      "line": 311,
+      "status": "reported",
+      "reason": "char buf[6] (line 299); same min_t clamp without -1 at 307; buf[len] = '\\0' at 311 writes buf[6] for count >= 6 on debugfs file inject_ue_bitpos (0644). Reported as finding 2."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/gpu/drm/amd/pm/amdgpu_pm.c",
+      "line": 785,
+      "status": "safe",
+      "reason": "amdgpu_set_pp_od_clk_voltage: 'if (count > 127 || count == 0) return -EINVAL' (line 762) rejects count >= 128 before memcpy(buf_cpy, buf, count) and buf_cpy[count] = 0 at 784-785 with buf_cpy[128]; count <= 127 keeps the terminator index in bounds. The pmfw variant at line 1067 uses min(count, sizeof(buf_cpy) - 1) with a +1-sized buffer (AMDGPU_MASK_BUF_MAX + 1)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/accel/habanalabs/common/debugfs.c",
+      "line": 495,
+      "status": "safe",
+      "reason": "mmu_asid_va_write and mmu_ack_error_value_write: 'if (count > sizeof(kbuf) - 1) goto err' at lines 491/552 before copy_from_user(kbuf, buf, count) and kbuf[count] = 0 at 495/558; count <= sizeof(kbuf)-1 keeps kbuf[count] in bounds."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/misc/lkdtm/core.c",
+      "line": 247,
+      "status": "safe",
+      "reason": "lkdtm write paths: 'if (count >= PAGE_SIZE) return -EINVAL' before __get_free_page, copy_from_user(buf, user_buf, count), buf[count] = '\\0' at 247/324; count <= PAGE_SIZE-1 keeps the terminator inside the page allocation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/scsi/scsi_proc.c",
+      "line": 80,
+      "status": "safe",
+      "reason": "proc_scsi_host_write clamps count to PROC_BLOCK_SIZE = 3*1024 (line 42 define, line 71 check) and copies into a full __get_free_page (PAGE_SIZE) page; ->write_info callbacks that terminate (e.g. wd33c93_write_info 'buf[len] = \\0' at wd33c93.c:2021) write at index len <= 3072 < PAGE_SIZE, so the terminator stays in bounds; imm_write_info and ppa_write_info in s01 never write a terminator at all. No PAGE_SIZE-boundary off-by-one on this path in s01."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/scsi/scsi_proc.c",
+      "line": 426,
+      "status": "safe",
+      "reason": "proc_scsi_write: 'if (length > PAGE_SIZE) return -EINVAL', then 'if (length < PAGE_SIZE) { end = buffer + length; *end = \\0; } else { end = buffer + PAGE_SIZE - 1; if (*end) goto out; }' - the length == PAGE_SIZE case is handled by requiring an in-bounds NUL at the last byte instead of writing one past the page; correct terminator-slot accounting."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/accessibility/speakup/kobjects.c",
+      "line": 398,
+      "status": "safe",
+      "reason": "synth_store: len = strlen(buf) on the kernfs-terminated buffer (kernfs guarantees buf[count] == '\\0'), rejects len < 2 || len > 9, copies into new_synth_name[10] and writes new_synth_name[len] = '\\0' with len <= 9 - in bounds. The VAR_STRING path at 682 truncates len before cp[len] = '\\0' within the same validated string."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/gadget/function/storage_common.c",
+      "line": 510,
+      "status": "safe",
+      "reason": "fsg_store_inquiry_string: 'const size_t len = min(count, sizeof(curlun->inquiry_string))' is used only as a READ index (inquiry_string[len-1] with len >= 1 guaranteed by the len == 0 check); the only write is snprintf with sizeof bound, so no terminator write at len can go OOB."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/char/ipmi/bt-bmc.c",
+      "line": 277,
+      "status": "safe",
+      "reason": "bt_bmc_write: nwritten = min_t(ssize_t, count, sizeof(kbuffer)) then copy_from_user(&kbuffer, buf, nwritten) and bt_writen(bt_bmc, kbuffer, nwritten) - fully length-bounded binary path; no terminator write and no C-string consumer."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/ath/wil6210/debugfs.c",
+      "line": 1499,
+      "status": "safe",
+      "reason": "n = min_t(int, n, sizeof(buf)) at 1499/2054 clamps a READ-path snprintf result used as the length for simple_read_from_buffer - not a usercopy clamp-then-terminate site."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/accessibility/speakup/devsynth.c",
+      "line": 26,
+      "status": "safe",
+      "reason": "speakup_file_write/speakup_file_writeu: bytes = min(count, sizeof(buf)) copies into u_char buf[256] consumed by the byte-wise synth_write/UTF-8 converter with explicit byte counts; no terminator write and no C-string consumer, so no off-by-one terminator index exists."
+    }
+  ],
+  "limitations": [
+    "The sweep enumerated terminator writes at variable index (buf[len]/buf[count]/s[size]/s[count]/kbuf[count]/tmp/tbuf families, ~140 sites tree-wide) and length clamps (min_t(size_t, count, sizeof(...)), min(count, sizeof(...)), count == sizeof(buf) acceptances) across drivers/, arch/, fs/, kernel/, mm/, net/, security/, sound/; ath10k/ath11k/ath5k/ath6kl/ath9k/iwlwifi/iwlegacy/rtw88/rtw89 clamp sites were bulk-filtered because every one visibly carries an explicit '- 1', but those files were not read line-by-line individually.",
+    "Off-by-one variants using other index spellings (buf[copied], buf[bytes], buf[n]) or hidden behind helper macros were enumerated via the same regex families but not every match outside the deep-read files was read in full; only the highest-signal write-handler contexts were deep-read.",
+    "ioctl/sockopt and module_param surfaces were covered only through the shared clamp/terminator-index grep families; no dedicated per-ioctl audit was run for this branch (the string-consumer mechanism for those surfaces is covered by intents i005/i013/i017).",
+    "Both reported findings are debugfs write paths gated by CONFIG_EDAC_VERSAL_EDAC / CONFIG_EDAC_ZYNQMP (Xilinx Versal / ZynqMP UltraScale+ platforms); versal node is 0200 root-only, zynqmp node is 0644. Impact is a 1-byte zero-value stack out-of-bounds write (KASAN stack-buffer-overflow WRITE of size 1), not an info leak; severity is bounded by the fixed NUL value and stack layout. No kernel build or KASAN reproducer was executed (snapshot tree is read-only); classification rests on line-level bound analysis of the complete functions (versal_edac.c:848-901, zynqmp_edac.c:294-341).",
+    "Settles the f008/f015-pattern contradiction for s01: versal_edac.c lines 854/859/863 are exactly the ASan-verified pattern (min_t clamp without -1, then buf[6] = 0 on char buf[6]); f008's 'index bounded by sizeof(buf) stays in bounds' reasoning is incorrect for a 6-byte array because buf[sizeof(buf)] is one past the end."
+  ]
+}

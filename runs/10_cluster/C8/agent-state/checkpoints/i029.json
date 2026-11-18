@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "intent_id": "i029",
+  "branch": "if-alt-count",
+  "snapshot": "s07",
+  "status": "finalizing",
+  "candidates_classified": [
+    {
+      "path": "drivers/hid/wacom_sys.c",
+      "line": 2256,
+      "status": "reported",
+      "note": "wacom_wireless_work indexes usbdev->config->interface[1]/[2] with literal indexes, zero bNumInterfaces references in file, triggered by device-supplied wireless HID report via wacom_wireless_irq (wacom_wac.c:2752/2760) scheduling WACOM_WORKER_WIRELESS; results chain-dereferenced via usb_get_intfdata/hid_get_drvdata/wacom_release_resources."
+    },
+    {
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "line": 1443,
+      "status": "reported",
+      "note": "model-index branch indexes actconfig->interface[usbvision_device_data[model].interface]->altsetting[0] with no bNumInterfaces check while sibling ifnum branch at 1444-1445 has the check; downstream endpoint[1].desc read at 1458; all in-tree .interface values are 0 (20) or -1 (47) so triggering needs a config parsed with 0 interfaces (warning-only in usbcore)."
+    },
+    {
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 2056,
+      "status": "safe",
+      "note": "loop bounded by bNumInterfaces with NULL check on intf2."
+    },
+    {
+      "path": "drivers/media/usb/usbvision/usbvision-video.c:1492 uif=interface[0]",
+      "status": "safe",
+      "note": "interface[0] structurally exists for any accepted config; per-alt endpoint[1] loop is epidx-branch territory."
+    },
+    {
+      "path": "drivers/usb/serial/ftdi_sio.c:1886/1922",
+      "status": "safe",
+      "note": "pointer-identity comparisons only."
+    },
+    {
+      "path": "drivers/usb/serial/usb-serial.c:830-832",
+      "status": "safe",
+      "note": "guarded by identity comparison with interface[0]; only dereferenced when it IS the bound interface."
+    },
+    {
+      "path": "drivers/usb/atm/xusbatm.c:58-59/152-153",
+      "status": "safe",
+      "note": "loops bounded by bNumInterfaces with NULL checks and usb_altnum_to_altsetting."
+    },
+    {
+      "path": "drivers/usb/atm/ueagle-atm.c:2209/2674",
+      "status": "safe",
+      "note": "interface[0] structurally exists; bNumInterfaces!=1 && ifnum==0 rejected at 2674; endpoint[0] half belongs to fixed-epidx-rest branch."
+    },
+    {
+      "path": "drivers/usb/core/* and gadget composite",
+      "status": "safe",
+      "note": "core/gadget-side loops or device-side (gadget) code, not host driver trust boundary."
+    },
+    {
+      "path": "sound/usb set_alt, cdc_ncm MBIM alt, qcserial/sierra num_altsetting, VIDIOC_S_ALT deep-reads",
+      "status": "not_completed",
+      "note": "budget expired before deep reads; bounded residual."
+    }
+  ]
+}

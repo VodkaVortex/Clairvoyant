@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "xsk-umem-rereads",
+  "worker": "explore",
+  "status": "finalizing",
+  "snapshot": "s03",
+  "phase": "evidence-collected-writing-final-artifact",
+  "evidence": {
+    "seed_fix_present_in_s03": "net/xdp/xsk.c:964-1007 xsk_skb_metadata() already uses READ_ONCE locals (seed patch applied); excluded as demonstration",
+    "variant_found": "include/net/xdp_sock_drv.h:262-309. xsk_buff_valid_tx_metadata() fetches meta->flags ONCE via READ_ONCE (line 266) for validation (unknown bits rejected, launch_time vs tx_metadata_len checked). xsk_tx_metadata_request() then re-reads meta->flags directly, unvalidated and non-atomic, FOUR times (lines 294, 299, 303, 307), each re-read gating a distinct offload use; additionally csum_start/csum_offset are passed to tmo_request_checksum with no READ_ONCE and no bounds check against desc->len anywhere in the ZC driver path.",
+    "call_sites": [
+      "include/net/libeth/xsk.h:215 __libeth_xsk_xmit_fill_buf_md (via xsk_buff_raw_get_ctx)",
+      "drivers/net/ethernet/mellanox/mlx5/core/en/xdp.c:508,656",
+      "drivers/net/ethernet/intel/igc/igc_main.c:3085",
+      "drivers/net/ethernet/stmicro/stmmac/stmmac_main.c:2751"
+    ],
+    "sink_assessment": "In-tree tmo_request_checksum callbacks ignore the values (mlx5 en/xdp.c:301-308 'HW/FW is doing parsing, so offsets are largely ignored'; libeth include/net/libeth/xsk.h:167-171 sets only a flag bit), so direct in-tree OOB is unlikely; report is an invariant-violation hypothesis (validated flags copy != consumed flags copies; unvalidated csum fields reaching driver hooks), driver-dependent impact."
+  },
+  "candidates": [
+    {"path": "include/net/xdp_sock_drv.h", "line": 284, "status": "reported", "note": "xsk_tx_metadata_request flags/csum double-fetch from UMEM metadata"},
+    {"path": "net/xdp/xsk.c", "line": 964, "status": "safe", "note": "seed fix present (READ_ONCE locals)"},
+    {"path": "net/xdp/xsk_queue.h", "line": 249, "status": "safe", "note": "xskq_cons_read_desc single by-value struct copy; validated copy is the used copy"},
+    {"path": "include/net/libeth/xsk.h", "line": 215, "status": "reported", "note": "feeds variant via xp_raw_get_ctx/__xsk_buff_get_metadata"},
+    {"path": "drivers/net/ethernet/intel/igc/igc_main.c", "line": 3085, "status": "reported", "note": "call site of variant helper"},
+    {"path": "drivers/net/ethernet/stmicro/stmmac/stmmac_main.c", "line": 2751, "status": "reported", "note": "call site of variant helper"},
+    {"path": "drivers/net/ethernet/mellanox/mlx5/core/en/xdp.c", "line": 656, "status": "reported", "note": "call site of variant helper"}
+  ]
+}

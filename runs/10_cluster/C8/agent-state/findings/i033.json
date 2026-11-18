@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "intent_id": "i033",
+  "branch": "if-alt-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s08"
+  ],
+  "findings": [
+    {
+      "snapshot": "s08",
+      "path": "sound/usb/usx2y/us122l.c",
+      "start": 138,
+      "end": 146,
+      "quote": "\tif (us122l->is_us144) {\n\t\tiface = usb_ifnum_to_if(us122l->dev, 0);\n\t\tusb_autopm_get_interface(iface);\n\t}\n\tiface = usb_ifnum_to_if(us122l->dev, 1);\n\tusb_autopm_get_interface(iface);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: the usb_host_config.interface[] array is sized solely by the device-declared bNumInterfaces accepted at enumeration (drivers/usb/core/config.c recomputes nintf from the parsed descriptor stream and warns but accepts short counts), and usb_ifnum_to_if(dev, n) is a direct config->interface[n] lookup that returns NULL when a malicious gadget declares fewer interfaces than the driver's device model assumes. MISSING GUARANTEE: usb_stream_hwdep_open (us122l.c:138-146) and usb_stream_hwdep_release (152-160) call usb_autopm_get_interface()/usb_autopm_put_interface() on the results of usb_ifnum_to_if(us122l->dev, 0) (is_us144 case) and usb_ifnum_to_if(us122l->dev, 1) with no NULL check at any of the six lookup sites in the file (57/79/141/144/155/158). UNSAFE USE: a NULL usb_interface passed to usb_autopm_get_interface dereferences &intf->dev inside the USB runtime-PM core, the same actconfig->interface[idx]-without-bNumInterfaces-check shape as the seed. COUNTEREVIDENCE CHECKED: for index 1, the driver only binds on the interface whose bInterfaceNumber == 1 (snd_us122l_probe, us122l.c:533-535), so interface 1 exists whenever the hwdep device exists; for index 0 (US-144), us122l_create_card first does usb_set_interface(dev, 0, 1) and usb_set_interface(dev, 1, 1) (us122l.c:404-412) and returns false on error, so on a gadget whose config lacks interface 0 or 1 probe fails before usb_stream_hwdep_new registers the hwdep node and the unchecked dereference is unreachable. The pattern is therefore latent (reachable only if a gadget both matches the US-144 id table and defeats the create_card gate, e.g. via a set_interface that succeeds on a config whose descriptor cache is inconsistent); reported as a medium-confidence hypothesis of the seed's trust-boundary flaw rather than a confirmed crash, per the branch instruction to keep validated-equals-used violations reportable with uncertainty expressed through confidence.",
+      "conclusion": "us122l hwdep open/release pass unchecked usb_ifnum_to_if(0/1) results to usb_autopm_get/put_interface (config->interface[idx] with no bNumInterfaces check); probe-time usb_set_interface on the same ifnums backstops it, so latent, not a confirmed crash."
+    }
+  ],
+  "candidates": [
+    {
+      "path": "sound/usb/midi.c",
+      "line": 1130,
+      "status": "safe",
+      "reason": "update_roland_altsetting indexes intf->altsetting[umidi->roland_load_ctl->private_value]; roland_load_put clamps private_value to 0/1 (value > 1 rejected, midi.c:2076-2089) and the control is only created by snd_usbmidi_switch_roland_altsetting after num_altsetting==2, altsetting[1] bNumEndpoints==2 and per-endpoint attribute checks (midi.c:2111-2125), so the index is always < num_altsetting.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/qcom/qc_audio_offload.c",
+      "line": 1251,
+      "status": "safe",
+      "reason": "uaudio_populate_uac_desc indexes iface->altsetting[subs->cur_audiofmt->altset_idx] with a NULL-checked iface (1243-1247) but no local num_altsetting check; cur_audiofmt is built only by audio_format_alloc_init (stream.c:690-712) whose only callers are inside the __snd_usb_parse_audio_interface loop bounded by 'num = iface->num_altsetting; for (i = 0; i < num; i++)' (stream.c:1133-1136) with altsd->bNumEndpoints < 1 continue at 1153, so altset_idx < num_altsetting and bNumEndpoints >= 1 hold by construction for every stored format.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/endpoint.c",
+      "line": 731,
+      "status": "safe",
+      "reason": "endpoint_set_syncinterval uses snd_usb_get_host_interface (usb_ifnum_to_if + usb_altnum_to_altsetting) with a NULL check at line 732 before get_endpoint; usb_altnum_to_altsetting walks the real altsetting list rather than trusting an assumed index.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/endpoint.c",
+      "line": 930,
+      "status": "safe",
+      "reason": "endpoint_set_interface switches the runtime altsetting via usb_set_interface(chip->dev, ep->iface, altset) where altset comes from fp->altsetting/fp->sync_altsetting recorded from a parsed altsetting (endpoint.c:811-815); usbcore's usb_set_interface validates the alternate number against the interface's real altsetting list and returns -EINVAL for a missing alt, so a gadget-supplied out-of-range alt number fails safely.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/card.c",
+      "line": 339,
+      "status": "safe",
+      "reason": "snd_usb_create_streams does host_iface = &usb_ifnum_to_if(dev, ctrlif)->altsetting[0] without a NULL check, but its only caller usb_audio_probe passes ctrlif = ifnum = get_iface_desc(&intf->altsetting[0])->bInterfaceNumber of the interface the driver was just probed on (card.c:927-929,1024), so the lookup cannot return NULL.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/helper.c",
+      "line": 147,
+      "status": "safe",
+      "reason": "snd_usb_add_ctrl_interface_link does &usb_ifnum_to_if(dev, ctrlif)->altsetting[0] unchecked; the only caller is snd_usb_create_stream (card.c:317) which received the same already-validated ctrlif from usb_audio_probe.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/mixer.c",
+      "line": 3134,
+      "status": "safe",
+      "reason": "BADD path checks 'num = iface->num_altsetting; if (num < 2) return -EINVAL' (mixer.c:3126-3128) before alts = &iface->altsetting[1] and bNumEndpoints < 1 at 3137 before get_endpoint(alts, 0).",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/mixer_quirks.c",
+      "line": 1895,
+      "status": "safe",
+      "reason": "snd_microii_spdif_info_get checks usb_ifnum_to_if(chip->dev,1) for NULL, iface->num_altsetting < 2 (1893-1894) and bNumEndpoints < 1 (1896) before altsetting[1] endpoint 0.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/quirks.c",
+      "line": 184,
+      "status": "safe",
+      "reason": "create_fixed_stream_quirk validates fp->altset_idx >= iface->num_altsetting (quirks.c:179) and altsd->bNumEndpoints <= fp->ep_idx (quirks.c:186) before indexing altsetting[fp->altset_idx] and get_endpoint(alts, fp->ep_idx).",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/quirks.c",
+      "line": 236,
+      "status": "safe",
+      "reason": "create_auto_pcm_quirk checks num_altsetting < 2 (234) then bNumEndpoints < 1 (239) before the altsetting[1].endpoint[0] access.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/quirks.c",
+      "line": 416,
+      "status": "safe",
+      "reason": "create_uaxx_quirk checks num_altsetting < 2 (414) and branches on bNumEndpoints == 2 / != 1 (419, 449) before any get_endpoint(alts, 0) dereference.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/misc/ua101.c",
+      "line": 982,
+      "status": "safe",
+      "reason": "find_format_descriptor (ua101.c:870-916) requires num_altsetting == 2 (874), altsetting[0].bNumEndpoints == 0 and altsetting[1].bNumEndpoints == 1 (885-888) before detect_usb_format reads ua->intf[INTF_CAPTURE/PLAYBACK]->altsetting[1].endpoint[0].desc at 982/990.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/midi2.c",
+      "line": 1090,
+      "status": "safe",
+      "reason": "snd_usb_midi_v2_create checks 'iface->num_altsetting < 2' (midi2.c:1086-1087), is_midi2_altset(hostif) and '!hostif->desc.bNumEndpoints' (1092) before altsetting[1] endpoint parsing.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/implicit.c",
+      "line": 92,
+      "status": "safe",
+      "reason": "add_roland_implicit_fb checks '!iface || iface->num_altsetting < 2' (implicit.c:91-92) before altsetting[1] and validates class/subclass/protocol plus bNumEndpoints < 1 (implicit.c:119-122) before get_endpoint(alts, 0).",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/midi.c",
+      "line": 2114,
+      "status": "safe",
+      "reason": "snd_usbmidi_switch_roland_altsetting checks 'intf->num_altsetting != 2' (2113) and 'intfd->bNumEndpoints != 2' (2123) before get_endpoint(hostif, 0/1) and the usb_set_interface switch.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/qcom/qc_audio_offload.c",
+      "line": 1450,
+      "status": "safe",
+      "reason": "uadev[card_num].info[info_idx] writes are bounded because info is kzalloc'd with num_intf = bNumInterfaces of the same device (1433-1436) and info_idx_from_ifnum loops 'i < uadev[card_num].num_intf' (252); the enable path rejects info_idx < 0 (1581); the disable path at 1605 lacks a sign check but the only failure value is -EINVAL when no entry matches, a residual follow-up recorded in coverage_gaps.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/usb/serial/qcserial.c",
+      "line": 253,
+      "status": "safe",
+      "reason": "QDL branch replaces the host interface pointer only under num_altsetting == 2 via usb_altnum_to_altsetting with an explicit NULL check (257) and then requires bNumEndpoints == 2 plus per-endpoint bulk-in/bulk-out attribute checks (258-260); altsetting=1 goes to usb_set_interface which core-validates; nintf (bNumInterfaces) is used only for layout decisions, never to index interface[].",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/usb/serial/sierra.c",
+      "line": 138,
+      "status": "safe",
+      "reason": "sierra_probe's num_altsetting == 2 branch only calls usb_set_interface(udev, ifnum, 1); usbcore validates the alternate number, and endpoint discovery happens afterwards in usb-serial.c find_endpoints (826-837, called at 1014 after type->probe) which walks cur_altsetting->desc.bNumEndpoints and enforces required endpoint counts (1018-1023), so endpoints are re-validated against the new altsetting.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/usb/serial/xr_serial.c",
+      "line": 967,
+      "status": "safe",
+      "reason": "xr_attach uses usb_ifnum_to_if(serial->dev, desc->bSlaveInterface0) with the device-supplied CDC union descriptor byte, but the result is NULL-checked (970) before usb_serial_claim_interface.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/net/usb/cdc_ncm.c",
+      "line": 911,
+      "status": "safe",
+      "reason": "cdc_ncm_bind's altsetting toggle uses iface_no from the claimed data interface's own bInterfaceNumber and data_altsetting from cdc_ncm_select_altsetting which returns cur bAlternateSetting when num_altsetting < 2 or resolves MBIM alt 1 via NULL-checked usb_altnum_to_altsetting plus cdc_ncm_comm_intf_is_mbim validation (cdc_ncm.c:1055-1066); after the final switch cdc_ncm_find_endpoints loops 'ep < intf->cur_altsetting->desc.bNumEndpoints' (727-730) and !dev->in/!dev->out is rejected (939-941), so endpoints are read from the new altsetting with real bounds.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/net/usb/cdc_mbim.c",
+      "line": 121,
+      "status": "safe",
+      "reason": "cdc_mbim_set_ctrlalt switches the control interface altsetting via usb_set_interface on its own cur bInterfaceNumber (core-validated alt number) and then re-matches the id table against the new altsetting's class codes instead of reusing stale state.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/net/usb/ipheth.c",
+      "line": 599,
+      "status": "safe",
+      "reason": "usb_altnum_to_altsetting(intf, IPHETH_ALT_INTFNUM) result is NULL-checked (ipheth.c:600-604) and the endpoint scan is bounded by hintf->desc.bNumEndpoints (606).",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/media/usb/uvc/uvc_video.c",
+      "line": 2041,
+      "status": "safe",
+      "reason": "uvc_video_start_transfer iterates 'for (i = 0; i < intf->num_altsetting; ++i)' and selects an altsetting only when uvc_find_endpoint finds the streaming endpoint in that altsetting; usb_set_interface at 2054/2059 uses the recorded bAlternateSetting which usbcore validates; the num_altsetting==1 bulk path indexes altsetting[0] which always exists.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/media/usb/pwc/pwc-if.c",
+      "line": 424,
+      "status": "safe",
+      "reason": "pwc_isoc_init NULL-checks both usb_ifnum_to_if and usb_altnum_to_altsetting results (pwc-if.c:422-426) and scans 'i < idesc->desc.bNumEndpoints' (430) before usb_set_interface; media-tree runtime alt-switch consumer cross-checked per intent.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/usx2y/us144mkii.c",
+      "line": 423,
+      "status": "safe",
+      "reason": "usb_get_intfdata(usb_ifnum_to_if(dev, 0)) result is stored in tascam and dereferenced only under 'if (tascam)' (us144mkii.c:423-427), so a short-config gadget yields NULL and the branch is skipped.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/fcp.c",
+      "line": 1078,
+      "status": "safe",
+      "reason": "Already reported in full by the fixed-epidx-rest fact for s08 (i032: fcp_find_fc_interface endpoint[0] with no bNumEndpoints check); the bNumInterfaces loop at 1078 itself is correctly bounded.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/usb/serial/pl2303.c",
+      "line": 324,
+      "status": "safe",
+      "reason": "pl2303_endpoint_hack uses dev->actconfig->interface[0], which always exists for any configuration usbcore accepted (the parser fails a config with zero parsed interfaces); no ifnum-derived index.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "drivers/usb/class/cdc-acm.c",
+      "line": 1222,
+      "status": "safe",
+      "reason": "All usb_ifnum_to_if results in acm_probe (1222-1223, 1266, 1276-1277), including union-descriptor-derived bMasterInterface0/bSlaveInterface0 values, are NULL-checked before use.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/card.c",
+      "line": 863,
+      "status": "safe",
+      "reason": "find_last_interface loops 'for (i = 0; i < config->desc.bNumInterfaces; i++)' over config->interface[i] - index bounded by the same descriptor-declared count that sized the array, and config is NULL-checked.",
+      "snapshot": "s08"
+    },
+    {
+      "path": "sound/usb/mixer.c",
+      "line": 3612,
+      "status": "safe",
+      "reason": "mixer->hostif = &usb_ifnum_to_if(chip->dev, ctrlif)->altsetting[0] in snd_usb_create_mixers is reached from usb_audio_probe with the same just-validated ctrlif (probe ifnum) as card.c:339.",
+      "snapshot": "s08"
+    }
+  ],
+  "coverage_gaps": [
+    "sound/usb/qcom/qc_audio_offload.c disable path uses info_idx at line 1605 without a sign check, relying on info_idx_from_ifnum returning a valid index when enable==false; full QMI disable-request ordering vs uadev[] lifetime was not traced.",
+    "drivers/net/usb/cdc-phonet.c (num_altsetting != 2 at 342) and hso.c (num_altsetting > 1 at 2896) alt-switch paths were located by grep but not deep-read end-to-end in this pass.",
+    "sound/usb files outside those audited (6fire/control.c rates_altsetting[] table, hiface/chip.c, line6 alt handling) were only pattern-checked, not line-by-line reviewed.",
+    "No VIDIOC_S_ALT / s_alt handler exists in this snapshot's drivers/media (pattern search), so the V4L2 alt-switch consumer class is empty here; absence was established by search pattern, not file-by-file review.",
+    "drivers/usb/atm (speedtch.c four usb_set_interface sites) and drivers/usb/storage/uas.c alt-switch consumers were only spot-checked via earlier facts' grep evidence, not re-read in this intent."
+  ],
+  "limitations": [
+    "The us122l.c finding is a latent unchecked interface-index pattern: both reachable dereference paths are backstopped by probe-time usb_set_interface failure on the same interface numbers, so no crash is confirmed; it is reported as a medium-confidence hypothesis of the seed trust-boundary shape, not an exploit claim.",
+    "Endpoint-level .endpoint[k] accesses were excluded per branch rules (owned by media-epidx/net-epidx/fixed-epidx-rest facts f028/f034/f033 for s08); only the interface/altsetting-count dimension was judged here.",
+    "usbcore guarantees relied upon (config->interface[0] always exists for an accepted config, usb_set_interface validating alternate numbers, usb_altnum_to_altsetting walking the real alt list) were taken from drivers/usb/core/config.c and message.c behavior cited in earlier facts and spot-checked, not exhaustively re-derived.",
+    "usb_ifnum_to_if/actconfig->interface[] sites outside drivers, sound, net, fs (tools, samples) were not searched; they contain no in-kernel USB drivers."
+  ]
+}

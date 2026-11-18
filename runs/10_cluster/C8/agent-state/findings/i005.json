@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "if-alt-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "start": 318,
+      "end": 348,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];\n\talt->endpoint[0].desc.wMaxPacketSize =",
+      "confidence": "high",
+      "reason": "Untrusted source: altsetting[] flex-array whose length (usb_interface_cache.num_altsetting) and per-alt endpoint count are declared by the physically attacker-controlled USB device at enumeration. Missing guarantee: stv06xx_isoc_init (line 324) and stv06xx_isoc_nego (line 337) index intf_cache[0]->altsetting[1] with a literal 1 and never check num_altsetting >= 2, and never check altsetting[1].desc.bNumEndpoints >= 1 before touching alt->endpoint[0]. Unsafe use: they read and WRITE the cached endpoint[0].desc.wMaxPacketSize (lines 325-326, 338, 346) and then usb_set_interface(dev, iface, 1) (line 348) selects altsetting 1, whose actual descriptor max packet size sizes the later isoc URBs. A malicious gadget presenting the Logitech VID/PIDs in device_table (046d:0840/0850/0870/08f0/08f5/08f6) with fewer altsettings than 2 or zero endpoints in alt 1 gives an OOB read/write past the descriptor array at stream start (open->gspca_init_transfer_kind -> sd_desc->isoc_init, and retry path -> isoc_nego). Counterevidence checked: gspca core (gspca.c) validates alt indexes only in paths it drives itself (build_isoc_ep_tb loops over num_altsetting; ep_tb table), and the generic code at gspca.c:894 merely guards usb_set_interface when num_altsetting>1, never the subdriver's altsetting[1] dereference; stv06xx_config only probes sensors, no descriptor validation. Kernel-tree write also occurs here (patching the shared cached descriptor), which can additionally desync usb_set_interface's chosen alt from the patched cache entry, an altsetting-switch-then-stale-endpoint-state instance of the seed invariant."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "start": 2639,
+      "end": 2694,
+      "quote": "alt = &gspca_dev->dev->actconfig->intf_cache[0]->altsetting[1];\n\talt->endpoint[0].desc.wMaxPacketSize = cpu_to_le16(max_packet_size);",
+      "confidence": "medium",
+      "reason": "Same mechanism as stv06xx, copied pattern: sd_isoc_init (line 2657) and sd_isoc_nego (line 2680) index actconfig->intf_cache[0]->altsetting[1] and then alt->endpoint[0] with no num_altsetting>=2 and no bNumEndpoints>=1 validation anywhere in the xirlink_cit subdriver (verified by grep for num_altsetting/bNumEndpoints in the file: only cit_get_packet_size uses usb_altnum_to_altsetting with a NULL check). Unsafe use: reads/patches wMaxPacketSize (2658, 2681, 2688) then usb_set_interface(dev, iface, 1) (2690). An attacker-controlled gadget matching the CIT/ibmcam device_table entries with a single altsetting or endpointless alt 1 triggers OOB access past the cached descriptor array at first stream start. Confidence slightly lower than stv06xx because cit_get_packet_size (the other alt accessor) is NULL-safe and the driver's models sometimes use bulk paths, but the isoc_init/isoc_nego hooks fire from the same gspca core path that provides no guard. Not in the seed family (different driver, different fix lineage)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/usbvision/usbvision-video.c",
+      "line": 1448,
+      "status": "safe",
+      "reason": "actconfig->interface[...] indexed only after ifnum < desc.bNumInterfaces check (line 1449-1453) or via per-model fixed index; endpoint use preceded by bNumEndpoints<2 check (line 1455)"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/usbtv/usbtv-core.c",
+      "line": 77,
+      "status": "safe",
+      "reason": "num_altsetting!=2 rejected at 77 and altsetting[1].bNumEndpoints!=4 rejected at 79 before altsetting[1].endpoint[0] use at 82"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/serial/ftdi_sio.c",
+      "line": 1885,
+      "status": "safe",
+      "reason": "actconfig->interface[0]/[1] used only as pointer identity comparison; a NULL entry (fewer interfaces) merely makes the comparison false, no dereference"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/input/misc/ims-pcu.c",
+      "line": 1668,
+      "status": "safe",
+      "reason": "usb_ifnum_to_if result NULL-checked; data interface validates bNumEndpoints==2 and bulk-out before endpoint[0]/[1]; the ctrl interface alt->endpoint[0] without bNumEndpoints check is the probe-time endpoint-array form owned by the fixed-epidx-rest branch, not if-alt-count"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/cx231xx/cx231xx-cards.c",
+      "line": 1562,
+      "status": "safe",
+      "reason": "seed family (demonstration, never reportable); additionally its actconfig->interface[idx] sites are guarded by idx < max_iad_interface_count where max_iad_interface_count = config->desc.bNumInterfaces (line 1562), which is the correct interface-count check"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/cx231xx/cx231xx-audio.c",
+      "line": 703,
+      "status": "safe",
+      "reason": "seed family excluded; also the interface index it uses (audio_index+1) is validated against bNumInterfaces via the same max_iad_interface_count guard in cx231xx-cards before audio init runs (cx231xx_init_dev checks hs_config_info indices)"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "line": 2209,
+      "status": "unresolved",
+      "reason": "actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval read for the interrupt URB: interface[0] always exists (config parser guarantees at least one interface) and altsetting[0] exists, but endpoint[0] is read with no bNumEndpoints check - that is the endpoint-array branch's concern; the interface/altsetting indexes themselves are in-bounds"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/dvb-usb/friio.c",
+      "line": 423,
+      "status": "safe",
+      "reason": "num_altsetting < GL861_ALTSETTING_COUNT rejected before usb_altnum_to_altsetting result is used; altnum lookup is NULL-checked"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/dvb-usb/m920x.c",
+      "line": 131,
+      "status": "safe",
+      "reason": "usb_altnum_to_altsetting(intf, 1) NULL-checked at 131 and 474; the helper walks the real num_altsetting, no assumed index"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/em28xx/em28xx-audio.c",
+      "line": 767,
+      "status": "safe",
+      "reason": "num_altsetting <= alt rejected at 767 before altsetting[alt] loop with per-alt bNumEndpoints bound at 773"
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 2052,
+      "status": "safe",
+      "reason": "iface taken from the probed interface's own descriptor and later passed to usb_ifnum_to_if (NULL-checked at 854 path) / usb_set_interface, which validate against real descriptor state; core's own alt indexes come from build_isoc_ep_tb bounded by num_altsetting"
+    }
+  ],
+  "limitations": [
+    "The two reported gspca findings were not compiled or run: no Kconfig/full-tree build was performed (read-only snapshot, builds would be under $TMPDIR only); line-level reasoning plus the usb_interface_cache/altsetting[0] flex-array layout in include/linux/usb.h is the evidence basis.",
+    "Full trigger path from userspace (VIDIOC_STREAMON -> gspca_init_transfer_kind -> sd_desc->isoc_init) was traced in source but not exercised with a USB gadget reproducer, so whether a particular kernel config enables both subdrivers (CONFIG_USB_GSPCA_STV06XX, CONFIG_USB_GSPCA_CIT) is environment-dependent.",
+    "runtime altsetting-switch consumers (S_ALT/VIDIOC_S_ALT handlers, sound/usb set_alt, cdc_ncm MBIM alt switch, qcserial/sierra num_altsetting==2 switch paths) were enumerated by grep but not all deep-read; only the ones listed in candidates were classified, the remainder are unexamined.",
+    "ueagle-atm.c:2209 endpoint[0] read without bNumEndpoints check was classified unresolved here because the unvalidated endpoint index belongs to the fixed-epidx-rest branch; the interface[0]/altsetting[0] levels it sits on are structurally in-bounds.",
+    "No Git history or external CVE databases were consulted (not permitted); classification of 'same fix lineage' relies on source content only."
+  ]
+}

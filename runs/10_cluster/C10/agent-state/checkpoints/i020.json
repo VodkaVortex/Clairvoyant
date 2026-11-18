@@ -1,0 +1,16 @@
+{
+ "version": 1,
+ "intent_id": "i020",
+ "branch": "terminator-write-off-by-one",
+ "status": "complete",
+ "snapshot": "s03",
+ "contradictions": [
+  "versal_edac inject_data_ue_store: f015 CORRECT - buf[len]='\\0' at 863 with len=min_t(count,sizeof(buf)) on char buf[6] is a 1-byte stack OOB write when count>=6; f005's 'safe' classification is wrong for s03",
+  "wd33c93 buf[len]='\\0' at 2019: IN-BOUNDS in s03 - PROC_BLOCK_SIZE is (3*1024)=3072 (scsi_proc.c:42), proc_scsi_host_write rejects count>3072, page is PAGE_SIZE; f005's PAGE_SIZE-boundary claim is false for this snapshot; imm/ppa write no terminator at all (their parse issues belong to i012)"
+ ],
+ "findings": [
+  "drivers/edac/versal_edac.c:859-863 high",
+  "drivers/edac/zynqmp_edac.c:307-311 high"
+ ],
+ "sweep": "~120 terminator-write-with-usercopy sites inventoried tree-wide in s03; all others show >=-rejection, >-1 rejection, or sizeof-1 clamp"
+}

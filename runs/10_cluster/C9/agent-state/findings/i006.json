@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 237,
+      "quote": "num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: ioctl FSL_HV_IOCTL_MEMCPY on /dev/fsl-hv copies a fully userspace-controlled u64 param.count via copy_from_user (line 165); the only validation is that exactly one of source/target is -1. Missing guarantee: num_pages is declared unsigned int (line 155) and computed as (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT (line 218) - a 64-bit addition whose result is truncated to 32 bits with no clamp, and the subsequent allocation size num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1 (lines 236-237, element size 32 bytes per arch/powerpc/include/asm/fsl_hcalls.h) is a plain 32-bit unsigned multiply with no kcalloc/array_size/overflow check. Unsafe use: the fill loop for (i = 1; i < num_pages; i++) (line 272) writes sg_list[i].source/.target/.size (lines 275-282) into the kmalloc'd buffer for every num_pages entries while kmalloc only received the wrapped 32-bit product; e.g. count near 2^41 yields num_pages 2^29 whose 32-bit product 2^34 wraps to 0 so kmalloc(~31) succeeds and the loop writes gigabytes past the heap buffer (the pages[] kcalloc on line ~228 is likewise sized by the same truncated count). This is the seed's exact mechanism - unchecked count*size in a narrow type to kmalloc followed by an element-indexed loop - with count crossing the ioctl trust boundary instead of a network protocol. Counterevidence checked: get_user_pages_fast would need to pin num_pages pages (huge counts usually fail there with -EFAULT before the loop), which mitigates but does not eliminate the case: the sg_list kmalloc product wraps for num_pages >= 2^27 while get_user_pages_fast may still succeed on machines with sufficient RAM, and even before that the 64-to-32-bit truncation of num_pages itself makes the allocation disagree with the loop bound derived from the untruncated count arithmetic. No clamp, no check_mul_overflow, no kcalloc anywhere on this path (verified across the whole file)."
+    }
+  ],
+  "candidates": [
+    {"snapshot": "s02", "path": "net/sched/ematch.c", "line": 333, "status": "safe", "reason": "matches_len = tree_hdr->nmatches * sizeof(*em); nmatches is __u16 (include/uapi/linux/pkt_cls.h:543), sizeof(struct tcf_ematch)=32, max product 65535*32=2097120, no 32-bit overflow; kmalloc of ~2MB then bounded fill loop."},
+    {"snapshot": "s02", "path": "fs/nfsd/nfs4xdr.c", "line": 1937, "status": "safe", "reason": "kzalloc(argp->opcnt * sizeof(*argp->ops)) is guarded by argp->opcnt > NFSD_MAX_OPS_PER_COMPOUND (16) return at line 1933; count comes from the NFS wire but is clamped to 16."},
+    {"snapshot": "s02", "path": "fs/nfsd/nfs4proc.c", "line": 1476, "status": "safe", "reason": "buf = kmalloc(count << 2) with count = 4 + (verify->ve_attrlen >> 2); ve_attrlen is bounded by READ_BUF to <= PAGE_SIZE plus pagelen, so count is small; classic bounded verifier path."},
+    {"snapshot": "s02", "path": "drivers/virt/vboxguest/vboxguest_utils.c", "line": 660, "status": "safe", "reason": "vbg_hgcm_call32 size = parm_count * sizeof(...); caller vbg_hgcm_ioctl rejects call->parm_count > VMMDEV_HGCM_MAX_PARMS before the call, so the u32 multiply cannot overflow."},
+    {"snapshot": "s02", "path": "drivers/firmware/qemu_fw_cfg.c", "line": 646, "status": "unresolved", "reason": "dir_size = count * sizeof(struct fw_cfg_file) with u32 count read from the fw_cfg device via fw_cfg_read_blob, then kmalloc and a count-iteration register loop over device data; product is size_t so no arithmetic overflow, count is device/firmware-controlled rather than attacker-network-controlled, and huge counts fail kmalloc; left unresolved because a malicious QEMU could pick count to make the loop heavy but not to overflow the 64-bit product."},
+    {"snapshot": "s02", "path": "sound/soc/codecs/tas571x.c", "line": 187, "status": "safe", "reason": "recv_size = len * sizeof(uint32_t) with len passed only from tas571x_coefficient_get/put where numcoef is a driver-constant (5) embedded in private_value; not attacker-controlled."},
+    {"snapshot": "s02", "path": "drivers/infiniband/hw/vmw_pvrdma/pvrdma_mr.c", "line": 213, "status": "safe", "reason": "int size = max_num_sg * sizeof(u64) computed before the check, but max_num_sg > PVRDMA_MAX_FAST_REG_PAGES (128) is rejected at line 217, so the product is at most 1024; compute-before-check is stylistically bad but cannot overflow."},
+    {"snapshot": "s02", "path": "drivers/media/v4l2-core/v4l2-ioctl.c", "line": 3043, "status": "safe", "reason": "check_array_args clamps every count before the multiply feeding kvmalloc(array_size): buf->length > VIDEO_MAX_PLANES rejected (line 2921), edid->blocks > 256 rejected, ctrls->count > V4L2_CID_MAX_CTRLS rejected; copy_from_user then loops with the same clamped values."},
+    {"snapshot": "s02", "path": "net/netfilter/xt_hashlimit.c", "line": 291, "status": "safe", "reason": "vmalloc(sizeof(struct xt_hashlimit_htable) + sizeof(struct hlist_head) * size) with cfg->size u32 from iptables; the addition is size_t so no truncation, oversized sizes simply fail vmalloc; also requires CAP_NET_ADMIN."},
+    {"snapshot": "s02", "path": "net/netfilter/x_tables.c", "line": 1326, "status": "safe", "reason": "size = sizeof(void *) * i->stacksize * 2u with unsigned int stacksize but stored into size_t and passed to kvmalloc_node; stacksize derived from previously validated rule offsets, not a raw wire count."},
+    {"snapshot": "s02", "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c", "line": 338, "status": "safe", "reason": "kzalloc(len << 2) preceded by explicit len > (UINT_MAX >> 2) rejection, so the shift cannot wrap."},
+    {"snapshot": "s02", "path": "drivers/scsi/bfa/bfad_debugfs.c", "line": 279, "status": "safe", "reason": "kzalloc(len << 2) preceded by explicit len > (UINT_MAX >> 2) rejection with reglen stored consistently."}
+  ],
+  "limitations": [
+    "The fsl_hypervisor finding is a hypothesis, not a proven exploit: exploitation additionally requires get_user_pages_fast to pin num_pages pages and /dev/fsl-hv (mode 0600 root-owned misc device) access, and was only verified by source reading plus arithmetic on the 64-to-32-bit truncation and the 32-bit num_pages*32 product; no runtime reproducer was built on the read-only snapshot.",
+    "The candidate sweep was bounded to allocator-adjacent multiply/shift sites matched by six high-signal regex families (int/unsigned size = count * sizeof, count << shift into allocators, sizeof+count*elem forms, direct sizeof(struct) * count in allocator arguments, and subsystem sweeps of netfilter, media, fs, xen/virt drivers); multiply sites inside arch/, tools/, mm/ internals with trusted kernel-derived counts were only spot-checked, not exhaustively audited.",
+    "qemu_fw_cfg count-driven kmalloc+loop was classified unresolved (device-controlled, 64-bit product) and was not pursued further; peer-transport reply handlers are covered by the separate i009 intent, not this one."
+  ]
+}

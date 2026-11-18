@@ -1,0 +1,78 @@
+{
+  "intent_id": "i026",
+  "branch": "media-epidx",
+  "snapshot": "s07",
+  "status": "complete",
+  "phase": "finalized",
+  "notes": "Swept drivers/media/usb/** in s07: fixed-index endpoint[N] grep, endpoint+N, variable-index endpoint[i] with preceding loop, intf_cache/altsetting[1] pattern (f002), ->endpoint non-indexed, ep_in[] array. Seed cx231xx excluded. Strongest: stv06xx/xirlink_cit isoc_init/isoc_nego (intf_cache[0]->altsetting[1].endpoint[0] read+write, zero guards), usbvision per-alt loop endpoint[1] (bNumEndpoints check applied only to the initially chosen interface, not interface[0] per-alt), konica endpoint[0]/[1] sizing URB buffers, dib0700 rc_ep=1, flexcop cur_altsetting->endpoint[0]. ov519/pb0100/cit_get_packet_size boundary cases kept unresolved/safe per core alt_xfer guarantee. usbtv/uvc safe (explicit guards).",
+  "candidates": [
+    {
+      "file": "gspca/stv06xx/stv06xx.c",
+      "line": 320,
+      "status": "reported"
+    },
+    {
+      "file": "gspca/xirlink_cit.c",
+      "line": 2653,
+      "status": "reported"
+    },
+    {
+      "file": "usbvision/usbvision-video.c",
+      "line": 1504,
+      "status": "reported"
+    },
+    {
+      "file": "gspca/konica.c",
+      "line": 203,
+      "status": "reported"
+    },
+    {
+      "file": "dvb-usb/dib0700_core.c",
+      "line": 829,
+      "status": "reported"
+    },
+    {
+      "file": "b2c2/flexcop-usb.c",
+      "line": 430,
+      "status": "reported"
+    },
+    {
+      "file": "gspca/ov519.c",
+      "line": 3471,
+      "status": "unresolved"
+    },
+    {
+      "file": "gspca/stv06xx/stv06xx_pb0100.c",
+      "line": 197,
+      "status": "unresolved"
+    },
+    {
+      "file": "gspca/xirlink_cit.c",
+      "line": 1454,
+      "status": "unresolved"
+    },
+    {
+      "file": "usbtv/usbtv-core.c",
+      "line": 82,
+      "status": "safe"
+    },
+    {
+      "file": "uvc/uvc_driver.c",
+      "line": 1281,
+      "status": "safe"
+    },
+    {
+      "file": "siano/smsusb.c",
+      "line": 439,
+      "status": "safe"
+    }
+  ],
+  "queries_done": [
+    "grep fixed-index endpoint[0-9] in media/usb (excluding cx231xx)",
+    "grep endpoint+ / endpoint[ident] variable index",
+    "grep intf_cache / altsetting[1] (f002 pattern)",
+    "grep non-indexed ->endpoint and ep_in[] array uses",
+    "bNumEndpoints/num_altsetting guard-count per candidate file",
+    "loop-header verification for all endpoint[i] hits (pwc, smsusb, hdpvr, s2255, zr364xx, stkwebcam, au0828, gspca core, tm6000, em28xx, stk1160, uvc)"
+  ]
+}

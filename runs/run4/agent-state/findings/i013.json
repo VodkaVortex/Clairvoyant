@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "io-uring-sq-ring",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "io_uring/io_uring.c",
+      "line": 1739,
+      "status": "safe",
+      "reason": "io_init_req single-fetches every consumed SQE field via READ_ONCE into req-local state: opcode (1739), flags (1741), user_data (1743), fd (1813), buf_group (1781), personality (1826). The IORING_OP_LAST bounds check (1747-1750) and array_index_nospec (1751) plus io_issue_defs lookup all consume the cached req->opcode; io_issue_sqe (1410) passes only req, never the shared sqe pointer, so no second dereference of shared memory on the use path."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/io_uring.c",
+      "line": 1997,
+      "status": "safe",
+      "reason": "io_get_sqe reads the user-mapped sq_array entry exactly once (READ_ONCE at 1997), rejects head >= ctx->sq_entries (1998-2002), applies array_index_nospec (2003), and only then forms the sq_sqes pointer (2018). The 128B shift (2013-2014) stays in bounds because head was already masked below sq_entries. The comment at 1984-1990 documents the required single-fetch invariant."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/net.c",
+      "line": 850,
+      "status": "safe",
+      "reason": "io_recvmsg_prep contains three syntactic reads of sqe->optlen (850, 853, 857) but each execution path reads it at most once: the consumed value sr->mshot_total_len is taken via READ_ONCE at 850 (multishot+RECV branch), while 853 (multishot+RECVMSG) and 857 (non-multishot) are must-be-zero rejections on mutually exclusive branches whose value is never consumed. No path validates optlen in one fetch and uses a different fetch."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/fdinfo.c",
+      "line": 109,
+      "status": "safe",
+      "reason": "io_uring_show_fdinfo re-reads the shared SQE, but the index used for pointer formation is single-fetched (READ_ONCE(ctx->sq_array[...]) at ~106, rejected with 'if (sq_idx > sq_mask) continue'), the second opcode read is itself READ_ONCE'd, bounds-checked and nospec'd (109-114), and the bare sqe->fd/flags/off/addr/rw_flags/buf_index/user_data reads (135-138) feed only seq_printf display output, never offsets, lengths, or pointer arithmetic."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/msg_ring.c",
+      "line": 290,
+      "status": "safe",
+      "reason": "__io_msg_ring_prep READ_ONCEs every consumed field into the msg struct (off/len/addr at 285-287, addr3/file_index at 290-291, msg_ring_flags at 292); the bare sqe->buf_index/personality reads at 283 are must-be-zero rejections, and personality is separately single-fetched and consumed in io_init_req (io_uring.c:1826). io_uring_sync_msg_ring's sqe->fd read (msg_ring.c:351) operates on a kernel stack copy made by copy_from_user in its only caller io_uring_register_send_msg_ring (register.c:985-994)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/uring_cmd.c",
+      "line": 211,
+      "status": "safe",
+      "reason": "ioucmd->sqe initially aliases user-mapped memory, but io_req_sqe_copy (io_uring.c:1602-1613) calls io_uring_cmd_sqe_copy to memcpy the SQE into kernel async storage (uring_cmd.c:227-236) before any async, linked, or fallback execution (call sites io_uring.c:1626, 1672, 1910). Audited uring_cmd consumers that touch the live shared SQE single-fetch consumed fields via READ_ONCE: cmd_net.c:164-171 (addr/addr3/optlen after ioprio/__pad1/len/rw_flags rejection), mock_file.c:74-82 and 217-223, ublk_drv.c:802/3082/3725/3813, btrfs ioctl.c:4713/4854, nvme ioctl.c:456-480, fuse dev_uring.c:1103 (sqe->addr) with sqe->len at 1106 used only as must-equal rejection while import_iovec consumes the constant."
+    },
+    {
+      "snapshot": "s03",
+      "path": "block/ioctl.c",
+      "line": 955,
+      "status": "safe",
+      "reason": "blkdev_uring_cmd touches the shared SQE only on first issue (guarded by !(cmd->flags & IORING_URING_CMD_REISSUE)), performs must-be-zero rejection of ioprio/__pad1/len/rw_flags/file_index (957-958), and caches the consumed values bic->start/bic->len via READ_ONCE (966-967) into the request PDU, which is what reissues consume; this is exactly the seed's fix pattern."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/openclose.c",
+      "line": 75,
+      "status": "safe",
+      "reason": "open/close/{open,close}_direct file_slot fields are single-fetched via READ_ONCE(sqe->file_index) at 75, 229, 338 and consumed later only from the cached struct field (io_close_fixed at 216 uses close->file_slot, install at 179 uses open->file_slot); the paired bare reads (sqe->fd at 230, sqe->off/addr/len at 223/280) are must-be-zero rejections whose values are never used."
+    },
+    {
+      "snapshot": "s03",
+      "path": "io_uring/poll.c",
+      "line": 877,
+      "status": "unresolved",
+      "reason": "Grep-level only: bare 'else if (sqe->poll32_events)' at 877 (plus bare must-be-zero reads at 858 and 888) was not read line-by-line, and the READ_ONCE status of poll32_events consumption in io_poll_add/io_poll_update prep bodies was not verified before the finalize budget was exhausted. poll32_events encodes compat poll event masks and is plausibly consumed downstream; this remains the one core-prep site whose check-vs-use fetch relationship is unconfirmed."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/block/ublk_drv.c",
+      "line": 3360,
+      "status": "unresolved",
+      "reason": "Four uring_cmd handlers cast inline server command structs directly out of the user-shared SQE via io_uring_sqe_cmd/io_uring_sqe128_cmd (3360, 3952, 3982, 5741: 'const struct ublksrv_io_cmd *ub_src = io_uring_sqe_cmd(cmd->sqe, ...)'); the per-field validation/consumption inside those handler bodies was not audited before finalize. The four other ublk cmd->sqe uses found (802, 3082, 3725, 3813) are single READ_ONCE fetches."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/nvme/host/ioctl.c",
+      "line": 449,
+      "status": "unresolved",
+      "reason": "nvme_uring_cmd_io reads the inline nvme_uring_cmd struct from the user-shared SQE (cast at 449); opcode/flags (456-458, flags rejection uses the cached copy), nsid (461-462, validated via nvme_validate_passthru_nsid on the cached c.common.nsid) and cdw2-cdw15 (466-480) are single-fetched. However the reads of struct nvme_uring_data d fields (addr, metadata, data_len, metadata_len) below line 480, which feed iov_iter/bio length and pointer setup, were not read before finalize; passthrough uring_cmd data fields are a historically bug-prone spot for exactly this double-fetch class."
+    }
+  ],
+  "limitations": [
+    "Negative result is bounded to the io_uring core submit path (io_get_sqe/io_init_req/io_submit_sqe/io_issue_sqe/io_req_sqe_copy/io_commit_sqring), the SQE-field accesses of all 25 opcode prep functions (grep-level enumeration plus line-by-line reads of net.c, fs.c send/recvmsg, openclose.c, msg_ring.c, uring_cmd.c, cmd_net.c, mock_file.c, splice.c, rw.c, kbuf.c prep fragments), and the uring_cmd driver entry sites in block/ioctl.c, drivers/nvme/host/ioctl.c, drivers/block/ublk_drv.c, fs/btrfs/ioctl.c, and fs/fuse/dev_uring.c.",
+    "Not line-by-line audited before the finalize budget: full bodies of ublk_drv.c uring_cmd handlers at 3360, 3952, 3982, 5741 (io_uring_sqe_cmd inline-struct casts); nvme ioctl.c nvme_uring_cmd_io past line 480 (nvme_uring_data d.addr/d.metadata/d.data_len/d.metadata_len); io_poll_add/io_poll_update prep consumption of sqe->poll32_events (poll.c:877); qla2xxx qla_nvme.c:620/671 and drivers/scsi/scsi_bsg.c:81/107 uring_cmd bodies (bare cmd->sqe opcode comparisons seen only at grep level).",
+    "No runtime reproducer or static analyzer was run; conclusions come from static single-fetch analysis of the mapped-SQE lifetime (inline issue under uring_lock, memcpy to kernel storage on async punt at uring_cmd.c:227-236, sq.head committed only after the batch at io_uring.c:1978).",
+    "The seed's own fixed function is in net/xdp and is out of scope for this branch; this artifact covers only the io-uring-sq-ring branch of snapshot s03."
+  ]
+}

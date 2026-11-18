@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "intent_id": "i040",
+  "phase": "final",
+  "branch": "tasklet-napi-softirq-lock",
+  "assigned_snapshot": "s11",
+  "invariant": "Lock objects shared between process-context code (workers/ioctls/open-close/config/firmware handlers) and TASKLET or NET softirq context (tasklet_schedule callback bodies, NAPI poll via napi_schedule, NET_RX/NET_TX softirq callbacks) where process side uses plain spin_lock() instead of spin_lock_bh()/local_bh_disable() -> same-CPU softirq deadlock. Excluding xmit-callback and timer-callback paths (covered by branches 1-2).",
+  "status": "complete - negative result; two candidates triaged safe (ath5k txbuflock nested in spin_lock_bh; he.c global_lock softirq-side under outer irqsave)",
+  "queries_planned": [
+    "rg tasklet_schedule / tasklet_hi_schedule callback bodies",
+    "rg napi_schedule / napi_poll_fn registrations",
+    "rg spin_lock( near shared lock objects in process paths",
+    "correlate lock usage between softirq-side fn and process-side fn"
+  ],
+  "candidates": [
+    {
+      "path": "drivers/net/wireless/ath/ath5k/base.c",
+      "line": 1125,
+      "lock": "ah->txbuflock",
+      "softirq_side": "ath5k_tasklet_tx -> ath5k_tx_processq:1774 spin_lock(&ah->txbuflock); tasklet_init base.c:3073",
+      "process_side": "ath5k_reset_work / ath5k_tx_complete_work -> ath5k_reset:2881 -> ath5k_drain_tx_buffs:1125 spin_lock(&ah->txbuflock)",
+      "note": "ath5k_reset calls ath5k_stop_tasklets (tasklet_kill) before drain \u2014 need to verify mitigation; tx_complete_work path calls ath5k_reset directly under ah->lock"
+    },
+    {
+      "path": "drivers/atm/he.c",
+      "line": 1770,
+      "lock": "he_dev->global_lock",
+      "softirq_side": "he_tasklet:1936 spin_lock_irqsave(&he_dev->global_lock); he_irq_handler schedules it",
+      "process_side": "he_service_rbrq:1770 spin_lock(&he_dev->global_lock) (reacquire after vcc->push) \u2014 he_service_rbrq only called from he_tasklet (softirq) itself, so plain spin_lock there is softirq-context side, not process side",
+      "note": "likely misclassification; verify all callers of he_service_rbrq"
+    }
+  ],
+  "findings": [],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i040.json"
+}

@@ -1,0 +1,29 @@
+{
+  "intent_id": "i002",
+  "branch": "alloc-multiply-overflow",
+  "snapshot": "s01",
+  "status": "finalizing",
+  "progress": "Deep-read drivers/virt/fsl_hypervisor.c ioctl_memcpy in s01: userspace u64 param.count (copy_from_user:165) -> unsigned int num_pages = (count+lb_offset+PAGE_SIZE-1)>>PAGE_SHIFT (221, 64->32-bit truncation, no upper clamp) -> kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1) at 239-240 (plain 32-bit multiply-add, element size 32) -> for (i=1;i<num_pages;i++) fill loop at 274-288 writing sg_list[i].source/.target/.size. Sibling pages allocation at 229 uses kzalloc_objs (size_mul overflow-checked) - within-function asymmetry. Seed usbip chain verified PATCHED in s01 (kcalloc at usbip_common.c:699, USBIP_MAX_ISO_PACKETS clamp at 685). Broad regex sweeps did not execute (rg resolution failure); audit bounded to the deep-read chain.",
+  "candidates": [
+    {
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 239,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 274,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 229,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 699,
+      "status": "safe"
+    }
+  ]
+}

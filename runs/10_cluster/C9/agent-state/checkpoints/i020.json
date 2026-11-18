@@ -1,0 +1,28 @@
+{
+  "intent_id": "i020",
+  "branch": "error-unwind-poisoned-count",
+  "snapshot": "s05",
+  "status": "finalized",
+  "progress": [
+    {"step": 1, "state": "done", "note": "Read seed.json; mechanism: untrusted count stored into shared object, error path leaves it poisoned, later handler iterates it OOB"},
+    {"step": 2, "state": "done", "note": "Swept non-usbip number_of_packets consumers (all locally set), 9p client/protocol, drbd_receiver, rnbd-clt, f_fs OS descriptors, xen gntdev, rxe/siw, srp initiator, iscsi target, mpt3sas/megaraid/smartpqi, nbd"},
+    {"step": 3, "state": "done", "note": "Deep-read: iscsit_handle_scsi_cmd AHS path (reported), iscsit_get_rx_pdu (unresolved), p9 readdir chain (safe), f_fs ext_prop (safe), gntdev ioctls (safe), srp (safe)"},
+    {"step": 4, "state": "done", "note": "Final artifact written to findings/i020.json"}
+  ],
+  "candidates": [
+    {"path": "drivers/target/iscsi/iscsi_target.c:1113", "status": "reported", "note": "peer-controlled ahslength: validated/sized at kmalloc(1122), independently re-fetched as memcpy length (1129), never clamped to received AHS bytes (hlength*4) or ecdb array size"},
+    {"path": "drivers/target/iscsi/iscsi_target.c:4097", "status": "unresolved", "note": "hlength*4 receive never cross-checked vs ahslength"},
+    {"path": "drivers/usb/usbip/usbip_common.c:644", "status": "unresolved", "note": "seed verbatim in s05, excluded by seed rule"},
+    {"path": "drivers/block/nbd.c", "status": "unresolved", "note": "reply handler not deep-read"},
+    {"path": "drivers/infiniband/sw/rxe/rxe_resp.c:390", "status": "unresolved", "note": "resid teardown not fully walked"},
+    {"path": "fs/9p/vfs_dir.c:70", "status": "safe"},
+    {"path": "drivers/usb/gadget/function/f_fs.c:2373", "status": "safe"},
+    {"path": "drivers/xen/gntdev.c:953", "status": "safe"},
+    {"path": "drivers/xen/gntdev.c:628", "status": "safe"},
+    {"path": "drivers/infiniband/ulp/srp/ib_srp.c:1985", "status": "safe"},
+    {"path": "drivers/block/drbd/drbd_receiver.c:5681", "status": "safe"},
+    {"path": "drivers/block/rnbd/rnbd-clt.c:1340", "status": "safe"},
+    {"path": "drivers/media/usb + btusb/comedi urb builders", "status": "safe", "note": "all number_of_packets locally set"}
+  ],
+  "notes": "Finalized under directive. One medium-confidence finding (iSCSI AHS poisoned shared-header length), final artifact at agent-state/findings/i020.json."
+}

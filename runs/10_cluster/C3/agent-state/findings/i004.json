@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "nested-parse-null-arg",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 421,
+      "end": 432,
+      "quote": "if (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))",
+      "confidence": "high",
+      "reason": "Untrusted source: hwsim_new_edge_nl is the doit for MAC802154_HWSIM_CMD_NEW_EDGE (drivers/net/ieee802154/mac802154_hwsim.c:606-610, .flags = GENL_UNS_ADMIN_PERM, reachable by an unprivileged user via a user namespace that owns its net ns), and the attribute set of a genl message is fully attacker-chosen. Violated invariant: the presence guard at lines 421-423 joins two negated presence tests with && instead of ||, so it returns -EINVAL only when BOTH MAC802154_HWSIM_ATTR_RADIO_ID and MAC802154_HWSIM_ATTR_RADIO_EDGE are absent; a message that includes RADIO_ID but omits RADIO_EDGE passes validation while info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] stays NULL. The genl core does not enforce presence: hwsim_genl_policy (lines 579-583) declares [MAC802154_HWSIM_ATTR_RADIO_EDGE] = { .type = NLA_NESTED } with no required semantics (this tree has no NLA_POLICY_REQUIRED/NLA_REJECT/NLA_NESTED+validation_data enforcement for this entry), and the op carries .validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP (line 607), further weakening core validation. Unsafe use: line 425 passes the NULL slot directly as the nesting attribute to nla_parse_nested_deprecated, whose implementation (include/net/netlink.h) calls nla_len()/nla_data() on the passed nlattr -> NULL-pointer dereference kernel oops (local DoS). Secondary path in the same function: line 431 nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]) is unguarded, so a message supplying only RADIO_EDGE also crashes. Counterevidence checked: hwsim_edge_policy (lines 375-378) covers only inner ENDPOINT_ID/LQI types, not outer presence; no intervening NULL check exists between lines 423 and 425."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 531,
+      "end": 544,
+      "quote": "if (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))",
+      "confidence": "high",
+      "reason": "Untrusted source: hwsim_set_edge_lqi is the doit for MAC802154_HWSIM_CMD_SET_EDGE (drivers/net/ieee802154/mac802154_hwsim.c:617-622, .flags = GENL_UNS_ADMIN_PERM), reachable from unprivileged userspace via user-namespace CAP_NET_ADMIN; message attribute presence/payloads are attacker-chosen. Violated invariant: the outer presence guard at lines 531-533 uses && over negated presence tests (logical inversion), so omitting MAC802154_HWSIM_ATTR_RADIO_EDGE while sending MAC802154_HWSIM_ATTR_RADIO_ID passes validation; hwsim_genl_policy (lines 579-583) marks RADIO_EDGE only as optional { .type = NLA_NESTED } and .validate = GENL_DONT_VALIDATE_STRICT (line 619) prevents the genl core from rejecting its absence. Unsafe use: line 535 feeds the NULL info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] straight into nla_parse_nested_deprecated, which dereferences it via nla_len()/nla_data() inside __nla_parse -> NULL-pointer dereference oops. Additional secondary gap: the inner-attribute guard at lines 538-540 is also inverted (&& over !edge_attrs[ENDPOINT_ID] and !edge_attrs[LQI]), and lines 543-544 then call nla_get_u32(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID]) and nla_get_u8(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI]) unconditionally, so omitting exactly one inner attribute yields a second NULL deref; likewise line 542 nla_get_u32(info->attrs[...RADIO_ID]) is unguarded. Counterevidence checked: no required flag in hwsim_genl_policy; no other check between guard and use; hwsim_del_edge_nl's later upstream fix (|| instead of &&) was never applied to this handler or hwsim_new_edge_nl in this snapshot."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 425,
+      "status": "reported",
+      "reason": "hwsim_new_edge_nl: inverted && presence guard (421-423) lets MAC802154_HWSIM_ATTR_RADIO_EDGE stay NULL into nla_parse_nested_deprecated at 425; policy entry optional NLA_NESTED (581); GENL_UNS_ADMIN_PERM reachable; unguarded nla_get_u32(RADIO_ID) at 431 as second crash path."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 535,
+      "status": "reported",
+      "reason": "hwsim_set_edge_lqi: identical inverted && guard (531-533) and NULL nesting arg at 535; inner guard at 538-540 also inverted leading to unguarded nla_get_u32/nla_get_u8 at 543-544."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 487,
+      "status": "safe",
+      "reason": "hwsim_del_edge_nl has the same inverted && guard (483-485) and NULL nesting attribute at 487, but this is exactly the seed vulnerability instance (commit 0303b30375df), which is never reportable as a finding by rule; recorded only to note the snapshot predates the fix."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/wireless/pmsr.c",
+      "line": 160,
+      "status": "safe",
+      "reason": "pmsr_parse_peer verifies !tb[NL80211_PMSR_PEER_ATTR_CHAN] returns -EINVAL at lines 146-152 before nla_parse_nested_deprecated(info->attrs, ..., tb[NL80211_PMSR_PEER_ATTR_CHAN], ...) at 159-161; the REQ attr at 170-172 is likewise guarded at 174-179."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/wireless/nl80211.c",
+      "line": 8515,
+      "status": "safe",
+      "reason": "CSA_IES nested parse at 8514-8516 is only reached when need_new_beon is true (goto skip_beacons at 8503 otherwise), and line 8495 'if (need_new_beacon && !info->attrs[NL80211_ATTR_CSA_IES]) return -EINVAL;' guarantees non-NULL. Same guarded pattern at 11571-11578 (WOWLAN_TRIGGERS), 12039-12040 (REKEY_DATA), 12352-12354 (NAN_FUNC), 1074 and 1125 (KEY_DEFAULT_TYPES under if), 4456 (FTM_RESPONDER under if), 12453 (NAN_FUNC_SRF under if)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/tipc/node.c",
+      "line": 2169,
+      "status": "safe",
+      "reason": "Every tipc nested-parse site read (node.c:2169/2335/2412/2477/2617/2734/2814, net.c:251, bearer.c:875/924/969/1020/1063/1206/1254, socket.c:3700, udp_media.c:464, netlink_compat.c:405/545/682/900/970/1040/1093/1113/1160) is immediately preceded by 'if (!info->attrs[X]) return -EINVAL;' or 'if (!attrs[X]) return -EINVAL;' covering the exact attribute parsed."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_tables_api.c",
+      "line": 1749,
+      "status": "safe",
+      "reason": "nft_chain_parse_hook parses nla[NFTA_CHAIN_HOOK]; both call sites (1886-1889 and 2011-2015) are inside 'if (nla[NFTA_CHAIN_HOOK])', and the policy entry [NFTA_CHAIN_HOOK] = { .type = NLA_NESTED } at 1243 is optional but never dereferenced when absent. The inner-expr parse at 2426-2427 is guarded by 'if (tb[NFTA_EXPR_DATA])' with an else memset."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/ipset/ip_set_core.c",
+      "line": 1800,
+      "status": "safe",
+      "reason": "call_ad path requires attr[IPSET_ATTR_DATA] present AND flag_nested(attr[IPSET_ATTR_DATA]) (lines ~1793-1799 protocol validation) before nla_parse_nested(tb, IPSET_ATTR_ADT_MAX, attr[IPSET_ATTR_DATA], ...) at 1800, so the nesting attribute cannot be NULL."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/act_ife.c",
+      "line": 575,
+      "status": "safe",
+      "reason": "nla_parse_nested_deprecated(tb2, IFE_META_MAX, tb[TCA_IFE_METALST], ...) is inside 'if (tb[TCA_IFE_METALST])' at line 573."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_conntrack_proto_tcp.c",
+      "line": 1251,
+      "status": "safe",
+      "reason": "nlattr_to_tcp/sctp/dccp (nf_conntrack_proto_tcp.c:1249-1251, sctp.c:562-564, dccp.c:637-639) each extract the slot into a local and 'if (!pattr/attr) return 0;' before the nested parse, so a NULL slot never reaches the helper; net/core/neighbour.c:2224 is inside 'if (tb[NDTA_PARMS])'; net/core/rtnetlink.c:2725/2774 are inside 'if (tb[IFLA_PORT_SELF])'/'if (tb[IFLA_XDP])'; rtnetlink.c:2672/2702 and drivers/block/nbd.c:1942/2125 iterate attributes with nla_for_each_* (non-NULL by construction)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/seg6_local.c",
+      "line": 847,
+      "status": "unresolved",
+      "reason": "parse_nla_bpf calls nla_parse_nested_deprecated(tb, SEG6_LOCAL_BPF_PROG_MAX, attrs[SEG6_LOCAL_BPF], ...) with no local NULL check; attrs[] comes from the SEG6_LOCAL action parse and [SEG6_LOCAL_BPF] is a plain policy entry, but whether the .parse dispatch for SEG6_LOCAL_ACTION_END_BPF is only invoked when the BPF attribute is present was not verified in this bounded pass."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/dcb/dcbnl.c",
+      "line": 233,
+      "status": "unresolved",
+      "reason": "dcbnl_ieee_set (1437) correctly guards tb[DCB_ATTR_IEEE] before the nested parse, but the legacy dcb handlers that parse tb[DCB_ATTR_PFC_CFG]/tb[DCB_ATTR_CAP]/tb[DCB_ATTR_NUMTCS]/tb[DCB_ATTR_APP]/tb[DCB_ATTR_PG_CFG]/tb[DCB_ATTR_BCN]/tb[DCB_ATTR_FEATCFG] (lines 233, 292, 337, 383, 443, 512, 571, 730, 787, 888, 948, 1538, 1612, 1657) were not individually read for presence guards within the call budget; several are netlink-set/dump paths where tb[] comes from dcbnl_getstate-style messages."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_conntrack_netlink.c",
+      "line": 1156,
+      "status": "unresolved",
+      "reason": "Helper-argument sites where the nesting attribute is a function parameter rather than a direct attrs[] index were grouped, not fully traced: ctnetlink_parse_tuple(cda[type]) at 1156-1157, ctnetlink_parse_help (1207-1208), ctnetlink_glue_attach_expect (2622-2623), ctnetlink_parse_expect_nat (3245-3246), nfnetlink_parse_nat_proto/nfnetlink_parse_nat (nf_nat_core.c:890/949), nft_tunnel_obj_erspan_init (nft_tunnel.c:264), nft_ct_timeout_parse_policy (nft_ct.c:806-809), ctnl_timeout_parse_policy (nfnetlink_cttimeout.c:59-62), and br_parse_vlan_tunnel_info (br_netlink_tunnel.c:229-230); each helper itself performs no NULL check, and its callers' presence checks were not all verified (some callers pass nla_for_each/nla_find results which are non-NULL by construction, e.g. nfc/netlink.c:1162 iterates with nla_for_each_nested)."
+    }
+  ],
+  "limitations": [
+    "Coverage bounded to nested-parse/validate/for_each call sites whose nesting attribute is directly indexed from info->attrs[N]/tb[N]/attrs[N]/nla[N]/attr[N] (single-file multiline scans over all 111 files using these helpers, 1-3 line call spans) plus variable-argument sites caught by identifier heuristics; call sites spanning more lines or routing the attribute through multiple locals were not exhaustively enumerated.",
+    "Helper-indirection sites where the nesting attribute is a function parameter (nf_conntrack_netlink tuple/help/expect-nat helpers, nf_nat_core parse helpers, nft_tunnel/nft_ct/nfnetlink_cttimeout policy parsers, br_parse_vlan_tunnel_info, seg6_local parse_nla_bpf) are classified unresolved: the helpers themselves lack NULL checks but the corresponding caller presence checks were not verified within the call budget.",
+    "dcbnl.c legacy DCB handlers (13 remaining tb[DCB_ATTR_*] nested-parse sites) were not individually read; only dcbnl_ieee_set was verified guarded.",
+    "No compilation or reproducer was run: the assigned snapshot tree is read-only and has no top-level Makefile/Kconfig; the NULL-deref conclusion rests on reading nla_parse_nested_deprecated's use of nla_len/nla_data on the passed attribute and on the genl core not enforcing presence for plain { .type = NLA_NESTED } policy entries (this tree has no required-attribute policy semantics for these ops, and the hwsim ops additionally set GENL_DONT_VALIDATE_STRICT).",
+    "Privilege reachability is asserted from .flags = GENL_UNS_ADMIN_PERM on MAC802154_HWSIM_CMD_NEW_EDGE/SET_EDGE (satisfiable by CAP_NET_ADMIN inside an unprivileged user namespace); whether the mac802154_hwsim module is loaded in a target configuration is deployment-dependent.",
+    "Impact characterized as local DoS (kernel NULL-pointer dereference oops); no privilege-escalation path was demonstrated.",
+    "The seed instance hwsim_del_edge_nl (lines 483-487) exhibits the identical unfixed pattern in this snapshot but is excluded from findings by rule."
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "intent_id": "i031",
+  "branch": "tasklet-napi-softirq-lock",
+  "snapshot": "s02",
+  "status": "finalized",
+  "phase": "final artifact written per finalize directive",
+  "verified_evidence": {
+    "fs_enet": "fs_enet-main.c: NAPI poll fs_enet_napi def 84, plain spin_lock(&fep->tx_lock) at 97 (unlock 186), netif_napi_add_weight at 1016, scheduled from hardirq fs_enet_interrupt via napi_schedule_prep:340/__napi_schedule:348 (request_irq IRQF_SHARED at 741); process side fs_enet_close (.ndo_stop at 893, def 762) plain spin_lock(&fep->tx_lock) at 774 nested in spin_lock_irqsave(&fep->lock) at 773; zero spin_lock_bh/local_bh_disable in file (grep=0); napi_disable at 769, free_irq at 781",
+    "altera_tse": "altera_tse_main.c: tse_poll (NAPI def 477, netif_napi_add at 1384, scheduled from altera_isr 523-528, request_irq 928/937) -> tse_tx_complete at 484 takes plain spin_lock(&priv->tx_lock) at 437; process side tse_shutdown (.ndo_stop at 1031, def 986) takes plain spin_lock(&priv->tx_lock) at 1009 after mac_cfg_lock at 1008, no irqsave/BH on the section (rxdma_irq_lock irqsave released at 1001); xmit uses spin_lock_bh at 553; napi_disable at 995 and free_irq at 1004/1005 precede the section",
+    "cassini": "cassini.c: cas_poll (NAPI def 2530, scheduled from cas_interrupt hardirqs at 2408/2459/2515) takes cp->lock irqsave at 2538 and calls cas_tx at 2539 -> cas_tx_ringN (def 1810) plain spin_lock(&cp->tx_lock[ring]) at 1817; ALL process-context tx_lock[] acquisitions go through cas_lock_all_save (247: spin_lock_irqsave(&cp->lock)+cas_lock_tx plain nested at 236) at 3795/3971/4041/4194/4233/4267 or explicit spin_lock_irqsave(&cp->lock) at 4041; zero spin_lock_bh in file (grep=0). Local hard-IRQ disable during the hold precludes same-CPU softirq entry, so the NAPI-vs-process shape is absent; hardirq cas_interrupt->cas_tx at 2506-2508 vs NAPI holder is branch-4 scope",
+    "mwl8k": "mwl8k.c: tasklet_setup(poll_tx_task,mwl8k_tx_poll) at 6132, tasklet_schedule at 4606/4611/4665/4683; mwl8k_tx_poll takes plain spin_lock(&priv->tx_lock) at 4649 (softirq side, acceptable) while every process-context tx_lock site uses spin_lock_bh at 1578/1591/1597/2064; stream_lock defect is xmit-branch scope (f005)"
+  },
+  "candidates": [
+    "fs_enet tx_lock: reported (medium)",
+    "altera_tse tx_lock: reported (low)",
+    "cassini tx_lock[]: safe for this branch (branch-4 lead noted)",
+    "mwl8k tx_lock tasklet: safe",
+    "hostap_hw.c / cxgb4 sge.c / ath5k base.c / macb_main.c: unresolved (not traced this session)"
+  ]
+}

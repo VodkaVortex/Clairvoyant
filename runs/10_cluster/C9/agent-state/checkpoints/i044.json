@@ -1,0 +1,22 @@
+{
+  "intent_id": "i044",
+  "branch": "unclamped-wire-count",
+  "status": "complete",
+  "snapshot": "s11",
+  "steps_done": [
+    "workspace and seed inspected",
+    "seed usbip confirmed unpatched in s11 (usbip_common.c:387 store, :578 unchecked multiply; stub_rx.c:368 clamps only CMD_SUBMIT) - excluded by rule",
+    "grep sweeps: nla_get_u16/u32 count attrs in net/, le/be *_cpu count fields in drivers/ net/ fs/, get_unaligned_* counts, sock_fprog-style counts",
+    "verified-clamped families recorded: bluetooth mgmt.c (key/irk/uuid/param counts all max-clamped + expected_len), rtnetlink queue counts [1,4096] and GSO_MAX_SEGS, act_bpf/cls_bpf BPF_MAXINSNS, mpt3sas min_t(NUM_VALID_ENTRIES), fuse nr_segs pipe-bounded, rsxx status ring idx-masked, qla_tmpl dump-budget-bounded",
+    "reported: fs/cifs/cifsacl.c:794 num_aces (le32) unclamped vs checked sibling size fields, OOB ACE walk + compare_sids sub_auth loop",
+    "reported: drivers/scsi/smartpqi/smartpqi_init.c:8312 device-shared ofap->num_memory_descriptors re-read on free with no re-clamp vs alloc-side PQI_OFA_MAX_SG_DESCRIPTORS=64",
+    "reported (low): drivers/acpi/cppc_acpi.c:711 NumEntries stored before is_cppc_supported validation, unwind/exit loops iterate over fixed 21-entry cpc_regs",
+    "unresolved recorded: ceph snap split counts, scsi hba reply lengths, ccs num_descs, cifs DFS referral count"
+  ],
+  "next": [],
+  "findings": [
+    "fs/cifs/cifsacl.c:794-851 high",
+    "drivers/scsi/smartpqi/smartpqi_init.c:8312-8320 medium",
+    "drivers/acpi/cppc_acpi.c:705-711 low"
+  ]
+}

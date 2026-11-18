@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "intent_id": "i024",
+  "branch": "callee-pull-caller-stale",
+  "snapshot": "s03",
+  "status": "finalized",
+  "progress": [
+    "Read seed.json (phonet pep_get_sb UAF: stale skb-header pointer across pskb_may_pull).",
+    "Enumerated head-relocating call surface in s03: 371 files in net/ and drivers/net/ contain pskb_may_pull/__pskb_pull_tail/pskb_pull/skb_linearize/skb_cow*/pskb_expand_head.",
+    "Identified canonical thin-wrapper callee ip_mc_may_pull() at include/linux/igmp.h:256-262 (wrapper over pskb_may_pull(skb, len) - can __pskb_pull_tail -> pskb_expand_head and free skb->head).",
+    "Deep-read its caller br_ip4_multicast_igmp3_report() (net/bridge/br_multicast.c:2845-2953): pulls at 2866/2875; grec captured 2869; group/type/nsrcs copied to scalars 2870-2872 BEFORE pull #2; explicit reload '/* reload grec and host addr */' grec = (void *)(skb->data + ...) at 2921 and fresh h_addr = &ip_hdr(skb)->saddr at 2922 after pull #2; grec->grec_src uses at 2926-2952 all use the reloaded pointer. ih (captured 2860) last read at 2861 pre-pull, no reference in 2862-2953.",
+    "Conclusion: the audited callee->caller pair is SAFE in s03 - this snapshot carries the fixed variant of the parser reported buggy in sibling snapshots s02/s05 (facts f009/f012). No verified interprocedural stale-pointer finding remains.",
+    "Finalized as bounded negative: validators ip_mc_check_igmp (br_multicast.c:3882) / ipv6_mc_check_mld (br_multicast.c:3951) callers and the rest of the 371-file callee boundary left unaudited, recorded as limitations."
+  ],
+  "candidates": [
+    {"path": "net/bridge/br_multicast.c", "line": 2875, "status": "safe"},
+    {"path": "net/bridge/br_multicast.c", "line": 3882, "status": "unresolved"}
+  ],
+  "findings": []
+}

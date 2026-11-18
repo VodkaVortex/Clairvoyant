@@ -1,0 +1,22 @@
+{
+  "intent_id": "i005",
+  "branch": "xsk-umem-fetch",
+  "status": "complete",
+  "snapshot": "s04",
+  "checkpoint_time": "final",
+  "candidates": [
+    {"path": "net/xdp/xsk_queue.h", "line": 199, "status": "safe", "reason": "single struct copy then validate private copy"},
+    {"path": "net/xdp/xsk_queue.h", "line": 224, "status": "safe", "reason": "batch copy into kvcalloc'd tx_descs then validate"},
+    {"path": "net/xdp/xsk_queue.h", "line": 115, "status": "safe", "reason": "fill-ring addr fetched once into local, validated locally"},
+    {"path": "net/xdp/xsk_queue.h", "line": 133, "status": "safe", "reason": "bounds arithmetic cannot wrap; checks applied to private copy"},
+    {"path": "net/xdp/xsk.c", "line": 443, "status": "safe", "reason": "zerocopy build uses private desc locals only"},
+    {"path": "net/xdp/xsk.c", "line": 489, "status": "safe", "reason": "copy build uses private desc len/addr"},
+    {"path": "net/xdp/xsk.c", "line": 317, "status": "safe", "reason": "xsk_tx_peek_desc validates and uses private copy"},
+    {"path": "drivers/net/ethernet/freescale/dpaa2/dpaa2-xsk.c", "line": 354, "status": "safe", "reason": "uses pool->tx_descs private batch"},
+    {"path": "drivers/net/ethernet/intel/igc/igc_main.c", "line": 2781, "status": "safe", "reason": "uses local xdp_desc from peek API"},
+    {"path": "net/xdp/xsk.c", "line": 802, "status": "unresolved", "reason": "seed site structurally absent in s04 (no TX metadata API at all)"}
+  ],
+  "findings": [],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/run5/agent-state/findings/i005.json",
+  "conclusion": "Evidence-backed negative: s04's AF_XDP implementation predates TX-metadata support entirely and its ring descriptor path enforces the single-fetch invariant correctly."
+}

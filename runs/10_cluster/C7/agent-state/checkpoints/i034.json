@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "intent_id": "i034",
+  "branch": "tasklet-napi-softirq-lock",
+  "snapshot": "s05",
+  "status": "complete",
+  "note": "Initial checkpoint before first search. Plan: (1) confirm known NAPI/tasklet bug families from sibling snapshots (fs_enet tx_lock, altera_tse tx_lock, cassini tx_lock[], enic wq_lock, bcm63xx_enet rx_lock) exist in s05; (2) enumerate tasklet_schedule/tasklet_hi_schedule callback bodies and NAPI poll functions in s05 containing plain spin_lock; (3) deep-read strongest candidates for process-context plain spin_lock on the same lock object; (4) classify all candidates reported/safe/unresolved.",
+  "candidates": [
+    {
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 775,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 99,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 1286,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 452,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "line": 237,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "line": 4020,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 0,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 0,
+      "status": "safe"
+    },
+    {
+      "path": "drivers/staging/ks7010/ks7010_sdio.c",
+      "line": 0,
+      "status": "safe (seed, never report)"
+    },
+    {
+      "path": "drivers/net/wireless/intel/iwlwifi/pcie/rx.c",
+      "line": 0,
+      "status": "unresolved"
+    }
+  ],
+  "timestamp": "2026-11-15",
+  "final_artifact": "findings/i034.json"
+}

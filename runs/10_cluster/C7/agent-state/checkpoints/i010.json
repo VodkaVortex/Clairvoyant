@@ -1,0 +1,20 @@
+{
+  "intent_id": "i010",
+  "branch": "xmit-softirq-lock",
+  "snapshot": "s09",
+  "status": "complete",
+  "progress": "Finalized. Finding: mwl8k stream_lock shared between NET_TX-softirq-reachable mwl8k_txq_xmit (plain spin_lock at 2001/2065/2088/2138, .tx=mwl8k_tx at 5689/4762) and process/workqueue holders (watchdog_ba_events worker 3906, cmd_set_new_stn_del 4236 via sta_remove 5396, ampdu_action 5533+) with no spin_lock_bh anywhere on stream_lock (tx_lock uses _bh at 2073/2130 proving BH-enabled xmit path). qtnfmac resp_lock and cw1200 wsm_cmd.lock unresolved; rtl8723bs safe (all _bh/_irqsave); cassini/iwlwifi/mt76/ath9k not analyzed.",
+  "candidates": [
+    {"path": "drivers/net/wireless/marvell/mwl8k.c", "line": 2001, "status": "reported"},
+    {"path": "drivers/net/wireless/marvell/mwl8k.c", "line": 3906, "status": "reported"},
+    {"path": "drivers/net/wireless/marvell/mwl8k.c", "line": 4236, "status": "reported"},
+    {"path": "drivers/net/wireless/marvell/mwl8k.c", "line": 5533, "status": "reported"},
+    {"path": "drivers/net/wireless/quantenna/qtnfmac/trans.c", "line": 30, "status": "unresolved"},
+    {"path": "drivers/net/wireless/st/cw1200/wsm.c", "line": 1086, "status": "unresolved"},
+    {"path": "drivers/staging/rtl8723bs/core/rtw_xmit.c", "line": 1652, "status": "safe"},
+    {"path": "drivers/net/ethernet/sun/cassini.c", "line": 1, "status": "unresolved"}
+  ],
+  "findings": [
+    {"path": "drivers/net/wireless/marvell/mwl8k.c", "start": 2001, "end": 2040, "confidence": "medium"}
+  ]
+}

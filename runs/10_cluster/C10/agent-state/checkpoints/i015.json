@@ -1,0 +1,14 @@
+{
+  "intent_id": "i015",
+  "branch": "sysfs-store-attr-terminator",
+  "snapshot": "s04",
+  "status": "complete",
+  "progress": "Search finished. Negative result with concrete evidence: (1) fs/kernfs/file.c kernfs_fop_write_iter allocates kmalloc(len+1) and writes buf[len]='\\0' before ops->write, so all standard sysfs attribute stores receive a NUL-terminated buffer. (2) The only _store handler doing its own copy_from_user, drivers/edac/versal_edac.c:848 inject_data_ue_store (actually a debugfs .write), clamps len=min(count,sizeof(buf[6])) and explicitly sets buf[len]='\\0' before strsep/kstrtou8 - safe. (3) drivers/edac/synopsys_edac.c:1019 is a true DEVICE_ATTR store but only kstrtoul's the kernfs buffer - safe. (4) Seed pattern itself exists in s04 at drivers/scsi/bfa/bfad_debugfs.c:253,320 but that belongs to the debugfs branch (i014), reported as unresolved cross-branch visibility only.",
+  "candidates": [
+    {"path": "fs/kernfs/file.c", "line": 293, "status": "safe"},
+    {"path": "drivers/edac/versal_edac.c", "line": 848, "status": "safe"},
+    {"path": "drivers/edac/synopsys_edac.c", "line": 1019, "status": "safe"},
+    {"path": "drivers/scsi/bfa/bfad_debugfs.c", "line": 253, "status": "unresolved (cross-branch, belongs to i014)"}
+  ],
+  "findings": []
+}

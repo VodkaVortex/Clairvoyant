@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "unchecked-tb-deref",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 421,
+      "end": 431,
+      "quote": "\tif (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))\n\t\treturn -EINVAL;\n\n\tif (!edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID])\n\t\treturn -EINVAL;\n\n\tv0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace generic-netlink MAC802154_HWSIM_CMD_NEW_EDGE message; the op is registered at drivers/net/ieee802154/mac802154_hwsim.c:605-610 (.doit = hwsim_new_edge_nl, .flags = GENL_UNS_ADMIN_PERM, .validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP), so the attribute set is fully attacker-chosen and the genl core performs no strict/required validation. Violated invariant (validated != used, no covering check for the exact attribute index): the only presence guard (lines 421-423) joins the two negated presence tests with && instead of ||, so it returns -EINVAL only when BOTH MAC802154_HWSIM_ATTR_RADIO_ID and MAC802154_HWSIM_ATTR_RADIO_EDGE are absent; the family nla_policy (lines 579-583) only types the slots ([RADIO_ID] = { .type = NLA_U32 } at 580, [RADIO_EDGE] = { .type = NLA_NESTED } at 581) and marks neither required, so nothing proves either slot non-NULL for an attacker-crafted message. Unsafe uses with no covering check: (a) line 425 passes info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] \u2014 NULL when the message supplies RADIO_ID and omits RADIO_EDGE \u2014 as the nesting attribute to nla_parse_nested_deprecated(), which dereferences it via nla_len()/nla_data() inside the parser (include/net/netlink.h) -> NULL-pointer dereference oops; (b) line 431 calls nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]) \u2014 NULL when the message supplies only RADIO_EDGE \u2014 an unchecked read through a NULL attribute pointer. Consequence: local DoS (kernel oops) from an attacker-crafted netlink command; the parsed IDs feed only hwsim_get_radio_by_id() lookups, so no OOB length/index consumption was identified. Counterevidence checked: in this same snapshot the sibling handlers are fixed \u2014 hwsim_set_edge_lqi uses the corrected || guard at 531-533 and checks both inner edge attributes at 538-540, and hwsim_del_edge_nl (the seed function, never a finding) also uses || at 483-485 \u2014 so CMD_NEW_EDGE alone retains unguarded attrs[] dereferences; no other presence check exists between the guard and the uses. Reachability requires the mac802154_hwsim module loaded and CAP_NET_ADMIN over the sender's user namespace (GENL_UNS_ADMIN_PERM). Cross-branch note: the same defect was reported for this snapshot under the and-presence-guard branch (fact f006); this finding records it from the unchecked-tb-deref perspective (dereference of a slot with no covering guard and no policy-required entry), per this intent's branch definition."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 425,
+      "status": "reported",
+      "reason": "hwsim_new_edge_nl: info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] is passed as the nesting attribute to nla_parse_nested_deprecated() with no covering presence check \u2014 the only guard (421-423) is &&-inverted and rejects only when both attrs are absent \u2014 and no required policy entry (hwsim_genl_policy line 581 is plain { .type = NLA_NESTED }); a message with RADIO_ID present and RADIO_EDGE absent reaches the helper with a NULL attribute, dereferenced inside via nla_len()/nla_data()."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 431,
+      "status": "reported",
+      "reason": "hwsim_new_edge_nl: nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]) is covered only by the &&-inverted guard at 421-423; the policy entry (line 580) is plain { .type = NLA_U32 }, not required; a message supplying only RADIO_EDGE passes the guard and line 431 dereferences the NULL RADIO_ID slot."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 531,
+      "status": "safe",
+      "reason": "hwsim_set_edge_lqi (CMD_SET_EDGE): guard at 531-533 uses || over both negated presence tests and the inner guard at 538-540 checks both EDGE_ATTR_ENDPOINT_ID and EDGE_ATTR_LQI with ||; every slot dereferenced (535 nesting arg, 542 nla_get_u32, 543 nla_get_u32, 544 nla_get_u8) is proven present first. Verified line-by-line in this session."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 483,
+      "status": "safe",
+      "reason": "hwsim_del_edge_nl is the seed instance (never reportable) and already uses the corrected || connective in this snapshot per the sibling and-presence-guard verification of the same file (fact f006); not re-read in this truncated session."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/wireless/nl80211.c",
+      "line": 6553,
+      "status": "safe",
+      "reason": "nl80211_new_station: '!attrs[NL80211_ATTR_STA_AID] && !attrs[NL80211_ATTR_PEER_AID]' is a deliberate at-least-one AID idiom; the use site branches on PEER_AID presence so exactly one slot is guaranteed non-NULL (verified in the sibling and-presence-guard exploration of this same snapshot, fact f006)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_main.c",
+      "line": 12774,
+      "status": "reported",
+      "reason": "i40e_ndo_bridge_setlink: br_spec = nlmsg_find_attr(nlh, sizeof(struct ifinfomsg), IFLA_AF_SPEC) passed to nla_for_each_nested with no NULL check \u2014 an attribute dereference with no presence check at all (this branch's 'no presence check at all' case). Reported under the sibling rtnl-doit-attr-gaps branch for this same snapshot (fact f003/i009); cross-referenced here rather than duplicated."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/intel/ice/ice_main.c",
+      "line": 6651,
+      "status": "reported",
+      "reason": "ice_bridge_setlink: identical missing 'if (!br_spec)' guard before nla_for_each_nested(attr, br_spec, rem); reported under the sibling rtnl-doit-attr-gaps branch for this same snapshot (fact f003/i009); cross-referenced here."
+    }
+  ],
+  "limitations": [
+    "Search truncated by the finalize directive after the generic-netlink surface scan: files that contain direct nla_get_*(info->attrs[...]) calls were enumerated (net/batman-adv/netlink.c, net/core/devlink.c, net/core/drop_monitor.c, net/hsr/hsr_netlink.c, net/ieee802154/nl-mac.c, net/ieee802154/nl802154.c, net/ipv6/seg6.c, net/l2tp/l2tp_netlink.c, net/ncsi/ncsi-netlink.c, net/netlabel/*.c, net/nfc/netlink.c, net/wireless/nl80211.c, net/wireless/pmsr.c, drivers/block/nbd.c, drivers/net/gtp.c, drivers/net/team/team.c, drivers/net/wireguard/netlink.c) but only mac802154_hwsim.c and nl80211.c:6553 were read; the others remain unexamined for unguarded slots.",
+    "rtnetlink RTM_* tb[]/nlmsg_find_attr consumers were audited under the sibling branch i009 (fact f003) which reported i40e_main.c:12774 and ice_main.c:6651; the ~60 rtnl_link_ops per-kind newlink/changelink handlers and net/sched, net/dcb, net/decnet, net/mpls doit/dumpit surfaces were not read in this intent.",
+    "Handlers whose slot dereference flows through an intermediate variable or helper macro rather than direct info->attrs[N]/tb[N]/data[N] indexing were not caught by the pattern scan (rg was unusable: permission denied; coverage relied on GNU grep, and one early grep invocation silently returned zero due to a working-directory mismatch before being corrected).",
+    "net/netfilter/nft_tunnel.c exists in s02 and, per sibling-snapshot evidence (s01, fact f005), contains a structurally identical &&-inverted guard with unguarded tb[] dereferences; its exact s02 line numbers and reachability were not examined in this session.",
+    "No compilation or runtime reproducer was run: the snapshot tree is read-only with no top-level Makefile/.config; the NULL-deref conclusion rests on reading nla_parse_nested_deprecated/nla_get_u32 semantics in include/net/netlink.h and on the genl core not enforcing presence for non-required policy entries.",
+    "Reachability of the reported finding requires the mac802154_hwsim module to be loaded and GENL_UNS_ADMIN_PERM to be satisfiable (CAP_NET_ADMIN in the sender's user namespace); impact is characterized as local DoS (NULL-pointer oops), and no privilege-escalation path was demonstrated."
+  ]
+}

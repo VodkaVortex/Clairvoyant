@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "intent_id": "i002",
+  "branch": "xsk-umem-rings",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "include/net/xdp_sock_drv.h",
+      "start": 276,
+      "end": 280,
+      "quote": "\tmeta = data - pool->tx_metadata_len;\n\tif (unlikely(!xsk_buff_valid_tx_metadata(meta)))\n\t\treturn NULL; /* no way to signal the error to the user */\n\n\treturn meta;",
+      "confidence": "medium",
+      "reason": "Untrusted source: struct xsk_tx_metadata resides in the AF_XDP UMEM frame headroom (meta = data - pool->tx_metadata_len, xdp_sock_drv.h:276), i.e. the userspace-mapped, concurrently writable shared buffer, exactly the memory class of the seed. Violated invariant: __xsk_buff_get_metadata() validates the shared flags field once (xsk_buff_valid_tx_metadata -> !(meta->flags & ~XDP_TXMD_FLAGS_VALID), xdp_sock_drv.h:262-266) but then returns the raw shared-memory pointer meta instead of a cached snapshot (quoted lines 277-280), so every downstream consumer re-fetches flags and request fields from shared memory at least a second time with no READ_ONCE, no local copy, and no lock. In xsk_tx_metadata_request() (include/net/xdp_sock.h:178-181) the flag gate 'if (meta->flags & XDP_TXMD_FLAGS_CHECKSUM)' and the separate loads 'ops->tmo_request_checksum(meta->request.csum_start, meta->request.csum_offset, priv)' are independent reads of the same shared struct, so a racing userspace write between the validation fetch and the consumption fetch passes unchecked csum_start/csum_offset into driver state. Unsafe use: the ZC driver TX path (drivers/net/ethernet/intel/igc/igc_main.c:3077 'meta = xsk_buff_get_metadata(pool, xdp_desc.addr);' then xsk_tx_metadata_request at 3085; mlx5 en/xsk/tx.c:102; libeth include/net/libeth/xsk.h:199-208 via xsk_buff_raw_get_ctx) feeds these u16 fields toward the tmo_request_checksum hook (xdp_sock.h:119 hook signature u16 csum_start/csum_offset), the driver-side analogue of the seed's skb->csum_start/csum_offset assignment. Counter-evidence checked: mlx5's callback (en/xdp.c:297-303) and libeth's generic callback (libeth/xsk.h:167-171) ignore the offset arguments, igc registers no tmo_request_checksum (igc_main.c:3031-3035), and the concrete kernel-side OOB consumer mirroring the seed (skb checksum computation) is only present in xsk_skb_metadata(), which in this snapshot still holds the seed bug and is never reportable; because a return-pointer API cannot cache by construction, this is reported as a structural check-then-use double-fetch hazard on the validated-then-reread flags/csum fields with medium confidence rather than a proven OOB primitive."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/xdp/xsk.c",
+      "line": 761,
+      "status": "safe",
+      "reason": "xsk_skb_metadata() is the seed's own function, present unfixed in s01 (double read of meta->request.csum_start/csum_offset at lines 775-781 with no READ_ONCE). Explicitly never reportable per intent; excluded from findings."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 246,
+      "status": "safe",
+      "reason": "TX-ring descriptor consumption does a single struct copy by value: '*desc = ring->desc[idx];' (line 246) and batch path 'descs[nb_entries] = ring->desc[idx];' (line 282) followed by validation on the local copy (xp_validate_desc, lines 148-220). All later uses of addr/len/options (xsk_build_skb, igc_xdp_xmit_zc, mlx5e_xsk_tx, libeth_xsk_xmit_do_bulk) operate on the local copy, satisfying the single-fetch invariant. Fill-ring addr reads (xskq_cons_read_addr_unchecked, line 130) are unchecked single reads feeding address checks, not a validate-then-reread pair."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/en/xsk/tx.c",
+      "line": 102,
+      "status": "safe",
+      "reason": "mlx5e_xsk_request_checksum (en/xdp.c:297-303) ignores csum_start/csum_offset ('HW/FW is doing parsing, so offsets are largely ignored'), so the second fetch from shared memory has no offset/length consumption; no unsafe use of the re-read values."
+    },
+    {
+      "snapshot": "s01",
+      "path": "include/net/libeth/xsk.h",
+      "line": 167,
+      "status": "safe",
+      "reason": "libeth_xsktmo_req_csum (lines 167-171) discards both offset arguments and only ORs a flag bit, so re-fetched csum values are never consumed as offsets; the idpf/libeth path therefore has no unsafe use of the double-fetched fields."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/igc/igc_main.c",
+      "line": 3077,
+      "status": "reported",
+      "reason": "Consumption site of the finding: meta = xsk_buff_get_metadata(pool, xdp_desc.addr) returns the shared-memory pointer after the one-time flags validation, and xsk_tx_metadata_request(meta, &igc_xsk_tx_metadata_ops, &meta_req) at line 3085 re-fetches meta->flags and meta->request.csum_start/csum_offset from user-writable UMEM for use as checksum offsets; however igc registers no tmo_request_checksum in igc_xsk_tx_metadata_ops (lines 3031-3035: only timestamp/fill_timestamp/launch_time), so in igc only launch_time reaches driver code, weakening the concrete offset consumption in this driver. Counted as part of the include/net/xdp_sock.h finding rather than a separate igc OOB claim."
+    }
+  ],
+  "limitations": [
+    "Only the csum offset/flag double-fetch through __xsk_buff_get_metadata()/xsk_tx_metadata_request() was confirmed to breach the single-fetch invariant in the ZC driver path; no driver in s01 was found whose tmo_request_checksum actually consumes csum_start/csum_offset as a memory offset (mlx5 and libeth ignore them, igc does not register the hook), so the finding is a validated-hazard report with medium confidence, not a demonstrated OOB access.",
+    "The audit bounded itself to the xsk-umem-rings branch: net/xdp (xsk.c, xsk_queue.h, xsk_buff_pool.c, xdp_umem.c), include/net/xdp_sock*.h, include/net/xsk_buff_pool.h, and the TX-metadata driver consumers found by symbol search (igc, mlx5, libeth/idpf); other net/xdp setup paths (xsk_setsockopt ring mmap setup, xdp_umem registration) were only skimmed for the invariant and not exhaustively line-audited.",
+    "vhost/vdpa, net/packet TPACKET, and io_uring shared-ring paths are out of scope for this intent and were not searched; they are covered by intents i003-i005.",
+    "Snapshot s01 was not compiled or dynamically tested; the conclusion rests on static reading of the exact functions cited, so compiler load-merging of the two shared-memory loads cannot be ruled out (it would only strengthen, not weaken, the double-fetch hazard)."
+  ]
+}

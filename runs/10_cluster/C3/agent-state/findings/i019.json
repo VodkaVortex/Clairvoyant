@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "intent_id": "i019",
+  "branch": "kind-callback-tb-gaps",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/vxlan.c",
+      "line": 3975,
+      "status": "safe",
+      "reason": "vxlan_nl2conf (3975-4235), the sole attribute consumer of vxlan_newlink/vxlan_changelink (4232-4274): every data[IFLA_VXLAN_*] use (ID/GROUP/GROUP6/LOCAL/LOCAL6/LINK/TOS/TTL/TTL_INHERIT/LABEL/LEARNING/AGEING/PROXY/RSC/L2MISS/L3MISS/LIMIT/COLLECT_METADATA/PORT_RANGE/PORT/UDP_CSUM/UDP_ZERO_CSUM6_TX/RX/REMCSUM_TX/RX/GBP/GPE/REMCSUM_NOPARTIAL/DF) is individually wrapped in 'if (data[...])'; tb[IFLA_MTU] is guarded by 'if (tb[IFLA_MTU])' at 4217; tb[IFLA_VXLAN_*] slots only feed NL_SET_ERR_MSG_ATTR inside those already-guarded error paths (diagnostic use, no deref of the payload); data==NULL is rejected by vxlan_config_validate 'if (!data) { ... return -EINVAL; }' at 3401-3405 which __rtnl_newlink invokes as ops->validate before newlink/changelink dispatch (net/core/rtnetlink.c:3336-3341). No unguarded slot dereference."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/bonding/bond_netlink.c",
+      "line": 158,
+      "status": "safe",
+      "reason": "bond_changelink (158-447) starts with 'if (!data) return 0;' (167) and every IFLA_BOND_* slot consumed (MODE/ACTIVE_SLAVE/MIIMON/UPDELAY/DOWNDELAY/PEER_NOTIF_DELAY/USE_CARRIER/ARP_INTERVAL/ARP_IP_TARGET/ARP_VALIDATE/ARP_ALL_TARGETS/PRIMARY/PRIMARY_RESELECT/FAIL_OVER_MAC/XMIT_HASH_POLICY/RESEND_IGMP/NUM_PEER_NOTIF/ALL_SLAVES_ACTIVE/MIN_LINKS/LP_INTERVAL/PACKETS_PER_SLAVE/AD_LACP_RATE/AD_SELECT/...) is inside its own 'if (data[...])'; bond_policy (82-111) types entries only, but no slot is dereferenced without its per-attribute guard. bond_slave_changelink likewise 'if (!data) return 0;' (139) + guarded QUEUE_ID."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/geneve.c",
+      "line": 1410,
+      "status": "safe",
+      "reason": "geneve_nl2info (1410-1578) guards every IFLA_GENEVE_* slot individually (REMOTE/REMOTE6/ID/TTL_INHERIT/TTL/TOS/DF/LABEL/PORT/COLLECT_METADATA/UDP_CSUM/UDP_ZERO_CSUM6_TX/RX); the REMOTE/REMOTE6 mutual-exclusion test itself uses the correct connective ('if (data[REMOTE] && data[REMOTE6]) return -EINVAL' rejects when both present). data==NULL never reaches nl2info: geneve_validate has 'if (!data) { NL_SET_ERR_MSG(...); return -EINVAL; }' at 1278 and runs as ops->validate in __rtnl_newlink before dispatch. geneve_changelink (1693) additionally rejects collect_md devices early."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/macsec.c",
+      "line": 3792,
+      "status": "safe",
+      "reason": "macsec_changelink (3792+) begins 'if (!data) return 0;' (3801) and rejects immutable attrs with '||' (CIPHER_SUITE/ICV_LEN/SCI/PORT present => -EINVAL); macsec_changelink_common (3723-3790) guards every IFLA_MACSEC_* slot (ENCODING_SA/WINDOW/ENCRYPT/PROTECT/INC_SCI/ES/SCB/REPLAY_PROTECT/VALIDATION/CIPHER_SUITE) with its own 'if (data[...])'. macsec_rtnl_policy (3684-3699) types entries only, but no slot is dereferenced unguarded on the changelink path."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/8021q/vlan_netlink.c",
+      "line": 104,
+      "status": "safe",
+      "reason": "vlan_changelink (104-134) guards IFLA_VLAN_FLAGS/INGRESS_QOS/EGRESS_QOS each with 'if (data[...])'; vlan_newlink (136-190) explicitly requires 'if (!data[IFLA_VLAN_ID])' (146) and 'if (!tb[IFLA_LINK])' (152) before the nla_get_u16/nla_get_u32 uses at 162/166, and the protocol default has an if/else. vlan_validate rejects !data (60-64) and guards PROTOCOL/ID/FLAGS."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bridge/br_netlink.c",
+      "line": 1165,
+      "status": "safe",
+      "reason": "br_changelink (1165-1445) starts 'if (!data) return 0;' (1172) and every IFLA_BR_* slot consumed (FORWARD_DELAY/HELLO_TIME/MAX_AGE/AGEING_TIME/STP_STATE/PRIORITY/VLAN_FILTERING/VLAN_PROTOCOL/VLAN_DEFAULT_PVID/VLAN_STATS_*/GROUP_FWD_MASK/GROUP_ADDR/MCAST_*/NF_CALL_*/MULTI_BOOLOPT) is inside its own 'if (data[...])'; IFLA_BR_GROUP_ADDR additionally nla_len-checks; IFLA_BR_MULTI_BOOLOPT has an NLA_POLICY_EXACT_LEN policy entry (1161-1162) and its nla_data use at 1422 is guarded at 1419."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/ip_gre.c",
+      "line": 1378,
+      "status": "safe",
+      "reason": "ipgre_changelink (1378-1405) delegates to ipgre_netlink_parms (1117-...) which has 'if (!data) return 0;' (1129-1130) and guards every IFLA_GRE_* slot (LINK/IFLAGS/OFLAGS/IKEY/OKEY/LOCAL/REMOTE/TTL/TOS/PMTUDISC/COLLECT_METADATA/...) individually before nla_get_*; tb is only used via 'ipgre_link_update(dev, !tb[IFLA_MTU])' which evaluates presence, not a dereference."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/ip6_gre.c",
+      "line": 2300,
+      "status": "safe",
+      "reason": "ip6gre_changelink (registered at 2300) and ip6_tnl_changelink path share ip6gre_netlink_parms (1769-...) which has 'if (!data) return;' (1774-1775) and per-attribute guards for all IFLA_GRE_* slots; ip6gre_netlink_encap_parms (1927+) likewise 'if (!data) return false;' (1934-1935) with per-attr guards."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/ip6_tunnel.c",
+      "line": 2058,
+      "status": "safe",
+      "reason": "ip6_tnl_changelink (2058-2089) rejects the fallback device, then ip6_tnl_netlink_encap_parms (1989-2020) has 'if (!data) return ret;' (1996-1997) with per-attribute guards, and ip6_tnl_netlink_parms (1950-1987) has 'if (!data) return;' (1955-1956) with per-attribute guards for every IFLA_IPTUN_* slot (LINK/LOCAL/REMOTE/TTL/ENCAP_LIMIT/FLOWINFO/FLAGS/PROTO/COLLECT_METADATA/FWMARK)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/sit.c",
+      "line": 1658,
+      "status": "safe",
+      "reason": "ipip6_changelink (1658-1697) rejects the fallback tunnel, uses ipip6_netlink_encap_parms and ipip6_netlink_parms (1494-1537) which has 'if (!data) return;' (1505-1506) and per-attribute guards for all IFLA_IPTUN_* slots; PMTUDISC uses the intentional 'absent means enabled' idiom without dereferencing the absent slot."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/ipip.c",
+      "line": 503,
+      "status": "safe",
+      "reason": "ipip_changelink (503-529): ipip_netlink_encap_parms (450-481) has 'if (!data) return ret;' (457-458) with per-attribute guards; ipip_netlink_parms follows the same family pattern; no unguarded slot dereference in the changelink path."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/ip_vti.c",
+      "line": 573,
+      "status": "safe",
+      "reason": "vti_changelink (573-583) delegates to vti_netlink_parms, which follows the ip_tunnel family 'if (!data)' + per-attribute-guard pattern; same for vti6_changelink (net/ipv6/ip6_vti.c:1033-1056) via vti6_netlink_parms, which only touches tb via the boolean 'tb && tb[IFLA_MTU]'."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/xfrm/xfrm_interface.c",
+      "line": 662,
+      "status": "safe",
+      "reason": "xfrmi_changelink (662-680) delegates to xfrmi_netlink_parms (619-632) which starts 'memset(parms,0,...)' then 'if (!data) return;' (624-625) and guards IFLA_XFRM_LINK and IFLA_XFRM_IF_ID individually."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/qualcomm/rmnet/rmnet_config.c",
+      "line": 290,
+      "status": "safe",
+      "reason": "rmnet_changelink (290-349) guards IFLA_RMNET_MUX_ID (308) and IFLA_RMNET_FLAGS (333) individually before nla_get_u16/nla_data; data==NULL cannot reach changelink because __rtnl_newlink only calls ops->changelink inside 'if (linkinfo[IFLA_INFO_DATA])' and data=attr is set whenever the kind has maxtype (net/core/rtnetlink.c:3322-3332, 3363-3370)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/infiniband/ulp/ipoib/ipoib_netlink.c",
+      "line": 67,
+      "status": "safe",
+      "reason": "ipoib_changelink (67-94) guards IFLA_IPOIB_MODE (74) and IFLA_IPOIB_UMCAST (87) individually; same non-NULL-data guarantee from the __rtnl_newlink dispatch as above."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/caif/caif_hsi.c",
+      "line": 1332,
+      "status": "safe",
+      "reason": "caif_hsi_changelink (1332-1339) calls cfhsi_netlink_parms (1287-1330) which has 'if (!data) { pr_debug(...); return; }' (1291-1294) and guards every __IFLA_CAIF_HSI_* index individually before nla_get_u32."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/caif/chnl_net.c",
+      "line": 484,
+      "status": "safe",
+      "reason": "ipcaif_changelink (484-494) and ipcaif_newlink (460-482) call caif_netlink_parms (439-458) which has 'if (!data) { pr_warn(...); return; }' (442-445) and guards IFLA_CAIF_IPV4_CONNID/IPV6_CONNID/LOOPBACK individually; the UNDEF_CONNID fallback at 477-480 handles attributes that were never supplied."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nft_tunnel.c",
+      "line": 79,
+      "status": "safe",
+      "reason": "nft_tunnel_get_init (73-106) in THIS snapshot uses the CORRECT connective: 'if (!tb[NFTA_TUNNEL_KEY] || !tb[NFTA_TUNNEL_DREG]) return -EINVAL;' (79-81) before nla_get_be32(tb[NFTA_TUNNEL_KEY]) at 84 and nft_parse_register_store(..., tb[NFTA_TUNNEL_DREG], ...) at 104; NFTA_TUNNEL_MODE is separately guarded at 96. nft_tunnel_policy (67-71) types KEY/DREG/MODE as plain NLA_U32 (not required), and the dispatch chain (nft_expr_init -> nla_parse_nested_deprecated(info->tb, type->maxattr, ..., type->policy) at net/netfilter/nf_tables_api.c:2703, reachable after netlink_net_capable(skb, CAP_NET_ADMIN) at net/netfilter/nfnetlink.c:643) does not enforce presence -- but the callback guard itself proves both consumed slots non-NULL. Unlike the s01 instance (fact f013), no inverted guard exists here."
+    }
+  ],
+  "limitations": [
+    "macsec_newlink (drivers/net/macsec.c:3987) was located but its data[] handling was not read in this truncated session; only the changelink path (macsec_changelink + macsec_changelink_common) was verified safe.",
+    "erspan_changelink (net/ipv4/ip_gre.c:1621) and ip6erspan_changelink (net/ipv6/ip6_gre.c:2329) bodies were not read; the shared ipgre/ip6gre parms helpers are guarded, but the erspan-specific parms helpers were not individually verified.",
+    "ip_tunnel_changelink (net/ipv4/ip_tunnel.c, the common helper invoked by ipgre/vti/ipip changelinks) was not read for its own tb[] handling; its callers' parms helpers are guarded but the common tb[IFLA_MTU]-style use inside it was not verified line-by-line.",
+    "ndo_fdb_add/ndo_fdb_del callback bodies beyond the rtnl core NDA_LLADDR guarantee were not re-read in this session (vxlan_fdb_add/parse verified in fact f008; macvlan_fdb_add at drivers/net/macvlan.c:988, igb/ixgbe/qlcnic/ocelot/dsa bodies remain enumerated but unread).",
+    "net/sched per-kind ->init()/->change() callbacks consuming tca[TCA_OPTIONS] (sch_*.c/cls_*.c/act_*.c) were enumerated by directory listing only and not audited in this session.",
+    "dcbnl per-table handlers (net/dcb/dcbnl.c) and the remaining nf_tables expression/type ->init() callbacks beyond nft_tunnel (nft_ct, nft_tproxy, etc. covered by s01/s02 sibling facts) were not read in this snapshot session.",
+    "No compilation or runtime reproducer was run (read-only snapshot, no top-level Makefile/Kconfig); 'safe' classifications rest on exact source reading of each guard, and reachability claims rest on the standard rtnl/nfnetlink capability model (CAP_NET_ADMIN in a user-owned net namespace).",
+    "mac802154_hwsim.c handlers already reported for s03 (facts f002/f007/f011) were excluded by rule and not re-examined."
+  ]
+}

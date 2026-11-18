@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "debugfs-write-memdup-sscanf",
+  "status": "near_complete",
+  "snapshot": "s02",
+  "progress": "Searched s02 only. memdup_user/vmemdup_user call sites (202 raw grep hits across ~120 files) cross-filtered with string consumers; then debugfs files with copy_from_user->string-op window scan (70 files, 312 hits). Classified candidates: REPORTED bnad_debugfs.c write_regrd (315 memdup_user(buf,nbytes) -> 319 sscanf) and write_regwr (375->379) - exact seed clone, no NUL termination, debugfs regrd/regwr mode 0644/0200; REPORTED cio_inject.c crw_inject_write (98 vmemdup_user -> 102 sscanf, kvfree only after) - debugfs crw_inject; REPORTED qedf_debugfs.c qedf_dbg_debug_cmd_write (173 memdup_user(buffer,count) -> 177 kstrtouint) - debugfs debug; SAFE: scsi_debug.c sdebug_error_write (kzalloc(count+1)); i40e_debugfs.c (kzalloc(count+1)+cmd_buf[count]=0); rtw88/rtw89 copy_from_user variants (buf[buf_size]=0); rtlwifi (tmp[tmp_len]=0); iio (buf[count]=0); 6lowpan (buf[128]={}); aat2870 (buf[buf_size]=0); btrfs ioctl resize (memchr NUL check); rvu_debugfs qsize_write (memdup_user(count+1)+cmd_buf[count]=0); mlx5 outlen_write (count>6 check + zeroed 8-byte array); hfi1 asic_flags_write uses memdup_user_nul; rtw89 hex2bin (hex2bin bounded, no string scan). About to write final artifact.",
+  "candidates": [
+    {
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 315,
+      "status": "reported",
+      "reason": "write_regrd: memdup_user(buf, nbytes) exactly nbytes-sized heap alloc, no terminator; sscanf(kern_buf, \"%x:%x\") immediately after reads past end when no NUL in user data. Debugfs regrd fops mode 0644."
+    },
+    {
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "line": 375,
+      "status": "reported",
+      "reason": "write_regwr: identical pattern, memdup_user(buf, nbytes) then sscanf with no NUL guarantee."
+    },
+    {
+      "path": "drivers/s390/cio/cio_inject.c",
+      "line": 98,
+      "status": "reported",
+      "reason": "crw_inject_write debugfs handler: vmemdup_user(buf, lbuf) then sscanf(buffer, ...) with no NUL termination; kvfree only after sscanf."
+    },
+    {
+      "path": "drivers/scsi/qedf/qedf_debugfs.c",
+      "line": 173,
+      "status": "reported",
+      "reason": "qedf_dbg_debug_cmd_write: memdup_user(buffer, count) then kstrtouint(kern_buf, 10, &val) - kstrto* scans until NUL past allocation if user buffer has none."
+    },
+    {
+      "path": "drivers/scsi/scsi_debug.c",
+      "line": 1032,
+      "status": "safe",
+      "reason": "kzalloc(count + 1) gives explicit terminator slot before copy_from_user and sscanf."
+    },
+    {
+      "path": "drivers/net/ethernet/intel/i40e/i40e_debugfs.c",
+      "line": 765,
+      "status": "safe",
+      "reason": "kzalloc(count + 1) and cmd_buf[count] = '\\0' before strchr/strncmp/sscanf."
+    },
+    {
+      "path": "drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c",
+      "line": 1002,
+      "status": "safe",
+      "reason": "rvu_dbg_qsize_write uses memdup_user(buffer, count + 1) and sets cmd_buf[count] = '\\0'."
+    },
+    {
+      "path": "drivers/infiniband/hw/hfi1/debugfs.c",
+      "line": 566,
+      "status": "safe",
+      "reason": "asic_flags_write uses memdup_user_nul."
+    },
+    {
+      "path": "fs/btrfs/ioctl.c",
+      "line": 1157,
+      "status": "safe",
+      "reason": "memdup_user of fixed-size struct with btrfs_check_ioctl_vol_args_path memchr(vol_args->name, 0, sizeof) NUL-presence check before strcmp/strchr (ioctl not debugfs, and terminated)."
+    },
+    {
+      "path": "drivers/net/wireless/realtek/rtw89/debug.c",
+      "line": 3233,
+      "status": "safe",
+      "reason": "rtw89_hex2bin_user memdup_user result consumed by hex2bin(bin, buf, num) with explicit num bound, not a string scanner."
+    },
+    {
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/cmd.c",
+      "line": 1513,
+      "status": "safe",
+      "reason": "outlen_write rejects count>6 and uses zero-initialized char outlen_str[8]; data_write (1451) stores raw bytes without string parsing."
+    },
+    {
+      "path": "drivers/net/wireless/ath/wil6210/debugfs.c",
+      "line": 981,
+      "status": "safe",
+      "reason": "txmgmt/wmi memdup_user buffers are passed as binary frames with explicit length, no string consumers."
+    }
+  ],
+  "findings": [
+    {
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 315,
+      "end": 320,
+      "confidence": "high"
+    },
+    {
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "start": 375,
+      "end": 380,
+      "confidence": "high"
+    },
+    {
+      "path": "drivers/s390/cio/cio_inject.c",
+      "start": 98,
+      "end": 103,
+      "confidence": "high"
+    },
+    {
+      "path": "drivers/scsi/qedf/qedf_debugfs.c",
+      "start": 173,
+      "end": 178,
+      "confidence": "medium"
+    }
+  ]
+}

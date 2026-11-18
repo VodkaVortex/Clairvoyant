@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "optsize-body-clamp",
+  "phase": "finalized",
+  "snapshot": "s02",
+  "status": "finding reported: net/sched/sch_cake.c cake_get_tcpopt (960-981) + cake_tcph_may_drop (1097-1141) missing length>=2 guard before opsize=*ptr++; all other in-tree TCP option walkers in s02 have the guard. Final artifact written to agent-state/findings/i012.json.",
+  "candidates": [
+    {"path": "net/sched/sch_cake.c", "line": 960, "status": "reported", "reason": "missing length>=2 check before opsize read; option walk over 64-byte bounded stack buffer from cake_get_tcphdr"},
+    {"path": "net/sched/sch_cake.c", "line": 1097, "status": "reported", "reason": "same unguarded walk duplicated in cake_tcph_may_drop"},
+    {"path": "net/ipv4/tcp_input.c", "line": 3986, "status": "safe", "reason": "guard present; fastopen cookie memcpy clamped to 4..16; SMC/EXP reads gated by opsize>=6/4"},
+    {"path": "net/ipv4/tcp_input.c", "line": 3935, "status": "safe", "reason": "guard present in tcp_parse_mss_option"},
+    {"path": "net/ipv4/tcp_input.c", "line": 4138, "status": "safe", "reason": "md5sig walker loops only while length>=18, opsize bounds-checked"},
+    {"path": "net/mptcp/options.c", "line": 348, "status": "safe", "reason": "seed fix present; strict sub-option size checks"},
+    {"path": "net/netfilter/nf_conntrack_proto_tcp.c", "line": 347, "status": "safe", "reason": "guard present in both walkers"},
+    {"path": "net/netfilter/nf_synproxy_core.c", "line": 42, "status": "safe", "reason": "guard present"}
+  ]
+}

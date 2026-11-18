@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "io-uring-sq-ring",
+  "status": "complete",
+  "snapshot": "s03",
+  "stage": "finalized",
+  "note": "Audit of io_uring user-mapped SQ ring/SQE double-fetch invariant in snapshots/s03 finished. Core submit path (io_get_sqe, io_init_req, io_req_sqe_copy, uring_cmd SQE copy-on-async) and all opcode prep functions verified to single-fetch consumed SQE fields via READ_ONCE into request-local state; remaining bare sqe-> reads are must-be-zero rejection checks with no value consumption. No check-then-use double-fetch with an unsafe use found in audited paths. Unresolved bounded items: ublk_drv uring_cmd handler internals (3360/3952/3982/5741), nvme_uring_cmd_io nvme_uring_data 'd' fields past ioctl.c:480, poll.c poll32_events consumption. Final artifact written to findings/i013.json."
+}

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "sysfs-store-attr-terminator",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/edac/versal_edac.c",
+      "start": 854,
+      "end": 866,
+      "quote": "len = min_t(size_t, count, sizeof(buf));\n\tif (copy_from_user(buf, data, len))\n\t\treturn -EFAULT;\n\n\tbuf[len] = '\\0';",
+      "confidence": "high",
+      "reason": "Untrusted source: inject_data_ue_store is the .write handler of the edac debugfs file /sys/kernel/debug/edac/<controller>/inject_ue (0200, root-writable via debugfs_create_file at line 924), so count and buffer contents are attacker-chosen via write(). Invariant violation: the local buffer is 'char buf[6]' (line 854) and len is clamped with min_t(size_t, count, sizeof(buf)) - i.e. len may equal sizeof(buf)=6 - yet the terminator is written as buf[len] = '\\0' (line 863), which indexes buf[6], one byte past the end of the 6-byte stack array whenever the user writes >= 6 bytes (there is no count > sizeof(buf)-1 rejection, unlike the correct sibling drivers/iio/industrialio-core.c:411 and drivers/platform/x86/intel/pmc/core.c:921). Unsafe use: attacker-controlled 1-byte NUL out-of-bounds stack write (validated length equals the index actually used, off-by-one). An AddressSanitizer harness compiled in $TMPDIR/i007/offbyone.c reproduces exactly this min/clamp+buf[len] pattern and reports 'stack-buffer-overflow WRITE of size 1'. Counterevidence checked: the write itself is the unsafe use (KASAN stack-out-of-bounds write / stack corruption), no subsequent string op is needed for the OOB; strsep/kstrtou8 on buf afterwards is safe because buf[5] may stay unterminated but kstrtou8 stops at the first non-digit in the worst case within buf[6] - the concrete violation is the terminator write itself."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/edac/zynqmp_edac.c",
+      "start": 299,
+      "end": 314,
+      "quote": "char buf[6], *pbuf, *token[2];",
+      "confidence": "high",
+      "reason": "Same off-by-one mechanism in inject_ue_write, the .write handler (inject_ue_fops at lines 343-345) of debugfs file /sys/kernel/debug/edac/ocm/inject_ue_bitpos created by edac_debugfs_create_file at line 359. Lines 307-311 are byte-for-byte the same pattern: 'len = min_t(size_t, count, sizeof(buf));' then 'copy_from_user(buf, data, len)' then 'buf[len] = '\\0';' with 'char buf[6]' (line 299). Any write() with count >= 6 makes len == 6 and buf[6] = '\\0' writes one byte past the 6-byte stack array. Untrusted source, validated-length-equals-used-index violation, and unsafe use are all identical to the versal_edac case. Note the quote field points at the declaration line; the offending write is at line 311 within the reported function range."
+    }
+  ],
+  "candidates": [
+    {"snapshot": "s02", "path": "drivers/edac/versal_edac.c", "line": 859, "status": "reported", "reason": "min_t(size_t,count,sizeof(buf)) clamp without -1 followed by buf[len]='\\0' on char buf[6] writes buf[6] when count>=6"},
+    {"snapshot": "s02", "path": "drivers/edac/zynqmp_edac.c", "line": 307, "status": "reported", "reason": "identical clamp-then-terminate off-by-one; buf[len]='\\0' at line 311 on char buf[6]"},
+    {"snapshot": "s02", "path": "drivers/media/rc/imon.c", "line": 883, "status": "safe", "reason": "sscanf on sysfs store buf is covered by kernfs_write_iter which kmallocs len+1 and sets buf[len]='\\0' (fs/kernfs/file.c:311-319 in this snapshot)"},
+    {"snapshot": "s02", "path": "drivers/scsi/scsi_sysfs.c", "line": 209, "status": "safe", "reason": "buf[len] after strncmp match stays in-bounds; kernfs store buffer is allocated len+1 with trailing NUL guaranteed"},
+    {"snapshot": "s02", "path": "drivers/scsi/scsi_debug.c", "line": 1031, "status": "safe", "reason": "kzalloc(count+1) before copy_from_user provides an explicit terminator slot for the later sscanf"},
+    {"snapshot": "s02", "path": "mm/huge_memory.c", "line": 3606, "status": "safe", "reason": "whole MAX_INPUT_BUF_SZ buffer memset to 0, count clamped to buffer size, input_buf[MAX_INPUT_BUF_SZ-1]='\\0' in-bounds"},
+    {"snapshot": "s02", "path": "mm/vmscan.c", "line": 5457, "status": "safe", "reason": "kvmalloc(len+1) then next[len]='\\0' is an in-bounds terminator slot, correct +1 pattern"},
+    {"snapshot": "s02", "path": "drivers/platform/x86/intel/pmc/core.c", "line": 921, "status": "safe", "reason": "rejects count > sizeof(buf)-1 before copy and terminates buf[count] in-bounds; correct reference pattern"},
+    {"snapshot": "s02", "path": "drivers/iio/industrialio-core.c", "line": 411, "status": "safe", "reason": "count = min(count, sizeof(buf)-1) then buf[count]=0; correct -1 clamp"},
+    {"snapshot": "s02", "path": "drivers/platform/x86/toshiba_acpi.c", "line": 1488, "status": "safe", "reason": "len=min(count,sizeof(cmd)-1); cmd[len]='\\0' in-bounds for all three proc write handlers (1488/1669/1740)"},
+    {"snapshot": "s02", "path": "drivers/usb/gadget/udc/renesas_usb3.c", "line": 2617, "status": "safe", "reason": "copies min_t(sizeof(buf)-1,count) and only uses strncmp(buf,\"1\",1)/\"2\" with fixed length 1; no NUL-terminated read"},
+    {"snapshot": "s02", "path": "drivers/scsi/hisi_sas/hisi_sas_v3_hw.c", "line": 3950, "status": "safe", "reason": "kbuf[16] zero-initialized, count >= sizeof(kbuf) rejected, strstrip/nstrncmp on zeroed buffer are bounded"}
+  ],
+  "limitations": [
+    "The off-by-one findings are debugfs root-only write paths (0200 under /sys/kernel/debug), so practical exploitation requires root or a writable debugfs mount; impact is a 1-byte controlled-NUL (always zero) out-of-bounds stack write plus KASAN report, not an info leak like the seed's OOB read.",
+    "Secondary issue not verified: in both edac handlers strsep may return NULL for token[1] when the input contains no comma, and kstrtou8(NULL,...) would then NULL-deref; the invoked lib/kstrtox.c path was not read to confirm reachable dereference before the terminator write is reached.",
+    "The 53-file intersection of copy_from_user/memdup_user with store callbacks was triaged by reading the strongest candidates listed above; files where copy_from_user occurs only in ioctl/mmap/read paths (e.g. mmc/block.c, mei, f_hid, vduse, vhost, qeth, mpt3sas, megaraid, cxlflash, dfl-afu) were not exhaustively analyzed because the usercopy does not flow into the ->store() string consumption.",
+    "Ordinary sysfs ->store() callbacks across the tree were not individually audited because fs/kernfs/file.c:311-319 in this snapshot guarantees NUL termination for the buf passed to stores; only callbacks performing their own copy_from_user were in scope and all such candidates were classified."
+  ]
+}

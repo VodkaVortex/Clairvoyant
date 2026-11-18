@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "intent_id": "i049",
+  "snapshot": "s12",
+  "branch": "error-unwind-poisoned-count",
+  "status": "in_progress",
+  "progress": [
+    "qaic_control.c decode_message: user_msg->count stored from device msg->hdr.count at line 974, consumed only by bounded loop at 976; decode helpers check per-trans ENOSPC; on decode error qaic_manage frees rsp and returns - no persistent shared-state iteration of count. safe.",
+    "usbip seed instance (usbip_common.c:660-719 usbip_recv_iso, vhci_rx.c:76-86 ret_submit unpack) present and unpatched in s12; excluded from findings by rule (seed names); vhci error path sets status and gives back URB with poisoned number_of_packets - matches i045 legacy fact.",
+    "Checked vhci_rx error path: goto error after recv_xbuff/recv_iso failure keeps urb->number_of_packets = ret_submit np; usb_hcd_giveback_urb -> completion iterates iso_frame_desc. Seed-only, not reportable.",
+    "bnxt TPA: agg_count incremented in bnxt_tpa_agg guarded by BUG_ON(agg_count >= MAX_SKB_FRAGS) (line 1988); agg_arr sized MAX_SKB_FRAGS (line 3747); TPA end path P5+ clamps agg_bufs to tpa_info->agg_count and errors to MAX_SKB_FRAGS check before bnxt_abort_tpa; non-P5 agg_bufs validated by bnxt_agg_bufs_valid. Safe.",
+    "gve: tx_pages_per_qpl from device descriptor (adminq.c:975/1143) is 16-bit, stored into priv; qpl->num_entries incremented only on successful page alloc (gve_main.c:1110) so error-unwind free loop only sees committed entries; register_page_list uses the same committed num_entries for alloc+loop. Safe.",
+    "ubi fastmap: pool sizes clamped vs UBI_FM_MAX_POOL_SIZE (fastmap.c:607-633); free/used/scrub/erase/vol loops advance fm_pos and check fm_pos >= fm_size before consuming each element; fail_bad frees used/free lists. Safe.",
+    "ixgbe_e610: ixgbe_aci_list_caps sets *cap_count = le32_to_cpu(cmd->count) from firmware AFTER the driver pre-clamped cap_count to buffer-elem capacity; parse loops run over cbuf with cap_count NOT re-clamped to actual firmware retval elem count (ixgbe_e610.c:869-886,916-923) - potential over-iteration if FW returns fewer caps than buffer capacity. Needs verdict: is a parse over zeroed kzalloc cbuf beyond FW-written region an OOB? Not OOB of cbuf, just reads zeros => default cap id 0 (unrecognized) => skipped. Not a memory-safety bug. Safe.",
+    "dm-era: md->nr_blocks and writeset nr_bits from on-disk superblock (era_superblock_load, dm-era-target.c:603,372); loops like ws_inc/ws_dec iterate caller-bounded counts of array entries; dm-era writeset_load has bounds via dm_bitset. Not a peer protocol; on-disk metadata is signed by dm integrity of block manager CRC (crc32 superblock check). Weak candidate - on-disk corruption threat model not remote peer; deprioritized."
+  ],
+  "candidates": [
+    {
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 974,
+      "status": "safe",
+      "reason": "count stored from device response but loop at 976 bounded by stored count itself and msg_hdr_len per-trans checks; msg freed after decode, not persistent shared state",
+      "conclusion": "qaic decode_message count store is bounded and non-persistent; clean"
+    },
+    {
+      "path": "drivers/usb/usbip/vhci_rx.c",
+      "line": 76,
+      "status": "safe",
+      "reason": "seed instance excluded by rule (seed names usbip/recv_iso/number_of_packets must not be the finding)",
+      "conclusion": "Seed chain present in s12; excluded by rule"
+    },
+    {
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt.c",
+      "line": 1988,
+      "status": "safe",
+      "reason": "agg_count bounded by BUG_ON against MAX_SKB_FRAGS; agg_arr kcalloc(MAX_SKB_FRAGS); TPA-end paths validate agg_bufs against completion ring or clamp to agg_count",
+      "conclusion": "bnxt TPA counts bounded; clean"
+    },
+    {
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 1143,
+      "status": "safe",
+      "reason": "tx_pages_per_qpl is u16 from descriptor; qpl num_entries only counts successfully allocated pages; unwind loops bounded",
+      "conclusion": "gve qpl counts are committed-count based; clean"
+    },
+    {
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 607,
+      "status": "safe",
+      "reason": "pool sizes clamped to UBI_FM_MAX_POOL_SIZE; every count loop bounds-checked via fm_pos >= fm_size before each element; unwind frees lists",
+      "conclusion": "fastmap count loops bounds-checked; clean"
+    },
+    {
+      "path": "drivers/md/dm-era-target.c",
+      "line": 603,
+      "status": "safe",
+      "reason": "nr_blocks from on-disk sb validated against CRC + used consistently; ws loops bounded by caller; not a remote-peer protocol field",
+      "conclusion": "dm-era counts are on-disk metadata; not branch-relevant"
+    },
+    {
+      "path": "drivers/accel/qaic/qaic_data.c",
+      "line": 411,
+      "status": "safe",
+      "reason": "slice->nents = sgt->nents set before encode_reqs; encode failure path frees slices via qaic_free_slices_bo; copy_exec_reqs checks avail >= slice->nents before memcpy into ring",
+      "conclusion": "qaic_data slice nents bounded at each consumer; clean"
+    },
+    {
+      "path": "drivers/net/ethernet/emulex/benet/be_cmds.c",
+      "line": 4494,
+      "status": "unresolved",
+      "reason": "be_cmd_get_profile_config with port_res!=NULL: firmware-controlled desc_count (le16) and descriptor chain (desc_type/desc_len/pf_num/pf_type) drive be_get_nic_pf_num_list, which appends to u16 nic_pf_num_list[16] with NO cap on nic_pf_count, and the loop body dereferences nic->link_param (line 4496) with no NULL check although be_get_func_nic_desc can return NULL. Malicious firmware can produce >16 PCIE NIC descriptors => stack OOB write of u16s, and a NULL deref. Requires hostile firmware (same peer-trusted threat as branch4) but the count is stored from the response and consumed by a later loop without clamp - fits error-unwind/poisoned-count shape loosely (not an error path, a normal parse path). Follow-up: confirm reachability from be_cmd_get_port_resources (be_cmds.c:4427 caller be_msix?) and whether any caller guards.",
+      "conclusion": "benet be_get_nic_pf_num_list (be_cmds.c:4414-4434) writes nic_pf_num_list[nic_pf_count++] up to firmware desc_count with no cap vs MAX_NIC_FUNCS=16 array, and caller derefs possibly-NULL nic at 4496; needs reachability + fw-trust confirmation"
+    }
+  ],
+  "notes": "Plan: check prior-audit leads (qaic_control.c, dm-era, dm-zoned, ubi fastmap, bnxt, gve, ixgbe_e610) in s12, then grep for count-store + early-return + later-iterate chains."
+}

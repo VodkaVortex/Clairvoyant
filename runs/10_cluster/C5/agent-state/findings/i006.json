@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "xsk-umem-rereads",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 193,
+      "status": "safe",
+      "reason": "xskq_validate_desc() snapshots the userspace-shared TX descriptor exactly once via '*desc = READ_ONCE(ring->desc[idx]);' into a local struct xdp_desc; xskq_is_valid_desc(q, desc) (lines 172-184) validates addr < q->size and chunk containment on that same local copy, and every consumer (xsk_generic_xmit in net/xdp/xsk.c:233-259, xsk_umem_consume_tx in net/xdp/xsk.c:180-191) uses the returned local desc.addr/desc.len. No second read of ring->desc[idx] exists anywhere in the tree (grep for 'ring->desc' / 'q->ring->' outside xsk_queue.h is empty), so validated and used values are bit-identical by construction."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 96,
+      "status": "safe",
+      "reason": "xskq_validate_addr() fetches the FQ descriptor once with '*addr = READ_ONCE(ring->desc[idx]) & q->chunk_mask;' then validates via xskq_is_valid_addr(q, *addr); consumers (__xsk_rcv/xsk_generic_rcv in net/xdp/xsk.c:63-84 and 133-148, i40e_alloc_buffer_zc i40e_xsk.c:343-359, ixgbe_alloc_buffer_zc ixgbe_xsk.c:325-341) all use the single validated local 'addr'/'handle' for xdp_umem_get_data/xdp_umem_get_dma. No re-fetch of the shared FQ slot between validation and use."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/xdp/xsk.c",
+      "line": 173,
+      "status": "safe",
+      "reason": "xsk_umem_consume_tx() obtains a fully validated local 'struct xdp_desc desc' from xskq_peek_desc(), then passes only local copies to drivers: '*dma = xdp_umem_get_dma(umem, desc.addr); *len = desc.len;'. Drivers (i40e_xmit_zc i40e_xsk.c:738-784, ixgbe_xmit_zc ixgbe_xsk.c:628-675) consume only the returned dma/len values and never touch the shared TX ring directly (grep confirms no 'ring->desc' access in i40e_xsk.c/ixgbe_xsk.c)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/xdp/xsk.c",
+      "line": 233,
+      "status": "safe",
+      "reason": "xsk_generic_xmit() iterates with 'while (xskq_peek_desc(xs->tx, &desc))' using the local validated desc snapshot; len = desc.len and addr = desc.addr (lines 249-257) feed skb allocation, xdp_umem_get_data, and skb_store_bits from the same validated copy."
+    },
+    {
+      "snapshot": "s02",
+      "path": "include/uapi/linux/if_xdp.h",
+      "line": 97,
+      "status": "unresolved",
+      "reason": "The UAPI defines 'struct xdp_desc { __u64 addr; __u32 len; __u32 options; }' with an 'options' field residing in the userspace-mapped shared TX ring, but grep for 'options' across all of net/xdp returns nothing and no driver reads it, so there is no validate-then-use divergence site in this snapshot; it is the seed-relevant shared field with no consumer here. Left unresolved because the broader tree outside net/xdp/intel-xsk drivers was not exhaustively grepped for indirect descriptor parsing."
+    }
+  ],
+  "limitations": [
+    "This snapshot (s02) is an early AF_XDP tree (xsk.c is 796 lines, pre-xsk_buff/pre-TX-metadata): xsk_skb_metadata(), struct xsk_tx_metadata, XDP_TXMD_FLAGS_CHECKSUM, tx_metadata_len, and tx_sw_csum do not exist anywhere in the tree, so the seed's exact mechanism cannot be present; the negative result is specific to the UMEM-field reread invariant, not a proof about later kernels.",
+    "Search bounded to the AF_XDP surface: all of net/xdp/, include/net/xdp_sock.h, include/uapi/linux/if_xdp.h, and the two driver consumers present in s02 (drivers/net/ethernet/intel/i40e/i40e_xsk.c, drivers/net/ethernet/intel/ixgbe/ixgbe_xsk.c). Only these drivers reference the exported xsk_umem_* TX/FQ APIs in this tree.",
+    "Related invariants not audited under this branch: whether desc.len (u32) can exceed chunk_size_nohr in the TX path (xskq_is_valid_desc checks addr<size and chunk containment but not len against chunk size in s02), and any non-AF_XDP double-fetch sites in s02 — those belong to intents i007-i009."
+  ]
+}

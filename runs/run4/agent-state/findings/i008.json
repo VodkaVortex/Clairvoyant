@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "af-packet-tpacket-rings",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "start": 2671,
+      "end": 2682,
+      "quote": "if (po->has_vnet_hdr) {\n\t\t\tvnet_hdr = data;\n\t\t\tdata += sizeof(*vnet_hdr);\n\t\t\ttp_len -= sizeof(*vnet_hdr);\n\t\t\tif (tp_len < 0 ||\n\t\t\t    __packet_snd_vnet_parse(vnet_hdr, tp_len)) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: vnet_hdr is a struct virtio_net_hdr * aliasing data, the payload area of a TX_RING frame inside the mmap'd TPACKET ring (frame = ph = packet_current_frame(po, &po->tx_ring, TP_STATUS_SEND_REQUEST), line 2655; ring memory is userspace-writable with no kernel lock held over these accesses). Violated invariant: __packet_snd_vnet_parse(vnet_hdr, tp_len) (line 2676; helper at 2416-2427) validates hdr_len/gso/csum bounds, then line 2680-2681 re-fetches vnet_hdr->hdr_len from the same shared memory to compute copylen, and after sock_alloc_send_skb/tpacket_fill_skb lines 2719-2723 pass the SAME shared pointer to virtio_net_hdr_to_skb(skb, vnet_hdr, ...) and virtio_net_hdr_set_proto(skb, vnet_hdr) which re-read flags, gso_type, hdr_len, csum_start, csum_offset and store them into skb state (include/linux/virtio_net.h:50-70 -> skb_shinfo(skb)->gso_size/gso_type, skb_partial_csum_set(skb, start, off) -> skb->csum_start/csum_offset). Every field is therefore fetched at least twice with no READ_ONCE, local struct copy, or lock between fetches, so the values checked and the values consumed can differ. Unsafe use: the later, independently re-read values become skb->csum_start/csum_offset (used as offsets into packet data in checksum computation, exactly the seed's csum_start/csum_offset OOB mechanism) and gso_size/gso_type (used as sizes/segment counts), while copylen drives skb linear allocation. Impact: a userspace thread racing writes to the TX_RING frame between the validate fetch and the consume fetches can bypass __packet_snd_vnet_parse validation and plant oversized csum_start/csum_offset/gso_size into the skb, leading to out-of-bounds read/write in the TX checksum/segmentation path; triggerable by an unprivileged process that has mmap'd the ring. This is the tpacket_snd analogue of upstream af_packet TX vnet-hdr double-fetch fixes; the snapshot version reads the header in place from the ring instead of copying it to a kernel-local struct as packet_snd() does (copy_from_iter_full at line 2439). Counterevidence checked: virtio_net_hdr_to_skb does re-validate its own copy of csum_start/csum_offset/gso_size against the then-current skb (virtio_net.h:50-70), which bounds the primary OOB impact; however it validates the racing value it happens to read, not the value __packet_snd_vnet_parse validated, and the copylen/hdr_len inconsistency between the two fetches (2676 vs 2680, and again inside virtio_net_hdr_to_skb) still lets the two paths disagree, so the validated-equals-used invariant is broken even though a second independent check exists. No READ_ONCE or local cache exists anywhere on this path in this snapshot."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 2664,
+      "status": "reported",
+      "reason": "tpacket_snd TX_RING virtio_net_hdr consumed from shared mmap'd frame: validated at 2676 (__packet_snd_vnet_parse), re-fetched for copylen at 2680-2681, re-consumed wholesale at 2719-2723 via virtio_net_hdr_to_skb/virtio_net_hdr_set_proto; escalated to the finding above."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 2527,
+      "status": "safe",
+      "reason": "tpacket_parse_header reads tp_len and tp_mac/tp_net from the shared frame but each field is read exactly once, bounds-checked (tp_len > size_max at 2550; off < off_min || off_max < off at 2586), and the checked locals (tp_len, off) are what callers consume (*data = frame + off; return tp_len). Single-fetch discipline is maintained; no second dereference of the header fields exists in tpacket_snd or tpacket_fill_skb."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 2655,
+      "status": "safe",
+      "reason": "packet_current_frame()/packet_lookup_frame (471-488) reads tp_status via __packet_get_status only to select the frame; the status value is not used as an offset/length, and tpacket_snd's later __packet_get_status at 2734 is a separate state check for skb destruction, not a validated-then-reused scalar. No bounds-value double-fetch."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 2848,
+      "status": "safe",
+      "reason": "packet_snd() handles the non-ring sendmsg path: packet_snd_vnet_parse (2433-2443) copies the virtio_net_hdr from the message iterator into the kernel-local stack struct vnet_hdr via copy_from_iter_full, so every later use (2863, 2870, 2926-2930) reads the private copy. This is the single-fetch pattern the TX_RING path lacks; contrast case, not a finding."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 2252,
+      "status": "safe",
+      "reason": "tpacket_rcv() only WRITES tp_len/tp_snaplen/tp_mac/tp_net/tp_sec/tp_nsec and sll_* fields into the shared RX ring (2295-2352); macoff/netoff/snaplen are kernel-computed locals, and frame selection uses kernel-side ring geometry. No userspace-sourced scalar is validated then re-read as an offset or length. TPACKET_V3 block walking (__packet_lookup_frame_in_block, 1012-1090) likewise advances with kernel-maintained pkc->nxt_offset/kblk_size, never trusting userspace-written tp_next_offset."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/af_packet.c",
+      "line": 4123,
+      "status": "safe",
+      "reason": "poll path reads tp_status only for readiness (TP_STATUS_AVAILABLE); the value is never used as an offset, length, or size, so a racing userspace write cannot produce memory unsafety."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/packet/diag.c",
+      "line": 1,
+      "status": "safe",
+      "reason": "packet_diag dumps only kernel-side ring configuration statistics; it performs no reads of user-mapped frame header fields used for validation or consumption."
+    }
+  ],
+  "limitations": [
+    "The reported candidate's worst-case impact is bounded by the fact that virtio_net_hdr_to_skb (include/linux/virtio_net.h:50-70) re-validates csum_start/csum_offset and gso values against the skb it reads them into, so the clean check-then-use OOB of the seed is partially mitigated; the residual defect is the two independent fetches (validate at 2676 vs consume at 2680 and 2719-2723) with no single snapshot of the header, which still permits validated/consumed inconsistency (copylen vs hdr_len vs later checksum offsets).",
+    "Only net/packet (af_packet.c, internal.h, diag.c) was audited for this branch; adjacent mmap'd consumers reachable from af_packet ring setup (e.g. BPF packet filter paths, vhost-side copies of the same frames) were not examined.",
+    "TPACKET_V1/V2/V3 header fields in tpacket_parse_header were confirmed single-fetch by reading the function and all callers in this snapshot; no cross-file re-dereference of ph.h1/h2/h3 outside af_packet.c exists, but non-packet callers of these headers (none found) were not exhaustively enumerated."
+  ]
+}

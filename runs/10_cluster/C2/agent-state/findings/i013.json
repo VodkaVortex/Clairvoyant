@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "optsize-body-clamp",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/xt_dccp.c",
+      "start": 59,
+      "end": 69,
+      "quote": "\t\tif (op[i] < 2)\n\t\t\ti++;\n\t\telse\n\t\t\ti += op[i+1]?:1;",
+      "confidence": "medium",
+      "reason": "Untrusted source: DCCP packet header option bytes fetched via skb_header_pointer(skb, protoff+optoff, optlen, dccp_optbuf) into dccp_optbuf (line 53), i.e. remotely attacker-controlled wire bytes of length optlen = dh->dccph_doff*4 - __dccp_hdr_len(dh). Violated invariant: the walk in dccp_find_option() (used by xt_dccp match) consumes a type byte op[i] and, whenever op[i] >= 2, dereferences op[i+1] as the option size byte without first confirming that 2 bytes remain, and then advances the cursor by that unclamped size. Unlike the sibling parser net/netfilter/xt_tcpmss.c line 64, which explicitly guards 'if (op[i] < 2 || i == optlen - 1) i++;' before consulting op[i+1], xt_dccp.c has no 'i == optlen - 1' check and no clamp of op[i+1] to (optlen - i). Unsafe use: when the truncated final option byte satisfies op[i] >= 2 (i.e. i == optlen-1), the expression op[i+1] reads exactly one byte past the end of the option data that was pulled; and for a size byte larger than the remaining bytes the loop index jumps past optlen, ending the loop (no OOB read in that case since the loop exits on i >= optlen). Consequence: one-byte out-of-bounds read of packet-adjacent memory in the linearized dccp_optbuf/dccp option area, KASAN-detectable, matching the seed mechanism (size-byte read with fewer than 2 bytes remaining / unclamped size use). Counterevidence checked: op is a 256*4-byte kmalloc'd static buffer (dccp_optbuf, line 165) so the over-read may land inside the allocated buffer rather than past its end when the header is non-linear or when optlen < buffer size - exact impact depends on linear vs copied path, hence medium confidence; with a fully linear skb, op points into the skb data and the read runs past the DCCP option area into payload bytes (info disclosure of one payload byte, no crash). Guard presence in all sibling TCP walkers (tcp_parse_options, tcp_parse_mss_option, mptcp_get_options, nf_conntrack tcp_options/tcp_sack, synproxy_parse_options, bpf_search_tcp_opt, xt_tcpmss, xt_TCPOPTSTRIP loop bound i < tcp_hdrlen - 1) confirms the missing 2-byte-remaining guard here is anomalous, not intentional design."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4558,
+      "status": "safe",
+      "reason": "tcp_parse_options default branch: 'if (length < 2) return;' before opsize = *ptr++, plus 'if (opsize > length) return;' before any body read; all downstream get_unaligned reads (MSS, timestamps, SACK offset, EXP magic) are therefore clamped."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4499,
+      "status": "safe",
+      "reason": "tcp_parse_mss_option has the identical length<2 and opsize>length guards before reading the 2-byte MSS value."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4457,
+      "status": "safe",
+      "reason": "tcp_parse_fastopen_option rejects len<0, odd len, and only memcpy's when TCP_FASTOPEN_COOKIE_MIN <= len <= TCP_FASTOPEN_COOKIE_MAX; callers pass opsize-derived sizes already bounded by opsize<=length."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 4475,
+      "status": "safe",
+      "reason": "smc_parse_options reads get_unaligned_be32(ptr) only when opsize >= TCPOLEN_EXP_SMC_BASE (4), and callers guarantee opsize <= length, so the 4-byte read is within the option."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mptcp/options.c",
+      "line": 386,
+      "status": "safe",
+      "reason": "mptcp_get_options in this snapshot already contains the seed fix: 'if (length < 2) return;' before opsize = *ptr++, and 'if (opsize > length) return;' before mptcp_parse_option(skb, ptr, opsize, ...)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_conntrack_proto_tcp.c",
+      "line": 366,
+      "status": "safe",
+      "reason": "Both tcp_options() and tcp_sack() walks have 'if (length < 2) return;' before opsize=*ptr++ and 'if (opsize > length) return;' before any body use (window-scale byte, SACK block reads)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_synproxy_core.c",
+      "line": 54,
+      "status": "safe",
+      "reason": "synproxy_parse_options has length<2 and opsize>length guards before MSS/WSCALE/TIMESTAMP body reads."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/filter.c",
+      "line": 7740,
+      "status": "safe",
+      "reason": "bpf_search_tcp_opt checks 'opend - op < 2 || opend - op < op[1] || op[1] < 2' before using op[1] as kind_len, and memcmp of magic is bounded by magic_len <= kind_len - 2."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/xt_tcpmss.c",
+      "line": 64,
+      "status": "safe",
+      "reason": "Explicit 'if (op[i] < 2 || i == optlen - 1) i++; else i += op[i+1] ? : 1;' prevents reading the size byte on the final remaining byte; MSS value read additionally requires (optlen - i) >= TCPOLEN_MSS."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/xt_TCPOPTSTRIP.c",
+      "line": 19,
+      "status": "safe",
+      "reason": "optlen() reads opt[offset+1] but the caller loop is 'for (i = sizeof(struct tcphdr); i < tcp_hdrlen - 1; i += optl)', so offset+1 <= tcp_hdrlen-1 is always inside the header; body writes also guarded by 'if (i + optl > tcp_hdrlen) break;'."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/xt_dccp.c",
+      "line": 68,
+      "status": "reported",
+      "reason": "i += op[i+1]?:1 reads the size byte without any 2-byte-remaining check and uses it unclamped; the analogous guard present in xt_tcpmss.c ('i == optlen - 1') is absent here."
+    }
+  ],
+  "limitations": [
+    "Non-TCP-layer option/TLV parsers in s03 (e.g. IPv6 exthdr walkers net/ipv6/exthdrs.c/exthdrs_core.c/calipso.c, cfg80211/mac80211 IE walks, Bluetooth EIR/SDP loops, SCTP ASCONF walks in sm_make_chunk.c) were enumerated but not deeply audited in this branch; branch1-3 intents cover them.",
+    "The one-byte over-read in xt_dccp.c only manifests when op points at a buffer whose end coincides with the end of the fetched option data: with a non-linear skb the op buffer is the 1024-byte static dccp_optbuf so the extra byte stays inside the allocation (no KASAN report), while for a linear skb op points into the packet and the byte read is the first payload byte after the DCCP option area (adjacent-packet-data read rather than an unmapped-memory access); exploit impact is a one-byte info-leak/crash at most, hence medium confidence.",
+    "dccp_find_option requires the xt_dccp match to be loaded and a rule using it, and DCCP packet reception; kernel must be built with dccp support. No runtime reproducer was compiled because the snapshot tree lacks a matching build environment; the analysis is static line-level evidence."
+  ]
+}

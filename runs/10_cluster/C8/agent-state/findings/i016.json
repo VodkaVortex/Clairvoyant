@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "fixed-epidx-rest",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/atm/ueagle-atm.c",
+      "start": 2204,
+      "end": 2210,
+      "quote": "usb_fill_int_urb(sc->urb_int, sc->usb_dev,\n\t\t usb_rcvintpipe(sc->usb_dev, UEA_INTR_PIPE),\n\t\t intr, size, uea_intr, sc,\n\t\t sc->usb_dev->actconfig->interface[0]->altsetting[0].\n\t\t endpoint[0].desc.bInterval);",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: usb_host_interface.altsetting[0].desc.bNumEndpoints and the endpoint[] flex-array contents of interface 0 are descriptor data supplied at enumeration by a physically attacker-controlled USB device; uea_bind (line 2529) only checks ifnum == UEA_INTR_IFACE_NO (0) and claims interfaces via usb_ifnum_to_if, never the endpoint count. MISSING GUARANTEE: grep over the whole file shows bNumEndpoints occurs 0 times in ueagle-atm.c, so no code path validates that interface 0 altsetting[0] declares at least 1 endpoint. UNSAFE USE: uea_boot, called at probe time from uea_bind -> usbatm_usb_probe (uea_bind line 2600 calls uea_boot; usbatm_usb_probe line 1040 calls driver->bind), indexes actconfig->interface[0]->altsetting[0].endpoint[0].desc.bInterval to program usb_fill_int_urb's interval field for sc->urb_int, which is immediately usb_submit_urb'd. A malicious gadget with bNumEndpoints == 0 on interface 0 makes the flex-array element read run past the kmalloc'd usb_host_endpoint array (endpoint[] is a variable-length trailing array), giving an out-of-bounds read at device plug-in whose garbage value is then installed as the URB's polling interval. This is the same untrusted descriptor-declared count vs assumed-index invariant as the seed cx231xx NULL-deref. COUNTEREVIDENCE CHECKED: no bNumEndpoints check anywhere in ueagle-atm.c; usbatm.c core (usbatm_usb_probe lines 1021-1215) programs pipes from static driver constants (UEA_BULK/ISO_DATA_PIPE) and never validates interface 0's endpoints either; claim_interface (line 2486) only checks the interface exists."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/storage/alauda.c",
+      "line": 1126,
+      "status": "safe",
+      "reason": "init_alauda reads altsetting->endpoint[0].desc.bEndpointAddress (line 1124-1127) without a local bNumEndpoints check, but the usb-storage core get_pipes() (drivers/usb/storage/usb.c lines 738-790, called from usb_stor_probe2 line 1059 before any transport/attach) iterates only over altsetting->desc.bNumEndpoints and fails the probe with 'Endpoint sanity check failed' if no bulk in/out endpoints exist; a device declaring bNumEndpoints==0 therefore never reaches alauda's attach, so endpoint[0] is in bounds whenever init_alauda runs."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/serial/qcserial.c",
+      "line": 242,
+      "status": "safe",
+      "reason": "Fixed-index reads intf->endpoint[0].desc / endpoint[1].desc at lines 242-243 are guarded by the immediately preceding 'if (intf->desc.bNumEndpoints == 2 && ...)' at line 241, so both indices are validated against the untrusted count before use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/misc/uss720.c",
+      "line": 748,
+      "status": "safe",
+      "reason": "endpoint = &interface->endpoint[2] at line 748 is guarded by 'if (interface->desc.bNumEndpoints < 3) { ... return -ENXIO; }' at line 712."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/usb/wusbcore/wa-hc.c",
+      "line": 50,
+      "status": "safe",
+      "reason": "endpoint[1]/endpoint[2] reads at lines 50-51 are guarded by 'if (iface->cur_altsetting->desc.bNumEndpoints < 3)' at line 42."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/isdn/gigaset/usb-gigaset.c",
+      "line": 708,
+      "status": "unresolved",
+      "reason": "Fixed reads hostif->endpoint[0].desc (line 708) and hostif->endpoint[1].desc (line 727) in gigaset_probe; bas-gigaset.c has a bNumEndpoints check (line 2320) but no bNumEndpoints reference was found in usb-gigaset.c during the bounded sweep. Line-level verification of the surrounding function was not completed before finalization, so it is left unresolved rather than classified safe or reported."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/input/tablet/aiptek.c",
+      "line": 1832,
+      "status": "safe",
+      "reason": "intf->altsetting[0].endpoint[0].desc read at line 1832 is guarded by 'if (intf->altsetting[0].desc.bNumEndpoints < 1) { ... return -EINVAL; }' at lines 1825-1828."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/input/tablet/gtco.c",
+      "line": 872,
+      "status": "safe",
+      "reason": "altsetting[0].endpoint[0].desc reads at lines 872 and 959 follow 'if (usbinterface->altsetting[0].desc.bNumEndpoints < 1)' guard at line 861."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/input/joystick/iforce/iforce-usb.c",
+      "line": 147,
+      "status": "safe",
+      "reason": "endpoint[0]/endpoint[1] reads at lines 147-148 are guarded by 'if (interface->desc.bNumEndpoints < 2)' at line 144."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/input/misc/ims-pcu.c",
+      "line": 1674,
+      "status": "safe",
+      "reason": "endpoint[0] (line 1674), endpoint[0] (1690) and endpoint[1] (1705) reads are guarded by 'if (alt->desc.bNumEndpoints < 1)' (line 1671) and 'if (alt->desc.bNumEndpoints != 2)' (line 1683) checks."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/i2c/busses/i2c-diolan-u2c.c",
+      "line": 461,
+      "status": "safe",
+      "reason": "endpoint[0]/endpoint[1] reads at lines 461-462 are guarded by 'hostif->desc.bNumEndpoints < 2' at line 452."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/mfd/dln2.c",
+      "line": 745,
+      "status": "safe",
+      "reason": "endpoint[0]/endpoint[1] reads at lines 745-746 are guarded by 'hostif->desc.bNumEndpoints < 2' at line 738."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/bluetooth/bfusb.c",
+      "line": 629,
+      "status": "safe",
+      "reason": "endpoint[0]/endpoint[1] reads at lines 629-630 are guarded by 'if (intf->cur_altsetting->desc.bNumEndpoints < 2)' at line 626."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/staging/most/hdm-usb/hdm_usb.c",
+      "line": 1190,
+      "status": "safe",
+      "reason": "Loop 'for (i = 0; i < num_endpoints; i++) { ep_desc = &usb_iface_desc->endpoint[i].desc; ... }' at lines 1189-1191 iterates only up to num_endpoints = usb_iface_desc->desc.bNumEndpoints (line 1142), i.e. the untrusted count is the loop bound itself, so no OOB indexing occurs; allocations sized by the same count."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/staging/comedi/drivers/dt9812.c",
+      "line": 654,
+      "status": "safe",
+      "reason": "Loop over endpoints bounded by host->desc.bNumEndpoints after an explicit 'if (host->desc.bNumEndpoints != 5) return -ENODEV' at lines 646-649; ni_usb6501.c and vmk80xx.c follow the same guarded-loop pattern (bNumEndpoints != 2 checks at lines 490/653)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/staging/rtl8188eu/os_dep/usb_intf.c",
+      "line": 87,
+      "status": "safe",
+      "reason": "Loop 'for (i = 0; i < piface_desc->bNumEndpoints; i++) pendp_desc = &phost_iface->endpoint[i].desc;' at lines 85-87 uses the untrusted count as the loop bound, no assumed fixed index."
+    }
+  ],
+  "limitations": [
+    "Sweep bounded to trees outside drivers/media/usb and drivers/net (owned by sibling branches) and to endpoint[k]/endpoint[i] indexing patterns; ueagle-atm's sibling drivers speedtch.c and xusbatm.c use bNumEndpoints-bounded loops and were not separately line-verified beyond that grep evidence.",
+    "drivers/isdn/gigaset/usb-gigaset.c endpoint[0]/endpoint[1] reads (lines 708/727) lack any bNumEndpoints reference in the file per grep, but the surrounding function was not fully read before finalization; needs one targeted verification pass.",
+    "sound/usb shows extensive bNumEndpoints guards (clock.c, endpoint.c, midi.c, pcm.c, quirks.c, stream.c, mixer.c, mixer_quirks.c, misc/ua101.c) and no unguarded fixed-index access surfaced in the endpoint[0-9] grep, but individual altsetting-index paths (e.g. ua101 altsetting[1]) were not exhaustively line-verified.",
+    "tools/usb userspace examples (ffs-aio-example) were excluded as host-side test programs, not kernel probe paths.",
+    "No compilation/reproducer harness was run; the ueagle-atm finding is a static source hypothesis with grep-level counterevidence (bNumEndpoints count in file == 0), not a demonstrated crash."
+  ]
+}

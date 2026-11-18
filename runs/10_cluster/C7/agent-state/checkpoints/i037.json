@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "intent_id": "i037",
+  "branch": "tasklet-napi-softirq-lock",
+  "status": "complete",
+  "snapshot": "s08",
+  "progress": [
+    {
+      "ts": "init",
+      "note": "Plan: check branch-family drivers (fs_enet, altera_tse, cassini) in s08; enumerate NAPI/tasklet plain spin_lock sites; deep-read strongest process-context plain holders; re-evaluate qtnfmac/iwlwifi/mt76 leads. Exclude xmit and timer callback paths; exclude ks7010 seed."
+    },
+    {
+      "ts": "read1",
+      "note": "altera_tse_main.c in s08: plain spin_lock(&priv->tx_lock) at 439 in tse_tx_complete (called from tse_poll, netif_napi_add at 1391 = softirq side); spin_lock_bh(&priv->tx_lock) at 555 in tse_start_xmit (correct discipline); tse_shutdown (.ndo_stop) takes plain spin_lock(&priv->mac_cfg_lock) at 1010 then plain spin_lock(&priv->tx_lock) at 1011, after napi_disable (997) and free_irq (1006-1007). One spin_lock_bh in file (xmit only)."
+    },
+    {
+      "ts": "read2",
+      "note": "fs_enet-main.c in s08: fs_enet_napi (85) takes plain spin_lock(&fep->tx_lock) at 98 (NAPI poll, netif_napi_add_weight at 1020, scheduled from fs_enet_interrupt 343/351); fs_enet_tx_xmit plain lock at 523 (core disables BH for ndo_start_xmit); fs_enet_close (765) takes spin_lock_irqsave(&fep->lock) at 776 then PLAIN spin_lock(&fep->tx_lock) at 777, after napi_disable (772), free_irq at 784. grep -c 'spin_lock_bh|local_bh_disable' = 0."
+    },
+    {
+      "ts": "read3",
+      "note": "cassini.c in s08 present: cas_lock_tx at 231 acquires tx_lock[i] with plain spin_lock_nested at 236; plain spin_lock(&cp->tx_lock[ring]) at 1817 (TX-reclaim, cas_tx_ringN); cas_poll (NAPI) at 2530. Line numbers identical to sibling snapshots where the process-side chain cas_reset_task/cas_close -> cas_lock_all_save (spin_lock_irq(&cp->lock) only) -> cas_lock_tx was fully traced."
+    },
+    {
+      "ts": "final",
+      "note": "Classified: fs_enet tx_lock reported (medium); altera_tse tx_lock reported (low); cassini tx_lock[] reported (low); qtnfmac trans.c resp_lock unresolved (RX side traced to workqueue context in earlier s08 pass, tasklet/NAPI-side takers not fully enumerated). mwl8k tx_lock tasklet pairing, iwlwifi pcie/rx.c, mt76 q->lock not re-examined under finalize cap -> limitations. ks7010 seed excluded per task rules."
+    }
+  ],
+  "candidates": [
+    {
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 777,
+      "status": "reported",
+      "reason": "NAPI softirq side: fs_enet_napi plain spin_lock(&fep->tx_lock) at 98. Process side: fs_enet_close plain lock at 777 nested in spin_lock_irqsave(&fep->lock) at 776 (IRQs off, BH on). Zero spin_lock_bh in file. Window narrowed by napi_disable at 772 / free_irq at 784."
+    },
+    {
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 1011,
+      "status": "reported",
+      "reason": "NAPI softirq side: tse_tx_complete plain lock at 439 from tse_poll (netif_napi_add 1391). Process side: tse_shutdown plain lock at 1011 under mac_cfg_lock, no BH disable, after napi_disable 997 and free_irq 1006-1007. tse_start_xmit uses spin_lock_bh at 555."
+    },
+    {
+      "path": "drivers/net/ethernet/sun/cassini.c",
+      "line": 236,
+      "status": "reported",
+      "reason": "Process side: cas_lock_tx plain spin_lock_nested at 236 (via cas_lock_all_save under spin_lock_irq only, from cas_reset_task workqueue / cas_close per sibling traces at identical lines 231/236/1817/2530). Softirq side: plain spin_lock(&cp->tx_lock[ring]) at 1817 in TX reclaim reached from cas_poll NAPI (2530). Caller lines not re-read in s08."
+    },
+    {
+      "path": "drivers/net/wireless/quantenna/qtnfmac/trans.c",
+      "line": 30,
+      "status": "unresolved",
+      "reason": "Plain resp_lock acquisitions at 30/47/87/136; earlier s08 pass traced the RX cmdresp path (qtnf_trans_signal_cmdresp <- qtnf_pcie_control_rx_callback <- qtnf_shm_handle_new_data <- qtnf_shm_ipc_irq_work) to workqueue/process context, but a full enumeration of tasklet/NAPI-side takers was not completed."
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "tx-cow-head-realloc",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/tdls.c",
+      "start": 2010,
+      "end": 2037,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)skb->data;",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: remote 802.11 TDLS (ETH_P_TDLS) data frames delivered to the sdata->skb_queue worker and dispatched to ieee80211_process_tdls_channel_switch() at net/mac80211/iface.c:1815; the frame bytes at skb->data are fully attacker-controlled. VIOLATED INVARIANT: tf is captured as a cast of skb->data at line 2010 and must be refetched after any call that can reallocate skb->head. UNSAFE USE: skb_linearize(skb) at line 2020 can call pskb_expand_head and free/replace the head buffer when the skb is cloned or non-linear (comment 'we want to access the entire packet'); after it returns success, line 2026 dereferences the stale pre-linearize pointer via 'switch (tf->action_code)' with no refetch — same structural shape as the seed's pep_get_sb() (ph captured, pskb_may_pull, ph->sb_type read). COUNTEREVIDENCE: exploitation requires a cloned/non-linear TDLS skb reaching this worker (driver RX path dependent), and the use is a single-byte read whose result only selects between the REQUEST/RESPONSE handlers which re-parse the skb themselves, so impact is a slab UAF read (KASAN-detectable) rather than proven memory corruption; if the skb is already linear and unshared, skb_linearize is a no-op and no UAF occurs. Confidence medium for the invariant violation, not for exploitability."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/mediatek/mt76/mt7925/mcu.c",
+      "start": 642,
+      "end": 648,
+      "quote": "if (rxd->option & MCU_UNI_CMD_UNSOLICITED_EVENT) {",
+      "confidence": "low",
+      "reason": "UNTRUSTED SOURCE: MCU event skb received from the mt7925 firmware via the mt76 RX/PCIe event path and parsed here; its head bytes are firmware-supplied. VIOLATED INVARIANT: rxd is captured from skb->data at line 642 and must be reloaded after skb_linearize(). UNSAFE USE: skb_linearize(skb) at line 644 can free and reallocate skb->head (cloned/non-linear skb); line 647 reads 'rxd->option' through the stale pointer without refetching. COUNTEREVIDENCE/WEAKNESS: the untrusted source is on-device firmware rather than a remote network peer, and if MCU event skbs are always allocated linear and unshared (typical for mt76 event skbs) the reallocation path never triggers; whether the event skb can be cloned/non-linear was not proven. Reported at low confidence as the same stale-pointer-after-linearize pattern."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/tdls.c",
+      "line": 2026,
+      "status": "reported",
+      "reason": "tf captured from skb->data at 2010; skb_linearize at 2020 can reallocate head; tf->action_code read at 2026 without refetch. Raise as finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/mediatek/mt76/mt7925/mcu.c",
+      "line": 647,
+      "status": "reported",
+      "reason": "rxd captured from skb->data at 642; skb_linearize at 644; rxd->option read at 647 without refetch; firmware-supplied skb, reallocation precondition unproven. Low-confidence finding."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wan/hdlc_fr.c",
+      "line": 946,
+      "status": "safe",
+      "reason": "fr_rx(): fh/data captured from skb->data at 893-894; skb_share_check() at 940 only replaces the skb when shared (returns a new refcounted skb copy of the SAME head buffer or drops it), and no skb data modification occurs between capture and the data[] reads at 946-977, so the captured pointers stay valid; not a head-reallocation bug."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_flow_table_ip.c",
+      "line": 620,
+      "status": "safe",
+      "reason": "nf_flow_tunnel_ipip_push(): iph captured at 595 from skb_network_header(skb); after skb_cow_head(skb, headroom) at 608 the code refetches 'iph = ip_hdr(skb)' at 619 before all writes (620-630); no stale use."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_flow_table_ip.c",
+      "line": 683,
+      "status": "safe",
+      "reason": "nf_flow_tunnel_ip6ip6_push(): ip6h captured at 651; after skb_cow_head at 670, refetched 'ip6h = ipv6_hdr(skb)' at 682 before writes; only sizeof(*ip6h) used at 675 in between."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 277,
+      "status": "safe",
+      "reason": "ipv6_dest_hao(): ipv6h captured at 236; pskb_expand_head at 271; ipv6h refetched at 277 before swap at 283; hao itself is revalidated around the expand. No stale dereference."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/ip6_output.c",
+      "line": 684,
+      "status": "safe",
+      "reason": "ip6_forward(): hdr captured at 522; skb_cow at 678; hdr refetched at 684 before hdr->hop_limit-- at 688."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/wpa.c",
+      "line": 156,
+      "status": "safe",
+      "reason": "ieee80211_rx_h_michael_mic_verify(): hdr captured at 102; skb_linearize at 154; hdr refetched 'hdr = (void *)skb->data' at 156; later uses (161, 184-185) use the refetched value."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/wpa.c",
+      "line": 283,
+      "status": "safe",
+      "reason": "ieee80211_crypto_tkip_decrypt(): hdr captured at 266; skb_linearize at 281; hdr refetched at 283 before the 296 use."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/wpa.c",
+      "line": 548,
+      "status": "safe",
+      "reason": "ieee80211_crypto_ccmp_decrypt(): hdr captured at 521; skb_linearize at 543; explicit 'reload hdr - skb might have been reallocated' refetch at 548; later uses use the refetched pointer."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/wpa.c",
+      "line": 760,
+      "status": "safe",
+      "reason": "ieee80211_crypto_gcmp_decrypt(): hdr captured at 734; skb_linearize at 755; explicit reload comment and refetch at 760; no stale use."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/intel/iwlwifi/dvm/tx.c",
+      "line": 304,
+      "status": "safe",
+      "reason": "iwlagn_tx_skb(): hdr captured at 264; pskb_expand_head at 301; hdr refetched at 304 before all subsequent uses (318-425)."
+    }
+  ],
+  "limitations": [
+    "The automated audit only recognized pointer captures of the form 'type *var = <hdr accessor>' within the enclosing function of each skb_cow_head/skb_cow/skb_unclone/skb_share_check/pskb_expand_head/skb_linearize call site; pointers passed into helper functions, captured in outer loops, or obtained via memcpy/from-skb->data arithmetic casts not matching the regex may be missed.",
+    "Only net/ and drivers/ were scanned; arch/, fs/, net in headers, and macros generating call sites were not individually audited.",
+    "For the two reported findings, the reallocation precondition (cloned or non-linear skb on that specific path) was not dynamically reproduced; classification is based on the documented pskb_expand_head() semantics (frees old head, all pointers into skb header must be reloaded) in net/core/skbuff.c:2279-2283.",
+    "Candidates from the skb_cow_head dump (ip_gre.c, seg6_iptunnel.c, rpl_iptunnel.c, ioam6_iptunnel.c, nsh.c, ife.c, psp_main.c, sch_frag.c, br_netfilter_hooks.c, nf_conntrack_bridge.c, l2tp, xfrm, batman-adv, phonet af_phonet.c) were pattern-screened but not all deeply read line-by-line; they were deprioritized because inspection of a sample showed pointer capture consistently placed after the cow call."
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "chardev-ioctl-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/tty/synclink_gt.c",
+      "start": 4123,
+      "end": 4131,
+      "quote": "(info->base_clock % (info->params.data_rate * 16))) {",
+      "confidence": "high",
+      "reason": "Untrusted source: the SyncLink GT/MP serial adapter tty/chardev ioctl MGSL_IOCSPARAMS (set_params(), drivers/tty/synclink_gt.c:2527-2546, and its CONFIG_COMPAT twin set_params32():1087-1117) copies a whole MGSL_PARAMS struct from the user via copy_from_user() and memcpy()s it into info->params with zero numeric validation -- data_rate is a raw u32 (uapi: include/uapi/linux/synclink.h:165 'unsigned long data_rate', 32-bit on native 32-bit ABI and truncated/compat-cast on 64-bit); no check anywhere ties data_rate to a range before hardware programming. Missing guarantee (seed invariant): the divisor is validated only at raw-input width -- the guard 'info->params.data_rate' (==0 check, line 4123) screens the raw value, but the value actually divided is data_rate*16 evaluated in fixed-width arithmetic; the check never proves the divisor nonzero at the exact width where the division executes. Unsafe use: async_mode() (drivers/tty/synclink_gt.c:4123-4131) computes 'info->base_clock % (info->params.data_rate * 16)'; for data_rate = 268435456 (2^28 = 0x10000000, which passes the nonzero and !=MGSL_MODE_BASE_CLOCK gates), data_rate*16 = 2^32 wraps to 0x0 in 32-bit arithmetic (verified by compiled C test), so the '%' executes a modulo-by-zero -> kernel oops (DoS), and program_hw() is called directly from set_params() immediately after the ioctl, so the oops is reachable from a single unprivileged-with-device-open ioctl on the tty. This is structurally identical to the drm/amd/pm vega10 seed (8*speed u32 wrap -> zero tach divisor): constant scaling of a user numeric parameter in fixed width before '/'/'%' where all checks validate the unscaled input. Counterevidence checked: (a) set_rate() (line 3832-3843) is protected by 'if (rate)' so the wrapped-zero arguments at lines 4128/4131 are skipped, not divided -- the vulnerable site is specifically the modulo at line 4125 which has no such guard; (b) the tty termios path (change_params():2475) is limited to enumerated baud rates (max 4M bps), so it cannot reach the wrap; the reachable path is the ioctl. Impact: divide-by-zero oops/DoS while programming serial line parameters; not memory corruption. Limitation: hardware is a legacy Microgate SyncLink GT PCI adapter, so exploitation requires such a device to be present and its /dev/ttySL* node openable."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/tty/synclink_gt.c",
+      "line": 4329,
+      "status": "safe",
+      "reason": "set_rate(info, info->params.clock_speed * 16) in sync_mode: set_rate() (line 3832) guards with 'if (rate)' so a wrapped-zero argument skips the division entirely; wrapped-zero rate is never a divisor here."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/tty/synclink_gt.c",
+      "line": 3818,
+      "status": "safe",
+      "reason": "set_rate(info, info->params.clock_speed) guarded by 'if (info->params.clock_speed)' plus set_rate's own 'if (rate)'; divisor checked at division width."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/tty/synclink_gt.c",
+      "line": 4128,
+      "status": "safe",
+      "reason": "set_rate(info, info->params.data_rate * 8): wrapped-zero product is caught by set_rate's 'if (rate)' guard; only the modulo at line 4125 divides unguarded."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/iio/trigger/iio-trig-hrtimer.c",
+      "line": 74,
+      "status": "safe",
+      "reason": "do_div(period, val) divisor val = fract + 1000ULL*integer is explicitly validated 'if (!val || val > UINT_MAX) return -EINVAL' before use, and 64-bit arithmetic cannot wrap to 0 for in-range inputs."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/iio/trigger/stm32-timer-trigger.c",
+      "line": 131,
+      "status": "safe",
+      "reason": "stm32_timer_start() does 'do_div(div, frequency)' where frequency comes from sysfs store that rejects freq==0; no constant scaling applied to the divisor."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/char/hpet.c",
+      "line": 865,
+      "status": "unresolved",
+      "reason": "do_div(temp, period) uses a period derived from hardware/HPET MMIO, not an ioctl-supplied numeric parameter, and no fixed-width scaling was confirmed feeding it; not deeply audited within this branch's bound."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/media/dvb-frontends/stb6100.c",
+      "line": 386,
+      "status": "unresolved",
+      "reason": "nint = fvco / (state->reference << psd2): left-shifted divisor, but operands are frontend properties from the DVB frontend parameters rather than a direct ioctl numeric param; shift-truncation-to-zero path not fully traced within this branch's bound."
+    }
+  ],
+  "limitations": [
+    "Bounded to six high-signal pattern queries (constant-scaled divisors feeding '/'/'%', multiplication-then-modulo, do_div/div_u64 with rate/period operands, parenthesized scaled denominators) over drivers/iio, drivers/media, drivers/hid, drivers/input, drivers/char, drivers/tty, drivers/misc; drivers outside these subsystems (e.g. staging, isdn, firewire) were not exhaustively swept.",
+    "The two 'unresolved' candidates (drivers/char/hpet.c:865, drivers/media/dvb-frontends/stb6100.c:386) were identified late and not deeply traced to their untrusted-source provenance; they are recorded for follow-up rather than classified safe/reported.",
+    "No runtime reproducer was executed against real SyncLink GT hardware (unavailable); the 32-bit wrap of data_rate*16 to zero for data_rate=2^28 was confirmed by a compiled C test under $TMPDIR, and the absence of any data_rate validation in set_params()/set_params32()/program_hw() was confirmed by reading the complete functions plus every params.data_rate use in the file (rg: lines 842, 1078, 1109, 2475-2479, 4123-4131, 4864, 4894, 4941).",
+    "On 64-bit kernels MGSL_PARAMS.data_rate is unsigned long (64-bit), so the wrap threshold there is 2^60 rather than 2^28; both thresholds are user-representable in a single ioctl, and the 32-bit compat path (set_params32, compat_ulong_t) reproduces the 2^28 threshold on 64-bit kernels."
+  ]
+}

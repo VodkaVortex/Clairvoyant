@@ -1,0 +1,25 @@
+{
+  "seed": {
+    "hexsha": "1897852293faca4c2be51e0a19f739622f771623",
+    "one_line_summary": "usb: usbip: fix integer overflow in usbip_recv_iso()",
+    "vulnerability_summary": "Wire-controlled urb->number_of_packets multiplied by descriptor size in a 32-bit int overflows, causing a small kzalloc but a large receive loop write, yielding heap buffer overflow.",
+    "vulnerability_pattern": "Wire-controlled count multiplied by fixed element size in narrow integer type overflows, producing undersized allocation followed by loop-based writes exceeding the buffer.",
+    "patch": "commit 1897852293faca4c2be51e0a19f739622f771623\nAuthor: Kelvin Mbogo <addcontent08@gmail.com>\nDate:   Wed Mar 25 13:36:38 2026 +0300\n\n    usb: usbip: fix integer overflow in usbip_recv_iso()\n    \n    usbip_recv_iso() computes the iso descriptor buffer size as:\n    \n        int size = np * sizeof(*iso);\n    \n    where np comes straight from the wire (urb->number_of_packets, set by\n    usbip_pack_ret_submit() before we get here).  With np = 0x10000001 and\n    sizeof(*iso) == 16 the product is 0x100000010 which truncates to 16 on\n    a 32-bit int.  kzalloc(16) succeeds but the following receive loop\n    writes np * 16 bytes into it - game over.\n    \n    USBIP_MAX_ISO_PACKETS (1024) already exists in usbip_common.h for the\n    submit path but was never enforced on the receive side.\n    \n    Clamp np to [1, USBIP_MAX_ISO_PACKETS] and switch to kcalloc() so\n    the allocator itself can catch overflows in the future.  Fold the\n    existing np == 0 early return into the new bounds check.\n    \n    usbip_pack_ret_submit() already copied the bogus np into\n    urb->number_of_packets before we run, so just returning -EPROTO is\n    not enough - processcompl() in the HCD will still iterate that many\n    iso_frame_desc entries when it completes the failed URB.  Zero out\n    urb->number_of_packets before bailing to prevent that secondary crash\n    (confirmed on 6.12.0, processcompl+0x63 with CR2 in unmapped slab).\n    \n    Signed-off-by: Kelvin Mbogo <addcontent08@gmail.com>\n    Link: https://patch.msgid.link/20260325103640.8090-1-addcontent08@gmail.com\n    Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>\n\ndiff --git a/drivers/usb/usbip/usbip_common.c b/drivers/usb/usbip/usbip_common.c\nindex a2b2da1255dd..8b6eb7476747 100644\n--- a/drivers/usb/usbip/usbip_common.c\n+++ b/drivers/usb/usbip/usbip_common.c\n@@ -662,7 +662,7 @@ int usbip_recv_iso(struct usbip_device *ud, struct urb *urb)\n \tvoid *buff;\n \tstruct usbip_iso_packet_descriptor *iso;\n \tint np = urb->number_of_packets;\n-\tint size = np * sizeof(*iso);\n+\tint size;\n \tint i;\n \tint ret;\n \tint total_length = 0;\n@@ -670,11 +670,21 @@ int usbip_recv_iso(struct usbip_device *ud, struct urb *urb)\n \tif (!usb_pipeisoc(urb->pipe))\n \t\treturn 0;\n \n-\t/* my Bluetooth dongle gets ISO URBs which are np = 0 */\n-\tif (np == 0)\n-\t\treturn 0;\n+\tif (np <= 0 || np > USBIP_MAX_ISO_PACKETS) {\n+\t\tdev_err(&urb->dev->dev,\n+\t\t\t\"recv iso: invalid number_of_packets %d\\n\", np);\n+\t\t/*\n+\t\t * usbip_pack_ret_submit() already set urb->number_of_packets\n+\t\t * from the wire.  Zero it so processcompl() does not iterate\n+\t\t * OOB descriptors on the way out.\n+\t\t */\n+\t\turb->number_of_packets = 0;\n+\t\treturn -EPROTO;\n+\t}\n+\n+\tsize = np * sizeof(*iso);\n \n-\tbuff = kzalloc(size, GFP_KERNEL);\n+\tbuff = kcalloc(np, sizeof(*iso), GFP_KERNEL);\n \tif (!buff)\n \t\treturn -ENOMEM;\n \n"
+  },
+  "snapshots": [
+    "s01",
+    "s02",
+    "s03",
+    "s04",
+    "s05",
+    "s06",
+    "s07",
+    "s08",
+    "s09",
+    "s10",
+    "s11",
+    "s12",
+    "s13"
+  ],
+  "task": "Find other instances of the seed mechanism in independent Linux source snapshots."
+}

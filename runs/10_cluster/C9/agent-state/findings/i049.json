@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "intent_id": "i049",
+  "branch": "error-unwind-poisoned-count",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s12"
+  ],
+  "findings": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/emulex/benet/be_cmds.c",
+      "start": 4483,
+      "end": 4501,
+      "quote": "\tdesc_count = le16_to_cpu(resp->desc_count);\n\n\tif (port_res) {\n\t\tu16 nic_pf_cnt = 0, i;\n\t\tu16 nic_pf_num_list[MAX_NIC_FUNCS];\n\n\t\tnic_pf_cnt = be_get_nic_pf_num_list(resp->func_param,\n\t\t\t\t\t\t    desc_count,\n\t\t\t\t\t\t    nic_pf_num_list);\n\n\t\tfor (i = 0; i < nic_pf_cnt; i++) {\n\t\t\tnic = be_get_func_nic_desc(resp->func_param, desc_count,\n\t\t\t\t\t\t   nic_pf_num_list[i]);\n\t\t\tif (nic->link_param == adapter->port_num) {\n\t\t\t\tport_res->nic_pfs++;\n\t\t\t\tpcie = be_get_pcie_desc(resp->func_param,\n\t\t\t\t\t\t\tdesc_count,\n\t\t\t\t\t\t\tnic_pf_num_list[i]);\n\t\t\t\tport_res->max_vfs += le16_to_cpu(pcie->num_vfs);",
+      "confidence": "medium",
+      "reason": "Untrusted source: resp is a firmware-response buffer (struct be_cmd_resp_get_profile_config) DMA-coherent-allocated at be_cmds.c:4457-4458 and filled by the device via be_cmd_notify_wait (line 4477); every field the loop chain consumes is peer-supplied: resp->desc_count (le16, line 4483), and inside the descriptor walk the per-descriptor desc_type/desc_len/pf_num/pf_type/pf_state bytes (lines 4414-4434). Missing guarantee: desc_count is stored with no clamp against MAX_RESOURCE_DESC=264 (be_cmds.h:2128) or against the func_param[MAX_RESOURCE_DESC*RESOURCE_DESC_SIZE_V1] buffer, and the fill helper be_get_nic_pf_num_list (lines 4414-4434) appends to the caller's u16 nic_pf_num_list[MAX_NIC_FUNCS=16] (be.h:96) with nic_pf_count++ and no cap: a firmware reply containing more than 16 PCIE NIC descriptors writes u16 values past the 32-byte stack array in be_cmd_get_profile_config - a remotely/peer-triggerable (hostile or buggy NIC firmware) stack OOB write of attacker-influenced pf_num values. Unsafe use continues at line 4494-4496: be_get_func_nic_desc can return NULL (it returns NULL when no NIC descriptor matches, line 4258-4275), and nic->link_param is dereferenced without a NULL check - NULL/OOB read on the same stored-count-driven iteration; the sibling branch at line 4507-4512 (port_res == NULL) does check pcie/port/nic for NULL, showing the validation is asymmetric between the two consumers of the same stored count. Counterevidence checked: on benign firmware desc_count is small and nic_pf_cnt <= 16, so the happy path is safe; the buffer walk itself stays within cmd.va only while desc_len is sane (desc_len 0 is coerced to RESOURCE_DESC_SIZE_V0 at line 4429/4268), so the primary defect is the uncapped 16-entry stack-array fill plus the unchecked NULL deref, not the descriptor walk. Reachability: be_calculate_pf_pool_rss_tables (be_main.c:4421-4437) passes port_res non-NULL (line 4427) during SR-IOV RSS table setup, so the poisoned-count-driven loop is on a real probe/SR-IOV path; I did not verify every caller's timing in this session.",
+      "conclusion": "benet be_cmd_get_profile_config stores firmware desc_count unclamped (be_cmds.c:4483), and be_get_nic_pf_num_list (4414-4434) fills u16 nic_pf_num_list[MAX_NIC_FUNCS=16] with nic_pf_count++ and no cap while the consuming loop (4493-4501) also derefs a possibly-NULL nic - stack OOB write and NULL/OOB read driven by peer-supplied response count."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/emulex/benet/be_cmds.c",
+      "line": 4483,
+      "status": "reported",
+      "reason": "Firmware-supplied desc_count stored without clamp to MAX_RESOURCE_DESC=264; be_get_nic_pf_num_list fills fixed 16-entry stack array uncapped; consumer loop also derefs possibly-NULL nic (asymmetric with the NULL-checked sibling branch at 4507-4512).",
+      "conclusion": "Promoted to findings: unclamped fw desc_count drives uncapped 16-entry stack-array fill and an unchecked NULL deref in the port_res branch of be_cmd_get_profile_config."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/accel/qaic/qaic_control.c",
+      "line": 974,
+      "status": "safe",
+      "reason": "user_msg->count = le32_to_cpu(msg->hdr.count) (line 974) is stored from the device response, but the only consumer is the immediately following decode loop (line 976) which re-validates each transaction against msg_hdr_len and the fixed-size msg buffer (lines 979-986); decode helpers bound user_msg->len+len against QAIC_MANAGE_MAX_MSG_LENGTH before any memcpy; on any decode error qaic_manage frees rsp and returns, and user_msg is a caller-local kzalloc freed in qaic_manage_ioctl - the stored count never persists in shared kernel state that a later unwind iterates. Encode side (line 1252-1253) clamps count to QAIC_MANAGE_MAX_MSG_LENGTH/sizeof(hdr).",
+      "conclusion": "qaic control-message count store is loop-local and bounded; no poisoned-count persistence on error unwind - clean."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 664,
+      "status": "safe",
+      "reason": "Seed-instance chain present and unpatched in s12 (usbip_common.c:660-719 usbip_recv_iso with int size = np * sizeof(*iso); vhci_rx.c:76-86 ret_submit unpack stores pdu number_of_packets into urb then goto error keeps it set for usb_hcd_giveback_urb). Excluded from findings by rule: seed names (usbip, recv_iso, number_of_packets) must not be the finding itself; noted for the seed's own maintainers/other intents.",
+      "conclusion": "Seed usbip chain exists unpatched in s12; excluded by rule and left to seed-scoped tracking."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/broadcom/bnxt/bnxt.c",
+      "line": 1988,
+      "status": "safe",
+      "reason": "bnxt_tpa_agg guards tpa_info->agg_count++ with BUG_ON(tpa_info->agg_count >= MAX_SKB_FRAGS) (line 1988) and agg_arr is kcalloc(MAX_SKB_FRAGS) (line 3747); TPA-end P5+ clamps agg_bufs to tpa_info->agg_count and errors to a MAX_SKB_FRAGS check before bnxt_abort_tpa (lines 1858-1887); non-P5 agg_bufs is validated by bnxt_agg_bufs_valid (lines 1374-1384) against the completion ring. rx_nr_rings teardown loops iterate driver-set ring counts, not wire counts.",
+      "conclusion": "bnxt TPA/ring counts are clamped or validated at each consumer; no poisoned-count unwind found."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/google/gve/gve_adminq.c",
+      "line": 1143,
+      "status": "safe",
+      "reason": "tx_pages_per_qpl is a 16-bit device descriptor field (adminq.c:975-978, 1143) stored into priv; qpl->num_entries is only incremented after each successful page allocation (gve_main.c:1104-1111), so gve_free_queue_page_list and gve_adminq_register_page_list (adminq.c:1161-1176, same committed num_entries for alloc and fill loop) never see an unbacked count on the abort path.",
+      "conclusion": "gve qpl counts are committed-entry counts bounded by allocation success; clean."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_e610.c",
+      "line": 886,
+      "status": "safe",
+      "reason": "ixgbe_aci_list_caps stores *cap_count = le32_to_cpu(cmd->count) from firmware (line 886) but ixgbe_discover_dev_caps/func_caps pre-set cap_count to the cbuf element capacity (IXGBE_ACI_MAX_BUFFER_SIZE / sizeof(elem), lines 916-918, 954-957) and ixgbe_aci_list_caps then overwrites it with the firmware value with no re-clamp; however parse loops (ixgbe_parse_dev_caps line 725, ixgbe_parse_func_caps line 828) iterate a kzalloc'd 4K cbuf - an over-iteration reads zero-filled caps (cap id 0 unrecognized, skipped) and stays inside the allocation unless firmware itself wrote more elements than 4K, which the DMA copy of buf_size caps. No memory-safety violation demonstrated.",
+      "conclusion": "ixgbe_e610 caps count is firmware-stored without re-clamp but over-iteration stays within the fixed 4K buffer; informational only."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/mtd/ubi/fastmap.c",
+      "line": 607,
+      "status": "safe",
+      "reason": "pool sizes clamped against UBI_FM_MAX_POOL_SIZE (lines 607-633); free/used/scrub/erase/vol_count loops (lines 637-692) each advance fm_pos and check fm_pos >= fm_size before consuming each element; the EBA reserved_pebs walk is likewise fm_pos-bounded (lines 724-736); fail_bad/fail unwind frees the used/free lists.",
+      "conclusion": "fastmap on-flash count loops are fm_pos-bounded before every element; clean."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/md/dm-era-target.c",
+      "line": 603,
+      "status": "safe",
+      "reason": "md->nr_blocks and writeset nr_bits come from the on-disk superblock (lines 372, 603) guarded by the superblock CRC check path; ws_inc/ws_dec (lines 380-400) iterate caller-provided counts of array entries backed by the metadata btree; no remote-peer protocol field and no error path that leaves an unchecked count for a later unwind.",
+      "conclusion": "dm-era counts are CRC-protected on-disk metadata; not a peer-poisoned-count path."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/accel/qaic/qaic_data.c",
+      "line": 411,
+      "status": "safe",
+      "reason": "slice->nents = sgt->nents is set before use (line 411); encode_reqs failure frees slices via qaic_free_slices_bo; copy_exec_reqs checks fifo avail >= slice->nents before memcpy into the ring (line 1085-1087) and copy_partial_exec_reqs bounds first_n by slice->nents (lines 1126-1130); bo->total_slice_nents checked against dbc->nelem at attach (qaic_control/qaic_data line 931).",
+      "conclusion": "qaic_data slice nents are bounded at allocation and at every ring consumer; clean."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/net/ethernet/emulex/benet/be_cmds.c",
+      "line": 4384,
+      "status": "unresolved",
+      "reason": "be_cmd_get_func_config (mbox path) stores u32 desc_count = le32_to_cpu(resp->desc_count) (line 4384) with no clamp to MAX_RESOURCE_DESC=264 before be_get_func_nic_desc walks the fixed func_param[] buffer; unlike the profile-config branch, no NULL check outcome was traced to completion in this session and the walk-with-desc_len semantics (desc_len coerced only when 0) were not fully proven OOB-free for every fw value. Same mechanism family as the reported finding; left for follow-up rather than broadened now.",
+      "conclusion": "Follow up: verify whether mbox-path func_config desc_count (be_cmds.c:4384) can drive be_get_nic_desc past func_param[] end via desc_len walking, and whether the returned NULL from be_get_func_nic_desc (line 4391) is checked by its caller."
+    }
+  ],
+  "coverage_gaps": [
+    "drivers/scsi/elx/libefc_sli/sli4.c and the remaining drivers/net/ethernet/emulex/benet/be_cmds.c response-field conversions were grep-triaged only; their mbox/MCCQ error-unwind consumers beyond get_profile_config/get_func_config were not read line-by-line.",
+    "Only the named prior-audit leads (qaic, dm-era, dm-zoned, ubi fastmap, bnxt, gve, ixgbe_e610, benet) plus the usbip seed location were audited in s12; other remote-transport reply handlers (e.g. ath10k/ath12k WMI-TLV, smartpqi-style shared-buffer teardowns) were not enumerated in this pass.",
+    "dm-zoned-metadata.c counts were inspected only at the grep level (internal bit-op counters); its superblock-read error paths were not walked end-to-end."
+  ],
+  "limitations": [
+    "The reported benet finding assumes a hostile or buggy NIC firmware as the attacker (peer-trusted transport threat model); on a compliant device desc_count <= a few descriptors and the loop is in-bounds, so no local-user or remote-network trigger was proven.",
+    "Exact stack-frame offset and exploitability of the 16-entry nic_pf_num_list overflow were not analyzed; the overflowing values are u16 pf_num bytes partially controlled by firmware, and canaries/frame layout were not checked.",
+    "The reachability of the port_res branch was confirmed only for be_calculate_pf_pool_rss_tables (be_main.c:4427) during SR-IOV setup; the full set of callers and their timing was not enumerated."
+  ]
+}

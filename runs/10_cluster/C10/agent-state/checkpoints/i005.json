@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "ioctl-sock-usercopy-string",
+  "status": "complete",
+  "snapshot": "s01",
+  "summary": "Searched snapshots/s01 for copy_from_user/memdup_user of attacker-controlled length into exactly-sized buffers followed by C-string consumers, restricted to ioctl/sockopt/netlink/char-dev-fops scope per intent. Programmatic scan of all .c files (excluding tools/Documentation/samples/rust/scripts) found 283 functions containing both a usercopy primitive and a string op; 231 after removing memdup_user_nul/strndup_user users.",
+  "top_candidates": [
+    {
+      "path": "drivers/s390/cio/cio_inject.c",
+      "lines": "85-124",
+      "status": "reported",
+      "evidence": "crw_inject_write: buffer = vmemdup_user(buf, lbuf); sscanf(buffer, ...7 conversions); no NUL termination; lbuf unbounded vs page-size? (vmemdup_user allocates exactly lbuf bytes); kvfree immediately after"
+    },
+    {
+      "path": "drivers/net/ethernet/brocade/bna/bnad_debugfs.c",
+      "lines": "301-359 (regrd), 362-402 (regwr)",
+      "status": "reported",
+      "evidence": "kern_buf = memdup_user(buf, nbytes); sscanf(kern_buf, \"%x:%x\", ...) with no terminator; structurally identical to seed bfa bfad_debugfs regrd/regwr (same Brocade BFA family)"
+    },
+    {
+      "path": "drivers/net/ethernet/intel/ice/ice_debugfs.c",
+      "lines": "161-207 module_write, 246-283 nr_messages, 322-378 enable, 417-468 log_size",
+      "status": "reported",
+      "evidence": "cmd_buf = memdup_user(buf, count); sscanf(cmd_buf, \"%s\", user_val); count capped at 8 but buffer not NUL-terminated; count==8 with all non-NUL bytes leaves sscanf reading past 8-byte allocation"
+    },
+    {
+      "path": "fs/xfs/xfs_ioctl.c",
+      "lines": "501-534",
+      "status": "safe",
+      "evidence": "xfs_attrmulti_attr_set: memdup_user used only as binary value buffer (args.value, valuelen) consumed by xfs_attr_change; string ops (strlen) are on `name` which is strndup_user'd at xfs_ioc_attrmulti_one line ~537; no unterminated C-string parse of the memdup'd data"
+    },
+    {
+      "path": "fs/btrfs/ioctl.c",
+      "lines": "230-242, 1157-1167, 2496-2511, 2746-2761, 2814-2822",
+      "status": "safe",
+      "evidence": "btrfs_check_ioctl_vol_args_path / vol_args2_subvol_name explicitly memchr(vol_args->name, 0, sizeof(name)) to require in-bounds NUL before strcmp/strchr/strlen; the fixed-size struct copy is validated"
+    },
+    {
+      "path": "drivers/hid/usbhid/hiddev.c",
+      "lines": "594-845",
+      "status": "safe",
+      "evidence": "hiddev_ioctl copy_from_user only for fixed-size structs (HIDDEV field/usage descriptors, copy of sizeof(struct hiddev_...)); strlen is on kernel-generated hid->name/uniq in getversion/strings ioctls, not on user-copied bytes"
+    },
+    {
+      "path": "net/netfilter/ipvs/ip_vs_ctl.c",
+      "lines": "3014-3165 do_ip_vs_get_ctl",
+      "status": "safe",
+      "evidence": "copy_from_user(arg, user, copylen) into fixed-size union checked against get_arglen[CMDID(cmd)]; strscpy sources are kernel mcfg.mcast_ifn arrays; no C-string parse of user bytes"
+    },
+    {
+      "path": "drivers/usb/misc/yurex.c",
+      "lines": "430-520 yurex_write",
+      "status": "safe",
+      "evidence": "char buffer[16 + 1]; count = min(sizeof(buffer) - 1, count); copy_from_user(buffer, user_buffer, count); buffer[count] = 0; explicit terminator slot and clamp before simple_strtoull"
+    },
+    {
+      "path": "drivers/scsi/scsi_proc.c",
+      "lines": "405-444 proc_scsi_write",
+      "status": "safe",
+      "evidence": "page allocation with explicit in-bounds terminator logic: if (length < PAGE_SIZE) { end = buffer + length; *end = '\\0'; } else checks *end at PAGE_SIZE-1 non-NUL; simple_strtoul calls are additionally guarded by p/p+1 < end comparisons"
+    }
+  ],
+  "note": "ice_debugfs: count<=8 clamp leaves sscanf OOB read possible when 8 non-NUL bytes written (count==8, no terminator, memdup allocates exactly 8). This is the same memdup_user-not-nul bug class as seed (fixed upstream in ice by commit switching to memdup_user_nul). bnad_debugfs is same-Brocade-family structural clone of seed bfa code. cio_inject vmemdup_user+sscanf lacks any length cap or terminator."
+}

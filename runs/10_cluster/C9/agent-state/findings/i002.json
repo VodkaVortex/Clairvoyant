@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "intent_id": "i002",
+  "branch": "alloc-multiply-overflow",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "start": 218,
+      "end": 240,
+      "quote": "num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT;",
+      "confidence": "medium",
+      "reason": "Untrusted source: ioctl FSL_HV_IOCTL_MEMCPY on /dev/fsl-hv copies a fully userspace-controlled struct fsl_hv_ioctl_memcpy via copy_from_user (drivers/virt/fsl_hypervisor.c:165); param.count is an unrestricted u64 and the only validation (lines 218-219) checks count==0 and a 64-bit wraparound of the addition (param.count > U64_MAX - lb_offset - PAGE_SIZE + 1) - no upper clamp on the page count. Missing guarantee: num_pages is declared 'unsigned int' (line 155) and assigned at line 221 as (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT, a 64-bit u64 sum whose result is truncated to 32 bits on assignment; the subsequent allocation at lines 239-240, 'sg_list_unaligned = kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1, GFP_KERNEL);', is a plain 32-bit unsigned multiply-add with no kcalloc/array_size/struct_size/size_mul overflow check (element size 32 bytes per struct fh_sg_list in arch/powerpc/include/asm/fsl_hcalls.h:341-346). The sibling allocation in the same function, 'pages = kzalloc_objs(struct page *, num_pages)' (line 229), was converted to the overflow-checked size_mul path (include/linux/slab.h:971-975), demonstrating the within-function asymmetry: one buffer is hardened against the same count while the S/G list buffer is not. Unsafe use: the fill loop 'for (i = 1; i < num_pages; i++)' (line 274) writes sg_list[i].source/.target/.size/.reserved-class fields (lines 277-287, 32 bytes per entry) into the kmalloc'ed buffer for every num_pages entries while kmalloc received only the wrapped 32-bit product; e.g. num_pages = 2^27 makes num_pages*32 wrap to 0 so kmalloc(31) succeeds and the loop writes 2^27 32-byte entries past the 31-byte heap buffer - the seed's exact truncated-multiply -> undersized-alloc -> element-indexed-write-overflow chain under a count entering from outside the kernel (ioctl copy_from_user instead of wire PDU). Counterevidence checked: get_user_pages_fast at 249-250 must pin exactly num_pages pages before the loop runs (mismatch bails to exit at 252-256), which bounds practical triggering to machines with ~512GB of pinnable memory; the 64->32-bit truncation at line 221 alone is self-consistent because the loop, gup call, and fh_partition_memcpy hypercall (line 290-291) all consume the same truncated num_pages - the under-allocation comes specifically from the 32-bit multiply-add at 239-240. No runtime reproducer was built (read-only snapshot, powerpc Freescale target)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 239,
+      "status": "reported",
+      "reason": "kmalloc(num_pages * sizeof(struct fh_sg_list) + sizeof(struct fh_sg_list) - 1) - plain 32-bit unsigned multiply-add fed from the truncated num_pages (line 221) derived from the userspace u64 param.count (copy_from_user at line 165); no overflow-checked sizing; part of the reported finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 274,
+      "status": "reported",
+      "reason": "Consuming loop 'for (i = 1; i < num_pages; i++)' writes sg_list[i].source/.target/.size (lines 277-287) into the buffer sized by the wrapped product - the element-indexed write overflow of the reported finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/virt/fsl_hypervisor.c",
+      "line": 229,
+      "status": "safe",
+      "reason": "pages = kzalloc_objs(struct page *, num_pages) expands to __alloc_objs which sizes with size_mul(sizeof(TYPE), COUNT) (include/linux/slab.h:971-975), an overflow-checked size_t computation, and every consumer (get_user_pages_fast at 249-250, put_page loop, hypercall) uses the same num_pages; the sibling allocation is hardened, evidencing the within-function asymmetry with line 239 rather than being vulnerable itself."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/usb/usbip/usbip_common.c",
+      "line": 699,
+      "status": "safe",
+      "reason": "Seed family present in s01 but PATCHED: usbip_recv_iso clamps 'np <= 0 || np > USBIP_MAX_ISO_PACKETS' (line 685), zeroes urb->number_of_packets before bailing, and allocates with kcalloc(np, sizeof(*iso)) (line 699); the seed's int multiply -> kzalloc chain no longer exists in this snapshot, and the seed path is demonstration-only and excluded from reporting regardless."
+    }
+  ],
+  "limitations": [
+    "Bounded sweep: the planned high-signal regex families over drivers/, fs/, net/, sound/, block/, crypto/ (narrow-typed 'size = count * sizeof' assignments, allocator calls with inline multiplies, 'count << shift' sizings, endianness-decoded counts near multiplies) could not be executed because the session's ripgrep resolution failed (the PATH-pinned rg binary is permission-denied; /usr/bin/rg exists but the finalize directive stopped the audit before re-running the sweeps), so allocator-adjacent multiply sites outside the deep-read chain were not enumerated; the audit is bounded to drivers/virt/fsl_hypervisor.c (deep-read), the seed usbip family (verified patched in s01), and supporting reads of include/linux/slab.h and arch/powerpc/include/asm/fsl_hcalls.h.",
+    "Exploitability is bounded: the under-allocation requires the 32-bit product at line 239 to wrap (num_pages >= 2^27), and lines 249-256 require get_user_pages_fast to pin exactly num_pages pages before the fill loop runs, so practical triggering needs roughly 512GB of pinnable memory; the OOB write chain is argued from source arithmetic only, with no runtime reproducer (read-only snapshot, Freescale powerpc target).",
+    "The attacker is local userspace with access to the fsl-hv misc device node, weaker than the seed's remote network peer; /dev/fsl-hv is a powerpc-specific device, so reachability on other architectures is nil.",
+    "The 64-to-32-bit truncation at line 221 alone is self-consistent (loop, gup, and hypercall all use the same truncated num_pages); the memory-safety violation depends specifically on the unchecked 32-bit multiply-add at lines 239-240, so a fix of only the truncation would not close the reported overflow."
+  ]
+}

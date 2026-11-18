@@ -1,0 +1,15 @@
+{
+  "intent_id": "i020",
+  "branch": "fixed-epidx-rest",
+  "snapshot": "s05",
+  "status": "in_progress",
+  "stage": "initial checkpoint before first search",
+  "invariant": "kernel code must validate an untrusted descriptor-declared endpoint count (altsetting[i].desc.bNumEndpoints > k) before using a device-model-assumed index k into the endpoint[] flex array at probe/bind/init; scope: all USB consumer trees except drivers/media/usb and drivers/net",
+  "plan": [
+    "grep s05 (excluding drivers/media/usb and drivers/net) for endpoint[<literal>] / endpoint + N / endpoint[<var>] descriptor reads",
+    "check known family sites from sibling facts: ueagle-atm.c, usb-gigaset.c, sur40.c, pcwd_usb.c, hwa-rc.c, ushc.c, i1480/dfu/usb.c, wa-nep.c, ims-pcu.c, cdc-acm.c, qcserial.c, alauda.c",
+    "verify presence/absence of bNumEndpoints guards per candidate with full function reads",
+    "classify <= 12 candidates as reported/safe/unresolved"
+  ],
+  "candidates": []
+}

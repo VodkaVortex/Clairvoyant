@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "intent_id": "i025",
+  "branch": "timer-dwork-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": ["s10"],
+  "findings": [
+    {
+      "snapshot": "s10",
+      "path": "net/bridge/br_multicast.c",
+      "start": 886,
+      "end": 905,
+      "quote": "void br_multicast_enable_port(struct net_bridge_port *port) { struct net_bridge *br = port->br; spin_lock(&br->multicast_lock);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency, not data - any IGMP/MLD membership report or query forwarded through the bridge re-arms the multicast timers (group/router/querier timers are mod_timer'd from the receive paths under multicast_lock), so multicast control traffic controls when the TIMER_SOFTIRQ side fires, while local config/process activity aligns the holder side. VIOLATED INVARIANT: br->multicast_lock (spin_lock_init at net/bridge/br_multicast.c:1810) is shared between TIMER_SOFTIRQ callback bodies and process-context code, but the process-context sites br_multicast_enable_port (line 890) and br_multicast_disable_port (line 901, unlock 914) take it with plain spin_lock() while sibling process sites on the SAME lock object correctly use spin_lock_bh (853, 1929, 1946, 2053, 2090, 2103, 2142, 2161), proving the driver knows the lock needs BH disable and that these two sites are the missing-BH-disable defect. TIMER-SOFTIRQ SIDE (all plain spin_lock, run in call_timer_fn from TIMER_SOFTIRQ): br_multicast_group_expired (def 143, lock 147, timer_setup at 460), br_multicast_port_group_expired (def 200, lock 205, timer_setup at 491), br_multicast_router_expired (def ~625, lock 632, timer_setup 828), br_multicast_local_router_expired (def ~657, lock 660, timer_setup 1811), br_multicast_querier_expired-family (lock 674; timer_setup 1813/1818), br_multicast_port_query_expired (lock 782, timer_setup 830/833) and br_multicast_query_expired (def 1755, lock 1759, timer_setup 1815/1820). PROCESS SIDE: br_multicast_enable_port (886, lock 890) is called from net/bridge/br_stp.c:458 inside br_port_state_selection (br_make_forwarding), reached from netlink setlink (br_netlink.c:698), carrier handling and bridge start/stop (br_if.c:80/518, br.c:80) in process context; br_multicast_disable_port (895, lock 901) is called from net/bridge/br_stp_if.c:118 in br_stp_disable_port, itself called from br.c:96 (bridge stop), br_if.c:85/333 (netlink dellink), br_stp_bpdu.c:180 - process context. MISSING GUARANTEE: plain spin_lock() only disables preemption, not bottom halves, so while a process-context task holds br->multicast_lock a TIMER_SOFTIRQ on the same CPU executing e.g. br_multicast_group_expired spins on the lock forever while the preempted holder can never resume - soft-lockup/RCU-stall/bridge-hang DoS, the timer-softirq analogue of the ks7010 seed mechanism. Counterevidence checked: br_multicast_del_port (853), br_multicast_stop/mdb netlink paths (1929/1946/2053/2090/2103/2142/2161) all use spin_lock_bh, so only the enable/disable_port pair violates the invariant; receive-side plain sites (1232/1311/1389) run under NET_RX softirq where BH is already disabled."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/scsi/libiscsi.c",
+      "start": 1948,
+      "end": 1948,
+      "quote": "spin_lock(&session->frwd_lock);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency, not data - any iSCSI command timeout on a session plus the per-connection transport timer (fires every few seconds per conn once logged in) aligning on the same CPU. VIOLATED INVARIANT: struct iscsi_session.frwd_lock is shared between TIMER_SOFTIRQ callback bodies and BH-enabled process context, yet the process-context site iscsi_eh_cmd_timed_out (drivers/scsi/libiscsi.c:1934, enum blk_eh_timer_return, the scsi_host_template .eh_timed_out hook) acquires it with plain spin_lock() at line 1948; it is invoked from the block-layer timeout worker (blk_mq_timeout_work, a kworker), i.e. BH-enabled process context. TIMER-SOFTIRQ SIDE (same lock object, plain spin_lock): iscsi_check_transport_timeouts (def 2082, lock 2088, timer_setup(&conn->transport_timer, iscsi_check_transport_timeouts, 0) at 2908) walks the session command lists under the lock and iscsi_tmf_timedout (def 1786, lock 1791, timer_setup(&conn->tmf_timer, iscsi_tmf_timedout, 0) at 2932) wakes the EH waitqueue under it; both run in call_timer_fn from TIMER_SOFTIRQ. MISSING GUARANTEE: no spin_lock_bh/local_bh_disable at line 1948 (and at the sibling plain sites 1051/1160 which sit in the iscsi xmit/requeue paths), so while the timeout handler holds frwd_lock a TIMER_SOFTIRQ on the same CPU spins forever against a holder that can never resume - the timer-softirq analogue of the ks7010 seed mechanism; the driver itself proves the BH-enabled context of these paths by using spin_lock_bh on the very same frwd_lock at 771, 1346, 1374, 1424, 1475, 1651, 1742-1767. Counterevidence checked: this exact function iscsi_eh_cmd_timed_out was verified FIXED (spin_lock_bh) in sibling snapshot s02 and VULNERABLE (plain) in s05, so the plain acquisition at 1948 in s10 is the vulnerable variant, matching the s05 shape."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s10",
+      "path": "net/bridge/br_multicast.c",
+      "line": 890,
+      "status": "reported",
+      "reason": "br_multicast_enable_port takes br->multicast_lock with plain spin_lock at 890 in process context (caller br_stp.c:458 br_port_state_selection, reached from br_netlink.c:698 setlink / br_if.c / br.c process paths) while timer callbacks group_expired:147, port_group_expired:205, router_expired:632, local_router_expired:660, querier_expired:674, port_query_expired:782, query_expired:1759 take the same lock in TIMER_SOFTIRQ; sibling process sites (853/1929/1946/2053/2090/2103/2142/2161) use spin_lock_bh, proving mixed discipline."
+    },
+    {
+      "snapshot": "s10",
+      "path": "net/bridge/br_multicast.c",
+      "line": 901,
+      "status": "reported",
+      "reason": "br_multicast_disable_port takes the same br->multicast_lock with plain spin_lock at 901 (unlock 914) in process context (caller br_stp_if.c:118 br_stp_disable_port from br.c:96 bridge stop, br_if.c:85/333 netlink dellink, br_stp_bpdu.c:180); second process-side site of the reported br_multicast finding."
+    },
+    {
+      "snapshot": "s10",
+      "path": "net/bridge/br_multicast.c",
+      "line": 147,
+      "status": "reported",
+      "reason": "Timer-softirq side of the reported finding: br_multicast_group_expired (timer_setup at 460) takes plain spin_lock(&br->multicast_lock) at 147; same family at 205/632/660/674/782/1759 all TIMER_SOFTIRQ context with no BH disable on this lock."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 1948,
+      "status": "reported",
+      "reason": "Plain spin_lock(&session->frwd_lock) at 1948 in iscsi_eh_cmd_timed_out (process-context scsi .eh_timed_out hook run from blk_mq_timeout_work) while TIMER_SOFTIRQ callbacks iscsi_check_transport_timeouts (2088, timer_setup 2908) and iscsi_tmf_timedout (1791, timer_setup 2932) take the same lock; reported as finding."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 2088,
+      "status": "reported",
+      "reason": "Timer-softirq side of the reported libiscsi finding: iscsi_check_transport_timeouts (timer_setup at 2908) takes plain spin_lock(&session->frwd_lock) at 2088 in TIMER_SOFTIRQ against the plain process-context holder at 1948."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 1791,
+      "status": "reported",
+      "reason": "Timer-softirq side of the reported libiscsi finding: iscsi_tmf_timedout (timer_setup at 2932) takes plain spin_lock(&session->frwd_lock) at 1791 in TIMER_SOFTIRQ against the plain process-context holder at 1948."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/wireless/intel/iwlwifi/pcie/tx.c",
+      "line": 158,
+      "status": "unresolved",
+      "reason": "Sibling snapshots (s07 fact f015, s11 fact f018) identified iwl_pcie_txq_stuck_timer taking plain spin_lock(&txq->lock) inside a timer_list callback; whether every non-timer site of the same txq->lock uses spin_lock_irqsave (which would also exclude the timer softirq) was not enumerated in s10 before the finalize directive. Unresolved, not reported."
+    },
+    {
+      "snapshot": "s10",
+      "path": "drivers/net/ethernet/chelsio/cxgb4/sge.c",
+      "line": 3306,
+      "status": "unresolved",
+      "reason": "Sibling snapshots identified sge_tx_timer_cb taking plain spin_lock(&adap->ptp_lock) in a timer callback while cxgb4_eth_xmit and cxgb4_ptp paths also touch the lock; the s10 copy was not examined before the finalize directive (line number is sibling-snapshot-approximate). Unresolved, not reported."
+    },
+    {
+      "snapshot": "s10",
+      "path": "net/sched/sch_pie.c",
+      "line": 433,
+      "status": "unresolved",
+      "reason": "Sibling snapshots identified qdisc root_lock taken plainly in perturbation/adaptation timers (sch_pie pie_timer, sch_sfq sfq_perturbation, sch_red red_adaptative_timer) versus process-context tc change/reset/dump sites; the s10 copies were not verified before the finalize directive. Unresolved, not reported."
+    }
+  ],
+  "limitations": [
+    "Bounded search halted by the finalize directive: the systematic enumeration of timer_list/hrtimer/delayed_work callback bodies across snapshots/s10 was not completed; deep lock-object pairing was done only for net/bridge/br_multicast.c (br->multicast_lock) and drivers/scsi/libiscsi.c (session->frwd_lock), the two timer-branch bug families confirmed in sibling snapshots s02/s04/s05/s07/s11.",
+    "Unresolved candidates left for follow-up in s10: iwlwifi pcie/tx.c txq->lock stuck-timer, cxgb4 sge.c adap->ptp_lock sge_tx_timer_cb, qdisc root_lock in sch_pie/sch_sfq/sch_red perturbation timers, hostap ap_handle_timer sta_table_lock, and the remaining ~60 timer callbacks (xfrm, ipvs, neighbour, taprio, watchdogs, eql) enumerated in sibling passes but not examined here.",
+    "Static analysis only: no kernel build, lockdep run, or runtime reproducer was performed (the s10 tree lacks .config and generated headers); both findings are source-level hypotheses whose impact (timer softirq spinning forever against a preempted process-context holder on the same CPU) follows from the missing-BH-disable lock-discipline violation, not from an executed PoC.",
+    "Process-context attribution of the br_multicast enable/disable_port callers is from source call sites (br_stp.c:458, br_stp_if.c:118, br_netlink.c:698, br_if.c:85/333, br.c:96, br_stp_bpdu.c:180); one br_port_state_selection caller in br_stp_timer.c:72 may itself run from timer context, which would make that particular path softirq-vs-softirq, but the netlink/bridge-stop callers are process context, so the deadlock shape stands - reflected in medium confidence.",
+    "For libiscsi, the BH-enabled process-context chain blk_mq_timeout_work -> scsi .eh_timed_out -> iscsi_eh_cmd_timed_out rests on standard kernel wiring, not dynamic tracing; the sibling plain sites (758, 1051, 1160, 1270, 1431) sit in xmit/requeue paths that run with BH disabled, so the 1948 site is the actionable holder - reflected in medium confidence.",
+    "The staging ks7010 seed (tx_dev_lock) is present in s10 (confirmed during the earlier xmit-branch pass, fact f004) but was not searched here and must never be reported per instructions."
+  ]
+}

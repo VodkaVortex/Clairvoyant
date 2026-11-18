@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "firmware-table-divisor",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "start": 51,
+      "end": 66,
+      "quote": "div = 27648000 / bios->pwm_freq;",
+      "confidence": "medium",
+      "reason": "Untrusted source: struct nvbios_volt fields parsed from the GPU VBIOS image by nvbios_volt_parse() (drivers/gpu/drm/nouveau/nvkm/subdev/bios/volt.c:110-111), which fills pwm_freq = nvbios_rd32(bios, volt + 0x5) / 1000 and pwm_range = nvbios_rd32(bios, volt + 0x16) as raw u32 reads with no range or nonzero validation. Violated invariant: neither divisor is proven nonzero at the 32-bit width where the division executes. In gk104_volt_set() line 59 the raw pwm_freq is the denominator of div = 27648000 / bios->pwm_freq; because the parse itself applies a truncating /1000, any VBIOS value 1..999 truncates to 0 (representation-equivalent of the seed's scaled-to-zero), and pwm_freq == 0 also passes straight through, giving a kernel divide-by-zero oops. Line 60 then divides by the equally unvalidated bios->pwm_range inside DIV_ROUND_UP((uv - bios->base) * div, bios->pwm_range), where pwm_range == 0 is another zero denominator and (uv - bios->base) * div is an unchecked fixed-width u32 scaling in the numerator. Unsafe use: plain u32 '/' and DIV_ROUND_UP on VBIOS-derived operands during voltage programming. Impact: integer division by zero -> kernel oops / driver-init failure on GK104+ boards whose VBIOS PWM voltage table (type 0x50, flag&1) carries a zero/small pwm_freq or zero pwm_range; gk104_volt_new() selects PWM mode solely on bios.type == NVBIOS_VOLT_PWM plus GPIO presence, with no sanity clamping anywhere between parse and use. Counterevidence checked: read the full parse function (no validation in the 0x50 branch or callers gk104_volt_new), read the whole gk104_volt_set/gk104_volt_get, and confirmed the seed's own 8*speed sites in s04 (vega10_thermal.c:310, smu7_thermal.c:270, vega20_thermal.c:194, arcturus_ppt.c:1270, smu_v13_0.c:1229) are already guarded, so this is a distinct variant; runtime caller chain of .volt_set (e.g. gf100_volt_oneinit/perf subdev) was not fully traced, hence medium confidence."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "start": 38,
+      "end": 49,
+      "quote": "return bios->base + bios->pwm_range * duty / div;",
+      "confidence": "low",
+      "reason": "Secondary site in the same file: gk104_volt_get() reads div = nvkm_rd32(device, 0x20340) (device-provided register, no nonzero check) and uses it as the denominator at line 48, while the numerator bios->pwm_range * duty applies the unvalidated VBIOS pwm_range (bios/volt.c:111) as a fixed-width u32 scaling factor that can wrap. A zero hardware divisor before any volt_set programming, or a wrapped-zero numerator contribution, reproduces the seed's unchecked-divisor shape from device/firmware-provided data. Counterevidence checked: full function read; the divisor is a register read rather than a table field, and whether the register can be observed as 0 before gk104_volt_set programs it was not verified, hence low confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 59,
+      "status": "reported",
+      "reason": "gk104_volt_set divides by VBIOS-sourced bios->pwm_freq with no nonzero check; parse-time /1000 truncation makes zero reachable from nonzero firmware input (bios/volt.c:110)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 60,
+      "status": "reported",
+      "reason": "same function: DIV_ROUND_UP((uv - bios->base) * div, bios->pwm_range); raw VBIOS pwm_range divisor unchecked, plus u32 multiply wrap in the scaled numerator."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/bios/volt.c",
+      "line": 110,
+      "status": "reported",
+      "reason": "unvalidated untrusted source feeding the finding: nvbios_volt_parse 0x50 PWM branch fills pwm_freq (rd32/1000) and pwm_range (rd32) with no range checks."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk104.c",
+      "line": 48,
+      "status": "reported",
+      "reason": "gk104_volt_get: bios->pwm_range * duty / div with div an unvalidated register read (device-provided divisor); low-confidence secondary finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/volt/gk20a.c",
+      "line": 56,
+      "status": "safe",
+      "reason": "gk20a_volt_get_cvb_voltage/_t_voltage: divisors s_scale/t_scale are compile-time constants (100, 10) at every call site in gk20a_volt_calc_voltage; cvb coefficients are static const tables, not firmware; Tegra-fuse speedo feeds only numerators, so no zero-divisor variant of the seed invariant (c2 * speedo int overflow is numerator-side and out of scope)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/radeon/r600_dpm.c",
+      "line": 227,
+      "status": "unresolved",
+      "reason": "k = (100 * fh) / fl; the provenance of divisor fl was not examined before finalization; r600 clock/ATPM code may derive fh/fl from firmware SCLK/MCLK values, so this remains a plausible firmware-sourced divisor."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/radeon/r600_dpm.c",
+      "line": 207,
+      "status": "safe",
+      "reason": "i_c = (i * r_c) / 100; denominator is the literal constant 100, so the seed's zero/wrapped-denominator invariant cannot be violated here."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/gpu/drm/amd/pm/powerplay/hwmgr/vega10_thermal.c",
+      "line": 310,
+      "status": "safe",
+      "reason": "the seed site itself is already patched in s04 (!speed || speed > UINT_MAX/8); equivalent guards exist at smu7_thermal.c:270, vega20_thermal.c:194, arcturus_ppt.c:1270 and smu_v13_0.c:1229, so the literal seed bug is not present unfixed in s04's AMD PM code (negative evidence)."
+    }
+  ],
+  "limitations": [
+    "Runtime reachability of gk104_volt_set()/.volt_set (callers such as gf100_volt_oneinit and the clk/perf subdevs) was not fully traced; the missing-validation evidence between nvbios_volt_parse and the division is verified, but the exact trigger path on a PWM-mode board is a hypothesis.",
+    "It was not verified whether any other nouveau path (e.g. gf100_volt_oneinit) re-validates or clamps pwm_freq/pwm_range after parsing; only bios/volt.c, gk104_volt_new/set/get were read.",
+    "r600_dpm.c:227 (divisor fl) remains unresolved: its data flow was not examined before finalization.",
+    "The search was bounded: only the multiplication-before-division query across drm/amd, nouveau, radeon and i915 completed; planned queries for ACPI-method, SMBIOS, EDID, device-tree and EEPROM divisors, and for non-DRM firmware-parsing drivers, were not executed, so negative coverage outside DRM/nouveau is not established.",
+    "No compile/runtime reproducer was built (snapshot is a source-only tree; no kernel build was attempted), so the divide-by-zero is established by code reading, not execution."
+  ]
+}

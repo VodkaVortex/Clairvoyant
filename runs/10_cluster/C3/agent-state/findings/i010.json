@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "and-presence-guard",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 421,
+      "end": 425,
+      "quote": "if (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace MAC802154_HWSIM_CMD_NEW_EDGE generic-netlink doit (registered with .flags = GENL_UNS_ADMIN_PERM, i.e. unprivileged-user-netns reachable; module hwsim must be loaded). Violated invariant: the presence guard at lines 421-422 in hwsim_new_edge_nl() joins the two negated required-attribute tests with && instead of ||, so a message supplying MAC802154_HWSIM_ATTR_RADIO_ID but omitting MAC802154_HWSIM_ATTR_RADIO_EDGE passes the guard while info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] == NULL. The policy hwsim_genl_policy (lines 580-582) marks neither attribute .required and the op sets GENL_DONT_VALIDATE_STRICT, so the core does not enforce presence. Unsafe use: line 425 passes the NULL slot as the nla argument to nla_parse_nested_deprecated(), which in include/net/netlink.h immediately evaluates nla_data(nla)/nla_len(nla) on it (NULL->nla_type/nla_len deref), causing a NULL-pointer-dereference oops. This is the exact seed mechanism (same file/family, unpatched sibling command hwsim_del_edge_nl at lines 483-484 correctly uses ||), reported as a distinct unpatched variant, not the seed function itself. Counterevidence checked: downstream edge_attrs uses are guarded; only the outer slot is unchecked; no alternative NULL-safe path exists in the function."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "start": 531,
+      "end": 535,
+      "quote": "if (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n\t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n\t\treturn -EINVAL;\n\n\tif (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))",
+      "confidence": "high",
+      "reason": "Untrusted source: userspace MAC802154_HWSIM_CMD_SET_EDGE generic-netlink doit (GENL_UNS_ADMIN_PERM, reachable in an unprivileged user namespace after loading the mac802154_hwsim module). Violated invariant: in hwsim_set_edge_lqi() the required-attribute guard at lines 531-532 uses && over the negated presence tests, so a message that includes MAC802154_HWSIM_ATTR_RADIO_ID but omits MAC802154_HWSIM_ATTR_RADIO_EDGE passes validation with info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE] == NULL; hwsim_genl_policy marks the attribute NLA_NESTED but not required and the op uses GENL_DONT_VALIDATE_STRICT. Unsafe use: line 535 feeds the NULL slot to nla_parse_nested_deprecated(), which dereferences it via nla_data()/nla_len() in include/net/netlink.h, producing a NULL-pointer-dereference oops from an attacker-crafted message. Note the function additionally has a second && guard (lines 538-539) over edge_attrs ENDPOINT_ID/LQI, but each of those is separately dereferenced at lines 542-543 after that inverted guard too, so both nested slots can also be NULL (nla_get_u32(NULL) deref); the outer NULL-arg parse at 535 is the primary and sufficient crash. Counterevidence checked: the patched sibling hwsim_del_edge_nl (line 483) uses ||, confirming the intended semantics; no policy-level required flag rescues either attribute."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+      "line": 476,
+      "status": "safe",
+      "reason": "hwsim_del_edge_nl is the seed function itself (never reportable); in this snapshot it already uses || at lines 483-484, matching the fixed commit, so no bug exists there."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/wireless/nl80211.c",
+      "line": 6553,
+      "status": "safe",
+      "reason": "Guard !attrs[STA_AID] && !attrs[PEER_AID] is a deliberate 'at least one AID' idiom; downstream reads at 6582+ use params.aid = nla_get_u16(info->attrs[NL80211_ATTR_STA_AID]) only inside 'if (info->attrs[NL80211_ATTR_PEER_AID])'/separately guarded blocks, so no NULL slot is dereferenced unconditionally."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ieee802154/nl-mac.c",
+      "line": 490,
+      "status": "safe",
+      "reason": "ieee802154_set_mac_params uses && over negated optional attributes to require at least one; every subsequent dereference (lines 505-530) is individually wrapped in 'if (info->attrs[...])' before nla_get_*, so absent attributes are never dereferenced."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ieee802154/nl-mac.c",
+      "line": 712,
+      "status": "safe",
+      "reason": "ieee802154_llsec_set_params: same at-least-one idiom; each attribute read afterwards (lines 724-740) is inside its own presence test."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ieee802154/nl-mac.c",
+      "line": 182,
+      "status": "safe",
+      "reason": "Coordinator-address guard is a disjunction of alternates ((A && B) || other_tests) selecting between HW_ADDR and SHORT_ADDR paths; each path dereferences only the attribute whose presence was positively checked."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ieee802154/nl-mac.c",
+      "line": 259,
+      "status": "safe",
+      "reason": "Same alternate-address pattern as line 182; the code branches on which destination attribute is present before dereferencing it."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nft_tproxy.c",
+      "line": 200,
+      "status": "safe",
+      "reason": "Guard requires NFTA_TPROXY_FAMILY plus at least one of REG_ADDR/REG_PORT; the code then branches per-family and reads each register attribute only inside its own presence test (nft_parse_register_load guarded per attr)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/vxlan.c",
+      "line": 1287,
+      "status": "safe",
+      "reason": "'!tb || (!tb[NDA_DST] && !tb[NDA_NH_ID])' is an at-least-one-of idiom for alternate next-hop specification; vxlan_fdb_parse reads each optional attribute behind its own presence test."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/xfrm/xfrm_user.c",
+      "line": 210,
+      "status": "safe",
+      "reason": "xfrm state alg guards are at-least-one idioms inside verify_one_alg-style logic for optional algorithms; each alg attribute consumed is separately checked/NULL-tolerant (copy_to_user_auth etc. handle absent algs)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_tables_api.c",
+      "line": 1282,
+      "status": "safe",
+      "reason": "nft_flush_table-family guards are of the form (!nla[NAME] && !nla[HANDLE]) || <other-invalid-condition> with separately-checked alternate selectors; each dereference is behind a positive presence test for that exact attribute."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/core/devlink.c",
+      "line": 3522,
+      "status": "safe",
+      "reason": "devlink reload guard !attrs[RELOAD_ACTION] && !attrs[RELOAD_LIMITS] enforces that at least one optional knob is supplied; the handler only reads each attribute behind its own presence test and defaults otherwise."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/nfc/netlink.c",
+      "line": 1070,
+      "status": "safe",
+      "reason": "LLC param guard is an at-least-one idiom over optional LTO/MI/RW parameters; each is read only inside 'if (info->attrs[...])' before use."
+    }
+  ],
+  "limitations": [
+    "Search bounded to literal negated-presence tests joined by && across info->attrs[N]/attrs[N]/tb[N]/nla[N] in .c/.h files of snapshots/s03 (grep/rg, 16 group hits, all triaged or explicitly listed); a semantically inverted guard written with different spelling (e.g. NULL comparisons, is_present helpers, or per-field bitmasks) would not be caught by this pattern.",
+    "Remaining lower-value hits classified safe by the same at-least-one-plus-individual-guard reasoning but not re-verified line-by-line: net/nfc/netlink.c:805, net/ieee802154/nl802154.c:99, net/wireless/nl80211.c:147, net/netlink/genetlink.c:1141, net/core/rtnetlink.c:2235, net/core/lwt_bpf.c:388, net/ipv6/addrconf.c:5804, net/netfilter/nf_tables_api.c:6919 and 7538.",
+    "Unprivileged reachability of the two reported findings additionally requires the mac802154_hwsim module to be loaded (or loadable) in the target configuration; the genl ops carry GENL_UNS_ADMIN_PERM, which is satisfiable from an unprivileged user namespace, but no live exploit was attempted (static evidence only).",
+    "Impact beyond local DoS was not assessed: the nested attributes parsed after a successful (non-NULL) RADIO_EDGE are policy-typed NLA_U32/NLA_U8, and the parsed values feed only ID lookups, so no OOB length/index consumption was identified in these two functions."
+  ]
+}

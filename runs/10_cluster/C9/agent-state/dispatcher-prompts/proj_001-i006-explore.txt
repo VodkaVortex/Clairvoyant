@@ -1,0 +1,285 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-1897852293fa
+  status: active
+  created_at: 1794402396168
+  reason: null
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C9/public. Seed: usb: usbip: fix integer overflow in usbip_recv_iso(). The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: 'Seed mechanism (usbip_recv_iso, demonstration only, never reportable): (1) Untrusted source: a peer-controlled count (urb->number_of_packets) copied verbatim from a remote protocol message (ret_submit unpack) into a shared kernel object before any validation — the attacker is the remote endpoint of a device/virtual-bus protocol, not a local user. (2) Missing guarantee: no bounds clamp of the count against the protocol maximum (USBIP_MAX_ISO_PACKETS existed but was only enforced on the submit/other-direction path — asymmetric validation), and no overflow-checked sizing (manual `int size = np * sizeof(*iso)` in 32-bit instead of kcalloc/array_size/struct_size). (3) Unsafe use/state transition: the truncated product goes to kzalloc, then a per-element loop runs np iterations of recv+copy into the undersized heap buffer; additionally, the early-error return leaves the poisoned count set in urb->number_of_packets, which the URB completion path (processcompl) later iterates. (4) Consequence: remotely triggerable kernel heap buffer overflow (OOB write) plus OOB read on the completion/error-unwind path — memory corruption, crash/DoS, potential privilege escalation. Transferable invariant: whenever a length/count/size quantity crosses a trust boundary into kernel state, three guarantees must hold — the count is range-checked at parse time against a known maximum, every buffer-size computation derived from it is overflow-checked, and no failure path leaves the unchecked count in shared state for later iteration. BRANCHES: branch1=alloc-multiply-overflow (32-bit count*element-size or count+offset/shift arithmetic assigned to int/uint and passed to kmalloc/kzalloc/vmalloc/memdup followed by an element-indexed copy/recv loop, where the multiplier is untrusted — hunt the arithmetic-to-allocator-to-loop chain in driver and fs code within one snapshot); branch2=unclamped-wire-count (deserialization/unpack/recvmsg/netlink-nla/ioctl-in paths that copy count/length/nr_fields from the wire or userspace into kernel objects with no range check, especially where a sibling path of the same protocol enforces a MAX limit but the mirror path does not — asymmetric validation between paired directions); branch3=error-unwind-poisoned-count (early-return/failure/teardown paths that leave an attacker-controlled count/length/actual_size field set in a shared object — urb, request, skb, sgl, iovec — that a completion handler, cleanup routine, or status-out path later iterates, causing OOB access during error handling); branch4=peer-trusted-transport (kernel-side clients/servers of remote or virtual device transports — network-exported bus, virtual HCD, guest-host, remote-storage/remote-fs reply handlers — that allocate or loop based on peer-supplied response fields without cross-checking locally-known limits, i.e., trust-boundary consumption of a remote peer''s reply, identified by mechanism rather than subsystem name); seed names (usbip, recv_iso, number_of_packets) must never be used as the finding itself.'
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1794402840505
+  created_at: 1794402396244
+  concluded_at: 1794402840505
+- id: i002
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=alloc-multiply-overflow; Search only snapshots/s01. Direct structural/API analogue of the seed''s sizing chain: hunt a 32-bit multiply (count*element-size, count+offset, or count<<shift) computed with plain int/unsigned arithmetic from an untrusted count and passed to kmalloc/kzalloc/vmalloc/kmemdup/devm_kzalloc instead of kcalloc/array_size/struct_size, followed by an element-indexed copy/recv/memcpy loop that still trusts the original count, so the truncated product under-allocates and the loop writes past the heap buffer. Sweep driver, fs, and net parsers within this one snapshot. For each candidate record file:line of the unchecked arithmetic, the allocator call, the consuming loop, and where the count enters from outside the kernel; a negative result must cite the allocator-adjacent arithmetic sites examined. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s01 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405393199
+  created_at: 1794403615171
+  concluded_at: null
+- id: i003
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=unclamped-wire-count; Search only snapshots/s01. Equivalent data-flow and validation invariant under different names: trace deserialization entry points (protocol unpack/recvmsg, netlink nla_parse, ioctl copy_from_user, nlmsg, message parsers) that store a count/length/nr_entries/nr_segs/nr_bufs value from the wire or userspace into a persistent kernel object with no range check against a known maximum; prioritize asymmetric validation where a sibling path of the same protocol enforces a MAX or #define limit (request vs reply, submit vs return, in vs out direction) but the mirror path does not. For each candidate record the parse site, the missing clamp, the enforcing sibling path, and the downstream consumer; a negative result must list the parse entry points verified as clamped. Save a structured artifact for snapshots/s01 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405393200
+  created_at: 1794403615174
+  concluded_at: null
+- id: i004
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=error-unwind-poisoned-count; Search only snapshots/s01. Lifetime/ownership/state-transition analogue: audit early-return, failure, abort, and teardown paths that leave an attacker-controlled count/length/actual_size/num field stored in a shared object (urb, request, skb, scatterlist, iovec, ring entry, transaction descriptor) which a later completion handler, cleanup routine, or status-out/error-unwind path iterates, causing OOB access during error handling even when the happy path is safe. For each candidate capture the store that poisons the field, the early return that skips reset or cleanup, and the later consuming loop with file:line; a negative result must state which error paths were walked and found clean. Save a structured artifact for snapshots/s01 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405393203
+  created_at: 1794403615175
+  concluded_at: null
+- id: i005
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s01; BRANCH=peer-trusted-transport; Search only snapshots/s01. Cross-subsystem trust-boundary analogue: find kernel-side clients or servers of remote or virtual device transports — network-exported buses, virtual HCDs, guest-host channels, remote-storage/remote-fs reply handlers, socket- or ring-based device protocols — where allocation or iteration is driven by peer-supplied response counts/lengths, and check whether those peer fields are cross-checked against locally-known limits before use. Identify by mechanism (peer-controlled size crossing a trust boundary into kernel allocation or loop), including callers/callees and alternative protocol framings, not by subsystem name. Record the peer-field source, the missing local limit check, and the consuming allocation/loop; a negative result must list the peer-driven handlers examined. Save a structured artifact for snapshots/s01 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405393204
+  created_at: 1794403615176
+  concluded_at: null
+- id: i006
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=alloc-multiply-overflow; Search only snapshots/s02. Direct structural/API analogue of the seed''s sizing chain: hunt a 32-bit multiply (count*element-size, count+offset, or count<<shift) computed with plain int/unsigned arithmetic from an untrusted count and passed to kmalloc/kzalloc/vmalloc/kmemdup/devm_kzalloc instead of kcalloc/array_size/struct_size, followed by an element-indexed copy/recv/memcpy loop that still trusts the original count, so the truncated product under-allocates and the loop writes past the heap buffer. Sweep driver, fs, and net parsers within this one snapshot. For each candidate record file:line of the unchecked arithmetic, the allocator call, the consuming loop, and where the count enters from outside the kernel; a negative result must cite the allocator-adjacent arithmetic sites examined. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s02 only.'
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1794403615177
+  concluded_at: null
+- id: i007
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=unclamped-wire-count; Search only snapshots/s02. Equivalent data-flow and validation invariant under different names: trace deserialization entry points (protocol unpack/recvmsg, netlink nla_parse, ioctl copy_from_user, nlmsg, message parsers) that store a count/length/nr_entries/nr_segs/nr_bufs value from the wire or userspace into a persistent kernel object with no range check against a known maximum; prioritize asymmetric validation where a sibling path of the same protocol enforces a MAX or #define limit (request vs reply, submit vs return, in vs out direction) but the mirror path does not. For each candidate record the parse site, the missing clamp, the enforcing sibling path, and the downstream consumer; a negative result must list the parse entry points verified as clamped. Save a structured artifact for snapshots/s02 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405393210
+  created_at: 1794403615178
+  concluded_at: null
+- id: i008
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=error-unwind-poisoned-count; Search only snapshots/s02. Lifetime/ownership/state-transition analogue: audit early-return, failure, abort, and teardown paths that leave an attacker-controlled count/length/actual_size/num field stored in a shared object (urb, request, skb, scatterlist, iovec, ring entry, transaction descriptor) which a later completion handler, cleanup routine, or status-out/error-unwind path iterates, causing OOB access during error handling even when the happy path is safe. For each candidate capture the store that poisons the field, the early return that skips reset or cleanup, and the later consuming loop with file:line; a negative result must state which error paths were walked and found clean. Save a structured artifact for snapshots/s02 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405393213
+  created_at: 1794403615179
+  concluded_at: null
+- id: i009
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s02; BRANCH=peer-trusted-transport; Search only snapshots/s02. Cross-subsystem trust-boundary analogue: find kernel-side clients or servers of remote or virtual device transports — network-exported buses, virtual HCDs, guest-host channels, remote-storage/remote-fs reply handlers, socket- or ring-based device protocols — where allocation or iteration is driven by peer-supplied response counts/lengths, and check whether those peer fields are cross-checked against locally-known limits before use. Identify by mechanism (peer-controlled size crossing a trust boundary into kernel allocation or loop), including callers/callees and alternative protocol framings, not by subsystem name. Record the peer-field source, the missing local limit check, and the consuming allocation/loop; a negative result must list the peer-driven handlers examined. Save a structured artifact for snapshots/s02 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392217
+  created_at: 1794403615180
+  concluded_at: null
+- id: i010
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=alloc-multiply-overflow; Search only snapshots/s03. Direct structural/API analogue of the seed''s sizing chain: hunt a 32-bit multiply (count*element-size, count+offset, or count<<shift) computed with plain int/unsigned arithmetic from an untrusted count and passed to kmalloc/kzalloc/vmalloc/kmemdup/devm_kzalloc instead of kcalloc/array_size/struct_size, followed by an element-indexed copy/recv/memcpy loop that still trusts the original count, so the truncated product under-allocates and the loop writes past the heap buffer. Sweep driver, fs, and net parsers within this one snapshot. For each candidate record file:line of the unchecked arithmetic, the allocator call, the consuming loop, and where the count enters from outside the kernel; a negative result must cite the allocator-adjacent arithmetic sites examined. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s03 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392219
+  created_at: 1794403615181
+  concluded_at: null
+- id: i011
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=unclamped-wire-count; Search only snapshots/s03. Equivalent data-flow and validation invariant under different names: trace deserialization entry points (protocol unpack/recvmsg, netlink nla_parse, ioctl copy_from_user, nlmsg, message parsers) that store a count/length/nr_entries/nr_segs/nr_bufs value from the wire or userspace into a persistent kernel object with no range check against a known maximum; prioritize asymmetric validation where a sibling path of the same protocol enforces a MAX or #define limit (request vs reply, submit vs return, in vs out direction) but the mirror path does not. For each candidate record the parse site, the missing clamp, the enforcing sibling path, and the downstream consumer; a negative result must list the parse entry points verified as clamped. Save a structured artifact for snapshots/s03 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392222
+  created_at: 1794403615182
+  concluded_at: null
+- id: i012
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=error-unwind-poisoned-count; Search only snapshots/s03. Lifetime/ownership/state-transition analogue: audit early-return, failure, abort, and teardown paths that leave an attacker-controlled count/length/actual_size/num field stored in a shared object (urb, request, skb, scatterlist, iovec, ring entry, transaction descriptor) which a later completion handler, cleanup routine, or status-out/error-unwind path iterates, causing OOB access during error handling even when the happy path is safe. For each candidate capture the store that poisons the field, the early return that skips reset or cleanup, and the later consuming loop with file:line; a negative result must state which error paths were walked and found clean. Save a structured artifact for snapshots/s03 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392225
+  created_at: 1794403615183
+  concluded_at: null
+- id: i013
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s03; BRANCH=peer-trusted-transport; Search only snapshots/s03. Cross-subsystem trust-boundary analogue: find kernel-side clients or servers of remote or virtual device transports — network-exported buses, virtual HCDs, guest-host channels, remote-storage/remote-fs reply handlers, socket- or ring-based device protocols — where allocation or iteration is driven by peer-supplied response counts/lengths, and check whether those peer fields are cross-checked against locally-known limits before use. Identify by mechanism (peer-controlled size crossing a trust boundary into kernel allocation or loop), including callers/callees and alternative protocol framings, not by subsystem name. Record the peer-field source, the missing local limit check, and the consuming allocation/loop; a negative result must list the peer-driven handlers examined. Save a structured artifact for snapshots/s03 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392228
+  created_at: 1794403615187
+  concluded_at: null
+- id: i014
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=alloc-multiply-overflow; Search only snapshots/s04. Direct structural/API analogue of the seed''s sizing chain: hunt a 32-bit multiply (count*element-size, count+offset, or count<<shift) computed with plain int/unsigned arithmetic from an untrusted count and passed to kmalloc/kzalloc/vmalloc/kmemdup/devm_kzalloc instead of kcalloc/array_size/struct_size, followed by an element-indexed copy/recv/memcpy loop that still trusts the original count, so the truncated product under-allocates and the loop writes past the heap buffer. Sweep driver, fs, and net parsers within this one snapshot. For each candidate record file:line of the unchecked arithmetic, the allocator call, the consuming loop, and where the count enters from outside the kernel; a negative result must cite the allocator-adjacent arithmetic sites examined. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s04 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392230
+  created_at: 1794403615189
+  concluded_at: null
+- id: i015
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=unclamped-wire-count; Search only snapshots/s04. Equivalent data-flow and validation invariant under different names: trace deserialization entry points (protocol unpack/recvmsg, netlink nla_parse, ioctl copy_from_user, nlmsg, message parsers) that store a count/length/nr_entries/nr_segs/nr_bufs value from the wire or userspace into a persistent kernel object with no range check against a known maximum; prioritize asymmetric validation where a sibling path of the same protocol enforces a MAX or #define limit (request vs reply, submit vs return, in vs out direction) but the mirror path does not. For each candidate record the parse site, the missing clamp, the enforcing sibling path, and the downstream consumer; a negative result must list the parse entry points verified as clamped. Save a structured artifact for snapshots/s04 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392233
+  created_at: 1794403615190
+  concluded_at: null
+- id: i016
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=error-unwind-poisoned-count; Search only snapshots/s04. Lifetime/ownership/state-transition analogue: audit early-return, failure, abort, and teardown paths that leave an attacker-controlled count/length/actual_size/num field stored in a shared object (urb, request, skb, scatterlist, iovec, ring entry, transaction descriptor) which a later completion handler, cleanup routine, or status-out/error-unwind path iterates, causing OOB access during error handling even when the happy path is safe. For each candidate capture the store that poisons the field, the early return that skips reset or cleanup, and the later consuming loop with file:line; a negative result must state which error paths were walked and found clean. Save a structured artifact for snapshots/s04 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392235
+  created_at: 1794403615192
+  concluded_at: null
+- id: i017
+  sources:
+  - origin
+  - f001
+  target_fact: null
+  description: 'SNAPSHOT=s04; BRANCH=peer-trusted-transport; Search only snapshots/s04. Cross-subsystem trust-boundary analogue: find kernel-side clients or servers of remote or virtual device transports — network-exported buses, virtual HCDs, guest-host channels, remote-storage/remote-fs reply handlers, socket- or ring-based device protocols — where allocation or iteration is driven by peer-supplied response counts/lengths, and check whether those peer fields are cross-checked against locally-known limits before use. Identify by mechanism (peer-controlled size crossing a trust boundary into kernel allocation or loop), including callers/callees and alternative protocol framings, not by subsystem name. Record the peer-field source, the missing local limit check, and the consuming allocation/loop; a negative result must list the peer-driven handlers examined. Save a structured artifact for snapshots/s04 only.'
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1794405392237
+  created_at: 1794403615193
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1794402396168
+
+```
+
+### Current Intent
+```
+i006
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s02; BRANCH=alloc-multiply-overflow; Search only snapshots/s02. Direct structural/API analogue of the seed's sizing chain: hunt a 32-bit multiply (count*element-size, count+offset, or count<<shift) computed with plain int/unsigned arithmetic from an untrusted count and passed to kmalloc/kzalloc/vmalloc/kmemdup/devm_kzalloc instead of kcalloc/array_size/struct_size, followed by an element-indexed copy/recv/memcpy loop that still trusts the original count, so the truncated product under-allocates and the loop writes past the heap buffer. Sweep driver, fs, and net parsers within this one snapshot. For each candidate record file:line of the unchecked arithmetic, the allocator call, the consuming loop, and where the count enters from outside the kernel; a negative result must cite the allocator-adjacent arithmetic sites examined. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s02 only.
+```
+

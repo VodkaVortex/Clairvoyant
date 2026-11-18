@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "intent_id": "i018",
+  "branch": "kind-callback-tb-gaps",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/nft_tunnel.c",
+      "line": 80,
+      "status": "safe",
+      "reason": "Primary tasked candidate resolved: in s02 nft_tunnel_get_init carries the CORRECTED guard 'if (!tb[NFTA_TUNNEL_KEY] || !tb[NFTA_TUNNEL_DREG]) return -EINVAL;' (lines 80-82, '||' not '&&'), so both consumed slots are proven present. Uses: nla_get_be32(tb[NFTA_TUNNEL_KEY]) at 84, optional NFTA_TUNNEL_MODE guarded by 'if (tb[NFTA_TUNNEL_MODE])' at 96, and nft_parse_register_store(ctx, tb[NFTA_TUNNEL_DREG],...) at 104, all covered. nft_tunnel_policy (lines 67-71) types KEY/DREG/MODE plain NLA_U32 (non-required), but the guard covers both consumed indices. This is the fixed form of the s01 instance reported in fact f013; the s02 tree already contains the correction. Reachability context: nf_tables nft_expr_init parses NFTA_EXPR_DATA under this policy after netlink_net_capable(CAP_NET_ADMIN) (userns-satisfiable), but no uncovered slot remains."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/ethernet/qualcomm/rmnet/rmnet_config.c",
+      "line": 142,
+      "status": "safe",
+      "reason": "Strongest structural candidate refuted: rmnet_newlink dereferences data[IFLA_RMNET_MUX_ID] at line 142 (mux_id = nla_get_u16(data[IFLA_RMNET_MUX_ID])) with no in-function guard, but rmnet_link_ops registers .validate = rmnet_rtnl_validate (ops at lines 390-401) and rmnet_rtnl_validate (lines 271-288) rejects 'if (!data || !data[IFLA_RMNET_MUX_ID]) return -EINVAL;' (line 276). __rtnl_newlink invokes ops->validate before dispatching either .changelink (net/core/rtnetlink.c:3330-3334 then 3363-3370) or .newlink (rtnetlink.c:3330-3334 then 3451-3452), so a message without IFLA_INFO_DATA (data==NULL) or without IFLA_RMNET_MUX_ID never reaches line 142. rmnet_policy (lines 18-21) types MUX_ID NLA_U16 / FLAGS struct-len, non-required, but the validate callback supplies the per-attribute presence proof. rmnet_changelink independently guards data[IFLA_RMNET_MUX_ID] (line 308) and data[IFLA_RMNET_FLAGS] (line 333)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/gtp.c",
+      "line": 668,
+      "status": "safe",
+      "reason": "gtp_newlink (line 658) opens with the seed-shaped guard 'if (!data[IFLA_GTP_FD0] && !data[IFLA_GTP_FD1]) return -EINVAL;' (lines 668-669), but this is the intentional at-least-one idiom (a GTP device needs at least one encapsulation socket) and every consumed slot is then individually guarded: gtp_encap_enable (line 846) wraps FD0 in 'if (data[IFLA_GTP_FD0])', FD1 in 'if (data[IFLA_GTP_FD1])', ROLE in 'if (data[IFLA_GTP_ROLE])'; PDP_HASHSIZE is wrapped in 'if (!data[IFLA_GTP_PDP_HASHSIZE]) {...} else {...}' in gtp_newlink. gtp_validate (lines 730-736) additionally rejects data==NULL before newlink dispatch, and gtp_policy (723-729) is non-required so the guard, not the policy, provides coverage — which it does, per-attribute. Same safe classification as nl80211 STA_AID/PEER_AID."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/infiniband/ulp/ipoib/ipoib_netlink.c",
+      "line": 74,
+      "status": "safe",
+      "reason": "ipoib_changelink (67-94) wraps both consumed attributes in per-attribute guards: 'if (data[IFLA_IPOIB_MODE])' at 74 before nla_get_u16 at 75, 'if (data[IFLA_IPOIB_UMCAST])' at 87 before nla_get_u16 at 88; ipoib_new_child_link (96-145) checks tb[IFLA_LINK] at 105-106 and 'if (!data || !data[IFLA_IPOIB_PKEY])' at 119 before the 123 deref, and only calls ipoib_changelink under 'if (data)' at 136-137. ipoib_policy (39-43) is non-required but every use is guarded."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/caif/caif_hsi.c",
+      "line": 1291,
+      "status": "safe",
+      "reason": "cfhsi_netlink_parms (1287) begins with 'if (!data) { pr_debug(\"no params data found\\n\"); return; }' (1290-1294) and every consumed index is wrapped in 'if (data[i])' (1301, 1312, 1316, 1320, 1324, 1328); caif_hsi_changelink (1332) and caif_hsi_newlink (1380) only call this helper. caif_hsi_policy (1342-1349) is non-required but fully compensated by the in-helper checks."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/caif/chnl_net.c",
+      "line": 441,
+      "status": "safe",
+      "reason": "caif_netlink_parms (439) begins with 'if (!data) { pr_warn(\"no params data found\\n\"); return; }' (441-444) and guards each slot ('if (data[IFLA_CAIF_IPV4_CONNID])' 446, IPV6_CONNID 449, LOOPBACK 452); ipcaif_newlink (460) and ipcaif_changelink (484) only route data through this helper. ipcaif_policy (508-512) non-required, fully compensated."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/geneve.c",
+      "line": 1410,
+      "status": "safe",
+      "reason": "geneve_validate (1266) rejects data==NULL ('if (!data) { NL_SET_ERR_MSG(...\"Not enough attributes provided...\"); return -EINVAL; }') before newlink/changelink dispatch, and geneve_nl2info (1410) — the sole attribute consumer of both geneve_newlink (1622) and geneve_changelink (1693) — wraps every consumed slot in a per-attribute 'if (data[IFLA_GENEVE_*])' test (REMOTE 1423, REMOTE6 1442, ID 1475, TTL_INHERIT/TTL 1501-1504, TOS 1507, DF 1510, LABEL 1513, PORT 1527, COLLECT_METADATA 1535, UDP_CSUM 1543, ZERO_CSUM6_TX 1552, ZERO_CSUM6_RX and DF later in the same style), including mutual-exclusion and changelink-not-supported rejections. geneve_policy (1245-1259) is non-required but compensated."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/vxlan.c",
+      "line": 3975,
+      "status": "safe",
+      "reason": "vxlan_validate (3374) rejects data==NULL at 3401-3405 before dispatch; vxlan_nl2conf (3975) — the sole attribute consumer of vxlan_newlink (4232) and vxlan_changelink (4246) — guards every consumed data[] slot with 'if (data[IFLA_VXLAN_*])' (ID 3988, GROUP 3998, GROUP6 4006, LOCAL 4021, LOCAL6 4029, LINK 4045, TOS 4048, TTL 4051, TTL_INHERIT 4054, LABEL 4063, LEARNING 4067, AGEING 4078, PROXY/RSC/L2MISS/L3MISS/LIMIT/COLLECT_METADATA/PORT_RANGE/PORT/UDP_CSUM and the remaining tail in the same style), and vxlan_nl2flag (3953) itself NULL-checks tb[attrtype] at 3961. This closes the gap left unresolved for s03 in fact f008."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/bonding/bond_netlink.c",
+      "line": 251,
+      "status": "safe",
+      "reason": "bond_changelink/bond_newlink path: every data[] slot is per-attribute guarded — MODE 170, ACTIVE_SLAVE 178, MIIMON 195, UPDELAY 203, DOWNDELAY 211, PEER_NOTIF_DELAY 219, USE_CARRIER 227, ARP_INTERVAL 235, ARP_IP_TARGET 251 ('if (data[IFLA_BOND_ARP_IP_TARGET])' wrapping nla_for_each_nested at 253, with per-element nla_len check at 257), ARP_VALIDATE 273, ARP_ALL_TARGETS 286, PRIMARY 295, PRIMARY_RESELECT 310, FAIL_OVER_MAC 319, XMIT_HASH_POLICY 328, RESEND_IGMP 337, NUM_PEER_NOTIF 346, ALL_SLAVES_ACTIVE 355, MIN_LINKS 364, LP_INTERVAL 373, PACKETS_PER_SLAVE 382, AD_LACP_RATE 391, AD_SELECT 400, AD_ACTOR_SYS_PRIO 409, AD_USER_PORT_KEY 418, AD_ACTOR_SYSTEM 426 (guarded, with nla_len==ETH_ALEN check at 427), TLB_DYNAMIC_LB 436. bond_slave_changelink checks 'if (!data) return 0;' at 134-136 before QUEUE_ID at 137-143. bond_policy non-required but fully compensated."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/hsr/hsr_netlink.c",
+      "line": 31,
+      "status": "safe",
+      "reason": "hsr_newlink checks '!data' (38-41), '!data[IFLA_HSR_SLAVE1]' (43-46), '!data[IFLA_HSR_SLAVE2]' (50-53) with correct per-attribute rejection before the nla_get_u32 uses at 47 and 57; optional MULTICAST_SPEC (68-71) and PROTOCOL (73-74) are presence-guarded with explicit defaults. This is the corrected ||-style pattern for required attrs and if-guarded optionals."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/can/vxcan.c",
+      "line": 162,
+      "status": "safe",
+      "reason": "vxcan_newlink guards the only consumed nested attribute with 'if (data && data[VXCAN_INFO_PEER])' (~line 176) before nla_data/nla_len on it; no other data[] slot is dereferenced. vxcan_policy non-required but compensated."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/8021q/vlan_netlink.c",
+      "line": 120,
+      "status": "unresolved",
+      "reason": "vlan_newlink/vlan_changelink parse IFLA_VLAN_INGRESS_QOS (nla_for_each_nested at 120) and IFLA_VLAN_EGRESS_QOS (at 126); the enclosing guards and the vlan_id/flags handling were located but not read line-by-line within this session's call budget, so per-attribute NULL coverage around these two nested iterations remains unverified."
+    }
+  ],
+  "limitations": [
+    "Evidence-backed negative for the examined surface: the dispatch core (__rtnl_newlink, net/core/rtnetlink.c:3317-3342) sets data=NULL when IFLA_INFO_DATA is absent and invokes ops->validate(tb, data, extack) at 3330-3334 BEFORE changelink (3363-3370) and newlink (3451-3452); every examined kind that dereferences data[] unguarded inside newlink (rmnet, gtp, geneve, vxlan) carries a .validate that rejects !data, and every examined kind without .validate (ipoib, caif_hsi, chnl_net, vxcan, bond, hsr) either checks !data itself or wraps each consumed slot in a per-attribute guard.",
+    "rtnl_link_ops kinds whose newlink/changelink bodies were enumerated but NOT read function-by-function in this session remain unaudited: macvlan/macvtap/ipvlan/ipvtap (drivers/net/macvlan.c, macvtap.c, ipvlan_main.c, ipvtap.c), wireguard (drivers/net/wireguard/device.c), virt_wifi, bareudp, dummy, ifb, nlmon, vrf, veth, team, tun, ppp_generic, netdevsim, batman-adv, rocker, ieee802154 6lowpan, ovs internal dev, and the tunnel family ip_gre/erspan, ipip, ip_vti, ip6_gre, ip6erspan, ip6_tunnel, ip6_vti, sit, xfrm_interface, macsec, br_netlink; a kind-callback gap inside any of these cannot be excluded.",
+    "net/sched per-qdisc/per-filter/per-action kind ->init()/->change() callbacks consuming tca[TCA_OPTIONS] were not audited in this session (the finalize directive stopped the broad search); this branch surface remains open for s02.",
+    "nf_tables expression/type ->init() callbacks beyond nft_tunnel.c (nft_*.c expression parsers receiving tb[] from nft_expr_init under each expression's non-required policy) were not systematically enumerated in s02; only the tasked nft_tunnel.c instance was resolved (safe, corrected guard).",
+    "net/8021q/vlan_netlink.c QOS nested-iteration guards (lines ~119-127) were located but not read; recorded as unresolved.",
+    "No compilation or runtime reproducer was run: the snapshot tree is read-only and no top-level build was attempted; all conclusions rest on exact source reading of the dispatch core (rtnetlink.c), each kind's ops registration, policy table, and callback body.",
+    "Reachability context for the audited dispatch: RTM_NEWLINK requires CAP_NET_ADMIN over the target netns (rtnl_link_get_net_capable, net/core/rtnetlink.c:2208-2224, netlink_ns_capable check), satisfiable by an unprivileged user via a user namespace that owns a network namespace — the same trust model as the seed; whether each kind's module is loaded in a target configuration is deployment-dependent.",
+    "Classification 'safe' for gtp_newlink's '&&' guard rests on the at-least-one semantics (at least one of FD0/FD1 must be present) combined with individually guarded uses inside gtp_encap_enable (drivers/net/gtp.c:846+); if a future refactor moved the FD0/FD1 dereferences out of those guards, the seed pattern would resurface — noted as a fragility, not a current defect."
+  ]
+}

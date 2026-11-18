@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "intent_id": "i019",
+  "branch": "gro-frag-stale-ptr",
+  "snapshot": "s03",
+  "status": "finalizing",
+  "phase": "artifact_written",
+  "candidates": [
+    "s03:net/ipv4/udp_offload.c:181 (uh captured, pskb_may_pull 189, stale uh->len 199 / uh->check 202) -> reported",
+    "s03:drivers/net/geneve.c:899 (gh refetched after slow pull; but 3rd skb_gro_header 913 with attacker-grown gh_len via GRO hint while p-loop gh2 at 925 / geneve_hdr_match gh uses at 927-930) -> reported low",
+    "s03:drivers/net/vxlan/vxlan_core.c:674 (vh captured 674; skb_gro_remcsum_process re-fetches and returns fresh ptr reassigned at 647) -> safe",
+    "s03:net/ipv4/gre_offload.c:141 (greh; slow path refetches greh at 178, later uses refetched value) -> safe",
+    "s03:net/ipv4/fou_core.c:328-382 (guehdr refetched via skb_gro_header_slow at 376, post-refetch derefs only) -> safe",
+    "s03:net/ipv6/ip6_offload.c:35 (ipv6_gro_pull_exthdrs: opth refetched after each skb_gro_header; ipv6_gro_receive re-fetches iph = skb_gro_network_header(skb) after exthdr pull) -> safe",
+    "s03:net/ipv4/af_inet.c:1497 (iph from skb_gro_header 1497; no pull in function before uses) -> safe",
+    "s03:net/ipv4/tcp_offload.c:429 (th = tcp_gro_pull_header; refetch discipline inside helper; th2 points into p, not pulled) -> safe",
+    "s03:net/ipv4/udp_offload.c:697 (udp_gro_receive_segment uh = udp_gro_udphdr(skb); uh read before is_flist pskb_may_pull 749 except gro_receive_network_flush(uh, uh2, p) inside is_flist branch after pull at 749 -> unresolved/low)",
+    "s03:net/core/gro.c:426 (gro_pull_from_frag0 memcpys into head, mutates frag0 metadata; no stale pointer) -> safe"
+  ],
+  "findings": [
+    "s03:net/ipv4/udp_offload.c:181-202 __skb_udp_tunnel_segment: uh = udp_hdr(skb) captured before pskb_may_pull(skb, tnl_hlen) at 189 (packet-layout-dependent tnl_hlen; may __pskb_pull_tail->pskb_expand_head and free skb->head); stale uh->len read at 199 and uh->check read at 202, values flow into 'partial' checksum written into every segment at 292-298. Same class as i005 s01 finding, still unfixed in s03.",
+    "s03:drivers/net/geneve.c:913-930 geneve_gro_receive: gh pointer live across 3rd skb_gro_header(skb, off_gnv + gh_len, off_gnv) at 913 where gh_len was grown by attacker-controlled geneve_opt_gro_hint nested_hdr_len; pre-call gro_hint = geneve_opt_gro_hint(gh, hint_off) at 917 derives from the SECOND gh; post-call gh used for geneve_opt_gro_hint_validate_csum(skb, gh, gro_hint) and geneve_hdr_match(skb, gh, gh2, hint_off) at 927 without refetch relative to the 3rd pull."
+  ],
+  "notes": "Final artifact written to findings/i019.json; about to call done."
+}

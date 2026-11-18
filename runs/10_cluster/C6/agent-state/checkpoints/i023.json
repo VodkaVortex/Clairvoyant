@@ -1,0 +1,33 @@
+{
+  "intent_id": "i023",
+  "branch": "callee-pull-caller-stale",
+  "snapshot": "s02",
+  "status": "complete",
+  "progress": [
+    {
+      "step": "init",
+      "detail": "Interprocedural callee->caller stale-pointer search in snapshots/s02 planned."
+    },
+    {
+      "step": "finalize",
+      "detail": "Session finalized per directive after locating the mwl8k interprocedural chain: caller mwl8k_txq_xmit captures mgmt=(struct ieee80211_mgmt *)skb->data at mwl8k.c:1903, callees (mwl8k_encapsulate_tx_frame:926 / mwl8k_add_dma_header:853) internally pskb_expand_head() freeing the old head, caller refetches only wh (1923) and dereferences stale mgmt->u.action.* at 1963-1966. Callee-internal twin (wh at 843, expand at 853, stale reads 867/871-872) also recorded. mwl8k_encapsulate_tx_frame classified safe at this boundary. Final artifact written to findings/i023.json."
+    }
+  ],
+  "candidates": [
+    {
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 1903,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 843,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 893,
+      "status": "safe"
+    }
+  ]
+}

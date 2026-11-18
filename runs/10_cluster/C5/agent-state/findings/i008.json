@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "intent_id": "i008",
+  "branch": "vm-shared-desc-rereads",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/virtio_net.c",
+      "start": 1018,
+      "end": 1031,
+      "quote": "hdr = skb_vnet_hdr(skb);\n\n\tif (hdr->hdr.flags & VIRTIO_NET_HDR_F_DATA_VALID)\n\t\tskb->ip_summed = CHECKSUM_UNNECESSARY;\n\n\tif (virtio_net_hdr_to_skb(skb, &hdr->hdr,\n\t\t\t\t  virtio_is_little_endian(vi->vdev))) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: hdr = skb_vnet_hdr(skb) points into the receive buffer (guest/device-writable DMA memory holding the virtio_net_hdr the remote wrote). Violated invariant: receive_buf() fetches hdr->hdr.flags at line 1021 to decide skb->ip_summed = CHECKSUM_UNNECESSARY, then passes &hdr->hdr to virtio_net_hdr_to_skb() (include/linux/virtio_net.h:26-74) which independently re-fetches hdr->flags, hdr->gso_type, hdr->gso_size, hdr->csum_start, hdr->csum_offset from the same shared memory; there is no READ_ONCE/local snapshot, so the copy whose flags gate the CHECKSUM_UNNECESSARY decision and the copies later validated by skb_partial_csum_set (net/core/skbuff.c:4396) can differ under a racing device/guest writer. Unsafe use: the second fetch flows into skb->ip_summed/CHECKSUM_PARTIAL, skb->csum_start/csum_offset, and shinfo->gso_type/gso_size — security-sensitive skb state later trusted by checksum/GSO offload code. This mirrors the seed's validate-then-use TOCTOU on shared memory but on the virtio guest/device-shared packet header rather than AF_XDP UMEM metadata. Counterevidence checked: (a) whether the double fetch could already be prevented — no barrier, no local copy exists anywhere on this path; (b) whether skb_partial_csum_set revalidates — it does validate csum_start/csum_offset against headroom/headlen, so the OOB impact of a csum field swap is bounded, but the flags-vs-fields inconsistency (e.g. flags losing NEEDS_CSUM between the two fetches, or gso_size/gso_type diverging from what was sanity-checked) is not revalidated; (c) severity is degraded versus the seed because the writer is the emulated device/guest rather than arbitrary userspace in the common case (though with vhost-net/AF_XDP-in-guest or a malicious VM this is attacker-controlled). Reported as a hypothesis with medium confidence: mechanism (multiple independent fetches of shared header fields used for distinct security decisions) is verbatim present; concrete OOB exploitability is not proven."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2071,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc() fetches each guest descriptor exactly once into a local 'struct vring_desc desc' via vhost_copy_from_user(vq, &desc, vq->desc + i, sizeof desc) (line 2071); every subsequent use (desc.flags, desc.addr, desc.len) reads the local snapshot, and next_desc() READ_ONCE(desc->next) also reads the local copy (line 1882). Single-fetch invariant holds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/vhost/vhost.c",
+      "line": 1886,
+      "status": "safe",
+      "reason": "get_indirect() snapshots the head indirect descriptor into the caller's local desc, reads indirect->len once into u32 len (line 1903) and validates len % sizeof desc and count > USHRT_MAX+1 before any use; inner descriptors are copied one-by-one into local 'struct vring_desc desc' via copy_from_iter_full. No re-fetch of a shared field after validation."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/vhost/vringh.c",
+      "line": 255,
+      "status": "safe",
+      "reason": "__vringh_iov() copies each descriptor into local 'struct vring_desc desc' (copy()/slow_copy into &desc) and performs all validation (rcheck on addr/len, INDIRECT nesting check, chain index < desc_max) on the local copy; the split-range retry rewrites the local desc.len/desc.addr rather than re-reading shared memory."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/virtio/virtio_ring.c",
+      "line": 698,
+      "status": "safe",
+      "reason": "virtqueue_get_buf_ctx() reads the device-writable used-ring entry once: i = vq->vring.used->ring[last_used].id (single read into local i) then validates i >= vq->vring.num and !vq->desc_state[i].data before detach_buf(); no second fetch of used->ring[].id exists."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/vhost/vhost.c",
+      "line": 1992,
+      "status": "safe",
+      "reason": "avail-ring head is fetched once via vhost_get_avail(vq, ring_head, &vq->avail->ring[...]) into a local, bounds-checked (head >= vq->num -> -EINVAL) before being used as descriptor index, and each loop iteration re-validates i < vq->num; loop counter found > vq->num prevents descriptor loops. Double-fetch window on head does not exist."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/virtio_net.c",
+      "line": 765,
+      "status": "unresolved",
+      "reason": "receive_mergeable() reads u16 num_buf = virtio16_to_cpu(vi->vdev, hdr->num_buffers) once from shared memory and uses the local for loop control; hdr->num_buffers is re-read near line 908 only inside a pr_debug() error message after the loop, so no validated-value-vs-used-value divergence was identified. Benign duplicate fetch, kept unresolved only because the full mergeable chain accounting was not exhaustively re-derived."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/vhost/net.c",
+      "line": 646,
+      "status": "safe",
+      "reason": "vhost_net_build_xdp() copies the guest virtio header once via copy_page_from_iter() into the local page buffer, then performs the csum_start+csum_offset+2 > hdr_len check and rewrite entirely on the local copy (gso points into the just-copied buffer, not guest memory); subsequent XDP processing uses the local buffer."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/vhost/vsock.c",
+      "line": 292,
+      "status": "safe",
+      "reason": "vhost_vsock_alloc_pkt() copies the guest header once into pkt->hdr via copy_from_iter(), then reads pkt->len from the local pkt->hdr, validates pkt->len > VIRTIO_VSOCK_MAX_PKT_BUF_SIZE on the local copy before kmalloc/copy; no re-fetch from the vring iovec."
+    },
+    {
+      "snapshot": "s02",
+      "path": "include/linux/virtio_net.h",
+      "line": 26,
+      "status": "reported",
+      "reason": "virtio_net_hdr_to_skb() is the validation half of the reported finding: it re-fetches hdr->gso_type, hdr->gso_size, hdr->flags, hdr->csum_start, hdr->csum_offset directly through the const pointer to shared memory with no snapshot, and its caller in drivers/net/virtio_net.c:1021 performs an additional independent fetch of hdr->hdr.flags. Reported jointly with the drivers/net/virtio_net.c finding."
+    }
+  ],
+  "limitations": [
+    "Exploit impact of the reported virtio_net receive_buf() header re-fetch is not fully proven: skb_partial_csum_set() (net/core/skbuff.c:4396) re-validates csum_start/csum_offset against headroom/headlen, so a pure csum-field swap yields a rejected/limited outcome; the un-revalidated divergences are the flags decision at line 1021 vs the fields validated inside virtio_net_hdr_to_skb(), and gso_type/gso_size consistency with the validated skb state.",
+    "Threat model nuance: the writer of the virtio_net_hdr is the device/guest side (or a malicious VM via virtio/vhost transport); in the common in-guest driver case the guest only harms itself, so practical severity depends on the deployment (host-side virtio backend, vhost, or af_packet/tap forwarding feeding these fields).",
+    "Not exhaustively audited: drivers/vhost/scsi.c and drivers/vhost/test.c descriptor consumers beyond confirming they use vhost_get_vq_desc() snapshots; drivers/s390/virtio/virtio_ccw.c config-space paths; drivers/misc/mic/vop/vop_vringh.c; caif_virtio.c; and the various virtio function drivers (blk, scsi, console, crypto, gpu, rpmsg, 9p, balloon) were only spot-checked for double-fetch patterns.",
+    "No dynamic testing or compilation was performed in this snapshot; classification rests on static reading of the complete functions cited."
+  ]
+}

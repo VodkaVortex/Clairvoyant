@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "loop-parser-stale-state",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/mpls/af_mpls.c",
+      "start": 166,
+      "end": 222,
+      "quote": "\t\t/* found bottom label; does skb have room for a header? */\n\t\tif (pskb_may_pull(skb, mpls_hdr_len + sizeof(struct iphdr))) {\n\t\t\tconst struct iphdr *v4hdr;\n\n\t\t\tv4hdr = (const struct iphdr *)(hdr + 1);\n\t\t\tif (v4hdr->version == 4) {\n\t\t\t\thash = jhash_3words(ntohl(v4hdr->saddr),\n\t\t\t\t\t\t    ntohl(v4hdr->daddr),\n\t\t\t\t\t\t    v4hdr->protocol, hash);\n\t\t\t} else if (v4hdr->version == 6 &&\n\t\t\t\t   pskb_may_pull(skb, mpls_hdr_len +\n\t\t\t\t\t\t sizeof(struct ipv6hdr))) {\n\t\t\t\tconst struct ipv6hdr *v6hdr;\n\n\t\t\t\tv6hdr = (const struct ipv6hdr *)(hdr + 1);\n\t\t\t\thash = __ipv6_addr_jhash(&v6hdr->saddr, hash);\n\t\t\t\thash = __ipv6_addr_jhash(&v6hdr->daddr, hash);\n\t\t\t\thash = jhash_1word(v6hdr->nexthdr, hash);",
+      "confidence": "high",
+      "reason": "Untrusted source: MPLS packet bytes from the network reach mpls_multipath_hash() via mpls_forward() (net/mpls/af_mpls.c:393 -> mpls_select_multipath -> mpls_multipath_hash) and via the route-output path (af_mpls.c:2463); the label stack and the bytes following the bottom label are attacker-supplied. Captured state: the label-stack walk loop captures a raw pointer into the skb head at line 173 (hdr = mpls_hdr(skb) + label_index; mpls_hdr() returns skb_network_header(skb), include/net/mpls.h:25). Interior pull: the loop body then calls pskb_may_pull(skb, mpls_hdr_len + sizeof(struct iphdr)) at line 198 and pskb_may_pull(skb, mpls_hdr_len + sizeof(struct ipv6hdr)) at line 207 \u2014 pulls that, on a non-linear skb, run __pskb_pull_tail() and can pskb_expand_head(), freeing/replacing skb->head, exactly the helper behavior that broke the seed's pep_get_sb(). Stale use: hdr is never refetched, yet line 201 derives v4hdr = (const struct iphdr *)(hdr + 1) from the pre-pull hdr and reads v4hdr->version/saddr/daddr/protocol (lines 202-205), and line 211 derives v6hdr = (const struct ipv6hdr *)(hdr + 1) from the same stale hdr and reads v6hdr->saddr/daddr/nexthdr (lines 212-214); those freed-memory values feed jhash_* and determine the selected next hop (mpls_select_multipath: hash % alive), i.e. kernel routing state, and the reads themselves are slab use-after-free reads when the interior pull reallocates the head. Cross-boundary stale state: hdr is loop-carried state captured at the top of the iteration, live across the mid-loop pulls, and dereferenced at the bottom of the same iteration \u2014 the seed's pep_get_sb() shape (pointer captured before pskb_may_pull, dereferenced after). Counterevidence checked: the per-iteration recapture at 173 makes earlier iterations safe, and only the bottom-of-stack branch dereferences across the 198/207 pulls; sibling parsers in the same snapshot (ip6_tnl_parse_tlv_enc_lim, ipv6_gso_pull_exthdrs) do refetch after every pull, showing the correct idiom this function lacks. Trigger is conditional on a non-linear skb needing head reallocation at the second pull \u2014 the same condition under which the seed bug reproduced under KASAN; no runtime reproducer was built (no network), so this is a source-level data-flow hypothesis with literal line evidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/mpls/af_mpls.c",
+      "line": 201,
+      "status": "reported",
+      "reason": "mpls_multipath_hash(): hdr captured at line 173 (pointer into skb head), pskb_may_pull at 198/207 inside the label-walk loop body may free/replace skb->head, then hdr+1 dereferenced at 201-205 and 211-214 without refetch \u2014 reported as the finding."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/ip6_tunnel.c",
+      "line": 408,
+      "status": "safe",
+      "reason": "ip6_tnl_parse_tlv_enc_lim(): after each pskb_may_pull (408, 430) hdr is refetched (411) or tel is refetched from skb->data (440); hdr->nexthdr is explicitly cached into 'next' at 425 with a comment about pskb_may_pull invalidation; callers (ip6_gre.c:666-667, ip6_tunnel.c:1326-1328) document the possible reallocation and refetch."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/ip6_offload.c",
+      "line": 58,
+      "status": "safe",
+      "reason": "ipv6_gso_pull_exthdrs(): exthdr walk loop; opth is re-derived from skb->data after pskb_may_pull at 58 (line 61) and again after pskb_may_pull at 64 (line 67) before reading opth->nexthdr; no stale pointer survives a pull."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/bnep/core.c",
+      "line": 497,
+      "status": "safe",
+      "reason": "bnep_session() RX loop calls skb_linearize(skb) on the freshly dequeued skb before any parsing in bnep_rx_frame(); no header pointer is captured before the linearize in this scope."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/cmtp/core.c",
+      "line": 298,
+      "status": "safe",
+      "reason": "cmtp_session() RX loop: skb_linearize(skb) precedes cmtp_recv_frame() on each dequeued skb; no cross-iteration pointer into skb head is held."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/hidp/core.c",
+      "line": 1214,
+      "status": "unresolved",
+      "reason": "Scan located skb_linearize inside a for(;;) loop in hidp's RX thread; function not deeply read before the search was stopped."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/rfcomm/core.c",
+      "line": 1944,
+      "status": "unresolved",
+      "reason": "Scan located skb_linearize inside a while(skb_dequeue(...)) loop in rfcomm_process_rx; not deeply read."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ppp/ppp_generic.c",
+      "line": 2669,
+      "status": "unresolved",
+      "reason": "Scan located pskb_may_pull(skb, 2) inside the ppp_mp_reconstruct consumer loop in ppp_receive_nonmp; whether any header pointer or cursor captured before the pull is reused after it was not verified."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/xen-netfront.c",
+      "line": 1174,
+      "status": "unresolved",
+      "reason": "Scan located __pskb_pull_tail inside RX while-loops (xennet_fill_frags / xennet_receive_skb path); stale-state reuse across iterations not verified."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/strparser/strparser.c",
+      "line": 194,
+      "status": "unresolved",
+      "reason": "Scan located skb_unclone inside 'while (eaten < orig_len)' in __strp_recv; whether pointers into skb head captured before it survive was not verified."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/core/skbuff.c",
+      "line": 4372,
+      "status": "unresolved",
+      "reason": "Scan located skb_unclone inside the frag-list while-loop of skb_cow_data(); internal invariant not audited (core helper, likely correct, but unverified)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/veth.c",
+      "line": 977,
+      "status": "unresolved",
+      "reason": "Scan located skb_unclone inside a for-loop in veth's XDP/loopback path; not deeply read."
+    }
+  ],
+  "limitations": [
+    "Tree-wide scan for pull-inside-loop sites used a brace-matching heuristic over .c files; pulls in single-statement loops, macros, .h files, or where the function-start heuristic failed could be missed.",
+    "Of 22 loop-interior pull sites found tree-wide, 12 were triaged; 7 remain classified 'unresolved' (hidp/core.c:1214, rfcomm/core.c:1944, ppp_generic.c:2669, xen-netfront.c:1174/1231, strparser.c:194, skbuff.c:4372, veth.c:977) and were not deeply read.",
+    "The reported mpls_multipath_hash() UAF is a static data-flow result: reallocation requires a non-linear skb whose head lacks tailroom at the second pull (lines 198/207); no runtime reproducer or KASAN trace was produced because the snapshot tree cannot be built in this environment.",
+    "Whether upstream Linux already fixed mpls_multipath_hash() after this snapshot could not be checked (no network/Git access); the finding reflects the source as present in snapshots/s01.",
+    "Only snapshots/s01 was searched, per intent scope; no other snapshot was opened."
+  ]
+}

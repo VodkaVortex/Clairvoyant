@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "intent_id": "i020",
+  "branch": "timer-dwork-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s05"
+  ],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/scsi/libiscsi.c",
+      "start": 1946,
+      "end": 1952,
+      "quote": "spin_lock(&session->frwd_lock);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: attacker-influenced concurrency, not data - any iSCSI command timeout on a session plus the per-connection transport timer (fires every few seconds per conn) aligning on the same CPU. VIOLATED INVARIANT: struct iscsi_session.frwd_lock is shared between TIMER_SOFTIRQ callback bodies and BH-enabled process context, yet several sites acquire it with plain spin_lock() instead of spin_lock_bh(). TIMER-SOFTIRQ SIDE: timer_setup(&conn->transport_timer, iscsi_check_transport_timeouts) -> iscsi_check_transport_timeouts (libiscsi.c:2082) takes spin_lock(&session->frwd_lock) at libiscsi.c:2088 and walks the session command lists; timer_setup(&conn->tmf_timer, iscsi_tmf_timedout) -> iscsi_tmf_timedout (libiscsi.c:1786) takes the same lock plainly at libiscsi.c:1791. PROCESS SIDE (holder): iscsi_eh_cmd_timed_out (libiscsi.c:1946-1948) acquires spin_lock(&session->frwd_lock) plainly at line 1948; it is the scsi_host_template .eh_timed_out hook invoked from the block-layer timeout worker (blk_mq_timeout_work, a kworker), i.e. BH-enabled process context; iscsi_send_nopout (plain at 1051) and iscsi_itt_to_task (plain at 1160) are likewise reachable from the iscsi_xmitworker kworker path. UNSAFE USE: a kworker holding frwd_lock acquired with plain spin_lock is interrupted by a hardirq and TIMER_SOFTIRQ runs at irq exit on the same CPU; iscsi_check_transport_timeouts spins on frwd_lock forever while the preempted holder can never resume - CPU soft lockup, RCU stall, iSCSI session/TX stall, repeatable DoS: the timer-softirq analogue of the ks7010 seed mechanism. COUNTEREVIDENCE CHECKED: ~20 sites on the very same lock already use spin_lock_bh (libiscsi.c:771, 1346, 1374, 1424, 1475, 1651, 1815, 1842, 1887, 2153, 2222, 2291, 2331, 2354, 2382, 2411, 2454, 2494, 2917), proving the lock is known to be softirq-shared and that the plain sites violate the driver's own discipline; however the blk_mq_timeout_work->eh_timed_out process-context chain and exploitability were verified only statically (no .config in the tree to build a reproducer), hence medium confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "drivers/scsi/libiscsi.c",
+      "line": 1948,
+      "status": "reported",
+      "reason": "Plain spin_lock(&session->frwd_lock) in iscsi_eh_cmd_timed_out (process-context scsi .eh_timed_out hook) while TIMER_SOFTIRQ callbacks iscsi_check_transport_timeouts (2088) and iscsi_tmf_timedout (1791) take the same lock; reported as finding."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/slip/slip.c",
+      "line": 1404,
+      "status": "safe",
+      "reason": "Timer callbacks sl_keepalive (1404) and sl_outfill (1373) take sl->lock plainly, but they are the softirq side (plain is acceptable there); every BH-enabled process-context site of the same lock uses spin_lock_bh (slip_transmit worker 426, sl_close 532, ioctls 1121/1146, 884, 1186, 1325, 170, 257); the remaining plain sites are sl_xmit (498, ndo_start_xmit is invoked with BH disabled by __dev_queue_xmit) and sl_tx_timeout (464, runs from the dev_watchdog TIMER_SOFTIRQ callback). No BH-enabled process-context plain holder exists."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 290,
+      "status": "safe",
+      "reason": "Only two rx_lock acquisition sites exist: bcm_enet_refill_rx_timer (290, timer callback = TIMER_SOFTIRQ side) and bcm_enet_poll (487, NAPI = NET_RX softirq side); there is no process-context plain holder, and two distinct softirqs cannot preempt each other on the same CPU, so the seed's holder-can-never-resume shape is absent."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/ethernet/chelsio/cxgb4/sge.c",
+      "line": 4025,
+      "status": "unresolved",
+      "reason": "adap->ptp_lock taken plainly in timer callback sge_tx_timer_cb (sge.c:4025) and in cxgb4_eth_xmit (sge.c:1417, ndo_start_xmit runs BH-disabled), while sge.c:4712 uses spin_lock_bh on the same lock; the execution context of cxgb4_ptp_read_hwstamp (cxgb4_ptp.c:115, called from sge.c:3321) - NAPI softirq vs process - was not traced before the deadline."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/wireless/intersil/hostap/hostap_ap.c",
+      "line": 218,
+      "status": "unresolved",
+      "reason": "ap->sta_table_lock is taken plainly in timer callback ap_handle_timer (218) and in 12 further plain sites (666, 730, 775, 2706, 2832, 2902, 2942, 3069, 3096, 3112, 3133, 3173) while ~24 other sites on the same lock use spin_lock_bh; the calling context of the non-timer plain sites (hostap_ap_tx_cb_* TX-done callbacks, hostap_handle_sta_tx_exc, hostap_is_sta_assoc/authorized, hostap_add_sta) was not traced before the deadline, so the timer-vs-process pairing is unproven here."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/tun.c",
+      "line": 490,
+      "status": "safe",
+      "reason": "tun_flow_cleanup (480-490) is the TIMER_SOFTIRQ side and its plain spin_lock(&tun->lock) at 490 is acceptable from softirq; all process-context sites of tun->lock (452, 467, 535, 2276) already use spin_lock_bh."
+    }
+  ],
+  "limitations": [
+    "Static analysis only: the tree has no .config/generated headers, so no build, lockdep run, or runtime reproducer was produced; the libiscsi blk_mq_timeout_work->scsi eh_timed_out->iscsi_eh_cmd_timed_out process-context chain rests on standard kernel wiring, not dynamic verification.",
+    "The callback scan covered only drivers/ and net/ *.c files and only callbacks registered via timer_setup/setup_timer/DEFINE_TIMER/INIT_DELAYED_WORK/function= patterns; arch/, kernel/, mm/, fs/ and callbacks wired through other indirections (e.g. tasklet_hrtimer, indirect function pointers) were not enumerated.",
+    "The 73-candidate callback list was triaged by lock-sharing heuristics; deep call-chain tracing was completed only for libiscsi, slip, bcm63xx_enet, cxgb4 (partial) and hostap (partial).",
+    "Two candidates remain unresolved: cxgb4 ptp_lock (sge.c:4025/1417/4712, cxgb4_ptp.c:115) and hostap sta_table_lock (13 plain vs 24 _bh sites); their non-timer plain-site contexts were not confirmed.",
+    "Whether the literal ks7010 seed bug is present unpatched in s05 was not checked; per instructions the seed must never be reported regardless."
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "intent_id": "i002",
+  "branch": "xmit-softirq-lock",
+  "snapshot": "s01",
+  "status": "complete",
+  "candidates": [
+    {"path": "drivers/net/wireless/marvell/mwl8k.c", "line": 1992, "status": "reported", "reason": "stream_lock plain spin_lock in mwl8k_txq_xmit (softirq side via .tx mwl8k_tx:4691->4705) vs same lock plainly in mwl8k_watchdog_ba_events worker (3835, queued from hardirq 4620), mwl8k_cmd_set_new_stn_del (4165), mwl8k_ampdu_action (5461); tx_lock in same function uses spin_lock_bh (2054) proving BH-enabled xmit context."},
+    {"path": "drivers/staging/ks7010/ks7010_sdio.c", "line": 398, "status": "safe", "reason": "Seed bug present in s01 but excluded per never-report-the-seed rule."},
+    {"path": "drivers/net/wireless/intersil/hostap/hostap_ap.c", "line": 775, "status": "safe", "reason": "Plain sta_table_lock sites are the softirq/tasklet side; process-context sites use spin_lock_bh. Safe ordering."},
+    {"path": "drivers/net/wireless/st/cw1200/wsm.c", "line": 1514, "status": "safe", "reason": "bss_loss_lock/wsm_cmd.lock/event_queue_lock pair cw1200_bh kthread with workers — process context both sides."},
+    {"path": "drivers/net/wireless/intel/iwlwifi/pcie/rx.c", "line": 1013, "status": "unresolved"},
+    {"path": "drivers/net/wireless/ath/ath9k/main.c", "line": 549, "status": "unresolved"},
+    {"path": "drivers/net/wireless/mediatek/mt76/tx.c", "line": 464, "status": "unresolved"},
+    {"path": "drivers/net/wireless/quantenna/qtnfmac/trans.c", "line": 30, "status": "unresolved"},
+    {"path": "drivers/net/wireless/ath/ath5k/base.c", "line": 1170, "status": "unresolved"}
+  ],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i002.json"
+}

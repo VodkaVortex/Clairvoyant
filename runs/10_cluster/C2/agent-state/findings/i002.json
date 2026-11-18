@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "intent_id": "i002",
+  "branch": "tcp-optwalk-len2",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/tcp_input.c",
+      "start": 3713,
+      "end": 3728,
+      "quote": "while (length > 0) {\n\t\tint opcode = *ptr++;\n\t\tint opsize;\n\n\t\tswitch (opcode) {\n\t\tcase TCPOPT_EOL:\n\t\t\treturn;\n\t\tcase TCPOPT_NOP:\t/* Ref: RFC 793 section 3.1 */\n\t\t\tlength--;\n\t\t\tcontinue;\n\t\tdefault:\n\t\t\topsize = *ptr++;",
+      "confidence": "high",
+      "reason": "Untrusted source: TCP option bytes of any received TCP segment, length = (th->doff*4) - sizeof(struct tcphdr), parsed in tcp_parse_options() (net/ipv4/tcp_input.c:3701); callers include tcp_rcv_synsent_state_process (tcp_input.c:5521), tcp_rcv_established fast/slow path (3855), tcp_conn_request (6252), tcp_timewait_state_process / tcp_create_openreq_child (tcp_minisocks.c:100/593), and both syncookie paths cookie_v4_check / cookie_v6_check (net/ipv4/syncookies.c:316, net/ipv6/syncookies.c:165), i.e. remotely attacker-controlled bytes on every SYN/ACK/data segment; tcp_v4_rcv pskb_may_pulls th->doff*4 bytes (tcp_ipv4.c:1658) so the option area is the buffer bound. Violated invariant: the default path consumes the kind byte (3714 'int opcode = *ptr++') and then dereferences 'opsize = *ptr++' (3724) with NO 'if (length < 2) return;' guard between the two reads; the only checks, opsize<2 (3725) and opsize>length (3727), run AFTER the length byte was already fetched, so they cannot prevent the over-read. When length==1 (a one-byte trailing option whose kind is neither EOL nor NOP - fully attacker-constructible because doff counts in 4-byte units and NOP/EOL handling only adjusts length by exactly 1 per byte), the loop reads one byte past the end of the TCP option area. Unsafe use: the OOB byte is consumed as opsize and compared/used for loop bookkeeping (ptr += opsize-2; length -= opsize at 3810-3811), i.e. an unvalidated, out-of-bounds value drives subsequent pointer advance. Consequence: one-byte out-of-bounds read of skb memory immediately after the TCP header (KASAN-detectable slab over-read / info leak adjacent to packet data). Counterevidence checked: this is exactly the pre-9609dad263f8 shape that upstream fixed by inserting 'if (length < 2) return;' before 'opsize = *ptr++' (the same fix the seed commit 07718be26568 ported to mptcp_get_options, whose changelog cites 9609dad263f8); sibling walks in this tree (nf_conntrack_proto_tcp.c tcp_options/tcp_sack at 398/459) DO have the guard, proving the guard is the expected invariant and its absence in tcp_input.c is a genuine divergence, not an upstream design choice. Impact uncertainty: the byte lies in skb-adjacent memory that is normally still within the skb linear allocation, so the leak is one byte of packet-adjacent data; reported as a structural, line-verified match with the seed mechanism."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/tcp_input.c",
+      "start": 3875,
+      "end": 3888,
+      "quote": "while (length > 0) {\n\t\tint opcode = *ptr++;\n\t\tint opsize;\n\n\t\tswitch (opcode) {\n\t\tcase TCPOPT_EOL:\n\t\t\treturn NULL;\n\t\tcase TCPOPT_NOP:\n\t\t\tlength--;\n\t\t\tcontinue;\n\t\tdefault:\n\t\t\topsize = *ptr++;\n\t\t\tif (opsize < 2 || opsize > length)\n\t\t\t\treturn NULL;",
+      "confidence": "medium",
+      "reason": "Untrusted source: TCP option bytes of a received segment parsed by tcp_parse_md5sig_option(const struct tcphdr *th) (3866), called from tcp_v4_rcv (tcp_ipv4.c:657), tcp_v4_send_reset (1239), tcp_v6_do_rcv/send_reset (tcp_ipv6.c:700/922) whenever CONFIG_TCP_MD5SIG is enabled - every received TCP packet with MD5 keys configured. Violated invariant: identical shape to tcp_parse_options; the initial 'length < TCPOLEN_MD5SIG' shortcut (3872) bounds only the first iteration's budget, and after options are consumed length can reach 1, at which point the default path reads 'opsize = *ptr++' (3886) one byte past the option area with no remaining>=2 guard; the combined check 'opsize < 2 || opsize > length' (3887) happens after the fetch. Unsafe use: opsize is returned/compared against TCPOLEN_MD5SIG (3890) and used for 'ptr += opsize - 2; length -= opsize' (3892-3893). Consequence: one-byte OOB read past the TCP header end into packet-adjacent skb memory, same class as the seed. Counterevidence/limitations: the read byte only decides whether an MD5 option is accepted (returns ptr or NULL) and the fetched value is never echoed to the attacker, so the leak is a value-influenced control-flow decision rather than a direct info disclosure; reported as a structural match with medium confidence."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_synproxy_core.c",
+      "start": 42,
+      "end": 56,
+      "quote": "while (length > 0) {\n\t\tint opcode = *ptr++;\n\t\tint opsize;\n\n\t\tswitch (opcode) {\n\t\tcase TCPOPT_EOL:\n\t\t\treturn true;\n\t\tcase TCPOPT_NOP:\n\t\t\tlength--;\n\t\t\tcontinue;\n\t\tdefault:\n\t\t\topsize = *ptr++;\n\t\t\tif (opsize < 2)\n\t\t\t\treturn true;\n\t\t\tif (opsize > length)",
+      "confidence": "high",
+      "reason": "Untrusted source: TCP option bytes of any packet traversing a SYNPROXY rule (net/ipv4/netfilter/ipt_SYNPROXY.c:278/366/395, net/ipv6/netfilter/ip6t_SYNPROXY.c:292/387/416), fetched via skb_header_pointer(skb, doff + sizeof(*th), length, buf) into the fixed stack buffer 'u8 buf[40]' (line 35) with length = (th->doff * 4) - sizeof(*th) up to 40. Violated invariant: synproxy_parse_options() (nf_synproxy_core.c:31) consumes the kind byte (43 'int opcode = *ptr++') then executes 'opsize = *ptr++' (53) with no 'length < 2' check between the two reads; the opsize<2 (54) and opsize>length (56) guards run only after the fetch. When the final option byte is the only remaining byte (length==1) and its kind is not EOL/NOP, the loop reads buf[40] - one byte past the end of the 40-byte on-stack buffer (attacker constructs this by setting doff=15 so length==40 and making the 40th option byte a non-EOL/non-NOP kind). Unsafe use: the OOB byte becomes opsize, is compared against length, and drives 'ptr += opsize - 2; length -= opsize' plus MSS/WSCALE/TIMESTAMP body reads (get_unaligned_be16/be32 of ptr). Consequence: one-byte stack out-of-bounds read (KASAN stack-buffer-overflow class) of uninitialized/adjacent stack memory whose value influences option parsing. Counterevidence checked: the sibling netfilter walkers nf_conntrack_proto_tcp.c tcp_options (line 398) and tcp_sack (line 459) contain exactly the 'if (length < 2) return;' guard that this function lacks, confirming the missing invariant is a real divergence within the same subsystem; skb_header_pointer returns buf only after copying 'length' bytes, so the over-read is provably at index length<=40 of a 40-byte array."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/xt_tcpmss.c",
+      "start": 67,
+      "end": 70,
+      "quote": "if (op[i] < 2)\n\t\t\ti++;\n\t\telse\n\t\t\ti += op[i+1] ? : 1;",
+      "confidence": "medium",
+      "reason": "Untrusted source: TCP option bytes of packets matched by an xt_tcpmss ('tcpmss') rule, fetched via skb_header_pointer(skb, par->thoff + sizeof(*th), optlen, _opt) into the fixed stack buffer 'u8 _opt[15 * 4 - sizeof(_tcph)]' (=40 bytes, xt_tcpmss.c:40) with optlen = th->doff*4 - sizeof(*th). Violated invariant: the tcpmss_mt() walk consumes the kind byte op[i] and, whenever op[i] >= 2, dereferences op[i+1] as the option size byte without confirming that 2 bytes remain ('for (i = 0; i < optlen; )' allows i == optlen-1, then line 70 reads op[optlen]); there is no 'i == optlen - 1' bound before the op[i+1] read and no clamp of op[i+1] to (optlen - i). Unsafe use: the OOB byte is used as the loop advance 'i += op[i+1] ?: 1'. Consequence: one-byte out-of-bounds read - when optlen==40 it reads _opt[40] past the 40-byte stack buffer (KASAN stack OOB), and for shorter optlen it reads the first byte of _opt beyond the copied region (uninitialized stack). Counterevidence checked: the sibling matchers' optlen helpers (xt_TCPMSS.c:38, xt_TCPOPTSTRIP.c:24, nft_exthdr.c:31) are only invoked with at least one byte of margin ('i <= tcp_hdrlen - TCPOLEN_MSS', 'i < tcp_hdrlen - 1', 'i < tcphdr_len - 1'), so xt_tcpmss.c is the only in-tree matcher with this unguarded shape; upstream later fixed this class by adding an 'i == optlen - 1' check (cf. xt_tcpmss). Limitations: triggering requires the tcpmss match to be loaded and used in a rule; the over-read byte only affects loop termination, not a value echoed to the attacker."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 3724,
+      "status": "reported",
+      "reason": "tcp_parse_options default path: 'opsize = *ptr++' with no remaining>=2 check between kind byte (3714) and length byte; opsize<2/opsize>length checked only after the read; length==1 reads one byte past the TCP option area. Callers verified: tcp_input.c 5521/5584(tcp_fast_parse_options)/6252, tcp_minisocks.c 100/593, syncookies v4 316 / v6 165."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 3886,
+      "status": "reported",
+      "reason": "tcp_parse_md5sig_option: same unguarded kind->length byte sequence; initial length<TCPOLEN_MD5SIG shortcut (3872) does not prevent length==1 on later iterations."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_synproxy_core.c",
+      "line": 53,
+      "status": "reported",
+      "reason": "synproxy_parse_options: 'opsize = *ptr++' with no length<2 guard; reads buf[40] one byte past the 40-byte stack buffer when the final option is a single non-EOL/non-NOP byte; sibling netfilter walks (nf_conntrack_proto_tcp.c:398/459) have the guard."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/xt_tcpmss.c",
+      "line": 70,
+      "status": "reported",
+      "reason": "tcpmss_mt reads op[i+1] when op[i]>=2 without an i+1<optlen bound; reads _opt[40] past the 40-byte stack buffer or uninitialized stack bytes beyond the copied region."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/dccp/options.c",
+      "line": 79,
+      "status": "safe",
+      "reason": "dccp_parse_options: 'if (opt_ptr == opt_end) goto out_nonsensical_length' before reading the len byte (79-82), len>=2 enforced (83-84), and 'opt_ptr > opt_end' checked after the advance (93-94); the remaining>=2 invariant is enforced before the length-byte read."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_conntrack_proto_tcp.c",
+      "line": 398,
+      "status": "safe",
+      "reason": "tcp_options() walk contains 'if (length < 2) return;' at 398 before 'opsize=*ptr++' at 399 (buffer fetched into stack buff via skb_header_pointer); opsize<2 and opsize>length checked before any body read or advance."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_conntrack_proto_tcp.c",
+      "line": 459,
+      "status": "safe",
+      "reason": "tcp_sack() walk: same 'if (length < 2) return;' guard at 459 before 'opsize = *ptr++' at 460; SACK block loop bounded by opsize-TCPOLEN_SACK_BASE after opsize<=length."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_conntrack_seqadj.c",
+      "line": 147,
+      "status": "safe",
+      "reason": "nf_ct_sack_adjust checks 'optoff + 1 == optend || optoff + op[1] > optend || op[1] < 2' before using op[1]; equivalent remaining>=2 semantics enforced before the length byte is used."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/xt_TCPMSS.c",
+      "line": 38,
+      "status": "safe",
+      "reason": "tcpmss_mangle_packet optlen() helper reads opt[offset+1], but the walk runs 'for (i = sizeof(struct tcphdr); i <= tcp_hdrlen - TCPOLEN_MSS; i += optlen(opt, i))' with TCPOLEN_MSS==4, so offset+1 <= tcp_hdrlen-3 stays inside the validated TCP header; 'len < tcp_hdrlen' checked before the walk."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/xt_TCPOPTSTRIP.c",
+      "line": 23,
+      "status": "safe",
+      "reason": "tcpoptstrip_mangle_packet optlen() helper reads opt[offset+1], but the walk runs 'for (i = sizeof(struct tcphdr); i < tcp_hdrlen - 1; i += optl)' so offset+1 <= tcp_hdrlen-1 is in bounds; 'i + optl > tcp_hdrlen' additionally bounds each body access."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nft_exthdr.c",
+      "line": 31,
+      "status": "safe",
+      "reason": "nft_exthdr_tcp_eval/nft_exthdr_tcp_set_eval optlen() helper reads opt[offset+1], but both walks run 'for (i = sizeof(*tcph); i < tcphdr_len - 1; i += optl)' with tcphdr_len = __tcp_hdrlen(tcph) from nft_tcp_header_pointer (line 80-84), so offset+1 <= tcphdr_len-1 is in bounds; 'i + optl > tcphdr_len' bounds body reads."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/xt_tcpudp.c",
+      "line": 38,
+      "status": "safe",
+      "reason": "tcp_mt uses skb_header_pointer(skb, par->thoff, sizeof(_tcph), &_tcph) for the fixed 20-byte header only; no option walk present (comment 'tcp.doff is only 4 bits, ie. max 15 * 4 bytes' at line 38 refers to the doff validation at 107-112)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/tcp.c",
+      "line": 2495,
+      "status": "safe",
+      "reason": "tcp_repair_options_est copies fixed-size struct tcp_repair_opt entries from userspace with 'while (len >= sizeof(opt))' and copy_from_user bounds; no byte-level kind/length walk of packet data (requires CAP_NET_ADMIN TCP_REPAIR anyway)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/syncookies.c",
+      "line": 165,
+      "status": "safe",
+      "reason": "cookie_v6_check delegates to tcp_parse_options; the unguarded walk itself is reported as the tcp_input.c finding; no separate option loop exists in this file."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/syncookies.c",
+      "line": 316,
+      "status": "safe",
+      "reason": "cookie_v4_check delegates to tcp_parse_options; the unguarded walk itself is reported as the tcp_input.c finding; no separate option loop exists in this file."
+    }
+  ],
+  "limitations": [
+    "The four reported candidates are line-verified structural matches of the seed invariant (kind byte consumed, size byte read without a remaining>=2 guard); no runtime reproducer or KASAN confirmation was built because the snapshot is a read-only source tree without a build configuration, so memory-safety impact (whether the byte lands past an allocation boundary vs. inside skb headroom/stack padding) is expressed through confidence levels rather than proof.",
+    "Exploitability is bounded: the tcp_parse_options/tcp_parse_md5sig_option over-reads fetch one byte of packet-adjacent skb memory (the value only gates parse decisions), and the nf_synproxy/xt_tcpmss over-reads fetch one byte at index 40 of a 40-byte stack buffer whose value only affects loop advance; none of the four echo the OOB byte directly to the attacker.",
+    "tcpmss_mt and synproxy_parse_options require their respective netfilter modules/matches to be loaded and a rule to reference them; tcp_parse_md5sig_option additionally requires CONFIG_TCP_MD5SIG and MD5 keys configured, narrowing the affected configurations.",
+    "The search enumerated TCP-option walks via 'opsize = *ptr++'/'opcode = *ptr++' patterns, TCPOPT_EOL/NOP/MD5SIG/FASTOPEN/EXP references, 'doff*4' length computations, and 'while (length > 0)' loops across net/ of s01 only; TCP-option handling embedded in arch-specific code, BPF selftests, or out-of-net trees was pattern-grepped, not line-read.",
+    "net/mptcp does not exist in this snapshot (the seed's own mptcp_get_options function is absent), and no tcp_parse_mss_option, tcp_ao.c (TCP-AO), or bpf_search_tcp_opt helper exists in this kernel vintage, so those intent-listed areas had no in-tree candidate to classify.",
+    "Non-TCP option parsers (IPv4 IPOPT, IPv6 exthdr TLV, wireless IE, and optsize-body-clamp classes) were intentionally out of scope for this tcp-optwalk-len2 branch; sibling intents i005-i013 cover them on their own snapshots."
+  ]
+}
