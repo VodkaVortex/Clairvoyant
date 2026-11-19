@@ -1,44 +1,77 @@
-# Clairvoyant Linux variant search
+# Clairvoyant
 
-This adapter keeps the frozen benchmark and Clairvoyant core unchanged. It uses
-Clairvoyant for durable `Project → Intent → Fact` scheduling and Claude Code for
-each worker's tool loop, served by GLM-5.3.
+**Fact-guided, resumable Linux vulnerability-variant search.** Clairvoyant
+turns one known vulnerability into a durable `Intent → Fact → Intent` graph,
+then searches independent Linux snapshots for variants of the same root-cause
+mechanism. Full source evidence is preserved in artifacts, while short Fact
+cards carry only the information needed to plan the next search.
 
-## Latest curated benchmark result
+## Result at a glance
 
-The current 10-cluster run recovers **23 of 64 hidden targets (35.94%)** at
-exact-hunk granularity. All 300 persisted Intents are concluded and no open
-Intent remains. The frozen evaluator, rather than model-reported completion,
-determines every hit.
+| Benchmark | Completed Intents | Submitted findings | Exact-hunk hits | Recall |
+| --- | ---: | ---: | ---: | ---: |
+| Curated 10-cluster Linux benchmark | **300 / 300** | **525** | **23 / 64** | **35.94%** |
 
-| Cluster | Exact / targets |
-| --- | ---: |
-| C1 | 4 / 4 |
-| C2 | 3 / 3 |
-| C3 | 3 / 3 |
-| C4 | 0 / 2 |
-| C5 | 1 / 4 |
-| C6 | 1 / 5 |
-| C7 | 1 / 14 |
-| C8 | 6 / 12 |
-| C9 | 0 / 13 |
-| C10 | 4 / 4 |
+The 525 findings are worker-submitted candidates, not confirmed
+vulnerabilities. A hit is counted only when the frozen evaluator confirms that
+a reported location overlaps the historical fix hunk. Model-reported success
+does not count.
 
-The complete run archive is under `runs/10_cluster/`.
+## Cluster breakdown
 
+| Cluster | Root-cause family | Primary consequence | Exact / targets | Hit rate |
+| --- | --- | --- | ---: | ---: |
+| **C1** | Constant-multiplier wrap-to-zero divisor | Kernel crash | **4 / 4** | **100%** |
+| **C2** | One-byte tail read in a length-coded option parser | Parser OOB/crash | **3 / 3** | **100%** |
+| **C3** | Mandatory netlink attributes checked with `AND` instead of `OR` | NULL dereference/crash | **3 / 3** | **100%** |
+| **C4** | `proc_dointvec` failure ignored before post-processing | Corruption/crash | **0 / 2** | **0%** |
+| **C5** | Double-fetch from attacker-writable memory after validation | OOB/state corruption | **1 / 4** | **25%** |
+| **C6** | Stale skb-derived pointer after head reallocation | UAF/OOB access | **1 / 5** | **20%** |
+| **C7** | Process-context lock acquisition without bottom-half exclusion | Deadlock | **1 / 14** | **7.14%** |
+| **C8** | Fixed USB endpoint index without endpoint-count validation | OOB/NULL dereference | **6 / 12** | **50%** |
+| **C9** | Unchecked count-times-element-size allocation arithmetic | Heap corruption/crash | **0 / 13** | **0%** |
+| **C10** | User buffer consumed as a C string without NUL termination | OOB read/info leak | **4 / 4** | **100%** |
+| **Total** | 10 root-cause families | 64 hidden targets | **23 / 64** | **35.94%** |
 
-## Security/evaluation boundary
+## Search architecture
 
-- The model receives the public seed and opaque source trees only.
-- Historical revisions, hidden targets, and the evaluation manifest stay under
-  `private/`, outside the Landlock allow-list.
-- Snapshot workspaces contain C/header files but no `.git` directory.
-- Bootstrap has `Read`, `Grep`, `Glob`, and `Bash`; explore additionally has
-  `Write`. Bash can run local compilation, tests, and static analysis. Source
-  snapshots remain read-only and generated files go under each worker's
-  private temporary directory. Edit, WebFetch, and NotebookEdit are disabled.
-- The original frozen evaluator runs after Clairvoyant exits. Model-reported
-  completion never counts as a hit.
+```mermaid
+flowchart LR
+    Seed[Seed vulnerability] --> Bootstrap[Bootstrap: derive mechanism]
+    Bootstrap --> Fact0[Mechanism Fact]
+    Fact0 --> Reason[Reason: plan next Intent]
+    Reason --> Intent[Explore Intent]
+    Intent --> Explore[Explore worker]
+    Explore --> Artifact[Artifact: full evidence]
+    Artifact --> Done[Done]
+    Done --> Fact1[Short Fact card]
+    Fact1 --> Reason
+```
+
+Reason may combine several earlier Facts when creating a new Intent, so the
+persistent search history is a directed acyclic graph rather than a simple
+tree. Explore workers receive only Facts relevant to the current snapshot or
+branch; cross-snapshot knowledge is carried in the Intent created by Reason.
+
+## Repository map
+
+- [`dataset/10_cluster`](dataset/10_cluster): 10 cluster definitions, 10 seed
+  SHAs, 64 target SHAs, and source-download instructions;
+- [`runs/10_cluster`](runs/10_cluster): current databases, artifacts, findings,
+  evaluator reports, checkpoints, and dispatcher prompts;
+- `worker.py`, `done_tool.py`, `prompts/`: the Clairvoyant adapter and worker
+  protocol.
+
+## Security and evaluation boundary
+
+- Workers receive only the public seed and opaque source snapshots.
+- Historical revisions, hidden targets, and the evaluation manifest remain
+  outside the Landlock allow-list.
+- Worker-visible snapshots contain source files but no `.git` directory.
+- The frozen evaluator runs only after search and independently checks exact
+  source locations.
+- This benchmark measures historical location recovery, not exploitability or
+  independent confirmation of a new vulnerability.
 
 ## Preflight
 
