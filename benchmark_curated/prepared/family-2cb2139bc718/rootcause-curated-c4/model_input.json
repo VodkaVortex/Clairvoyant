@@ -1,0 +1,14 @@
+{
+  "seed": {
+    "hexsha": "24599e61b7552673dd85971cf5a35369cd8c119e",
+    "one_line_summary": "net: sctp: check proc_dointvec result in proc_sctp_do_auth",
+    "vulnerability_summary": "proc_sctp_do_auth ignores proc_dointvec failure on write, using uninitialized stack variable new_value to set auth_enable, leaking stack bytes via sysctl reads and toggling authentication based on garbage.",
+    "vulnerability_pattern": "Custom sysctl handler calls proc_dointvec but uses output variable without checking return code, violating invariant that parsed value is only valid on success.",
+    "patch": "commit 24599e61b7552673dd85971cf5a35369cd8c119e\nAuthor: Daniel Borkmann <daniel@iogearbox.net>\nDate:   Wed Jun 18 23:46:31 2014 +0200\n\n    net: sctp: check proc_dointvec result in proc_sctp_do_auth\n    \n    When writing to the sysctl field net.sctp.auth_enable, it can well\n    be that the user buffer we handed over to proc_dointvec() via\n    proc_sctp_do_auth() handler contains something other than integers.\n    \n    In that case, we would set an uninitialized 4-byte value from the\n    stack to net->sctp.auth_enable that can be leaked back when reading\n    the sysctl variable, and it can unintentionally turn auth_enable\n    on/off based on the stack content since auth_enable is interpreted\n    as a boolean.\n    \n    Fix it up by making sure proc_dointvec() returned sucessfully.\n    \n    Fixes: b14878ccb7fa (\"net: sctp: cache auth_enable per endpoint\")\n    Reported-by: Florian Westphal <fwestpha@redhat.com>\n    Signed-off-by: Daniel Borkmann <dborkman@redhat.com>\n    Acked-by: Neil Horman <nhorman@tuxdriver.com>\n    Acked-by: Vlad Yasevich <vyasevich@gmail.com>\n    Signed-off-by: David S. Miller <davem@davemloft.net>\n\ndiff --git a/net/sctp/sysctl.c b/net/sctp/sysctl.c\nindex cc12162ba091..12c7e01c2677 100644\n--- a/net/sctp/sysctl.c\n+++ b/net/sctp/sysctl.c\n@@ -447,8 +447,7 @@ static int proc_sctp_do_auth(struct ctl_table *ctl, int write,\n \t\ttbl.data = &net->sctp.auth_enable;\n \n \tret = proc_dointvec(&tbl, write, buffer, lenp, ppos);\n-\n-\tif (write) {\n+\tif (write && ret == 0) {\n \t\tstruct sock *sk = net->sctp.ctl_sock;\n \n \t\tnet->sctp.auth_enable = new_value;\n"
+  },
+  "snapshots": [
+    "s01",
+    "s02"
+  ],
+  "task": "Find other instances of this seed's mechanism by searching complete source trees. Snapshot IDs are independent trees, not file hints. Findings must cite source you read."
+}

@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "repo": "/mnt/raid/home/yangshuangning/linux",
+  "seed": {
+    "hexsha": "0303b30375dff5351a79cc2c3c87dfa4fda29bed",
+    "one_line_summary": "ieee802154: hwsim: avoid possible crash in hwsim_del_edge_nl()",
+    "vulnerability_summary": "hwsim_del_edge_nl() used AND instead of OR when checking required netlink attributes, allowing MAC802154_HWSIM_ATTR_RADIO_EDGE to be absent. Subsequent nla_parse_nested_deprecated on the NULL attribute caused a crash.",
+    "vulnerability_pattern": "Required netlink attribute presence checks use incorrect logical operator, permitting a missing attribute to pass validation and be dereferenced later.",
+    "patch": "commit 0303b30375dff5351a79cc2c3c87dfa4fda29bed\nAuthor: Eric Dumazet <edumazet@google.com>\nDate:   Mon Jun 21 11:02:44 2021 -0700\n\n    ieee802154: hwsim: avoid possible crash in hwsim_del_edge_nl()\n    \n    Both MAC802154_HWSIM_ATTR_RADIO_ID and MAC802154_HWSIM_ATTR_RADIO_EDGE\n    must be present to avoid a crash.\n    \n    Fixes: f25da51fdc38 (\"ieee802154: hwsim: add replacement for fakelb\")\n    Signed-off-by: Eric Dumazet <edumazet@google.com>\n    Cc: Alexander Aring <alex.aring@gmail.com>\n    Cc: Stefan Schmidt <stefan@datenfreihafen.org>\n    Reported-by: syzbot <syzkaller@googlegroups.com>\n    Acked-by: Alexander Aring <aahringo@redhat.com>\n    Link: https://lore.kernel.org/r/20210621180244.882076-1-eric.dumazet@gmail.com\n    Signed-off-by: Stefan Schmidt <stefan@datenfreihafen.org>\n\ndiff --git a/drivers/net/ieee802154/mac802154_hwsim.c b/drivers/net/ieee802154/mac802154_hwsim.c\nindex baa7e21b7f4f..ebc976b7fcc2 100644\n--- a/drivers/net/ieee802154/mac802154_hwsim.c\n+++ b/drivers/net/ieee802154/mac802154_hwsim.c\n@@ -480,7 +480,7 @@ static int hwsim_del_edge_nl(struct sk_buff *msg, struct genl_info *info)\n \tstruct hwsim_edge *e;\n \tu32 v0, v1;\n \n-\tif (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] &&\n+\tif (!info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID] ||\n \t    !info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE])\n \t\treturn -EINVAL;\n \n"
+  },
+  "scope": "cluster",
+  "mode": "historical",
+  "reference": "8d3ae59288f1e7d58d76558a6ee96d533bc5019f",
+  "dataset_sha256": "a11b4970cd6fa840173b1037b39e84d692738e5d9e4cd398d41120b3cae89987",
+  "snapshots": {
+    "s01": "ec7470b834fe7b5d7eff11b6677f5d7fdf5e9a91",
+    "s02": "e9faf53c5a5d01f6f2a09ae28ec63a3bbd6f64fd",
+    "s03": "be7f62eebaff2f86c1467a2d33930a0a7a87675b"
+  },
+  "targets": [
+    {
+      "hexsha": "1c702bf902bd37349f6d91cd7f4b372b1e46d0ed",
+      "title": "netfilter: nft_tunnel: fix null-attribute check",
+      "cluster": "rootcause-curated-c3",
+      "origin": "root_cause_cluster",
+      "snapshot": "s01",
+      "parent": "ec7470b834fe7b5d7eff11b6677f5d7fdf5e9a91",
+      "units": [
+        {
+          "path": "net/netfilter/nft_tunnel.c",
+          "ranges": [
+            [
+              79,
+              79
+            ]
+          ],
+          "functions": [
+            {
+              "name": "nft_tunnel_get_init",
+              "start": 72,
+              "end": 107
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "889d0e7dc68314a273627d89cbb60c09e1cc1c25",
+      "title": "ieee802154: hwsim: fix GPF in hwsim_new_edge_nl",
+      "cluster": "rootcause-curated-c3",
+      "origin": "root_cause_cluster",
+      "snapshot": "s02",
+      "parent": "e9faf53c5a5d01f6f2a09ae28ec63a3bbd6f64fd",
+      "units": [
+        {
+          "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+          "ranges": [
+            [
+              421,
+              421
+            ]
+          ],
+          "functions": [
+            {
+              "name": "hwsim_new_edge_nl",
+              "start": 414,
+              "end": 474
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "e9faf53c5a5d01f6f2a09ae28ec63a3bbd6f64fd",
+      "title": "ieee802154: hwsim: fix GPF in hwsim_set_edge_lqi",
+      "cluster": "rootcause-curated-c3",
+      "origin": "root_cause_cluster",
+      "snapshot": "s03",
+      "parent": "be7f62eebaff2f86c1467a2d33930a0a7a87675b",
+      "units": [
+        {
+          "path": "drivers/net/ieee802154/mac802154_hwsim.c",
+          "ranges": [
+            [
+              531,
+              531
+            ],
+            [
+              538,
+              538
+            ]
+          ],
+          "functions": [
+            {
+              "name": "hwsim_set_edge_lqi",
+              "start": 522,
+              "end": 575
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "evaluation_note": "Historical location recovery, not exploit confirmation. Snapshot mode does not measure historical recall."
+}

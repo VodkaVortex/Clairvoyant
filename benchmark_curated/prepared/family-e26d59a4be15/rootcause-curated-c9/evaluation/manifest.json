@@ -1,0 +1,480 @@
+{
+  "version": 1,
+  "repo": "/mnt/raid/home/yangshuangning/linux",
+  "seed": {
+    "hexsha": "1897852293faca4c2be51e0a19f739622f771623",
+    "one_line_summary": "usb: usbip: fix integer overflow in usbip_recv_iso()",
+    "vulnerability_summary": "Wire-controlled urb->number_of_packets multiplied by descriptor size in a 32-bit int overflows, causing a small kzalloc but a large receive loop write, yielding heap buffer overflow.",
+    "vulnerability_pattern": "Wire-controlled count multiplied by fixed element size in narrow integer type overflows, producing undersized allocation followed by loop-based writes exceeding the buffer.",
+    "patch": "commit 1897852293faca4c2be51e0a19f739622f771623\nAuthor: Kelvin Mbogo <addcontent08@gmail.com>\nDate:   Wed Mar 25 13:36:38 2026 +0300\n\n    usb: usbip: fix integer overflow in usbip_recv_iso()\n    \n    usbip_recv_iso() computes the iso descriptor buffer size as:\n    \n        int size = np * sizeof(*iso);\n    \n    where np comes straight from the wire (urb->number_of_packets, set by\n    usbip_pack_ret_submit() before we get here).  With np = 0x10000001 and\n    sizeof(*iso) == 16 the product is 0x100000010 which truncates to 16 on\n    a 32-bit int.  kzalloc(16) succeeds but the following receive loop\n    writes np * 16 bytes into it - game over.\n    \n    USBIP_MAX_ISO_PACKETS (1024) already exists in usbip_common.h for the\n    submit path but was never enforced on the receive side.\n    \n    Clamp np to [1, USBIP_MAX_ISO_PACKETS] and switch to kcalloc() so\n    the allocator itself can catch overflows in the future.  Fold the\n    existing np == 0 early return into the new bounds check.\n    \n    usbip_pack_ret_submit() already copied the bogus np into\n    urb->number_of_packets before we run, so just returning -EPROTO is\n    not enough - processcompl() in the HCD will still iterate that many\n    iso_frame_desc entries when it completes the failed URB.  Zero out\n    urb->number_of_packets before bailing to prevent that secondary crash\n    (confirmed on 6.12.0, processcompl+0x63 with CR2 in unmapped slab).\n    \n    Signed-off-by: Kelvin Mbogo <addcontent08@gmail.com>\n    Link: https://patch.msgid.link/20260325103640.8090-1-addcontent08@gmail.com\n    Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>\n\ndiff --git a/drivers/usb/usbip/usbip_common.c b/drivers/usb/usbip/usbip_common.c\nindex a2b2da1255dd..8b6eb7476747 100644\n--- a/drivers/usb/usbip/usbip_common.c\n+++ b/drivers/usb/usbip/usbip_common.c\n@@ -662,7 +662,7 @@ int usbip_recv_iso(struct usbip_device *ud, struct urb *urb)\n \tvoid *buff;\n \tstruct usbip_iso_packet_descriptor *iso;\n \tint np = urb->number_of_packets;\n-\tint size = np * sizeof(*iso);\n+\tint size;\n \tint i;\n \tint ret;\n \tint total_length = 0;\n@@ -670,11 +670,21 @@ int usbip_recv_iso(struct usbip_device *ud, struct urb *urb)\n \tif (!usb_pipeisoc(urb->pipe))\n \t\treturn 0;\n \n-\t/* my Bluetooth dongle gets ISO URBs which are np = 0 */\n-\tif (np == 0)\n-\t\treturn 0;\n+\tif (np <= 0 || np > USBIP_MAX_ISO_PACKETS) {\n+\t\tdev_err(&urb->dev->dev,\n+\t\t\t\"recv iso: invalid number_of_packets %d\\n\", np);\n+\t\t/*\n+\t\t * usbip_pack_ret_submit() already set urb->number_of_packets\n+\t\t * from the wire.  Zero it so processcompl() does not iterate\n+\t\t * OOB descriptors on the way out.\n+\t\t */\n+\t\turb->number_of_packets = 0;\n+\t\treturn -EPROTO;\n+\t}\n+\n+\tsize = np * sizeof(*iso);\n \n-\tbuff = kzalloc(size, GFP_KERNEL);\n+\tbuff = kcalloc(np, sizeof(*iso), GFP_KERNEL);\n \tif (!buff)\n \t\treturn -ENOMEM;\n \n"
+  },
+  "scope": "cluster",
+  "mode": "historical",
+  "reference": "8d3ae59288f1e7d58d76558a6ee96d533bc5019f",
+  "dataset_sha256": "5a63e971ae3217cfb1106895abfee1e959e74504bbf4d5e84bacea702625a59a",
+  "snapshots": {
+    "s01": "516bf737a5602875f6c28d1028967837c8edf2c0",
+    "s02": "7abbb35ba98ec52583b92898b2e37533f462d248",
+    "s03": "e04c78d86a9699d136910cfc0bdcf01087e3267e",
+    "s04": "389056e5fef477c838dc20a08d6f1de960cf027b",
+    "s05": "e167b2c3a0e631a51bbdf96f8e8550fe314cfbbd",
+    "s06": "5cccf10f652122a17b40df9d672ccf2ed69cd82f",
+    "s07": "1ca179a8538467ef770bfe68a184f6c74c657fef",
+    "s08": "98a46a408998102af5c45adce0871acd7967bb59",
+    "s09": "fd7b4f9f46d46acbc7af3a439bb0d869efdc5c58",
+    "s10": "ca8e7a119a2e4045324cffb8f9f58bedcc3dc928",
+    "s11": "7c4a22339e7ce7b6ed473a8e682da622c3a774ee",
+    "s12": "32bd60d5eca048fb91eed723799c0b4a847c18e4",
+    "s13": "120e9dabaf551c6dc03d3a10a1f026376cb1811c"
+  },
+  "targets": [
+    {
+      "hexsha": "2321831d7e95d4e1abaff3ffd682be9dd45db62e",
+      "title": "drm/amdkfd: Use memdup_array_user to copy data from/to user space at kfd ioctls",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s01",
+      "parent": "516bf737a5602875f6c28d1028967837c8edf2c0",
+      "units": [
+        {
+          "path": "drivers/gpu/drm/amd/amdkfd/kfd_chardev.c",
+          "ranges": [
+            [
+              1302,
+              1305
+            ],
+            [
+              1307,
+              1313
+            ],
+            [
+              1394,
+              1394
+            ],
+            [
+              1419,
+              1422
+            ],
+            [
+              1424,
+              1430
+            ],
+            [
+              1496,
+              1496
+            ],
+            [
+              2356,
+              2358
+            ],
+            [
+              2360,
+              2366
+            ]
+          ],
+          "functions": [
+            {
+              "name": "kfd_ioctl_map_memory_to_gpu",
+              "start": 1282,
+              "end": 1398
+            },
+            {
+              "name": "kfd_ioctl_unmap_memory_from_gpu",
+              "start": 1400,
+              "end": 1499
+            },
+            {
+              "name": "criu_restore_devices",
+              "start": 2340,
+              "end": 2446
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "69ef943dbc14b21987c79f8399ffea08f9a1b446",
+      "title": "drm: Use array_size() when creating lease",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s02",
+      "parent": "7abbb35ba98ec52583b92898b2e37533f462d248",
+      "units": [
+        {
+          "path": "drivers/gpu/drm/drm_lease.c",
+          "ranges": [
+            [
+              531,
+              531
+            ]
+          ],
+          "functions": [
+            {
+              "name": "drm_mode_create_lease_ioctl",
+              "start": 493,
+              "end": 597
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "7360ee47599af91a1d5f4e74d635d9408a54e489",
+      "title": "s390/pkey: Prevent overflow in size calculation for memdup_user()",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s03",
+      "parent": "e04c78d86a9699d136910cfc0bdcf01087e3267e",
+      "units": [
+        {
+          "path": "drivers/s390/crypto/pkey_api.c",
+          "ranges": [
+            [
+              89,
+              89
+            ]
+          ],
+          "functions": [
+            {
+              "name": "_copy_apqns_from_user",
+              "start": 84,
+              "end": 90
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "8feaccf71dd61f2201493068055e0d1d699014df",
+      "title": "drm/amdkfd: Integer overflows in ioctl",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s04",
+      "parent": "389056e5fef477c838dc20a08d6f1de960cf027b",
+      "units": [
+        {
+          "path": "drivers/gpu/drm/amd/amdkfd/kfd_chardev.c",
+          "ranges": [
+            [
+              1306,
+              1307
+            ],
+            [
+              1415,
+              1416
+            ]
+          ],
+          "functions": [
+            {
+              "name": "kfd_ioctl_map_memory_to_gpu",
+              "start": 1282,
+              "end": 1390
+            },
+            {
+              "name": "kfd_ioctl_unmap_memory_from_gpu",
+              "start": 1392,
+              "end": 1477
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "939bc5453b8cbdde9f1e5110ce8309aedb1b501a",
+      "title": "fpga: prevent integer overflow in dfl_feature_ioctl_set_irq()",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s05",
+      "parent": "e167b2c3a0e631a51bbdf96f8e8550fe314cfbbd",
+      "units": [
+        {
+          "path": "drivers/fpga/dfl.c",
+          "ranges": [
+            [
+              1869,
+              1869
+            ]
+          ],
+          "functions": [
+            {
+              "name": "dfl_feature_ioctl_set_irq",
+              "start": 1849,
+              "end": 1879
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "98a46a408998102af5c45adce0871acd7967bb59",
+      "title": "drm/amdgpu: Fix integer overflow issues in amdgpu_userq_fence.c",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s06",
+      "parent": "5cccf10f652122a17b40df9d672ccf2ed69cd82f",
+      "units": [
+        {
+          "path": "drivers/gpu/drm/amd/amdgpu/amdgpu_userq_fence.c",
+          "ranges": [
+            [
+              433,
+              433
+            ],
+            [
+              615,
+              615
+            ],
+            [
+              621,
+              621
+            ],
+            [
+              629,
+              629
+            ]
+          ],
+          "functions": [
+            {
+              "name": "amdgpu_userq_signal_ioctl",
+              "start": 412,
+              "end": 594
+            },
+            {
+              "name": "amdgpu_userq_wait_ioctl",
+              "start": 596,
+              "end": 968
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "30beced6ec4931db201b77493d41d0df7d7eb5aa",
+      "title": "iov_iter: use kmemdup_array for dup_iter to harden against overflow",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s07",
+      "parent": "1ca179a8538467ef770bfe68a184f6c74c657fef",
+      "units": [
+        {
+          "path": "lib/iov_iter.c",
+          "ranges": [
+            [
+              1227,
+              1228
+            ],
+            [
+              1232,
+              1233
+            ]
+          ],
+          "functions": [
+            {
+              "name": "dup_iter",
+              "start": 1223,
+              "end": 1236
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "335f1e797c32cbe6f313805125526b35d29280b0",
+      "title": "drm/amdgpu: Fix integer overflow in amdgpu_gem_add_input_fence()",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s08",
+      "parent": "98a46a408998102af5c45adce0871acd7967bb59",
+      "units": [
+        {
+          "path": "drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c",
+          "ranges": [
+            [
+              61,
+              61
+            ]
+          ],
+          "functions": [
+            {
+              "name": "amdgpu_gem_add_input_fence",
+              "start": 48,
+              "end": 85
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "669b0cb81e4e4e78cff77a5b367c7f70c0c6c05e",
+      "title": "fs/proc/task_mmu: prevent integer overflow in pagemap_scan_get_args()",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s09",
+      "parent": "fd7b4f9f46d46acbc7af3a439bb0d869efdc5c58",
+      "units": [
+        {
+          "path": "fs/proc/task_mmu.c",
+          "ranges": [
+            [
+              2667,
+              2667
+            ],
+            [
+              2669,
+              2669
+            ]
+          ],
+          "functions": [
+            {
+              "name": "pagemap_scan_get_args",
+              "start": 2641,
+              "end": 2679
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "93f5534b35a05ef8a0109c1eefa800062fee810a",
+      "title": "drm/amdkfd: fix a vulnerability of integer overflow in kfd debugger",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s10",
+      "parent": "ca8e7a119a2e4045324cffb8f9f58bedcc3dc928",
+      "units": [
+        {
+          "path": "drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c",
+          "ranges": [
+            [
+              3311,
+              3312
+            ],
+            [
+              3316,
+              3316
+            ]
+          ],
+          "functions": [
+            {
+              "name": "get_queue_ids",
+              "start": 3309,
+              "end": 3317
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "c4eb1f403243fc7bbb7de644db8587c03de36da6",
+      "title": "bpf: Fix integer overflow involving bucket_size",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s11",
+      "parent": "7c4a22339e7ce7b6ed473a8e682da622c3a774ee",
+      "units": [
+        {
+          "path": "kernel/bpf/hashtab.c",
+          "ranges": [
+            [
+              1568,
+              1569
+            ]
+          ],
+          "functions": [
+            {
+              "name": "__htab_map_lookup_and_delete_batch",
+              "start": 1505,
+              "end": 1719
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "ce2335cd14b6585d57dc05a4375a506079adba81",
+      "title": "ASoC: SOF: ipc3-dtrace: fix potential integer overflow in allocation",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s12",
+      "parent": "32bd60d5eca048fb91eed723799c0b4a847c18e4",
+      "units": [
+        {
+          "path": "sound/soc/sof/ipc3-dtrace.c",
+          "ranges": [
+            [
+              129,
+              129
+            ]
+          ],
+          "functions": [
+            {
+              "name": "trace_filter_parse",
+              "start": 110,
+              "end": 147
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "hexsha": "81fbfe8adaf38d4f5a98c19bebfd41c5d6acaee8",
+      "title": "ptr_ring: use kmalloc_array()",
+      "cluster": "rootcause-curated-c9",
+      "origin": "root_cause_cluster",
+      "snapshot": "s13",
+      "parent": "120e9dabaf551c6dc03d3a10a1f026376cb1811c",
+      "units": [
+        {
+          "path": "include/linux/ptr_ring.h",
+          "ranges": [
+            [
+              439,
+              439
+            ],
+            [
+              441,
+              441
+            ],
+            [
+              585,
+              585
+            ],
+            [
+              593,
+              593
+            ]
+          ],
+          "functions": [
+            {
+              "name": "__ptr_ring_init_queue_alloc",
+              "start": 439,
+              "end": 442
+            },
+            {
+              "name": "ptr_ring_resize_multiple",
+              "start": 585,
+              "end": 627
+            }
+          ]
+        },
+        {
+          "path": "include/linux/skb_array.h",
+          "ranges": [
+            [
+              196,
+              196
+            ]
+          ],
+          "functions": [
+            {
+              "name": "skb_array_resize_multiple",
+              "start": 195,
+              "end": 202
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "evaluation_note": "Historical location recovery, not exploit confirmation. Snapshot mode does not measure historical recall."
+}
