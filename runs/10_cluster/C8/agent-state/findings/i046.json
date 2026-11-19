@@ -1,12 +1,129 @@
 {
   "version": 1,
   "intent_id": "i046",
-  "branch": "timed-out exploration",
-  "execution_status": "timed_out",
-  "snapshots_checked": [],
-  "findings": [],
-  "candidates": [],
+  "branch": "media-epidx",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s12"
+  ],
+  "findings": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/b2c2/flexcop-usb.c",
+      "start": 512,
+      "end": 515,
+      "quote": "\tif (fc_usb->uintf->cur_altsetting->desc.bNumEndpoints < 1)\n\t\treturn -ENODEV;\n\tif (!usb_endpoint_is_isoc_in(&fc_usb->uintf->cur_altsetting->endpoint[1].desc))",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: bNumEndpoints of the active altsetting comes straight from the device-supplied interface descriptor at plug-in (a spoofing USB gadget can declare exactly one endpoint). VIOLATED INVARIANT: flexcop_usb_init() validates bNumEndpoints >= 1 (line 512, i.e. covers index 0 only) and then, two lines later, reads endpoint[1].desc (line 514) through usb_endpoint_is_isoc_in(); the validated bound does not equal the index used. UNSAFE USE: with bNumEndpoints == 1 the endpoint[] flex array holds one entry, so endpoint[1].desc.bEndpointAddress/bmAttributes is read past the end of the usb_host_interface allocation (KASAN-detectable OOB read; worst case a fault if the allocation ends at a page boundary) during probe. COUNTEREVIDENCE CHECKED: the wMaxPacketSize read in flexcop_usb_transfer_init (line 429, the site reported live in snapshots s10/s11) is now guarded by the same >=1 check on the same cur_altsetting reached earlier in probe, so index 0 there is covered; grep shows no other endpoint indexing in the driver. IMPACT LIMITATION: the OOB-read bytes only gate a -ENODEV branch (is_isoc_in), so no value propagation into buffers was demonstrated; mechanism is nevertheless a concrete validated!=used bounds violation at probe.",
+      "conclusion": "flexcop-usb probe validates bNumEndpoints >= 1 but then reads endpoint[1].desc, so a gadget declaring one endpoint causes an OOB descriptor read at plug-in that only gates a -ENODEV branch."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/dvb-usb-v2/lmedm04.c",
+      "start": 391,
+      "end": 395,
+      "quote": "\tep = usb_pipe_endpoint(d->udev, lme_int->lme_urb->pipe);\n\n\tif (usb_endpoint_type(&ep->desc) == USB_ENDPOINT_XFER_BULK)",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: udev->ep_in[] is populated only from endpoints the device actually declared in its configuration descriptors. MISSING GUARANTEE: lme2510_int_read(), called from dm04_lme2510_frontend_attach() at line 1100 during dvb-usb-v2 probe, builds a pipe for the device-model-assumed endpoint address 0xa via usb_rcvintpipe(d->udev, 0xa) and passes it to usb_pipe_endpoint(); that helper (include/linux/usb.h:1973-1978) is just `return eps[usb_pipeendpoint(pipe)]` with no existence check, so it returns NULL when the device omitted endpoint 0xa. UNSAFE USE: usb_endpoint_type(&ep->desc) immediately dereferences the NULL pointer (reads bmAttributes at offset ~3), crashing the kernel at mere device plug-in for a gadget spoofing an LME2510 vendor/product ID; the same call site also ignores usb_submit_urb's return. COUNTEREVIDENCE CHECKED: smsusb's analogous udev->ep_in[1] deref reported in s11 (fact f042) is absent here (s12 smsusb.c only uses bNumEndpoints-bounded loops at 404/527/599); go7007's ep_in[4]/[6]/[1]/[8] are all NULL-checked. REACHABILITY CAVEAT: frontend_attach executing at probe was inferred from the dvb-usb-v2 core flow, not executed.",
+      "conclusion": "lmedm04 lme2510_int_read dereferences usb_pipe_endpoint(dev, pipe-to-0xa) with no NULL check at probe; a gadget omitting endpoint 0xa leaves ep_in[10] NULL and crashes the kernel on plug-in."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/b2c2/flexcop-usb.c",
+      "line": 514,
+      "status": "reported",
+      "reason": "bNumEndpoints < 1 check (line 512) validates index 0 only while line 514 reads endpoint[1].desc; one-endpoint altsetting => OOB read past the endpoint flex array at probe."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/dvb-usb-v2/lmedm04.c",
+      "line": 394,
+      "status": "reported",
+      "reason": "usb_pipe_endpoint() returns ep_in[10] which is NULL when the device omits endpoint 0xa; &ep->desc is dereferenced with no NULL check at probe."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 827,
+      "status": "unresolved",
+      "reason": "create_urbs(gspca_dev, alt_xfer(&intf->altsetting[alt], xfer, gspca_dev->xfer_ep)) passes alt_xfer's result straight in; create_urbs reads ep->desc.wMaxPacketSize at line 668 without a NULL check. Every alt in ep_tb came from a successful alt_xfer and isoc_nego only shrinks wMaxPacketSize to >= min (200+), so a NULL return was not demonstrated; whether the cached vs live altsetting copies can diverge (isoc_nego patches intf_cache) was not traced.",
+      "conclusion": "Follow up: determine whether alt_xfer can return NULL at gspca.c:827 after isoc_nego patches wMaxPacketSize in the cached vs live altsetting copies (its wMaxPacketSize != 0 filter), making create_urbs NULL-deref ep->desc.wMaxPacketSize at line 668."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/b2c2/flexcop-usb.c",
+      "line": 429,
+      "status": "safe",
+      "reason": "transfer_init reads cur_altsetting->endpoint[0].desc.wMaxPacketSize (the site reported live in s10/s11); flexcop_usb_init already validated bNumEndpoints >= 1 on the same cur_altsetting earlier in probe, covering index 0, assuming flexcop_device_initialize does not switch altsettings (no set_interface call found in it). The value sizes the isoc URB buffer but the fetch itself is bounds-checked."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
+      "line": 327,
+      "status": "safe",
+      "reason": "stv06xx_isoc_init (line 318 num_altsetting < 2, line 323 bNumEndpoints < 1) validates altsetting[1].endpoint[0] before the patch at 327; isoc_nego re-reads the same validated array; stv06xx_start at 285 checks bNumEndpoints < 1 before endpoint[0]. These are the fixes absent in s10/s11 (facts f038/f042)."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/gspca/xirlink_cit.c",
+      "line": 2659,
+      "status": "safe",
+      "reason": "sd_isoc_init checks intfc->num_altsetting < 2 (2651) and alt->desc.bNumEndpoints < 1 (2655) before writing altsetting[1].endpoint[0].desc.wMaxPacketSize; sd_isoc_nego re-reads the same validated array; cit_get_packet_size (1445) also checks bNumEndpoints < 1. Fixed relative to s10/s11."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/gspca/konica.c",
+      "line": 186,
+      "status": "safe",
+      "reason": "sd_start checks alt->desc.bNumEndpoints < 2 (line 183) before reading endpoint[0] (186) and endpoint[i] with i in {0,1} (204) whose values size usb_alloc_coherent buffers and transfer_buffer_length; index range fully covered by the check."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/gspca/ov519.c",
+      "line": 3485,
+      "status": "safe",
+      "reason": "Both ov511_mode_init_regs (bNumEndpoints < 1 at 3480 before endpoint[0] read at 3485 feeding R51x_FIFO_PSIZE) and ov518_mode_init_regs (3611 before 3616) validate the endpoint count first."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/dvb-usb/dib0700_core.c",
+      "line": 841,
+      "status": "safe",
+      "reason": "dib0700_rc_setup checks bNumEndpoints < rc_ep + 1 (= 2) at line 821 before reading endpoint[rc_ep=1].desc at 841 and submitting the RC URB; this closes the fixed rc_ep gap reported live in s11 (fact f042)."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/usbtv/usbtv-core.c",
+      "line": 82,
+      "status": "safe",
+      "reason": "Probe checks intf->num_altsetting != 2 (78) and intf->altsetting[1].desc.bNumEndpoints != 4 (79) before reading altsetting[1].endpoint[0] (82); exact-equality checks fully cover the literal indexes used."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/siano/smsusb.c",
+      "line": 406,
+      "status": "safe",
+      "reason": "All endpoint accesses (404-411, 527-538, 599-603) are loops bounded by cur_altsetting->desc.bNumEndpoints; the udev->ep_in[1] NULL-deref pattern reported in s10/s11 (f038/f042) is absent from this tree."
+    },
+    {
+      "snapshot": "s12",
+      "path": "drivers/media/usb/em28xx/em28xx-cards.c",
+      "line": 3754,
+      "status": "safe",
+      "reason": "em28xx_check_usb_descriptor's endpoint[ep] access is only reached from the probe loop (3886-3889) with ep < altsetting[i].desc.bNumEndpoints; alt_max_pkt_size_isoc[] is kcalloc'd with intf->num_altsetting entries and indexed by the same bounded alt; em28xx-audio.c:691 loop is likewise bounded after a num_altsetting check."
+    }
+  ],
+  "coverage_gaps": [
+    "The usbvision driver (carrier of the per-altsetting endpoint[1].wMaxPacketSize -> alt_max_pkt_size[] pattern in other trees) does not exist anywhere in snapshots/s12, so that lineage could not be checked here.",
+    "Downstream propagation of wMaxPacketSize-derived sizes into URB completion handlers' copy offsets and buffer-write bounds (gspca create_urbs psize, konica coherent buffers, flexcop bufsize) was not audited beyond the descriptor fetch sites.",
+    "The gspca core alt_xfer/create_urbs NULL-return question (gspca.c:827) was left unresolved; it needs a data-flow check of isoc_nego's wMaxPacketSize patching versus the live (intf->altsetting) and cached (intf_cache) altsetting arrays."
+  ],
   "limitations": [
-    "Claude Code reached its 3540s adapter deadline; inspect the durable stream log"
+    "No build, KASAN run, or static analyzer was executed; all conclusions come from reading the assigned read-only source tree, so runtime confirmation of the two findings is absent.",
+    "The flexcop-usb.c:514 OOB read is a validated!=used off-by-one whose leaked bytes only feed the usb_endpoint_is_isoc_in branch (-ENODEV); no info-leak or memory-corruption impact was demonstrated.",
+    "The lmedm04.c:394 NULL-deref assumes dvb-usb-v2 calls frontend_attach (and thus lme2510_int_read) during probe for a gadget spoofing an LME2510 ID without endpoint 0xa; the dvb-usb-v2 core flow was inferred, not compiled or run.",
+    "Additional verified-safe sites read during triage but not listed as candidates due to the twelve-candidate cap: stv06xx_pb0100.c:192, xirlink_cit.c:1448, go7007-usb.c:1135/1269-1295 (ep_in[] NULL-checked), tm6000-cards.c:1239, stk1160-core.c:191, uvc_driver.c:1462/822-833, pwc-if.c:432, au0828-video.c:1927, hdpvr-core.c:326, s2255drv.c:2245, zr364xx.c:1497, stk-webcam.c:1342, cxusb.c:1556 (all bounded loops or checked)."
   ]
 }

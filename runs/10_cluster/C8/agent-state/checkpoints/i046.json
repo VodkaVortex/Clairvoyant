@@ -2,8 +2,24 @@
   "intent_id": "i046",
   "branch": "media-epidx",
   "snapshot": "s12",
-  "status": "in_progress",
-  "step": "initial checkpoint before search",
-  "notes": "Assigned snapshot s12, branch media-epidx. Will sweep drivers/media/usb/** for endpoint[k] descriptor accesses without bNumEndpoints validation in probe/bind/init/stream-start paths. Known live patterns from facts f038/f042: usbvision alt_max_pkt_size loop, flexcop-usb transfer_init, gspca stv06xx/xirlink_cit isoc_init/isoc_nego, konica, ov519, dib0700_rc_setup, smsusb ep_in[1]. Excluding cx231xx seed files.",
-  "candidates": []
+  "status": "finalizing",
+  "step": "search complete; two findings selected, artifact being written",
+  "notes": "Swept drivers/media/usb/** in s12 (excluding cx231xx seed): all endpoint[ fixed-index accesses, all wMaxPacketSize reads outside bounded loops, ep_in[]/ep_out[]/usb_pipe_endpoint uses, bNumEndpoints checks, literal altsetting[N] indexes, and all gspca isoc_init/isoc_nego hooks. FINDINGS: (1) flexcop-usb.c:512-515 check bNumEndpoints<1 then read endpoint[1] -> off-by-one OOB read at probe; (2) lmedm04.c:391-395 usb_pipe_endpoint(pipe to 0xa) NULL-deref at probe. SAFE: usbtv (exact ==4 check), dib0700 (<rc_ep+1), all gspca endpoint[0] sites now have bNumEndpoints<1/<2 checks (fixed vs s10/s11 f038/f042), stv06xx/xirlink isoc_init have num_altsetting<2 checks, em28xx/tm6000/stk1160/uvc/pwc/smsusb/cxusb bounded loops, go7007 ep_in[] NULL-checked. UNRESOLVED: gspca.c:827 create_urbs(alt_xfer(...)) no NULL check. usbvision absent from s12.",
+  "candidates": [
+    {
+      "path": "drivers/media/usb/b2c2/flexcop-usb.c",
+      "line": 514,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/media/usb/dvb-usb-v2/lmedm04.c",
+      "line": 394,
+      "status": "reported"
+    },
+    {
+      "path": "drivers/media/usb/gspca/gspca.c",
+      "line": 827,
+      "status": "unresolved"
+    }
+  ]
 }

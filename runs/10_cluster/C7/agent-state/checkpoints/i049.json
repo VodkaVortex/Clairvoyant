@@ -2,11 +2,7 @@
   "version": 1,
   "intent_id": "i049",
   "branch": "hardirq-shared-lock",
+  "status": "complete",
   "snapshot": "s14",
-  "status": "in_progress",
-  "stage": "initial checkpoint written before first search",
-  "plan": "1) snapshot-wide static cross-index: (request_irq|devm_request_irq|request_threaded_irq) handler names -> in-file function bodies -> spin_lock-family acquisitions inside those bodies; 2) intersect lock expressions with non-irq-side acquisitions in the same file; 3) deep-read strongest candidates to classify contexts (process/softirq vs hardirq) and lock-discipline (plain vs irqsave/irq/bh); 4) record candidates + evidence; prioritize mwl8k, qtnfmac, wilc1000, rsi per intent hints and prior s14 facts f002/f026/f046.",
-  "queries_done": [],
-  "candidates": [],
-  "notes": "seed ks7010 staging tx_dev_lock is demonstration only; never report it."
+  "note": "Final artifact written to agent-state/findings/i049.json. One medium-confidence finding: drivers/net/ethernet/korina.c korina_tx_dma_interrupt (request_irq:957) -> korina_tx takes lp->lock with plain spin_lock at 530 while sibling sites (207, 518) use irqsave; trigger is nested same-CPU IRQ or netpoll re-entry (korina_poll_controller 928-932 runs the handler with IRQs enabled). 15 additional candidates classified safe (mwl8k, qtnfmac pearl/topaz/trans, ravb, hpet, rtc, i2c-elektor, mk712, macio-adb, via-core, wdt, wdt_pci, dmasound_atari, dmasound_q40, wilc1000) - in each, the plain spin_lock occurs only inside the hardirq handler itself while every non-irq site uses irqsave/irq. No unresolved candidates remain."
 }

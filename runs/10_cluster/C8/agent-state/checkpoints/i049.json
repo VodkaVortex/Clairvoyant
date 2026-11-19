@@ -1,76 +1,22 @@
 {
   "version": 1,
   "intent_id": "i049",
+  "branch": "if-alt-count",
   "snapshot": "s12",
   "status": "complete",
-  "findings": [
-    {
-      "path": "drivers/hid/wacom_sys.c",
-      "start": 2458,
-      "end": 2465,
-      "confidence": "high"
-    }
-  ],
+  "progress_note": "Finalized per order: stopped broad search. Deep-read in s12: wacom_sys.c wacom_wireless_work (no bNumInterfaces check anywhere in driver; interface[1]/[2] NULL-deref) -> reported; cx231xx-audio.c:609-612 interface[audio_index+1] lacks bNumInterfaces check but excluded per seed rule; stv06xx.c:312-322 and xirlink_cit.c:2648-2662 intf_cache[0]->altsetting[1] both guarded (num_altsetting<2 and bNumEndpoints<1) -> safe (f002 lineage patched here); usbtv-core.c:77-82 guarded; cdc-phonet.c:339-348 guarded; hso.c:2896, sierra.c:138, qcserial.c:246-259, cdc_ncm.c:1047+cdc_mbim.c:120 all count-checked/core-validated -> safe. Unresolved: sound/usb fixed altsetting[1] sites, gspca.c alt_xfer data flow, xusbatm.c loop bounds. usbvision absent from s12.",
   "candidates": [
-    {
-      "path": "drivers/hid/wacom_sys.c",
-      "line": 2458,
-      "status": "reported"
-    },
-    {
-      "path": "drivers/media/usb/gspca/stv06xx/stv06xx.c",
-      "line": 318,
-      "status": "safe"
-    },
-    {
-      "path": "drivers/media/usb/gspca/xirlink_cit.c",
-      "line": 2650,
-      "status": "safe"
-    },
-    {
-      "path": "drivers/usb/serial/qcserial.c",
-      "line": 246,
-      "status": "safe"
-    },
-    {
-      "path": "drivers/usb/serial/sierra.c",
-      "line": 138,
-      "status": "safe"
-    },
-    {
-      "path": "drivers/media/usb/gspca/gspca.c",
-      "line": 1482,
-      "status": "safe"
-    },
-    {
-      "path": "drivers/media/usb/em28xx/em28xx-cards.c",
-      "line": 3957,
-      "status": "safe"
-    },
-    {
-      "path": "drivers/usb/atm/xusbatm.c",
-      "line": 45,
-      "status": "safe"
-    },
-    {
-      "path": "drivers/usb/serial/pl2303.c",
-      "line": 347,
-      "status": "safe"
-    },
-    {
-      "path": "drivers/net/usb/r8152.c",
-      "line": 8237,
-      "status": "safe"
-    },
-    {
-      "path": "sound/usb/implicit.c",
-      "line": 95,
-      "status": "unresolved"
-    },
-    {
-      "path": "drivers/net/usb/cdc_ncm.c",
-      "line": 0,
-      "status": "unresolved"
-    }
+    {"path": "drivers/hid/wacom_sys.c", "line": 2458, "status": "reported"},
+    {"path": "drivers/media/usb/cx231xx/cx231xx-audio.c", "line": 610, "status": "safe"},
+    {"path": "drivers/media/usb/gspca/stv06xx/stv06xx.c", "line": 314, "status": "safe"},
+    {"path": "drivers/media/usb/gspca/xirlink_cit.c", "line": 2653, "status": "safe"},
+    {"path": "drivers/media/usb/usbtv/usbtv-core.c", "line": 77, "status": "safe"},
+    {"path": "drivers/net/usb/cdc-phonet.c", "line": 341, "status": "safe"},
+    {"path": "drivers/net/usb/hso.c", "line": 2896, "status": "safe"},
+    {"path": "drivers/usb/serial/sierra.c", "line": 138, "status": "safe"},
+    {"path": "drivers/usb/serial/qcserial.c", "line": 246, "status": "safe"},
+    {"path": "drivers/net/usb/cdc_ncm.c", "line": 1047, "status": "safe"},
+    {"path": "sound/usb/quirks.c", "line": 235, "status": "unresolved"},
+    {"path": "drivers/media/usb/gspca/gspca.c", "line": 827, "status": "unresolved"}
   ]
 }

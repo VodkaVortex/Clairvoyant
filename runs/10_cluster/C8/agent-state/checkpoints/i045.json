@@ -2,9 +2,28 @@
   "version": 1,
   "intent_id": "i045",
   "branch": "if-alt-count",
-  "status": "in_progress",
+  "status": "finalizing",
   "snapshot": "s11",
-  "notes": "Initial checkpoint before first search. Plan: (1) enumerate actconfig->interface[...] / config->interface[...] fixed or device-derived ifnum indexes without bNumInterfaces check; (2) altsetting[bAlternateSetting] / altsetting[1] literal / num_altsetting==0|1|2 assumptions; (3) runtime alt-switch consumers (usb_set_interface, S_ALT, set_alt) re-using old-altsetting-validated endpoint data; (4) deep-read the f002/f003 leftover consumers: sound/usb set_alt handlers and fixed altsetting[1] sites (pcm.c, quirks.c, mixer.c, mixer_quirks.c, misc/ua101.c), cdc_ncm/cdc MBIM alt switching, qcserial/sierra num_altsetting==2 switch paths, V4L2 VIDIOC_S_ALT handlers; (5) re-check gspca intf_cache[0]->altsetting[1] and usbvision model-table interface-index branch in s11; (6) re-check wacom wireless interface[1]/[2] pattern in s11.",
-  "candidates": [],
-  "findings": []
+  "candidates": [
+    {"path": "drivers/media/usb/usbvision/usbvision-video.c", "line": 1443, "status": "reported", "reason": "model-table branch indexes actconfig->interface[model-interface] with no bNumInterfaces check while the sibling ifnum branch checks it; NULL/invalid deref at probe"},
+    {"path": "drivers/hid/wacom_sys.c", "line": 2256, "status": "reported", "reason": "wacom_wireless_work indexes usbdev->config->interface[1]/[2] with no bNumInterfaces check anywhere in the driver; device-triggered work NULL-derefs usb_get_intfdata"},
+    {"path": "drivers/media/usb/gspca/stv06xx/stv06xx.c", "line": 320, "status": "reported", "reason": "intf_cache[0]->altsetting[1] indexed and endpoint[0].wMaxPacketSize written with no num_altsetting or bNumEndpoints check before usb_set_interface"},
+    {"path": "drivers/media/usb/gspca/xirlink_cit.c", "line": 2653, "status": "reported", "reason": "same intf_cache[0]->altsetting[1] write/read pattern with no validation"},
+    {"path": "drivers/media/usb/cx231xx/cx231xx-audio.c", "line": 699, "status": "unresolved", "reason": "audio extension indexes actconfig->interface[audio_index+1] with NO bound check (unlike cards.c video/vanc/hanc/ts1 sites which check idx >= max_iad_interface_count = bNumInterfaces); audio_index comes from a device-controlled register read (initialize_cx231xx/BOARD_CFG_STAT) or NOT_SUPPORTED(0xFF)"},
+    {"path": "drivers/usb/serial/qcserial.c", "line": 234, "status": "safe", "reason": "num_altsetting==2 checked before altsetting[1]; nintf from bNumInterfaces used only in range comparisons, never as an index"},
+    {"path": "drivers/usb/serial/sierra.c", "line": 159, "status": "safe", "reason": "num_altsetting==2 checked before usb_set_interface(ifnum,1); usb core validates alt num at set_interface"},
+    {"path": "drivers/media/usb/usbtv/usbtv-core.c", "line": 77, "status": "safe", "reason": "num_altsetting != 2 and altsetting[1].desc.bNumEndpoints != 4 checked before endpoint[0] read"},
+    {"path": "sound/usb/quirks.c", "line": 223, "status": "safe", "reason": "num_altsetting < 2 and bNumEndpoints < 1 checks precede altsetting[1] use at 223 and 434"},
+    {"path": "sound/usb/pcm.c", "line": 338, "status": "safe", "reason": "num_altsetting == 0 checked before altsetting[1] at 338/349/358; roland search helper checks num_altsetting < altsetting+1 and bNumEndpoints"},
+    {"path": "sound/usb/mixer_quirks.c", "line": 1525, "status": "safe", "reason": "num_altsetting < 2 and bNumEndpoints < 1 checks precede altsetting[1]"},
+    {"path": "sound/usb/midi.c", "line": 1948, "status": "safe", "reason": "num_altsetting != 2 and bNumEndpoints != 2 checked before endpoint access; 1084 site guarded by num_altsetting==2 proven at 1945"},
+    {"path": "sound/usb/misc/ua101.c", "line": 1034, "status": "safe", "reason": "find_format_descriptor requires num_altsetting==2 and altsetting[1].bNumEndpoints==1 before 1034/1042 reads; intf[] claimed via usb_ifnum_to_if with NULL check"},
+    {"path": "drivers/net/usb/cdc-phonet.c", "line": 350, "status": "safe", "reason": "num_altsetting != 2 and per-altsetting bNumEndpoints 0/2 pattern validated before endpoint[0]/[1] reads"},
+    {"path": "drivers/net/usb/cdc_ncm.c", "line": 984, "status": "safe", "reason": "select_altsetting checks num_altsetting < 2 and uses usb_altnum_to_altsetting NULL result; find_endpoints loops cur_altsetting->desc.bNumEndpoints; data interface from usb_ifnum_to_if with NULL check"},
+    {"path": "drivers/net/usb/ipheth.c", "line": 496, "status": "safe", "reason": "usb_altnum_to_altsetting NULL-checked, endpoint loop bounded by bNumEndpoints"},
+    {"path": "drivers/net/usb/hso.c", "line": 2888, "status": "safe", "reason": "num_altsetting > 1 checked before usb_set_interface; alt selection left to usb core validation"},
+    {"path": "drivers/media/usb/cx231xx/cx231xx-cards.c", "line": 1427, "status": "safe", "reason": "idx >= max_iad_interface_count (= bNumInterfaces, set at 1591) checked before every actconfig->interface[idx] use"},
+    {"path": "drivers/media/usb/em28xx/em28xx-cards.c", "line": 3622, "status": "safe", "reason": "loop bounded by i < config->desc.bNumInterfaces"},
+    {"path": "drivers/media/usb/gspca/gspca.c", "line": 2057, "status": "safe", "reason": "loop bounded by bNumInterfaces, NULL checks on intf2/altsetting"}
+  ]
 }

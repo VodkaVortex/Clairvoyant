@@ -72,9 +72,9 @@ project:
   created_at: 1794386830010
   reason:
     worker: linux-variant-reason
-    trigger: facts=49 hints=1 open_intents=10 changes=facts:48->49
-    started_at: 1795009265047
-    last_heartbeat_at: 1795009832056
+    trigger: facts=54 hints=1 open_intents=5 changes=facts:53->54
+    started_at: 1795021630604
+    last_heartbeat_at: 1795022189611
 facts:
 - id: origin
   description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/public. Seed: staging: ks7010: disable bh on tx_dev_lock. The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14'
@@ -410,6 +410,93 @@ facts:
     coverage_gap=Handler-lock extraction resolved in-file definitions for 1112 of 1333 unique hardirq handler names; the remaining 221 handlers (defined in other files, macro-generated, or registered via function pointers) were not examined.
     coverage_gap=request_threaded_irq registrations (15 sites) were not split into primary hardirq handler vs thread_fn, so thread-context acquisitions of handler-shared locks were not separately audited.
     artifact=findings/i047.json
+- id: f049
+  description: |-
+    intent=i050 snapshot=s06 branch=hardirq-shared-lock status=complete
+    finding location=sound/parisc/harmony.c:306-323 confidence=medium conclusion=harmony.c h->lock is taken plainly by hardirq snd_harmony_interrupt (200-244, request_irq:937) and plainly by process-context PCM trigger callbacks (313/349) with zero irqsafe sites - same-CPU IRQ preemption spins forever; medium-confidence interrupt-context DoS.
+    finding location=sound/spi/at73c213.c:284-286 confidence=medium conclusion=at73c213.c chip->lock is taken plainly by hardirq snd_at73c213_interrupt (370, request_irq:905) and plainly by process-context PCM trigger (285) with no irqsafe variant anywhere - same-CPU IRQ preemption spins forever; medium-confidence interrupt-context DoS.
+    finding location=drivers/mmc/host/bfin_sdh.c:338-351 confidence=medium conclusion=bfin_sdh.c host->lock is taken plainly by hardirq sdh_stat_irq (478, request_irq:586) and plainly by process-context mmc ops sdh_request (338) / sdh_set_ios (363) - same-CPU IRQ preemption spins forever; medium-confidence interrupt-context DoS.
+    finding location=drivers/staging/comedi/drivers/ni_pcidio.c:369-372 confidence=medium conclusion=ni_pcidio.c mite_channel_lock is taken plainly by hardirq nidio_interrupt (402, request_irq:948) while COMEDI_POLL process path takes it plainly at 370 under a different lock's irqsave - mixed-discipline hardirq-shared lock, interrupt-context lockup; medium confidence.
+    unresolved location=drivers/net/ethernet/qlogic/qlge/qlge_main.c:672 conclusion=Follow up: enumerate every caller of ql_disable_completion_interrupt/ql_enable_completion_interrupt (660-684) in qlge_main.c and classify context; any process-context caller with IRQs enabled against the plain hardirq taker at 2510 is a reportable defect.
+    unresolved location=drivers/net/ethernet/realtek/atp.c:604 conclusion=Follow up: read atp.c timer path (atp_timed_checker:713-747, its timer_setup and any process-context caller) and confirm whether a softirq/timer-context plain holder of lp->lock races the plain hardirq taker at 604.
+    unresolved location=drivers/net/fddi/skfp/skfddi.c:625 conclusion=Follow up: trace skfddi.c llc_restart_tx (1284) callers and classify context; a softirq/xmit or process-context plain holder against the plain hardirq taker at 625 is a reportable defect.
+    unresolved location=drivers/char/snsc.c:46 conclusion=Follow up: read snsc.c scdrv_poll (336) and the file/char-device write path taking sd_wlock; a poll/write process-context plain holder against the plain hardirq taker at 46 is a reportable defect.
+    unresolved location=drivers/usb/isp1760/isp1760-udc.c:1276 conclusion=Follow up: classify isp1760-udc.c plain udc->lock sites 284/325/513/548/592/651 by caller context; any process-context plain holder against the plain hardirq takers at 1276/1315 is reportable.
+    unresolved location=drivers/usb/gadget/udc/net2272.c:381 conclusion=Follow up: trace net2272.c net2272_done (381) and stop_activity (1487) call chains; a process-context plain holder of dev->lock against the plain hardirq net2272_irq taker is reportable.
+    unresolved location=drivers/usb/gadget/udc/fusb300_udc.c:1071 conclusion=Follow up: identify fusb300_udc.c function at line 720 and its callers; a process-context plain acquisition of fusb300->lock against the plain hardirq takers at 1071/1207 is reportable.
+    unresolved location=drivers/tty/serial/zs.c:722 conclusion=Follow up: classify each zs.c plain zlock site (382-693) by caller context against the plain ISR taker at 722; any IRQ-enabled process-context holder makes it a reportable hardirq lockup.
+    coverage_gap=Handler-lock extraction resolved in-file bodies for handler names resolvable to identifiers; 747 registrations with expression-form handlers (function pointers, e.g. ath9k/beacon or wrapped dispatchers) and handlers defined in other files were not examined for lock usage.
+    coverage_gap=Cross-indexing matched lock expressions textually within the registering file only; locks shared across files via exported helpers or spelled differently (&priv->lock vs &dev->lock aliases) could be missed.
+    coverage_gap=request_threaded_irq registrations were treated via their primary handler; acquisitions of handler-shared locks from thread_fn (process context, IRQs enabled) were not separately enumerated, so threaded-IRQ variants of the defect may remain unreported.
+    coverage_gap=Deep reads covered the four reported candidates plus safe-classified files; the remaining unresolved candidates (qlge, atp, skfddi, snsc, isp1760-udc, net2272, fusb300, zs) were classified from the cross-index table and targeted greps only, without full caller-context tracing.
+    coverage_gap=Legacy s06 softirq-branch facts (f013 xmit, f021 timer, f035 tasklet-NAPI) were consulted only to avoid duplication and reuse context; no systematic cross-union of their lock sets with the hardirq sets was performed beyond the overlapping files already handled.
+    artifact=findings/i050.json
+- id: f050
+  description: |-
+    intent=i051 snapshot=s07 branch=hardirq-shared-lock status=complete
+    finding location=drivers/tty/synclink_gt.c:1159-1178 confidence=high conclusion=synclink_gt.c compat ioctl set_params32 holds info->lock with plain spin_lock (1160) while hardirq slgt_interrupt (request_irq:3647) takes the same lock plainly (2371; port locks 2357/2390) - same-CPU IRQ preemption spins forever; high-confidence interrupt-context DoS.
+    finding location=drivers/net/wan/sbni.c:1327-1340 confidence=high conclusion=sbni.c ioctl SIOCDEVSHWSTATE takes nl->lock plainly (1328, also enslave/emancipate 1392/1424) while hardirq sbni_interrupt (request_irq:1178) takes it plainly (509) - same-CPU IRQ self-deadlock; high-confidence DoS.
+    finding location=sound/pci/ens1370.c:1013-1022 confidence=high conclusion=ens1370.c PCM trigger (828/854) and pointer callbacks (1015/1032/1049) take reg_lock plainly while hardirq snd_audiopci_interrupt (request_irq:2109) takes it plainly (2366/2170/2182) - same-CPU IRQ self-deadlock; high-confidence DoS.
+    finding location=sound/parisc/harmony.c:311-316 confidence=medium conclusion=harmony.c PCM trigger callbacks take h->lock plainly (313/349) while hardirq snd_harmony_interrupt (request_irq:937) takes it plainly (200-244) - same-CPU IRQ self-deadlock; medium-confidence interrupt-context DoS on parisc.
+    finding location=sound/pci/echoaudio/echoaudio.c:753-756 confidence=high conclusion=echoaudio.c pcm_trigger holds chip->lock with plain spin_lock (754) while hardirq snd_echo_interrupt (request_irq:1958/2238) takes it plainly (1829/1847) - same-CPU IRQ self-deadlock; high-confidence interrupt-context DoS.
+    finding location=sound/pci/korg1212/korg1212.c:1598-1601 confidence=high conclusion=korg1212.c snd_korg1212_trigger takes korg1212->lock plainly (1599) while hardirq snd_korg1212_interrupt (request_irq:2245) takes it plainly (1123/1183/1189) - same-CPU IRQ self-deadlock; high-confidence interrupt-context DoS.
+    finding location=drivers/usb/gadget/udc/fusb300_udc.c:1070-1073 confidence=medium conclusion=fusb300_udc.c hardirq fusb300_irq (request_irq:1421/1428) takes fusb300->lock plainly (1071, relock 1207) while all ep ops use irqsave - mixed-discipline hardirq-shared lock needing nested-IRQ to spin; medium confidence.
+    unresolved location=arch/powerpc/platforms/cell/spu_base.c:300 conclusion=Follow up: trace every exported caller of spu_base.c helpers for a process/softirq-context plain acquisition of spu->register_lock against the plain class-0/1/2 hardirq takers; if none exists, classify safe.
+    unresolved location=drivers/usb/gadget/udc/net2272.c:1487 conclusion=Follow up: trace net2272 done()/stop_activity()/delegate setup callbacks invoked at 381/1487/1920/2009 for a process-context re-entry that takes dev->lock while the plain hardirq holder is preempted.
+    unresolved location=drivers/usb/gadget/udc/fotg210-udc.c:745 conclusion=Follow up: check whether any gadget driver setup() callback invoked at fotg210-udc.c 954 can re-enter fotg210 ep ops in process context while the plain hardirq holder is preempted; if not, classify safe.
+    unresolved location=drivers/net/ethernet/dec/tulip/winbond-840.c:1292 conclusion=Follow up: read winbond-840.c around 1292 to identify the enclosing function (likely tx_timeout helper) and confirm whether the plain np->lock acquisition runs in process context against the plain hardirq taker at 1141.
+    unresolved location=drivers/net/ethernet/amd/7990.c:661 conclusion=Follow up: verify whether netpoll invokes lance_poll (ndo_poll_controller, hplance.c:78) with hard IRQs enabled on the same CPU as lance_interrupt, making the plain devlock pair (661 vs 446) a reportable hardirq-shared lockup.
+    coverage_gap=Handler-lock extraction resolved 1305 of ~2100 unique hardirq handler names; ~800 registrations with macro-declared or cross-file handlers were never resolved or examined for lock usage.
+    coverage_gap=Cross-indexing matched lock expressions textually within the registering file only, so locks shared across files via exported helpers (e.g. lance_poll's devlock consumers) or spelled differently were not correlated.
+    coverage_gap=request_threaded_irq registrations were not split into primary hardirq handler vs thread_fn; thread-context acquisitions of handler-shared locks were not separately audited.
+    artifact=findings/i051.json
+- id: f051
+  description: |-
+    intent=i055 snapshot=s11 branch=hardirq-shared-lock status=complete
+    finding location=sound/pci/korg1212/korg1212.c:1576-1613 confidence=high conclusion=korg1212.c snd_korg1212_trigger takes korg1212->lock plainly (1585) while hardirq snd_korg1212_interrupt (request_irq:2231) takes it plainly (1109) - same-CPU IRQ self-deadlock; high-confidence interrupt-context DoS.
+    finding location=drivers/tty/synclink_gt.c:1151-1178 confidence=high conclusion=synclink_gt.c compat ioctl set_params32 holds info->lock with plain spin_lock (1159) while hardirq slgt_interrupt (request_irq:3638) takes the same lock plainly (2362) - same-CPU IRQ preemption spins forever; high-confidence interrupt-context DoS.
+    finding location=sound/pci/ens1370.c:808-850 confidence=high conclusion=ens1370.c PCM trigger (814/840) and pointer callbacks (990/1007/1024) take reg_lock plainly while hardirq snd_audiopci_interrupt (request_irq:2067) takes it plainly (2325) - same-CPU IRQ self-deadlock; high-confidence DoS.
+    finding location=drivers/net/wan/sbni.c:1183-1190 confidence=high conclusion=sbni.c card_open/ioctl paths take nl->lock plainly (1185/1223/1328/1392/1424) while hardirq sbni_interrupt (request_irq:1178) takes it plainly (509) - same-CPU IRQ self-deadlock; high-confidence DoS.
+    unresolved location=drivers/tty/serial/zs.c:717 conclusion=Follow up: classify each zs.c plain zlock site by caller context - an IRQ-enabled process-context holder against the plain ISR taker at 717 is a reportable hardirq lockup.
+    unresolved location=drivers/gpu/drm/rockchip/rockchip_drm_vop.c:1687 conclusion=Follow up: classify rockchip_drm_vop.c plain irq_lock sites by context; any process-context holder (e.g. vop_crtc helpers) against the plain ISR taker at 1687 is reportable.
+    unresolved location=drivers/usb/gadget/udc/mv_udc_core.c:2005 conclusion=Follow up: classify each plain spin_lock(&udc->lock) site in mv_udc_core.c by caller context against the plain hardirq taker at 2005.
+    unresolved location=drivers/net/ethernet/altera/altera_tse_main.c:531 conclusion=Follow up: trace altera_tse_main.c plain rxdma_irq_lock sites (xmit/NAPI/open) against the plain hardirq takers at 531/538.
+    unresolved location=drivers/usb/gadget/udc/pch_udc.c:2779 conclusion=Follow up: classify pch_udc.c plain udc->lock sites by caller context; a process-context plain holder against the ISR taker at 2779 is reportable.
+    unresolved location=drivers/staging/emxx_udc/emxx_udc.c:2357 conclusion=Follow up: trace emxx_udc.c plain udc->lock sites to their callers; any process-context plain holder against the plain hardirq takers is reportable.
+    unresolved location=drivers/tty/hvc/hvcs.c:531 conclusion=Follow up: classify hvcs.c plain lock sites (open/write/ioctl vs softirq hvc callbacks) against the plain hardirq taker at 531.
+    unresolved location=drivers/usb/gadget/udc/atmel_usba_udc.c:1715 conclusion=Follow up: classify atmel_usba_udc.c plain udc->lock sites by caller context against the plain hardirq takers at 1715-1800.
+    coverage_gap=Cross-index resolved 2112 of 4011 irq-request sites to in-file handler definitions; handlers defined in other files, macro-declared, or registered via function pointers were never checked for lock usage.
+    coverage_gap=Lock correlation was textual on the lock-expression base name within the registering file only; locks shared across files (exported helpers) or spelled differently (&priv->lock vs &dev->lock aliases) could not be matched.
+    coverage_gap=request_threaded_irq registrations were not split into primary hardirq handler vs thread_fn; thread-context acquisitions of primary-handler-shared locks were not separately audited.
+    artifact=findings/i055.json
+- id: f052
+  description: |-
+    intent=i053 snapshot=s09 branch=hardirq-shared-lock status=complete
+    unresolved location=drivers/net/ethernet/sun/cassini.c:2275 conclusion=Follow up: trace whether cassini cas_get_stats (4395/4405) and any other stat_lock[0]-taking path run outside cp->lock's irqsave region with hard IRQs enabled, which would let a same-CPU cas_interrupt (cas_handle_irq:2485) spin on stat_lock[0] held by the preempted context.
+    coverage_gap=Systematic handler-side cross-index (4223 IRQ registrations found) over the whole s09 tree was begun but not completed; only the four priority leads named by the intent (cassini.c, qtnfmac trans.c, cw1200 wsm.c, mwl8k.c) were deeply analyzed.
+    coverage_gap=Lock correlation was textual on lock expression within single files; locks shared across files via exported helpers or spelled differently (&priv->lock vs &dev->lock) could be missed.
+    coverage_gap=request_threaded_irq sites were not systematically split into primary hardirq handler vs thread_fn across the tree; only cw1200's were checked in detail.
+    coverage_gap=cassini.c non-priority plain stat_lock sites (cas_get_stats 4395/4405, cas_init_mac 3067, cas_reset 3769, cas_txmac_interrupt 1112, cas_rxmac_interrupt 1492, cas_abnormal_irq 1733/1743) were not fully context-classified against the hardirq takers.
+    artifact=findings/i053.json
+- id: f053
+  description: |-
+    intent=i056 snapshot=s12 branch=hardirq-shared-lock status=complete
+    finding location=drivers/net/wan/sbni.c:1327-1333 confidence=high conclusion=sbni.c hardirq sbni_interrupt (request_irq:1181) takes nl->lock plainly (507) while process-context ioctl/open/close/enslave paths take it plainly (1332/1188/1227/1394/1426) - same-CPU IRQ preemption self-deadlocks; high-confidence DoS.
+    finding location=sound/pci/ens1370.c:827-831 confidence=high conclusion=ens1370.c PCM trigger (829/855) and pointer callbacks (1016/1033/1050) take reg_lock plainly while hardirq snd_audiopci_interrupt (request_irq:2138) takes it plainly (2402) - same-CPU IRQ self-deadlock; high-confidence DoS.
+    unresolved location=drivers/usb/gadget/atmel_usba_udc.c:467 conclusion=Follow up: classify atmel_usba_udc.c plain udc->lock sites 467/499/1051/1322/1511/1740/1760 by caller context; a process-context holder against the plain hardirq takers at 1626-1693 is a reportable defect.
+    unresolved location=drivers/net/ethernet/freescale/fec_mpc52xx.c:363 conclusion=Follow up: trace fec_mpc52xx.c plain priv->lock holders 363/391/433/464 (xmit/ethtool/open) and confirm they run with hard IRQs enabled; the hardirq side already uses irqsave at 95, so a plain softirq/process holder still yields a hardirq-preemption spin.
+    unresolved location=drivers/usb/dwc3/gadget.c:260 conclusion=Follow up: classify dwc3/gadget.c plain dwc->lock sites 260/2001/2539 by caller context against the irqsave-protected hardirq dwc3_interrupt at 1500; a process/softirq plain holder is a hardirq-preemption spin defect.
+    unresolved location=drivers/net/wan/lmc/lmc_main.c:1253 conclusion=Follow up: identify the enclosing function of lmc_main.c:1253 and its callers; a process/softirq-context plain holder of sc->lmc_lock against the hardirq (request_irq:1029) is a reportable defect.
+    unresolved location=drivers/net/ethernet/dec/tulip/winbond-840.c:1295 conclusion=Follow up: read winbond-840.c around 1295 to identify the enclosing function; a process-context plain np->lock holder against the plain hardirq taker at 1141 is a reportable defect.
+    unresolved location=drivers/net/ethernet/amd/7990.c:651 conclusion=Follow up: enumerate every plain lp->devlock acquisition in 7990.c plus hplance/netpoll consumers; a softirq/netpoll-context plain holder against the plain hardirq taker at 651 is a reportable defect.
+    unresolved location=drivers/mmc/host/bfin_sdh.c:341 conclusion=Follow up: confirm in s12's bfin_sdh.c that sdh_request/sdh_set_ios (341/363) hold host->lock plainly in process context against the plain hardirq taker sdh_stat_irq at 478; if so it is a reportable interrupt-context DoS.
+    unresolved location=drivers/usb/gadget/lpc32xx_udc.c:1432 conclusion=Follow up: trace lpc32xx_udc.c done()/stop_activity()/lpc32xx_stop() chains from plain udc->lock sites 1432/1551/2287/2936/2949; a process-context holder against the plain hardirq takers is a reportable defect.
+    unresolved location=sound/pci/echoaudio/echoaudio.c:754 conclusion=Follow up: read echoaudio.c around 754 to confirm the enclosing process-context PCM function takes chip->lock plainly against the plain hardirq takers at 1828-1849; if so it is a reportable defect.
+    coverage_gap=Handler-lock extraction resolved 1743 of 2245 handler-name registrations to in-file definitions; ~500 registrations with cross-file, macro-declared, or function-pointer handlers were never examined for lock usage.
+    coverage_gap=Lock correlation matched only identical lock expressions within the registering file; locks shared across files via exported helpers or spelled differently (&priv->lock vs &dev->lock aliases) could not be matched.
+    coverage_gap=request_threaded_irq registrations were treated via their primary handler only; acquisitions of handler-shared locks from thread_fn (process context) were not separately audited.
+    coverage_gap=Files whose handler uses irqsave but that still have plain process-context holders of the same lock (the fec_mpc52xx/dwc3/lmc shape) were only sampled, not systematically enumerated.
+    artifact=findings/i056.json
 intents:
 - id: i001
   sources:
@@ -908,44 +995,44 @@ intents:
 - id: i050
   sources:
   - f001
-  target_fact: null
+  target_fact: f049
   description: 'SNAPSHOT=s06; BRANCH=hardirq-shared-lock; Search only snapshots/s06 and no other snapshot. Hunt the interrupt-level analogue of the seed''s lock-context invariant: lock objects acquired inside hardirq handler bodies (callbacks registered via request_irq/devm_request_irq, or the non-threaded primary handler of request_threaded_irq where thread_fn is NULL) that are also taken with plain spin_lock() rather than spin_lock_irqsave/spin_lock_irq/local_irq_disable from process-context or softirq-context paths (workqueue workers, ioctls, open/close, xmit/NAPI/timer/tasklet callbacks), so the hardirq preempts a holder on the same CPU and spins forever on a lock the preempted context can never release (interrupt-context lockup, watchdog/RCU stall, denial of service). For every candidate record the lock name, the hardirq-side and non-irq-side call chains with file:line, and the missing irq-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s06 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
   creator: linux-variant-reason
   worker: linux-variant-explore
-  last_heartbeat_at: 1795009832035
+  last_heartbeat_at: 1795012045445
   created_at: 1794394577021
-  concluded_at: null
+  concluded_at: 1795012045445
 - id: i051
   sources:
   - f001
-  target_fact: null
+  target_fact: f050
   description: 'SNAPSHOT=s07; BRANCH=hardirq-shared-lock; Search only snapshots/s07 and no other snapshot. Hunt the interrupt-level analogue of the seed''s lock-context invariant: lock objects acquired inside hardirq handler bodies (callbacks registered via request_irq/devm_request_irq, or the non-threaded primary handler of request_threaded_irq where thread_fn is NULL) that are also taken with plain spin_lock() rather than spin_lock_irqsave/spin_lock_irq/local_irq_disable from process-context or softirq-context paths (workqueue workers, ioctls, open/close, xmit/NAPI/timer/tasklet callbacks), so the hardirq preempts a holder on the same CPU and spins forever on a lock the preempted context can never release (interrupt-context lockup, watchdog/RCU stall, denial of service). For every candidate record the lock name, the hardirq-side and non-irq-side call chains with file:line, and the missing irq-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s07 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795013296539
   created_at: 1794394577022
-  concluded_at: null
+  concluded_at: 1795013296539
 - id: i052
   sources:
   - f001
   target_fact: null
   description: 'SNAPSHOT=s08; BRANCH=hardirq-shared-lock; Search only snapshots/s08 and no other snapshot. Hunt the interrupt-level analogue of the seed''s lock-context invariant: lock objects acquired inside hardirq handler bodies (callbacks registered via request_irq/devm_request_irq, or the non-threaded primary handler of request_threaded_irq where thread_fn is NULL) that are also taken with plain spin_lock() rather than spin_lock_irqsave/spin_lock_irq/local_irq_disable from process-context or softirq-context paths (workqueue workers, ioctls, open/close, xmit/NAPI/timer/tasklet callbacks), so the hardirq preempts a holder on the same CPU and spins forever on a lock the preempted context can never release (interrupt-context lockup, watchdog/RCU stall, denial of service). For every candidate record the lock name, the hardirq-side and non-irq-side call chains with file:line, and the missing irq-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s08 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795022189604
   created_at: 1794394577023
   concluded_at: null
 - id: i053
   sources:
   - f001
   - f009
-  target_fact: null
+  target_fact: f052
   description: 'SNAPSHOT=s09; BRANCH=hardirq-shared-lock; Search only snapshots/s09 and no other snapshot. Hunt the interrupt-level analogue of the seed''s lock-context invariant: lock objects acquired inside hardirq handler bodies (request_irq/devm_request_irq callbacks or the non-threaded primary handler of request_threaded_irq) that are also taken with plain spin_lock() rather than spin_lock_irqsave/spin_lock_irq/local_irq_disable from process-context or softirq-context paths (workers, ioctls, open/close, xmit/NAPI/timer/tasklet callbacks), so the hardirq preempts a holder on the same CPU and spins forever on a lock the preempted context can never release (interrupt-context lockup, watchdog/RCU stall, denial of service). The prior xmit-softirq-lock pass on this snapshot ranked but never analyzed drivers/net/ethernet/sun/cassini.c (29 plain spin_lock sites) and left qtnfmac trans.c resp_lock and cw1200 wsm.c wsm_cmd.lock unresolved — treat the interrupt handlers of these drivers (plus mwl8k_interrupt, which queues the BA-watchdog worker from hardirq context) as priority leads when pairing hardirq-side lock acquisitions against plain non-irq-side acquisitions. For every candidate record the lock name, the hardirq-side and non-irq-side call chains with file:line, and the missing irq-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s09 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795021630600
   created_at: 1794394577023
-  concluded_at: null
+  concluded_at: 1795021630600
 - id: i054
   sources:
   - f001
@@ -953,30 +1040,30 @@ intents:
   target_fact: null
   description: 'SNAPSHOT=s10; BRANCH=hardirq-shared-lock; Search only snapshots/s10 and no other snapshot. Hunt the interrupt-level analogue of the seed''s lock-context invariant: lock objects acquired inside hardirq handler bodies (request_irq/devm_request_irq callbacks or the non-threaded primary handler of request_threaded_irq) that are also taken with plain spin_lock() rather than spin_lock_irqsave/spin_lock_irq/local_irq_disable from process-context or softirq-context paths (workers, ioctls, open/close, xmit/NAPI/timer/tasklet callbacks), so the hardirq preempts a holder on the same CPU and spins forever on a lock the preempted context can never release (interrupt-context lockup, watchdog/RCU stall, denial of service). The prior xmit pass on this snapshot mapped mwl8k_interrupt (hardirq handler queuing the watchdog_ba worker via ieee80211_queue_work), ath9k''s tasklet/irq paths, hostap prism2 interrupt-driven bases (txfidlock/baplock) and qtnfmac bus interrupt handlers, and flagged iwlwifi pcie/rx.c (23 plain spin_lock sites, highest density in the tree) as a follow-up lead — use these as priorities when pairing hardirq-side lock acquisitions against plain non-irq-side acquisitions. For every candidate record the lock name, the hardirq-side and non-irq-side call chains with file:line, and the missing irq-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s10 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795022189961
   created_at: 1794394577024
   concluded_at: null
 - id: i055
   sources:
   - f001
-  target_fact: null
+  target_fact: f051
   description: 'SNAPSHOT=s11; BRANCH=hardirq-shared-lock; Search only snapshots/s11 and no other snapshot. Hunt the interrupt-level analogue of the seed''s lock-context invariant: lock objects acquired inside hardirq handler bodies (callbacks registered via request_irq/devm_request_irq, or the non-threaded primary handler of request_threaded_irq where thread_fn is NULL) that are also taken with plain spin_lock() rather than spin_lock_irqsave/spin_lock_irq/local_irq_disable from process-context or softirq-context paths (workqueue workers, ioctls, open/close, xmit/NAPI/timer/tasklet callbacks), so the hardirq preempts a holder on the same CPU and spins forever on a lock the preempted context can never release (interrupt-context lockup, watchdog/RCU stall, denial of service). For every candidate record the lock name, the hardirq-side and non-irq-side call chains with file:line, and the missing irq-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s11 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795018095390
   created_at: 1794394577025
-  concluded_at: null
+  concluded_at: 1795018095390
 - id: i056
   sources:
   - f001
-  target_fact: null
+  target_fact: f053
   description: 'SNAPSHOT=s12; BRANCH=hardirq-shared-lock; Search only snapshots/s12 and no other snapshot. Hunt the interrupt-level analogue of the seed''s lock-context invariant: lock objects acquired inside hardirq handler bodies (callbacks registered via request_irq/devm_request_irq, or the non-threaded primary handler of request_threaded_irq where thread_fn is NULL) that are also taken with plain spin_lock() rather than spin_lock_irqsave/spin_lock_irq/local_irq_disable from process-context or softirq-context paths (workqueue workers, ioctls, open/close, xmit/NAPI/timer/tasklet callbacks), so the hardirq preempts a holder on the same CPU and spins forever on a lock the preempted context can never release (interrupt-context lockup, watchdog/RCU stall, denial of service). For every candidate record the lock name, the hardirq-side and non-irq-side call chains with file:line, and the missing irq-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s12 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795021630772
   created_at: 1794394577025
-  concluded_at: null
+  concluded_at: 1795021630772
 - id: i057
   sources:
   - f001
@@ -984,8 +1071,8 @@ intents:
   target_fact: null
   description: 'SNAPSHOT=s13; BRANCH=hardirq-shared-lock; Search only snapshots/s13 and no other snapshot. Hunt the interrupt-level analogue of the seed''s lock-context invariant: lock objects acquired inside hardirq handler bodies (request_irq/devm_request_irq callbacks or the non-threaded primary handler of request_threaded_irq) that are also taken with plain spin_lock() rather than spin_lock_irqsave/spin_lock_irq/local_irq_disable from process-context or softirq-context paths (workers, ioctls, open/close, xmit/NAPI/timer/tasklet callbacks), so the hardirq preempts a holder on the same CPU and spins forever on a lock the preempted context can never release (interrupt-context lockup, watchdog/RCU stall, denial of service). The prior xmit pass on this snapshot left iwlwifi pcie/rx.c (23 plain spin_lock sites on rxq->lock/rba->lock/irq_lock), hostap (sta_table_lock/baplock/txfidlock), cw1200 wsm.c and qtnfmac trans.c unresolved, and mapped mwl8k_interrupt (hardirq queuing the watchdog worker at ~4605) — use these as priority leads when pairing hardirq-side lock acquisitions against plain non-irq-side acquisitions. For every candidate record the lock name, the hardirq-side and non-irq-side call chains with file:line, and the missing irq-disable guarantee; the staging ks7010 seed is a demonstration only and must never be reported. Save a structured artifact for snapshots/s13 with candidates plus exact source evidence, or a negative result backed by concrete source evidence.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795022189786
   created_at: 1794394577026
   concluded_at: null
 hints:

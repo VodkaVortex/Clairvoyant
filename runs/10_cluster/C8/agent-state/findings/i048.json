@@ -1,12 +1,643 @@
 {
-  "version": 1,
-  "intent_id": "i048",
-  "branch": "timed-out exploration",
-  "execution_status": "timed_out",
-  "snapshots_checked": [],
-  "findings": [],
-  "candidates": [],
-  "limitations": [
-    "Claude Code reached its 3540s adapter deadline; inspect the durable stream log"
-  ]
+ "version": 1,
+ "intent_id": "i048",
+ "branch": "fixed-epidx-rest",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s12"
+ ],
+ "findings": [
+  {
+   "snapshot": "s12",
+   "path": "drivers/hid/hid-thrustmaster.c",
+   "start": 149,
+   "end": 166,
+   "quote": "ep = &usbif->cur_altsetting->endpoint[1];\n\tb_ep = ep->desc.bEndpointAddress;",
+   "confidence": "medium",
+   "reason": "Untrusted source: altsetting endpoint array of a USB HID device matched only by (vendor 0x044f, product 0xb65d) ID at plug-in; the endpoint array length is declared solely by the attacker-controlled descriptor field cur_altsetting->desc.bNumEndpoints. Missing guarantee: grep shows zero bNumEndpoints references in hid-thrustmaster.c (only hits are lines 24 comment, 149, 332, 364), so endpoint[1] is indexed with no validation that bNumEndpoints > 1, and no usb_endpoint_is_* type check either. Unsafe use: thrustmaster_probe (line 274, calls thrustmaster_interrupts at line 332 after hid_hw_start) computes b_ep = ep->desc.bEndpointAddress from the OOB slot and immediately programs usb_sndintpipe(usbdev, b_ep) for a chain of usb_interrupt_msg transfers (lines 171-178). With a Thrustmaster-ID-spoofing gadget declaring fewer than 2 endpoints on the HID interface, &...->endpoint[1] points past the flex array: if bNumEndpoints==1 the read lands in the kmalloc tail of the altsetting allocation (OOB read of kernel heap memory whose value is then used as a pipe endpoint number), and if bNumEndpoints==0 endpoint is NULL so &endpoint[1] is an offset from NULL, i.e. an invalid-address dereference at probe. Counterevidence checked: the generic usbhid core (drivers/hid/usbhid/hid-core.c) does not impose a minimum endpoint count for hid driver binding \u2014 hiddev/hidraw start paths only require a HID class descriptor (hid-core.c:1006 rejects only !bNumEndpoints for the *report* interface in usbhid_probe of the usbhid driver; hid-thrustmaster is a separate hid_driver matched by ID whose probe path through hid_hw_start/usbhid_start loops n < bNumEndpoints, hid-core.c:1350-1351 picks the interrupt-in endpoint but tolerates none being found), so the hid subsystem does not guarantee >=2 endpoints before hid-thrustmaster's fixed index 1. Limitation: the OOB-read impact beyond a probe-time fault/garbage b_ep was not traced, and hid_hw_start success for a 1-endpoint device was reasoned from the loop-not-guaranteed code rather than a runtime reproducer.",
+   "conclusion": "thrustmaster_probe->thrustmaster_interrupts reads cur_altsetting->endpoint[1].desc.bEndpointAddress with no bNumEndpoints>1 check anywhere in the file and feeds it to usb_sndintpipe/usb_interrupt_msg; a 0/1-endpoint 044f:b65d-spoofing gadget OOB-reads or NULL-offset-derefs at plug-in."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/stream.c",
+   "start": 582,
+   "end": 586,
+   "quote": "csep = snd_usb_find_desc(alts->endpoint[0].extra, alts->endpoint[0].extralen, NULL, USB_DT_CS_ENDPOINT);",
+   "confidence": "low",
+   "reason": "Untrusted source: altsetting endpoint array of any USB-audio device at enumeration; array length is the descriptor-declared bNumEndpoints. Missing guarantee: parse_uac_endpoint_attributes() itself performs no bNumEndpoints check before reading alts->endpoint[0].extra/.extralen (and endpoint[1] at line 586 is guarded only by 'altsd->bNumEndpoints >= 2'). Unsafe use: the .extra pointer/.extralen length from endpoint[0] are passed to snd_usb_find_desc() which walks that pointer for bLength bytes, so a zero-endpoint altsetting would read endpoint[-1]-adjacent memory (endpoint[0] on a bNumEndpoints==0 altsetting indexes the flex array one element beyond the allocation, giving an OOB .extra pointer and .extralen). Counterevidence checked: the only callers are stream.c:834 and stream.c:1063, reached from __snd_usb_parse_audio_interface (stream.c:1084) whose altsetting filter at stream.c:1117-1124 skips altsettings with 'altsd->bNumEndpoints < 1', so every alts reaching parse_uac_endpoint_attributes is guaranteed to have at least one endpoint at both call sites audited; the guard is an indirect one separated from the read by several frames, which is exactly the validated-vs-used separation the branch targets, but since both current callers sit behind the >=1 filter the reachable-today risk is mitigated. Kept as a low-confidence structural finding because the function is exported-symbol-like static with per-protocol reuse (UAC1/2 and UAC3 paths) and a future/other caller can bypass the filter; not a concrete plug-in crash in this snapshot.",
+   "conclusion": "parse_uac_endpoint_attributes reads alts->endpoint[0].extra/.extralen with no in-function bNumEndpoints check; both current callers are behind stream.c:1117's bNumEndpoints<1 skip, so it is a latent (not presently reachable) instance of the missing-bound pattern, reported at low confidence."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s12",
+   "path": "drivers/hid/hid-thrustmaster.c",
+   "line": 163,
+   "status": "reported",
+   "reason": "endpoint[1] indexed with zero bNumEndpoints references in the file; probe-time use in usb_interrupt_msg chain; see finding.",
+   "conclusion": "Reported as finding: unvalidated endpoint[1] read at plug-in with pipe-programming use."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/stream.c",
+   "line": 582,
+   "status": "reported",
+   "reason": "endpoint[0].extra read with no in-function bNumEndpoints check; callers currently filter bNumEndpoints<1.",
+   "conclusion": "Reported at low confidence: in-function validation missing, current callers provide the >=1 guard indirectly."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/hid/usbhid/hid-core.c",
+   "line": 1091,
+   "status": "safe",
+   "reason": "endpoint[n] accessed only inside 'for (n = 0; n < interface->desc.bNumEndpoints; n++)' loops at 1091/1350; line 1007 endpoint[0] is guarded by '!interface->desc.bNumEndpoints ||' reject at 1006.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/ati_remote.c",
+   "line": 827,
+   "status": "safe",
+   "reason": "probe checks iface_host->desc.bNumEndpoints != 2 and returns -ENODEV before endpoint[0]/[1] at 827/828.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/iguanair.c",
+   "line": 411,
+   "status": "safe",
+   "reason": "probe checks idesc->desc.bNumEndpoints < 2 and returns -ENODEV before endpoint[0]/[1] reads at 411/412/423/429.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/igorplugusb.c",
+   "line": 158,
+   "status": "safe",
+   "reason": "probe rejects bNumEndpoints != 1 before ep = &idesc->endpoint[0].desc.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/streamzap.c",
+   "line": 294,
+   "status": "safe",
+   "reason": "probe rejects bNumEndpoints != 1 before endpoint[0].desc read.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/xbox_remote.c",
+   "line": 207,
+   "status": "safe",
+   "reason": "probe rejects bNumEndpoints == 0 and != 1 before endpoint[0].desc.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/imon.c",
+   "line": 2133,
+   "status": "safe",
+   "reason": "imon_find_endpoints loops i < iface_desc->desc.bNumEndpoints.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/imon_raw.c",
+   "line": 119,
+   "status": "safe",
+   "reason": "probe loops i < idesc->desc.bNumEndpoints and requires a found int-in endpoint.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/redrat3.c",
+   "line": 992,
+   "status": "safe",
+   "reason": "probe loops i < uhi->desc.bNumEndpoints and validates found endpoints.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/mceusb.c",
+   "line": 1698,
+   "status": "safe",
+   "reason": "probe loops i < idesc->desc.bNumEndpoints.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/ttusbir.c",
+   "line": 206,
+   "status": "safe",
+   "reason": "double loop bounded by num_altsetting and per-altsetting idesc->bNumEndpoints.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/rc/ir_toy.c",
+   "line": 403,
+   "status": "safe",
+   "reason": "probe loops i < idesc->desc.bNumEndpoints and requires both bulk endpoints found.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/media/radio/si470x/radio-si470x-usb.c",
+   "line": 599,
+   "status": "safe",
+   "reason": "loops i < iface_desc->desc.bNumEndpoints and fails if no int-in endpoint found.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/misc/cm109.c",
+   "line": 703,
+   "status": "safe",
+   "reason": "probe checks interface->desc.bNumEndpoints < 1 before endpoint[0] (line 700 guard)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/misc/yealink.c",
+   "line": 867,
+   "status": "safe",
+   "reason": "probe checks bNumEndpoints < 1 before endpoint[0] (line 864 guard)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/misc/powermate.c",
+   "line": 314,
+   "status": "safe",
+   "reason": "probe checks bNumEndpoints < 1 before endpoint[0] (line 311 guard)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/misc/keyspan_remote.c",
+   "line": 430,
+   "status": "safe",
+   "reason": "loops i < iface->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/misc/ati_remote2.c",
+   "line": 823,
+   "status": "safe",
+   "reason": "checks alt->desc.bNumEndpoints < 1 || !alt->endpoint before endpoint[0] at both 816/840 sites (this s12 tree has the fix; unlike older snapshots)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/misc/ims-pcu.c",
+   "line": 1672,
+   "status": "safe",
+   "reason": "checks alt->desc.bNumEndpoints < 1 (1669) and != 2 (1681) before ep_ctrl/ep_out/ep_in endpoint[0]/[1] reads."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/tablet/aiptek.c",
+   "line": 1798,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 1 at 1791 before endpoint[0] at 1798."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/tablet/acecad.c",
+   "line": 127,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 1 at 124 before endpoint[0]."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/tablet/hanwang.c",
+   "line": 393,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 1 at 325 before endpoint[0] at 393."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/tablet/kbtab.c",
+   "line": 120,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 1 at 117 before endpoint[0]."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/tablet/pegasus_notetaker.c",
+   "line": 283,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 1 at 278 before endpoint[0]."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/touchscreen/sur40.c",
+   "line": 670,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 5 at 666 before endpoint[4] (this s12 tree has the fix; unlike s08-era snapshots)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/touchscreen/usbtouchscreen.c",
+   "line": 967,
+   "status": "safe",
+   "reason": "loops i < interface->desc.bNumEndpoints at 967 and 1636."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/joystick/xpad.c",
+   "line": 1748,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 2 at 1748; later endpoint[i] at 1819 is loop-bounded."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/joystick/iforce/iforce-usb.c",
+   "line": 203,
+   "status": "safe",
+   "reason": "checks interface->desc.bNumEndpoints < 2 at 200 before endpoint[0]/[1] (s12 has the fix; f044-era trees did not)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/mouse/appletouch.c",
+   "line": 845,
+   "status": "safe",
+   "reason": "loops i < iface_desc->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/input/mouse/synaptics_usb.c",
+   "line": 231,
+   "status": "safe",
+   "reason": "loops i < iface->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/hid/usbhid/usbkbd.c",
+   "line": 277,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 1 at 274 before endpoint[0] (f032-era follow-up resolved: guard present in s12)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/hid/usbhid/usbmouse.c",
+   "line": 121,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 1 at 118 before endpoint[0]."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/comedi/drivers/vmk80xx.c",
+   "line": 652,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 2 at 648 then loop-bounded endpoint discovery."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/comedi/drivers/ni_usb6501.c",
+   "line": 490,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 2 at 484 then loop-bounded discovery."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/comedi/drivers/dt9812.c",
+   "line": 702,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 5 at 694 then loop-bounded discovery."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/mfd/dln2.c",
+   "line": 784,
+   "status": "safe",
+   "reason": "checks hostif->desc.bNumEndpoints < 2 at 781 before endpoint[DLN2_EP_OUT]/[DLN2_EP_IN] (indices 0/1)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/most/most_usb.c",
+   "line": 1020,
+   "status": "safe",
+   "reason": "num_endpoints taken from bNumEndpoints with >MAX check and all endpoint[i] accesses inside i < num_endpoints loops."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/greybus/es2.c",
+   "line": 1299,
+   "status": "safe",
+   "reason": "loops i < iface_desc->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/staging/r8188eu/os_dep/usb_intf.c",
+   "line": 105,
+   "status": "safe",
+   "reason": "loops i < pdvobjpriv->nr_endpoint (set from bNumEndpoints) with array writes additionally bounded by checks in the loop body."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/staging/rtl8712/usb_intf.c",
+   "line": 251,
+   "status": "safe",
+   "reason": "uses bNumEndpoints as loop bound (nr_endpoint); no fixed-index endpoint[] read found in the grep pass."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/image/mdc800.c",
+   "line": 466,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 4 at 451 then scans with j-bounded loop over endpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/image/microtek.c",
+   "line": 693,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != MTS_EP_TOTAL at 686 then loops i < bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/class/cdc-acm.c",
+   "line": 1302,
+   "status": "safe",
+   "reason": "checks data_interface bNumEndpoints < 2 and control_interface == 0 at 1298-1299 before epctrl/epread/epwrite fixed indices."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/class/cdc-wdm.c",
+   "line": 1161,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 1 at 1159 before endpoint[0]."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/storage/onetouch.c",
+   "line": 178,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != 3 at 175 before endpoint[2]."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/storage/alauda.c",
+   "line": 1124,
+   "status": "safe",
+   "reason": "endpoint[0] read at 1113/1124 occurs only after the usb-storage core get_pipes() path has validated >=1 endpoint per used pipe direction (uas-detect.h loop / usb.c probe); s12 alauda read is address-only within validated altsetting."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/storage/uas-detect.h",
+   "line": 41,
+   "status": "safe",
+   "reason": "loop i < n_endpoints = alt->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/mmc/host/ushc.c",
+   "line": 474,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 1 at 425 before endpoint[0].desc reads at 474/477 (s12 has the fix; f044-era trees did not)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/mmc/host/vub300.c",
+   "line": 2220,
+   "status": "safe",
+   "reason": "loops i < iface_desc->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/i2c/busses/i2c-diolan-u2c.c",
+   "line": 453,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 2 at 444 before endpoint[0]/[1]."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/w1/masters/ds2490.c",
+   "line": 1041,
+   "status": "safe",
+   "reason": "checks bNumEndpoints != NUM_EP-1 at 1029 then loops i < bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/nfc/port100.c",
+   "line": 1514,
+   "status": "safe",
+   "reason": "loops i < iface_desc->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/nfc/pn533/usb.c",
+   "line": 470,
+   "status": "safe",
+   "reason": "loops i < iface_desc->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/nfc/nfcmrvl/usb.c",
+   "line": 308,
+   "status": "safe",
+   "reason": "loops i < intf->cur_altsetting->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/bluetooth/btusb.c",
+   "line": 1776,
+   "status": "safe",
+   "reason": "all three sites (1775, 3334, 3590) loop i < bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/bluetooth/bfusb.c",
+   "line": 613,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 2 at 610 before endpoint[0]/[1]."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/serial/qcserial.c",
+   "line": 252,
+   "status": "safe",
+   "reason": "endpoint[0]/[1] reads guarded by intf->desc.bNumEndpoints == 2 at 251."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/serial/pl2303.c",
+   "line": 354,
+   "status": "safe",
+   "reason": "endpoint[i] inside i-bounded loop."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/serial/keyspan.c",
+   "line": 1695,
+   "status": "safe",
+   "reason": "endpoint[i] inside i-bounded loop."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/serial/io_edgeport.c",
+   "line": 2798,
+   "status": "safe",
+   "reason": "endpoint[i] inside i-bounded loop."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/serial/ftdi_sio.c",
+   "line": 1644,
+   "status": "safe",
+   "reason": "endpoint[i] inside i-bounded loop."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/serial/usb-serial.c",
+   "line": 838,
+   "status": "safe",
+   "reason": "endpoint[i] inside i-bounded loop over interface endpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/pcm.c",
+   "line": 317,
+   "status": "safe",
+   "reason": "checks altsd->bNumEndpoints < 2 at 307 before get_endpoint(alts, 1) reads at 317/330-337/342."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/mixer.c",
+   "line": 3097,
+   "status": "safe",
+   "reason": "checks altsd->bNumEndpoints < 1 at 3093 before get_endpoint(alts, 0) at 3097/3098; mixer.c:3525 guarded at 3523."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/mixer_quirks.c",
+   "line": 1664,
+   "status": "safe",
+   "reason": "checks get_iface_desc(alts)->bNumEndpoints < 1 at 1660 before get_endpoint(alts, 0)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/quirks.c",
+   "line": 456,
+   "status": "safe",
+   "reason": "fixed altsetting[1] uses guarded: 185 checks bNumEndpoints <= fp->ep_idx, 239/354/481 check <1/!=1, 456 checks == 2 before endpoint reads; create_std_midi_quirk's alts->endpoint[0].extra at 329 is reached only after create_auto_midi_quirk's 354 bNumEndpoints<1 reject and MS-header validation."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/implicit.c",
+   "line": 225,
+   "status": "safe",
+   "reason": "is_pioneer_implicit_fb checks alts->desc.bNumEndpoints != 2 at 218 before get_endpoint(alts, 1) at 225; other implicit.c get_endpoint(alts, 0) sites operate on audio-stream altsettings that passed stream.c's bNumEndpoints<1 filter."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/midi.c",
+   "line": 2279,
+   "status": "safe",
+   "reason": "snd_usbmidi_get_ms_info/sport reads guarded by 'bNumEndpoints < (out_cables > 0x0001 ? 5 : 3)' reject at 2264; roland altsetting[1] switch guarded by bNumEndpoints != 2 at 2079; detect loops bounded by bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/misc/ua101.c",
+   "line": 1002,
+   "status": "safe",
+   "reason": "find_format_descriptor rejects altsetting[0] bNumEndpoints != 0 and altsetting[1] bNumEndpoints != 1 (lines 896-904) before detect_usb_format reads altsetting[1].endpoint[0].desc at 1002/1010."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/helper.c",
+   "line": 114,
+   "status": "safe",
+   "reason": "snd_usb_parse_datainterval's get_endpoint(alts, 0) callers pass altsettings already filtered by bNumEndpoints >= 1 (stream.c parse loop, quirks.c ep_idx check at 185)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/misc/usbtest.c",
+   "line": 171,
+   "status": "safe",
+   "reason": "ep = alt->endpoint + ep is inside 'for (ep = 0; ep < alt->desc.bNumEndpoints; ep++)' loop in the test gadget-only driver."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/misc/idmouse.c",
+   "line": 367,
+   "status": "safe",
+   "reason": "checks bNumEndpoints < 1 at 329 before endpoint[0] use (s12 has the fix; f044-era trees did not)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/misc/uss720.c",
+   "line": 695,
+   "status": "safe",
+   "reason": "checks interface->desc.bNumEndpoints < 3 before endpoint reads."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/atm/ueagle-atm.c",
+   "line": 2156,
+   "status": "safe",
+   "reason": "this s12 tree contains 'if (intf->cur_altsetting->desc.bNumEndpoints < 1)' at 2156, guarding the endpoint[0].desc.bInterval read before the interrupt-URB submit \u2014 the f009/f040/f044 pattern is fixed here."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/atm/speedtch.c",
+   "line": 839,
+   "status": "safe",
+   "reason": "endpoint discovery loops i < desc->desc.bNumEndpoints."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/usb/atm/xusbatm.c",
+   "line": 46,
+   "status": "safe",
+   "reason": "loops j < alt->desc.bNumEndpoints for endpoint discovery."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/watchdog/pcwd_usb.c",
+   "line": 632,
+   "status": "safe",
+   "reason": "checks iface_desc->desc.bNumEndpoints < 1 at 628 before endpoint[0] use (fixed in s12; f040/f044-era trees lacked it)."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/isdn/gigaset/usb-gigaset.c",
+   "line": 706,
+   "status": "safe",
+   "reason": "drivers/isdn/gigaset does not exist in s12 (ls of drivers/isdn shows no gigaset dir), so the f040/f044 lineage is absent here; recorded as absent rather than safe."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/uwb/hwa-rc.c",
+   "line": 697,
+   "status": "safe",
+   "reason": "drivers/uwb does not exist in s12; f044 lineage absent from this snapshot."
+  },
+  {
+   "snapshot": "s12",
+   "path": "drivers/hid/hid-u2fzero.c",
+   "line": 285,
+   "status": "safe",
+   "reason": "usb_pipe_endpoint(udev, usbhid->urbin->pipe) dereferences a pipe already established from an endpoint the usbhid core selected via its bNumEndpoints-bounded loop; NULL case handled by surrounding code path."
+  },
+  {
+   "snapshot": "s12",
+   "path": "sound/usb/mixer_scarlett_gen2.c",
+   "line": 3535,
+   "status": "unresolved",
+   "reason": "scarlett2_find_fc_interface reads get_endpoint(intf->altsetting, 0).bEndpointAddress/wMaxPacketSize/bInterval of any bInterfaceClass==255 interface with no bNumEndpoints check in the function; it runs during mixer creation of a matched Focusrite device. Follow-up: confirm whether a 0x1235-ID-spoofing gadget can present a class-255 interface with zero endpoints and reach snd_usb_create_mixer->scarlett2_init in this snapshot.",
+   "conclusion": "Follow up: verify whether a class-255 zero-endpoint interface on a 0x1235-spoofing gadget reaches scarlett2_find_fc_interface's unguarded get_endpoint(intf->altsetting, 0) at sound/usb/mixer_scarlett_gen2.c:3535 during mixer init."
+  }
+ ],
+ "coverage_gaps": [
+  "sound/usb implicit.c get_endpoint(alts, 0) sites (128/157/168/186/196/220/252) and mixer_scarlett_gen2.c were only spot-checked; a dedicated line-by-line sound/usb re-audit was not performed in this bounded pass.",
+  "drivers/usb/core/{config,devio,driver,hcd,hub,message,devices}.c, urb.c and drivers/usb/host/xhci.c accesses are the descriptor parser itself or loop-bounded and were only spot-checked, not exhaustively re-audited.",
+  "Endpoint descriptors consumed via cached usb_endpoint_descriptor pointers or wrapper macros other than sound/usb get_endpoint and drivers/hid usbhid->urbin were enumerated only via ->endpoint[ / get_endpoint( greps; other wrapper names could hide fixed-index reads.",
+  "drivers/staging/media (usbvision etc.) does not exist in s12; staging trees other than r8188eu/rtl8712 were not separately enumerated for USB endpoint consumers.",
+  "Downstream propagation of the OOB-read bEndpointAddress in the hid-thrustmaster finding (whether a garbage pipe endpoint beyond URB submission can cause further OOB) was not traced beyond usb_interrupt_msg."
+ ],
+ "limitations": [
+  "hid-thrustmaster confidence is medium: the >=2-endpoint assumption was verified absent in the driver and the generic usbhid binding path was shown not to enforce it, but no runtime reproducer with a spoofed 044f:b65d gadget was built.",
+  "The stream.c:582 finding is structural: both current callers enforce bNumEndpoints >= 1 before calling parse_uac_endpoint_attributes, so no plug-in crash is reachable through existing paths in this snapshot; it is reported because the validation is separated from the use by several frames.",
+  "Safe classifications rest on reading the named guard or loop near each fixed-index read; no whole-function audit was performed for files classified safe without a quoted guard.",
+  "alauda.c was cleared by reference to the generic usb-storage get_pipes validation rather than a fresh end-to-end trace in s12; if that shared path changed, the classification would need rechecking."
+ ]
 }

@@ -2,33 +2,93 @@
  "version": 1,
  "intent_id": "i051",
  "branch": "hardirq-shared-lock",
- "status": "in_progress",
+ "status": "finalizing",
  "snapshot": "s07",
  "note": "Scan complete: 1305 handler bodies resolved; 213 files have hardirq handlers using plain spin_lock. Cross-index found 132 lock rows. Deep-reading top candidates: synclink_gt.c (confirmed), sbni.c (confirmed), ens1370.c (confirmed), qlge_main.c (weak - callers are hardirq/softirq only).",
  "candidates": [
   {
    "path": "drivers/tty/synclink_gt.c",
    "line": 1160,
-   "status": "probable-report",
-   "reason": "set_params32 compat ioctl takes info->lock plainly; hardirq slgt_interrupt takes same lock plainly at 2371/2357/2390"
+   "status": "reported",
+   "reason": "set_params32 (MGSL_IOCSPARAMS32 compat ioctl, slgt_compat_ioctl:1185) takes info->lock with plain spin_lock at 1160; hardirq slgt_interrupt (request_irq:3647) takes the same info->lock plainly at 2371 and port locks at 2357/2390"
   },
   {
    "path": "drivers/net/wan/sbni.c",
    "line": 1328,
-   "status": "probable-report",
-   "reason": "sbni_ioctl SIOCDEVSHWSTATE takes nl->lock plainly; hardirq sbni_interrupt takes plainly at 509"
+   "status": "reported",
+   "reason": "sbni_ioctl SIOCDEVSHWSTATE (ndo_do_ioctl:214) takes nl->lock plainly at 1328; hardirq sbni_interrupt (request_irq:1178) takes nl->lock plainly at 509"
   },
   {
    "path": "sound/pci/ens1370.c",
    "line": 1015,
-   "status": "probable-report",
-   "reason": "PCM pointer callbacks take reg_lock plainly; hardirq snd_audiopci_interrupt takes plainly at 2366 and 2170/2182 (midi helper)"
+   "status": "reported",
+   "reason": "PCM pointer callbacks (1015/1032/1049) and trigger (828/854) take ensoniq->reg_lock plainly; hardirq snd_audiopci_interrupt (request_irq:2109) takes it plainly at 2366 via snd_ensoniq_midi_interrupt at 2170/2182"
+  },
+  {
+   "path": "sound/parisc/harmony.c",
+   "line": 313,
+   "status": "reported",
+   "reason": "PCM trigger callbacks (313/349) take h->lock plainly; hardirq snd_harmony_interrupt (request_irq:937) takes h->lock plainly at 200/208/218/227/237/244"
+  },
+  {
+   "path": "sound/pci/echoaudio/echoaudio.c",
+   "line": 754,
+   "status": "reported",
+   "reason": "pcm_trigger (snd_pcm_ops .trigger:837/848/861/873) takes chip->lock plainly at 754; hardirq snd_echo_interrupt (request_irq:1958/2238) takes chip->lock plainly at 1829/1847"
+  },
+  {
+   "path": "sound/pci/korg1212/korg1212.c",
+   "line": 1599,
+   "status": "reported",
+   "reason": "snd_korg1212_trigger (def 1590, registered as snd_pcm_ops .trigger) takes korg1212->lock plainly at 1599; hardirq snd_korg1212_interrupt (request_irq:2245) takes it plainly at 1123/1183/1189"
+  },
+  {
+   "path": "drivers/usb/gadget/udc/fusb300_udc.c",
+   "line": 1071,
+   "status": "reported",
+   "reason": "hardirq fusb300_irq (request_irq:1421/1428) takes fusb300->lock plainly at 1071 and re-locks at 1207 after gadget setup callback; ep ops use irqsave; 720/875-877 are unlock/lock pairs inside IRQ-held sections - weaker"
   },
   {
    "path": "drivers/net/ethernet/qlogic/qlge/qlge_main.c",
    "line": 672,
-   "status": "probably-safe",
-   "reason": "ql_disable_completion_interrupt callers are hardirq ISR and NAPI poll; no confirmed process-context caller with IRQs enabled yet"
+   "status": "safe",
+   "reason": "ql_disable_completion_interrupt plain hw_lock takers are qlge_isr (hardirq) and NAPI poll ql_napi_poll; no process-context caller found; enable path uses irqsave"
+  },
+  {
+   "path": "arch/powerpc/platforms/cell/spu_base.c",
+   "line": 300,
+   "status": "unresolved",
+   "reason": "spu_irq_class_0/1/2 take spu->register_lock plainly (294/318/359 bodies); other plain sites 203 (inside class_1 handler path __spu_trap_data_seg) and 325/367 are inside the handlers themselves; the only irqsave site is 84; no confirmed non-hardirq plain holder"
+  },
+  {
+   "path": "drivers/usb/gadget/udc/net2272.c",
+   "line": 1487,
+   "status": "unresolved",
+   "reason": "hardirq net2272_irq takes dev->lock plainly at 2059; plain sites 381/1487/1920/2009 are unlock/lock pairs inside hardirq-held sections (done/stop_activity/setup-delegate); stop_activity is called from hardirq; net2272_stop uses irqsave - no process-context plain holder confirmed"
+  },
+  {
+   "path": "drivers/usb/gadget/udc/fotg210-udc.c",
+   "line": 745,
+   "status": "unresolved",
+   "reason": "hardirq fotg210_irq takes fotg210->lock plainly at 873; plain sites 745 and 954 are unlock/relock pairs inside the hardirq-held section; ep queue/dequeue use irqsave - no process-context plain holder found"
+  },
+  {
+   "path": "drivers/tty/serial/mps2-uart.c",
+   "line": 206,
+   "status": "safe",
+   "reason": "all three plain port->lock sites (206/224/240) are inside the three hardirq handlers themselves; the only non-IRQ site (set_termios:346) uses irqsave"
+  },
+  {
+   "path": "drivers/net/ethernet/dec/tulip/winbond-840.c",
+   "line": 1292,
+   "status": "unresolved",
+   "reason": "hardirq intr_handler takes np->lock plainly at 1141; 1292 is inside tx_timeout-called (process context, tx_cpu held) helper - needs full read to classify"
+  },
+  {
+   "path": "drivers/net/ethernet/amd/7990.c",
+   "line": 661,
+   "status": "unresolved",
+   "reason": "lance_poll (ndo_poll_controller, hplance.c:78) takes lp->devlock plainly at 661; hardirq lance_interrupt takes it plainly at 446 - netpoll path runs in process/netpoll context"
   }
  ]
 }

@@ -398,6 +398,153 @@ facts:
     coverage_gap=drivers/scsi/elx/libefc_sli/sli4.c and drivers/net/ethernet/emulex/benet be_cmds.c firmware-response field conversions flagged as follow-ups by sibling facts f045/f049 (s11/s12) were not audited in s13 in this session.
     coverage_gap=The dlm finding's exploitability depends on DLM cluster peer trust assumptions (unencrypted lowcomms, no node authentication); the practical reachability from a non-member host was not verified.
     artifact=findings/i053.json
+- id: f054
+  description: |-
+    intent=i054 snapshot=s13 branch=peer-trusted-transport status=complete
+    finding location=drivers/hv/hv_balloon.c:1306-1318 confidence=high conclusion=hv_balloon balloon_down loops on host-supplied dm_unballoon_request->range_count with only a recvlen>0 gate (no recvlen vs range_count*8 check, no PAGE_SIZE cap), OOB-reading the global PAGE_SIZE recv_buffer and freeing host-chosen arbitrary PFNs via free_balloon_pages.
+    finding location=drivers/staging/greybus/audio_topology.c:139-157 confidence=medium conclusion=greybus audio topology gb_generate_enum_strings allocates with unchecked peer-supplied le32 gbenum->items (sizeof(char*)*items into devm_kzalloc) then writes items pointers and walks unbounded NUL-scanning, giving heap overflow/OOB read of the peer-supplied topology blob.
+    unresolved location=drivers/usb/usbip/usbip_common.c:616 conclusion=Seed usbip_recv_iso integer-overflow/OOB-write confirmed unpatched in s13 at drivers/usb/usbip/usbip_common.c:611-696; excluded by rule - track via the dedicated seed CVE, do not re-report here.
+    unresolved location=drivers/rpmsg/qcom_smd.c:537 conclusion=Verify whether peer pkt_size can exceed bb_size=min(fifo_size,SZ_4K) given avail is masked to fifo_size: if pkt_size is capped by avail<=fifo_size and fifo_size<=SZ_4K then bb_size==fifo_size and the copy is in-bounds; else a remote-proc OOB write exists.
+    unresolved location=drivers/net/ethernet/qlogic/netxen/netxen_nic_ctx.c:380 conclusion=Cross-branch duplicate of i052's netxen finding: confirm independently whether firmware-reply num_rds/num_sds_rings index past the kcalloc'd ring arrays in this tree, and de-duplicate against f051.
+    coverage_gap=Greybus gb-beagleplay (hdlc_rx_greybus_frame hdr.size) named in the intent is absent from this tree (only staging es2/uart/audio greybus present), so that specific known chain could not be re-checked here.
+    coverage_gap=qcom_glink_native (chunk_size/left_size SMEM validation) is absent from this tree; only qcom_glink_rpm.c and qcom_smd.c exist, both read; the intent's glink_native chain was checked in its rpm variant only.
+    coverage_gap=Ceph/cifs and other remote-storage server-reply vectors (fs/ceph, fs/cifs) were not deep-read in this session for peer-count allocation/iteration; only the 9p and nbd transports plus greybus/hv/rpmsg/virtio paths were covered (cifs was covered by sibling fact f052 in this same tree).
+    coverage_gap=vhost/vringh consumer-side ring processing, ath10k/ath12k WMI-TLV and other wireless firmware reply parsers were only presence-checked, not deep-read.
+    artifact=findings/i054.json
+- id: f055
+  description: |-
+    intent=i056 snapshot=s01 branch=hci-completed-length-trust status=complete
+    unresolved location=drivers/net/can/usb/esd_usb.c:508 conclusion=Follow up: read esd_usb_rx_can_msg and pin down whether a straddled header at the tail of the ESD_USB_RX_BUFFER_SIZE buffer parses stale bytes (including an unclamped msg->hdr.len) into netdev state, then reclassify under the unclamped-wire-count branch.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-dvb.c:257 conclusion=Follow up: read dvb_bulk_copy in drivers/media/usb/cx231xx/cx231xx-dvb.c to determine whether it repeats the missing >=3 check and unbounded vb2/dvb copy of the reported cx231xx-417 sibling.
+    coverage_gap=dvb_bulk_copy in drivers/media/usb/cx231xx/cx231xx-dvb.c was identified but not deep-read; it may repeat the reported cx231xx-417 missing-short-check pattern.
+    coverage_gap=HCI-side setters of urb->actual_length (ehci, xhci-dbgcap, c67x00, dummy_hcd, etc.) were not per-site audited; a controller bug setting actual_length > transfer_buffer_length cannot be excluded, though none is known in this tree.
+    artifact=findings/i056.json
+- id: f056
+  description: |-
+    intent=i057 snapshot=s02 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1381-1399 confidence=medium conclusion=cx231xx-417 bulk-in completion uses controller-reported urb->actual_length with no >=3 bound: buffer_size-3 wraps on a short completion, driving a ~4GB memcpy OOB read plus kmalloc-undersized copies into videobuf; medium confidence.
+    coverage_gap=HCI-side setters of urb->actual_length (ehci-q.c, ehci-sched.c, fotg210, imx21, octeon-hcd, dummy_hcd) were inspected only via grep hits, not per-site, so a controller double-count setting actual_length > transfer_buffer_length cannot be fully excluded.
+    coverage_gap=The interaction of the cx231xx-417 ps_head 3-byte prefix with buffer_filled's videobuf destination was reasoned about statically; the exact mpeglines/mpeglinesize vs sb_size relationship on a real max-size bulk completion was not empirically compiled or tested.
+    coverage_gap=Synchronous control-transfer paths that read back actual_length (drivers/usb/storage/transport.c, pvrusb2, kaweth control) were triaged by pattern only; their values are bounded by the requested wLength and were not each deep-read.
+    coverage_gap=drivers/tty/serial serdev and non-USB completion handlers with analogues (spi/i2c ->actual_length, scsi resid from drivers/scsi/) were only spot-checked because the intent scoped to controller-completion metadata in URB-style paths.
+    artifact=findings/i057.json
+- id: f057
+  description: |-
+    intent=i059 snapshot=s05 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1341-1359 confidence=high conclusion=cx231xx_bulk_copy uses controller-completed urb->actual_length (u32) as sole size with no >=3 or max check: kmalloc(buffer_size) then a 3-byte header memcpy and size_t-wrapped buffer_size-3 (~4GB) copy cause heap overflow/OOB read on any short (0-2 byte) bulk completion from the device.
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1315-1335 confidence=medium conclusion=cx231xx_isoc_copy consumes iso_frame_desc actual_length with no max_pkt_size clamp (sibling cx231xx-video.c:295 enforces it) and buffer_copy spills len-tail_data into the fixed 4096-byte p_left_data unclamped, enabling heap overflow from oversized controller-reported packets.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-dvb.c:207 conclusion=Follow up: read dvb_dmx_swfilter/dvb_dmx_swfilter_packet in drivers/media/dvb-core to confirm whether cx231xx-dvb.c's unchecked completion actual_length can over-read the per-packet transfer-buffer slot, and report if unclamped like the -417 sibling.
+    unresolved location=drivers/net/can/usb/esd_usb.c:403 conclusion=Follow up: confirm whether the straddled-header read in esd_usb_read_bulk_callback can push stale bytes (including msg->hdr.len up to 4x) into netdev state and reclassify under the unclamped-wire-count branch.
+    unresolved location=drivers/net/can/usb/etas_es58x/es58x_core.c:1310 conclusion=Follow up: read es58x_copy_to_cmd_buf to verify the rx_cmd_buf_len + actual_length overflow/size check before its memcpy into the fixed rx_cmd_buf.
+    coverage_gap=dvb_dmx_swfilter/dvb_dmx_swfilter_packet internal clamping in drivers/media/dvb-core was not read, so the cx231xx-dvb.c unchecked actual_length feeds remain unresolved rather than reported.
+    coverage_gap=HCI-side setters of urb->actual_length and iso_frame_desc[].actual_length (ehci/uhci/xhci, dummy_hcd, c67x00, max3421) were not per-site audited in this snapshot, so a controller bug inflating actual_length beyond transfer_buffer_length cannot be excluded from this pass.
+    coverage_gap=SCSI resid setters consuming device-reported residual counts (e.g. aacraid/aachba.c:3572 scsi_set_resid from err->residual_count) and drivers/usb/storage + drivers/staging/gpib sync-URB actual_length consumers were grep-listed but not deep-read under this branch.
+    coverage_gap=Completion handlers outside drivers/usb (serdev controller rx callbacks, tty drivers using hardware FIFO counts, other media net drivers) were only partially swept; the subtraction-shaped sweep covered drivers/, net/, sound/, fs/.
+    artifact=findings/i059.json
+- id: f058
+  description: |-
+    intent=i058 snapshot=s04 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1380-1402 confidence=medium conclusion=cx231xx-417 bulk-in completion uses controller-reported urb->actual_length with no >=3 bound: buffer_size-3 wraps on a short completion, driving a ~4GB memcpy OOB read plus a 3-byte write into a kmalloc(0)-sized/OOB heap buffer; medium confidence.
+    unresolved location=drivers/net/wireless/zydas/zd1201.c:495 conclusion=Follow up: pin down zd1201_getipconfig's do/while (zd1201.c:470-500) with adversarial RESOURCE completions to determine whether per-iteration actual_length after the 8/4-byte skips can exceed the remaining riddatalen or the rxdata window, causing memcpy OOB in riddata.
+    unresolved location=drivers/usb/usbip/usbip_common.c:584 conclusion=Seed usbip_recv_iso in s04 is unpatched but excluded by rule; it belongs to the alloc-multiply-overflow/unclamped-wire-count/error-unwind-poisoned-count branches already covered by facts f027/f004/f005, not to completion-time metadata trust.
+    unresolved location=drivers/media/usb/hdpvr/hdpvr-video.c:485 conclusion=Follow up: re-read hdpvr-video.c buf->pos accumulation in hdpvr_read_callback to confirm 'rem = urb->actual_length - buf->pos' cannot go negative across consecutive short bulk completions, and confirm the copy into buf->data is bounded by the buffer size.
+    coverage_gap=HCI-side setters of urb->actual_length (drivers/usb/host ehci/uhci, c67x00, isp116x/isp1362/isp1760, octeon-hcd, dummy_hcd) were inspected only via grep hits, not per-site, so a controller double-count bug setting actual_length > transfer_buffer_length cannot be excluded from this pass.
+    coverage_gap=drivers/net/can/usb kvaser_usb.c:1339 'while (pos <= (int)(urb->actual_length - MSG_HEADER_LEN))' and the esd_usb/etas_es58x straddled-header callbacks flagged in facts f047/f055 were carried over only as grep hits; their per-packet loop bounds were not deep-read in this tree.
+    coverage_gap=Synchronous control-transfer paths reading back actual_length (drivers/usb/storage/transport.c, drivers/usb/misc/sisusbvga, drivers/usb/atm) were triaged by pattern only; their values are bounded by the requested wLength and were not each deep-read.
+    coverage_gap=Non-USB completion metadata analogues (scsi resid setters in drivers/scsi/, spi/i2c ->actual_length, serdev tty receive) were only spot-checked because the intent scoped to controller-completion metadata in URB-style paths.
+    artifact=findings/i058.json
+- id: f059
+  description: |-
+    intent=i062 snapshot=s08 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1341-1359 confidence=medium conclusion=cx231xx_bulk_copy consumes controller-completed urb->actual_length with no >=3 or max clamp: kmalloc(buffer_size) then memcpy(buffer+3, p_buffer, buffer_size-3) wraps to ~4GB on a 0-2 byte short bulk completion, giving a device-triggered heap OOB read/write.
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1315-1335 confidence=medium conclusion=cx231xx_isoc_copy consumes iso_frame_desc actual_length with no max_pkt_size clamp (cx231xx-video.c sibling enforces it) and buffer_copy spills len-tail_data into the fixed 4096-byte p_left_data, enabling heap overflow from oversized controller-reported packets.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-dvb.c:207 conclusion=Follow up: read dvb_dmx_swfilter/dvb_dmx_swfilter_packet in drivers/media/dvb-core to confirm whether cx231xx-dvb.c's unclamped completion actual_length can over-read the per-packet transfer-buffer slot, and report if unclamped like the -417 sibling.
+    coverage_gap=dvb_dmx_swfilter/dvb_dmx_swfilter_packet internal clamping in drivers/media/dvb-core was not read, so the cx231xx-dvb.c unchecked completion actual_length feeds (dvb_isoc_copy/dvb_bulk_copy) remain unresolved rather than reported.
+    coverage_gap=SCSI resid consumers (aacraid/aachba.c:3572 scsi_set_resid from err->residual_count, advansys, be2iscsi, aic7xxx) and drivers/usb/storage plus drivers/staging/gpib sync-URB actual_length consumers were grep-listed but not deep-read under this branch.
+    coverage_gap=Individual gspca pkt_scan subdrivers, hso packetizeRx, and non-USB completion analogues (spi/i2c msg->actual_length, serdev rx callbacks, tty hardware FIFO counts) were only spot-checked because the intent scoped to USB-controller completion metadata.
+    artifact=findings/i062.json
+- id: f060
+  description: |-
+    intent=i064 snapshot=s11 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1315-1336 confidence=high conclusion=cx231xx-417 isoc completion consumes iso_frame_desc actual_length without the max_pkt_size clamp its cx231xx-video.c sibling enforces, and buffer_copy can spill len-tail_data into the fixed 4096-byte p_left_data - device-triggerable heap overflow via oversized controller-reported packets.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-dvb.c:257 conclusion=Follow up: read dvb_dmx_swfilter/dvb_dmx_swfilter_204 in drivers/media/dvb-core/dvb_demux.c to confirm whether an inflated completion actual_length is trusted as the read length over the per-URB transfer buffer slot.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-audio.c:209 conclusion=Follow up: verify whether audio completion actual_length/stride can exceed the allocated URB transfer buffer size and whether snd_pcm wraparound logic bounds the copy into runtime->dma_area.
+    unresolved location=drivers/usb/usbip/usbip_common.c:387 conclusion=Seed-path usbip code exists in s11 but is excluded by rule; only follow-up is confirming it is tracked by the seed's own branch intents.
+    coverage_gap=Completion handlers outside drivers/media/usb/cx231xx (usb serial/core/misc/net/input, scsi resid, tty serdev) were swept only via actual_length grep triage after the known shapes (opticon, kl5kusb105, greybus es2, es58x) resolved safe; non-cx231xx hits were not each deep-read.
+    coverage_gap=dvb_dmx_swfilter internals in drivers/media/dvb-core were not read, leaving the cx231xx-dvb unchecked actual_length feeds unresolved rather than reported.
+    artifact=findings/i064.json
+- id: f061
+  description: |-
+    intent=i065 snapshot=s12 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1341-1361 confidence=medium conclusion=cx231xx-417 bulk-in completion trusts urb->actual_length with no >=3 check: u32 buffer_size-3 wraps to ~4GB on a short completion, driving kmalloc(0..2)+3-byte write and a ~4GB memcpy (OOB read/write) in cx231xx_bulk_copy.
+    unresolved location=drivers/input/joystick/iforce/iforce-usb.c:161 conclusion=Follow up: confirm a 0-byte int-in completion is deliverable and trace iforce_process_packet reads (data[1]&0x7f -> core_effects[32] OOB, size_t-wrapped len loop) past the 16-byte data_in buffer in iforce_usb.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-417.c:1315 conclusion=Follow up: trace cx231xx_isoc_copy -> buffer_copy p_left_data spill sizing to decide whether the unclamped iso actual_length writes past the fixed left_data buffer like the sibling snapshot reports.
+    unresolved location=drivers/net/can/usb/esd_usb.c:503 conclusion=Follow up (already flagged in f047/f055/f059): pin down the straddled-header read of msg->hdr.len in esd_usb_read_bulk_callback under the unclamped-wire-count branch, not this one.
+    coverage_gap=drivers/staging/gpib ni_usb_gpib/agilent_82357a bulk_urb->actual_length consumers (ni_usb_gpib.c:605-720 parse_board_ibrd_readback) and lpvo_usb_gpib bulk_in_filled accounting were grep-listed but not deep-read; they are sync-URB style paths where the HCD bound applies.
+    coverage_gap=drivers/media/usb/cx231xx/cx231xx-dvb.c dvb_bulk_copy and the dvb_dmx_swfilter clamping were not deep-read in this tree; it may repeat the reported cx231xx-417 missing-short-check pattern (carried over unresolved from f055/f059).
+    coverage_gap=Completion handlers outside drivers/ and in sound/usb (usx2yaudio, card-ua101), net/Bluetooth hci_acl completion metadata, and tty/serdev hardware rx-count consumers were only presence-checked, not read.
+    artifact=findings/i065.json
+- id: f062
+  description: |-
+    intent=i061 snapshot=s07 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1341-1363 confidence=high conclusion=cx231xx_bulk_copy (cx231xx-417.c:1341-1363) uses controller-completed urb->actual_length with no >=3 bound: kmalloc(buffer_size) gets a 3-byte ps_head write overflow and size_t-wrapped buffer_size-3 (~4GB) copy on any 0-2 byte bulk completion.
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1315-1339 confidence=medium conclusion=cx231xx_isoc_copy (cx231xx-417.c:1315-1339) uses iso_frame_desc actual_length with no max_pkt_size clamp (sibling cx231xx-video.c:295 enforces it), letting an inflated controller-reported packet spill len-tail_data into the fixed 4096-byte p_left_data heap buffer.
+    unresolved location=drivers/media/usb/au0828/au0828-video.c:544 conclusion=Follow up: compute whether the negative len from au0828-video.c:544 (actual_length-4 then -4 under the 0x80 flag, 5-7 byte packets) drives reads in au0828_copy_vbi past the URB transfer-buffer allocation, and report if it is a true heap over-read.
+    unresolved location=drivers/net/can/usb/esd_usb.c:508 conclusion=Follow up: confirm whether the straddled-header tail read in esd_usb_read_bulk_callback parses stale bytes (including unclamped msg->hdr.len up to 4x) into netdev state and reclassify under the unclamped-wire-count branch.
+    coverage_gap=SCSI residual-count consumers of device-reported values (drivers/scsi/aacraid/aachba.c:3571 scsi_set_resid from le32 err->residual_count) and other drivers/scsi resid setters were grep-listed but not deep-read under this branch.
+    coverage_gap=Non-USB completion metadata analogues (spi/i2c ->actual_length, serdev/tty hardware FIFO receive counts, sound/usb usx2y-style handlers) were only spot-checked because the intent scoped to controller-completion metadata in URB-style paths.
+    artifact=findings/i061.json
+- id: f063
+  description: |-
+    intent=i060 snapshot=s06 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1341-1362 confidence=high conclusion=cx231xx_bulk_copy trusts controller-completed urb->actual_length with no >=3 bound: kmalloc(buffer_size) gets a 3-byte ps_head overflow write and a size_t-wrapped buffer_size-3 (~4GB) copy plus OOB reads on any 0-2 byte short bulk completion - device-triggerable heap corruption.
+    finding location=drivers/input/joystick/iforce/iforce-usb.c:161-162 confidence=medium conclusion=iforce-usb interrupt completion passes urb->actual_length - 1 as size_t len with no >=1 check: a zero-length completion underflows to SIZE_MAX, driving iforce-packets.c's j<len OOB read loop past data_in[16] and core_effects[data[1]&0x7f] (max 127) into a 32-entry array.
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1315-1339 confidence=medium conclusion=cx231xx_isoc_copy consumes iso_frame_desc actual_length without the max_pkt_size clamp its cx231xx-video.c sibling enforces, and buffer_copy can spill len-tail_data into the fixed 4096-byte p_left_data heap buffer - overflow from oversized controller-reported packets.
+    unresolved location=drivers/media/usb/au0828/au0828-video.c:544 conclusion=Follow up: deep-read au0828_copy_vbi/au0828_copy_video to determine whether the negative len from 1-7 byte iso packets (len = actual_length-4, -8 with the 0x80 flag) drives reads or pointer arithmetic past the URB transfer-buffer allocation.
+    unresolved location=drivers/net/can/usb/esd_usb.c:503 conclusion=Follow up (carried from f047/f055/f059): pin down whether the straddled-header tail read in esd_usb_read_bulk_callback parses stale bytes with unclamped msg->hdr.len into netdev state, and reclassify under the unclamped-wire-count branch, not this one.
+    unresolved location=drivers/usb/usbip/usbip_common.c:662 conclusion=Seed-path usbip code exists unpatched in s06 but is excluded by rule; the only follow-up is confirming it stays tracked by the seed's own branch intents (f015/f021/f028), not this completion-metadata branch.
+    coverage_gap=SCSI resid setters consuming device-reported residual counts (drivers/scsi/aacraid/aachba.c:3571 scsi_set_resid from le32 err->residual_count, hpsa.c:2631, ipr.c:6213, xen-scsifront.c:320) and their completion consumers were grep-listed but not deep-read under this branch.
+    coverage_gap=greybus es2.c bulk-in completion was verified bounded (actual_length < sizeof(*header) check at es2.c:834 plus gb_connection_recv/recv_response message_size cross-checks in operation.c:1026-1068), but the gb-beagleplay.c analogue was only presence-checked.
+    artifact=findings/i060.json
+- id: f064
+  description: |-
+    intent=i055 snapshot=s10 branch=hci-completed-length-trust status=complete
+    unresolved location=drivers/net/can/usb/esd_usb.c:508 conclusion=Follow up: confirm whether a straddled header at the tail of the ESD_USB_RX_BUFFER_SIZE buffer lets esd_usb_read_bulk_callback parse stale bytes (including unclamped msg->hdr.len) into esd_usb_rx_can_msg before the pos > actual_length check, and reclassify under the unclamped-wire-count branch.
+    unresolved location=drivers/scsi/xen-scsifront.c:320 conclusion=Follow up: trace scsifront_command_done's unclamped ring_rsp->residual_len into all midlayer resid consumers to determine whether resid > scsi_bufflen from a malicious/compromised Xen backend causes more than mis-accounted good_bytes (currently only a trust/correctness gap, no confirmed OOB).
+    coverage_gap=The cx231xx-417 p_left_data (4096-byte) overflow extent via dma_q->mpeg_buffer_completed accumulation in buffer_copy was reasoned about statically; the exact mpeglines/mpeglinesize vs sb_size relationship on a real max-size completion was not empirically compiled or tested.
+    artifact=findings/i055.json
+- id: f065
+  description: |-
+    intent=i066 snapshot=s13 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1380-1402 confidence=high conclusion=cx231xx-417 bulk-in completion trusts urb->actual_length with no >=3 bound: u32 buffer_size-3 wraps to ~4GB on a 0-2 byte device completion, driving kmalloc(0..2)+3-byte write and a ~4GB memcpy OOB read in cx231xx_bulk_copy.
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1354-1378 confidence=medium conclusion=cx231xx_isoc_copy consumes iso_frame_desc actual_length without the max_pkt_size clamp its cx231xx-video.c sibling enforces, and buffer_copy can spill len-tail_data into the fixed kzalloc(4096) p_left_data - device-triggerable heap overflow via oversized controller-reported packets.
+    finding location=drivers/media/usb/cx231xx/cx231xx-dvb.c:264-266 confidence=medium conclusion=cx231xx-dvb dvb_bulk_copy hands urb->actual_length to dvb_dmx_swfilter as the trusted read count over the bulk transfer buffer; dvb-core has no clamp, so an inflated bulk completion length over-reads the DMA heap buffer.
+    finding location=drivers/input/joystick/iforce/iforce-usb.c:99-101 confidence=low conclusion=iforce-usb irq completion passes urb->actual_length-1 as the packet length with no >=1 or <=16 clamp: a 0/oversized int-in completion makes iforce_process_packet read past the 16-byte data buffer and bit-write core_effects[32] with i up to 127.
+    unresolved location=drivers/net/usb/hso.c:988 conclusion=Follow up: read packetizeRx end-to-end (drivers/net/usb/hso.c:900-980) to verify rx_buf_missing can never make the parser copy more than urb->actual_length bytes out of the bulk transfer buffer into odev->rx_buf.
+    unresolved location=drivers/net/wireless/zydas/zd1201.c:470 conclusion=Follow up: trace zd1201_getconfig (zd1201.c:470-505) per-iteration actual_length accumulation against each caller's riddata allocation to confirm the 8/4-byte skips can never push the memcpy past riddatalen bytes.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-audio.c:219 conclusion=Follow up: confirm whether a bulk audio completion with actual_length > sb_size (CX231XX_NUM_AUDIO_PACKETS*max_pkt_size) can make the memcpy at cx231xx-audio.c:222-236 read past the kmalloc'ed transfer buffer before the runtime->dma_area wraparound math.
+    unresolved location=drivers/usb/usbip/usbip_common.c:611 conclusion=Excluded-by-rule seed path: usbip_recv_iso remains unpatched in s13 at usbip_common.c:611-696; do not report here, track via the dedicated seed branches (f050/f051/f053/f054).
+    unresolved location=drivers/media/usb/usbtv/usbtv-audio.c:155 conclusion=Follow up: check whether urb->actual_length not being a multiple of USBTV_CHUNK_SIZE lets the final iteration of the usbtv-audio loop copy a partial chunk past the transfer buffer and whether the -URB length flag masks it.
+    coverage_gap=Non-USB completion metadata analogues (spi/i2c msg->actual_length in drivers/spi consumers like qca_spi, netup_unidvb_spi; serdev/tty hardware rx-count callbacks) were only presence-checked because the intent scoped to controller-completion metadata in URB-style paths.
+    artifact=findings/i066.json
+- id: f066
+  description: |-
+    intent=i063 snapshot=s09 branch=hci-completed-length-trust status=complete
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1341-1362 confidence=high conclusion=cx231xx_bulk_copy (cx231xx-417.c:1341-1362) trusts controller-completed urb->actual_length with no >=3 or max clamp: on a 0-2 byte bulk completion kmalloc(buffer_size) is undersized for the 3-byte ps_head write and buffer_size-3 wraps to ~4GB, giving device-triggered heap OOB write/read.
+    finding location=drivers/media/usb/cx231xx/cx231xx-417.c:1315-1336 confidence=medium conclusion=cx231xx_isoc_copy (cx231xx-417.c:1315-1336) consumes iso_frame_desc actual_length without the max_pkt_size clamp its cx231xx-video.c sibling enforces, letting an inflated controller-reported packet spill len-tail_data into the fixed 4096-byte p_left_data heap buffer.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-vbi.c:93 conclusion=Follow up: read cx231xx_get_vbi_line and the VBI p_left_data/vbi_data allocation in cx231xx-vbi.c to determine whether the unclamped bulk completion length overflows the VBI scratch buffer like the -417 sibling.
+    unresolved location=drivers/input/joystick/iforce/iforce-usb.c:163 conclusion=Follow up: confirm a >16-byte int-in completion is deliverable against the iforce urb (buffer len 16) and whether the core_effects[0x7f] index and len-bounded loop produce OOB past data_in in iforce_process_packet.
+    unresolved location=drivers/isdn/hardware/mISDN/hfcsusb.c:1113 conclusion=Follow up: bound the unguarded buf[0]/buf[1] reads in hfcsusb rx_complete on 0-1 byte completions (intra-buffer over-read of fifo->buffer) and whether any path reaches the -2 subtraction with len < 2.
+    unresolved location=drivers/media/usb/hdpvr/hdpvr-video.c:487 conclusion=Follow up: trace hdpvr buffer lifecycle across stop/start streaming to prove pos can never exceed a later urb->actual_length (making rem negative) in hdpvr_read:487.
+    unresolved location=drivers/media/usb/em28xx/em28xx-video.c:803 conclusion=Follow up: read process_frame_data_em28xx/em25xx to see whether the unclamped bulk usb_data_len (no max_pkt_size gate, unlike the isoc branch) can overrun em28xx frame-assembly scratch buffers.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-dvb.c:207 conclusion=Follow up: read dvb_dmx_swfilter/dvb_dmx_swfilter_204 in drivers/media/dvb-core/dvb_demux.c to confirm whether cx231xx-dvb.c's unclamped completion actual_length over-reads the per-URB transfer-buffer slot.
+    unresolved location=drivers/media/usb/cx231xx/cx231xx-audio.c:209 conclusion=Follow up: verify cx231xx-audio.c:118/:209 length = actual_length/stride copies stay inside runtime->dma_area across short and oversized completions.
+    coverage_gap=HCI-side setters of urb->actual_length and iso_frame_desc[].actual_length (drivers/usb/host ehci/uhci/xhci, dummy_hcd, c67x00, max3421) were not per-site audited in s09, so a controller bug inflating actual_length beyond transfer_buffer_length cannot be excluded.
+    coverage_gap=SCSI resid consumers of device-reported residual counts (e.g., drivers/scsi aacraid scsi_set_resid from err->residual_count) and drivers/usb/storage sync-URB actual_length users were grep-listed only; their values are bounded by the requested command length and were not each deep-read.
+    coverage_gap=cx231xx-vbi.c cx231xx_get_vbi_line / VBI scratch-buffer sizing and cx231xx-audio.c dma_area wraparound were identified as unclamped completion-length consumers but not deep-read; they are recorded as unresolved candidates.
+    coverage_gap=Completion handlers outside drivers/ (serdev controller rx callbacks, tty hardware FIFO counts, spi/i2c msg->actual_length analogues) were only presence-checked, per the intent's scope to controller-completion metadata in URB-style paths.
+    coverage_gap=esd_usb/etas_es58x straddled-header callbacks and any usbip code present in this snapshot were excluded from this branch by scope (unclamped-wire-count / seed branches); usbip was not re-reported here.
+    artifact=findings/i063.json
 intents:
 - id: i001
   sources:
@@ -1014,169 +1161,169 @@ intents:
   - f001
   - f002
   - f019
-  target_fact: null
+  target_fact: f054
   description: 'SNAPSHOT=s13; BRANCH=peer-trusted-transport; Search only snapshots/s13. Cross-subsystem trust-boundary analogue: find kernel-side clients or servers of remote or virtual device transports — network-exported buses, virtual HCDs, guest-host channels (drivers/hv), remote-storage/remote-fs reply handlers (9p trans_fd/virtio/rdma/xen, nbd, ceph/cifs), greybus/serdev links (gb-beagleplay, es2), rpmsg/qcom_glink, virtio/vhost ring protocols, remote admin-queue or DMA reply handlers — where allocation or iteration is driven by peer-supplied response counts/lengths, and check whether those peer fields are cross-checked against locally-known limits before use. Prior audits in sibling snapshots only enumerated 9p, nbd, virtio/vhost, and HID transports without deep-reading them: give those a real read here, including completion-time peer metadata such as urb->actual_length handed to memcpy or iteration bounds (the greybus es2.c bulk-in greybus_data_rcvd call was left unresolved by an earlier audit). Known peer-trust chains worth re-checking in this tree''s state: greybus gb-beagleplay hdlc_rx_greybus_frame passing the peer le16 hdr.size while ignoring the locally known frame length; hv_balloon balloon_down consuming the host-supplied range_count with only a recvlen>0 gate; qcom_glink chunk_size/left_size validated only against SMEM head/tail written by the same peer. Identify by mechanism (peer-controlled size crossing a trust boundary into kernel allocation or loop), including callers/callees and alternative protocol framings, not by subsystem name. Record the peer-field source, the missing local limit check, and the consuming allocation/loop; a negative result must list the peer-driven handlers examined. The seed usbip path is demonstration-only and must never be reported; if unpatched usbip is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s13 only.'
   creator: linux-variant-reason
   worker: linux-variant-explore
-  last_heartbeat_at: 1795001777274
+  last_heartbeat_at: 1795002180091
   created_at: 1794680758808
-  concluded_at: null
+  concluded_at: 1795002180091
 - id: i055
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f064
   description: 'SNAPSHOT=s10; BRANCH=hci-completed-length-trust; Search only snapshots/s10. Genuinely new mechanism branch surfaced by fact f002 (distinct from the four planned branches of parse-time wire counts, allocation arithmetic, error-unwind poisoning, and peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as request actual/residual (resid) counts and DMA completion lengths, set by hardware/controller/device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Primary targets flagged unresolved by f042 in this tree: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow to a huge length if a short or malicious completion reports actual_length < 2) and drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'' — read the guards above each subtraction and the downstream tty/copy consumers to a definite conclusion (vulnerable or safe, with exact lines). Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid as copy, loop, or subtraction operands (usb serial, usb core/misc/media/net, scsi resid paths). For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s10 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795028223838
   created_at: 1794748091341
-  concluded_at: null
+  concluded_at: 1795028223838
 - id: i056
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f055
   description: 'SNAPSHOT=s01; BRANCH=hci-completed-length-trust; Search only snapshots/s01. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s01 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795012307099
   created_at: 1794955656154
-  concluded_at: null
+  concluded_at: 1795012307099
 - id: i057
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f056
   description: 'SNAPSHOT=s02; BRANCH=hci-completed-length-trust; Search only snapshots/s02. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s02 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795017599433
   created_at: 1794955656155
-  concluded_at: null
+  concluded_at: 1795017599433
 - id: i058
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f058
   description: 'SNAPSHOT=s04; BRANCH=hci-completed-length-trust; Search only snapshots/s04. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s04 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795021392395
   created_at: 1794955656156
-  concluded_at: null
+  concluded_at: 1795021392395
 - id: i059
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f057
   description: 'SNAPSHOT=s05; BRANCH=hci-completed-length-trust; Search only snapshots/s05. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s05 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795019207576
   created_at: 1794955656158
-  concluded_at: null
+  concluded_at: 1795019207576
 - id: i060
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f063
   description: 'SNAPSHOT=s06; BRANCH=hci-completed-length-trust; Search only snapshots/s06. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s06 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795027909631
   created_at: 1794955656158
-  concluded_at: null
+  concluded_at: 1795027909631
 - id: i061
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f062
   description: 'SNAPSHOT=s07; BRANCH=hci-completed-length-trust; Search only snapshots/s07. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s07 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795024747458
   created_at: 1794955656159
-  concluded_at: null
+  concluded_at: 1795024747458
 - id: i062
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f059
   description: 'SNAPSHOT=s08; BRANCH=hci-completed-length-trust; Search only snapshots/s08. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s08 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795022948135
   created_at: 1794955656160
-  concluded_at: null
+  concluded_at: 1795022948135
 - id: i063
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f066
   description: 'SNAPSHOT=s09; BRANCH=hci-completed-length-trust; Search only snapshots/s09. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s09 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795029256607
   created_at: 1794955656161
-  concluded_at: null
+  concluded_at: 1795029256607
 - id: i064
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f060
   description: 'SNAPSHOT=s11; BRANCH=hci-completed-length-trust; Search only snapshots/s11. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts and error-path leftover counts are covered by this snapshot''s other open branch intents and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s11 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795022995757
   created_at: 1794955656161
-  concluded_at: null
+  concluded_at: 1795022995757
 - id: i065
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f061
   description: 'SNAPSHOT=s12; BRANCH=hci-completed-length-trust; Search only snapshots/s12. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands. Differentiation: the open peer-trusted-transport intent on this snapshot already touches actual_length inside remote-transport handlers, so prioritize the wider class of completion consumers outside remote transports — plain USB device drivers (serial, misc, media, input, net), SCSI resid and byte-count consumers, tty/serdev receive paths — and cross-reference rather than re-derive any transport-handler lead; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other open branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s12 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795023662585
   created_at: 1794955656162
-  concluded_at: null
+  concluded_at: 1795023662585
 - id: i066
   sources:
   - origin
   - f001
   - f002
   - f042
-  target_fact: null
+  target_fact: f065
   description: 'SNAPSHOT=s13; BRANCH=hci-completed-length-trust; Search only snapshots/s13. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree''s exact state if present: drivers/usb/serial/opticon.c:76 ''size_t data_len = urb->actual_length - 2;'' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 ''len = urb->actual_length - KLSI_HDR_LEN;'', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands. Differentiation: the open peer-trusted-transport intent on this snapshot already touches actual_length inside remote-transport handlers, so prioritize the wider class of completion consumers outside remote transports — plain USB device drivers (serial, misc, media, input, net), SCSI resid and byte-count consumers, tty/serdev receive paths — and cross-reference rather than re-derive any transport-handler lead; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other open branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s13 only.'
   creator: linux-variant-reason
-  worker: null
-  last_heartbeat_at: null
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795028306329
   created_at: 1794955656163
-  concluded_at: null
+  concluded_at: 1795028306329
 hints:
 - id: h001
   content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
@@ -1241,181 +1388,24 @@ hints:
   "f050",
   "f051",
   "f052",
-  "f053"
+  "f053",
+  "f054",
+  "f055",
+  "f056",
+  "f057",
+  "f058",
+  "f059",
+  "f060",
+  "f061",
+  "f062",
+  "f063",
+  "f064",
+  "f065",
+  "f066"
 ]
 ```
 
 ### Open Intents
 ```
-[
-  {
-    "created_at": 1794680758808,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s13; BRANCH=peer-trusted-transport; Search only snapshots/s13. Cross-subsystem trust-boundary analogue: find kernel-side clients or servers of remote or virtual device transports — network-exported buses, virtual HCDs, guest-host channels (drivers/hv), remote-storage/remote-fs reply handlers (9p trans_fd/virtio/rdma/xen, nbd, ceph/cifs), greybus/serdev links (gb-beagleplay, es2), rpmsg/qcom_glink, virtio/vhost ring protocols, remote admin-queue or DMA reply handlers — where allocation or iteration is driven by peer-supplied response counts/lengths, and check whether those peer fields are cross-checked against locally-known limits before use. Prior audits in sibling snapshots only enumerated 9p, nbd, virtio/vhost, and HID transports without deep-reading them: give those a real read here, including completion-time peer metadata such as urb->actual_length handed to memcpy or iteration bounds (the greybus es2.c bulk-in greybus_data_rcvd call was left unresolved by an earlier audit). Known peer-trust chains worth re-checking in this tree's state: greybus gb-beagleplay hdlc_rx_greybus_frame passing the peer le16 hdr.size while ignoring the locally known frame length; hv_balloon balloon_down consuming the host-supplied range_count with only a recvlen>0 gate; qcom_glink chunk_size/left_size validated only against SMEM head/tail written by the same peer. Identify by mechanism (peer-controlled size crossing a trust boundary into kernel allocation or loop), including callers/callees and alternative protocol framings, not by subsystem name. Record the peer-field source, the missing local limit check, and the consuming allocation/loop; a negative result must list the peer-driven handlers examined. The seed usbip path is demonstration-only and must never be reported; if unpatched usbip is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s13 only.",
-    "id": "i054",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f019"
-    ],
-    "worker": "linux-variant-explore"
-  },
-  {
-    "created_at": 1794748091341,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s10; BRANCH=hci-completed-length-trust; Search only snapshots/s10. Genuinely new mechanism branch surfaced by fact f002 (distinct from the four planned branches of parse-time wire counts, allocation arithmetic, error-unwind poisoning, and peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as request actual/residual (resid) counts and DMA completion lengths, set by hardware/controller/device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Primary targets flagged unresolved by f042 in this tree: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow to a huge length if a short or malicious completion reports actual_length < 2) and drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;' — read the guards above each subtraction and the downstream tty/copy consumers to a definite conclusion (vulnerable or safe, with exact lines). Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid as copy, loop, or subtraction operands (usb serial, usb core/misc/media/net, scsi resid paths). For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s10 only.",
-    "id": "i055",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656154,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s01; BRANCH=hci-completed-length-trust; Search only snapshots/s01. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s01 only.",
-    "id": "i056",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656155,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s02; BRANCH=hci-completed-length-trust; Search only snapshots/s02. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s02 only.",
-    "id": "i057",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656156,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s04; BRANCH=hci-completed-length-trust; Search only snapshots/s04. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s04 only.",
-    "id": "i058",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656158,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s05; BRANCH=hci-completed-length-trust; Search only snapshots/s05. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s05 only.",
-    "id": "i059",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656158,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s06; BRANCH=hci-completed-length-trust; Search only snapshots/s06. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s06 only.",
-    "id": "i060",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656159,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s07; BRANCH=hci-completed-length-trust; Search only snapshots/s07. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s07 only.",
-    "id": "i061",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656160,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s08; BRANCH=hci-completed-length-trust; Search only snapshots/s08. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s08 only.",
-    "id": "i062",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656161,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s09; BRANCH=hci-completed-length-trust; Search only snapshots/s09. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s09 only.",
-    "id": "i063",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656161,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s11; BRANCH=hci-completed-length-trust; Search only snapshots/s11. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands (usb serial/core/misc/media/net/input, scsi resid paths, greybus/serdev, tty receive). Scope strictly to metadata the hardware/controller writes at completion time; parse-time wire counts and error-path leftover counts are covered by this snapshot's other open branch intents and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s11 only.",
-    "id": "i064",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656162,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s12; BRANCH=hci-completed-length-trust; Search only snapshots/s12. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands. Differentiation: the open peer-trusted-transport intent on this snapshot already touches actual_length inside remote-transport handlers, so prioritize the wider class of completion consumers outside remote transports — plain USB device drivers (serial, misc, media, input, net), SCSI resid and byte-count consumers, tty/serdev receive paths — and cross-reference rather than re-derive any transport-handler lead; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other open branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s12 only.",
-    "id": "i065",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  },
-  {
-    "created_at": 1794955656163,
-    "creator": "linux-variant-reason",
-    "description": "SNAPSHOT=s13; BRANCH=hci-completed-length-trust; Search only snapshots/s13. New mechanism branch surfaced by facts f002 and f042, genuinely distinct from the four planned branches (parse-time wire counts, allocation arithmetic, error-unwind poisoned counts, peer-transport reply fields): completion-time transfer metadata — urb->actual_length and analogues such as SCSI/DMA request actual/residual (resid) counts and controller-set completion lengths, written by hardware or device firmware at completion time — consumed by completion handlers as a copy length, subtraction operand, or iteration bound without cross-check against the locally requested size such as transfer_buffer_length or the expected byte count. Known shapes from sibling audits to verify in this tree's exact state if present: drivers/usb/serial/opticon.c:76 'size_t data_len = urb->actual_length - 2;' (size_t underflow when a short or malicious completion reports actual_length < 2), drivers/usb/serial/kl5kusb105.c:360 'len = urb->actual_length - KLSI_HDR_LEN;', and the greybus es2.c bulk-in completion handing urb->actual_length into greybus_data_rcvd/gb_connection_recv whose memcpy destination is sized from local request state. Then sweep the other URB/request completion handlers in this one snapshot that use actual_length/actual/resid/byte_count as copy, loop, or subtraction operands. Differentiation: the open peer-trusted-transport intent on this snapshot already touches actual_length inside remote-transport handlers, so prioritize the wider class of completion consumers outside remote transports — plain USB device drivers (serial, misc, media, input, net), SCSI resid and byte-count consumers, tty/serdev receive paths — and cross-reference rather than re-derive any transport-handler lead; parse-time wire counts, allocator arithmetic, and error-path leftover counts are covered by other open branch intents on this snapshot and must not be re-reported here. For each candidate record file:line of the completion callback, the metadata field, the missing bound check, and the consuming copy/loop; a negative result must cite the completion handlers examined. The seed usbip path itself is demonstration-only and must never be reported as the finding; if unpatched usbip code is present, record it as excluded-by-rule and keep searching. Save a structured artifact (execution_status, candidates or evidence-backed negative) for snapshots/s13 only.",
-    "id": "i066",
-    "sources": [
-      "origin",
-      "f001",
-      "f002",
-      "f042"
-    ],
-    "worker": null
-  }
-]
+[]
 ```
