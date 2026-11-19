@@ -8,17 +8,6 @@ cards carry only the information needed to plan the next search.
 
 ## Result at a glance
 
-| Benchmark | Completed Intents | Submitted findings | Exact-hunk hits | Recall |
-| --- | ---: | ---: | ---: | ---: |
-| Curated 10-cluster Linux benchmark | **300 / 300** | **525** | **23 / 64** | **35.94%** |
-
-The 525 findings are worker-submitted candidates, not confirmed
-vulnerabilities. A hit is counted only when the frozen evaluator confirms that
-a reported location overlaps the historical fix hunk. Model-reported success
-does not count.
-
-## Cluster breakdown
-
 | Cluster | Root-cause family | Primary consequence | Exact / targets | Hit rate |
 | --- | --- | --- | ---: | ---: |
 | **C1** | Constant-multiplier wrap-to-zero divisor | Kernel crash | **4 / 4** | **100%** |
