@@ -4,6 +4,42 @@ This adapter keeps the frozen benchmark and Clairvoyant core unchanged. It uses
 Clairvoyant for durable `Project → Intent → Fact` scheduling and Claude Code for
 each worker's tool loop, served by GLM-5.3.
 
+## Latest curated benchmark result
+
+The current 10-cluster run recovers **23 of 64 hidden targets (35.94%)** at
+exact-hunk granularity. All 300 persisted Intents are concluded and no open
+Intent remains. The frozen evaluator, rather than model-reported completion,
+determines every hit.
+
+| Cluster | Exact / targets |
+| --- | ---: |
+| C1 | 4 / 4 |
+| C2 | 3 / 3 |
+| C3 | 3 / 3 |
+| C4 | 0 / 2 |
+| C5 | 1 / 4 |
+| C6 | 1 / 5 |
+| C7 | 1 / 14 |
+| C8 | 6 / 12 |
+| C9 | 0 / 13 |
+| C10 | 4 / 4 |
+
+The complete run archive is under `runs/10_cluster/`.
+
+## Download the curated 10-cluster dataset
+
+The dataset is maintained in the organization repository at
+[`experiments/benchmark_curated`](https://github.com/Yuuoniy/vuln_variant_search/tree/vodkavortex/seed-family-search/experiments/benchmark_curated).
+Download only that directory with Git sparse checkout:
+
+```bash
+git clone --depth 1 --filter=blob:none --sparse \
+  --branch vodkavortex/seed-family-search \
+  https://github.com/Yuuoniy/vuln_variant_search.git
+cd vuln_variant_search
+git sparse-checkout set experiments/benchmark_curated
+```
+
 ## Security/evaluation boundary
 
 - The model receives the public seed and opaque source trees only.

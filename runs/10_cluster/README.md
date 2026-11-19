@@ -1,51 +1,60 @@
 # Clairvoyant curated 10-cluster run
 
-This directory records the initial large-scale Clairvoyant run and subsequent
-resume rounds on the curated 10-cluster benchmark. The current aggregate
-exact-hunk result is **20/64 (31.25%)**, up from the initial 17/64 archive.
-The databases currently contain 237 concluded Intents and 49 open Intents; the
-open set is C7=20, C8=17, and C9=12. Evaluations whose `run_status` is
-`budget_exhausted` remain provisional.
+This directory records the current large-scale Clairvoyant run on the curated
+10-cluster benchmark. The frozen evaluator reports **23/64 exact-hunk hits
+(35.94%)**, up from the initial 17/64 archive and the previous 20/64 result.
+All 300 persisted Intents are concluded; no open or leased Intent remains.
+Evaluations whose saved `run_status` is `budget_exhausted` remain marked
+provisional even though their databases now contain no open Intent.
 
-| Cluster | Exact / targets |
-| --- | ---: |
-| C1 | 4 / 4 |
-| C2 | 3 / 3 |
-| C3 | 3 / 3 |
-| C4 | 0 / 2 |
-| C5 | 1 / 4 |
-| C6 | 1 / 5 |
-| C7 | 1 / 14 |
-| C8 | 3 / 12 |
-| C9 | 0 / 13 |
-| C10 | 4 / 4 |
+| Cluster | Intents | Findings | Exact / targets |
+| --- | ---: | ---: | ---: |
+| C1 | 17 / 17 | 24 | 4 / 4 |
+| C2 | 14 / 14 | 16 | 3 / 3 |
+| C3 | 19 / 19 | 21 | 3 / 3 |
+| C4 | 10 / 10 | 20 | 0 / 2 |
+| C5 | 18 / 18 | 14 | 1 / 4 |
+| C6 | 26 / 26 | 50 | 1 / 5 |
+| C7 | 58 / 58 | 92 | 1 / 14 |
+| C8 | 50 / 50 | 153 | 6 / 12 |
+| C9 | 67 / 67 | 84 | 0 / 13 |
+| C10 | 21 / 21 | 51 | 4 / 4 |
+| **Total** | **300 / 300** | **525** | **23 / 64** |
 
-## Latest open-Intent resume
+The 525 findings are model-submitted candidates, not 525 confirmed
+vulnerabilities. Only the 23 targets matched by the frozen evaluator count as
+exact-hunk hits.
 
-The latest bounded resume used eight local workers split C6=1, C7=3, C8=2,
-and C9=2, with `CLAUDE_CODE_MAX_RETRIES=0` and an eight-hour outer budget. It
-concluded four Intents: C6/i022, C6/i023, C8/i012, and C8/i035. All four
-cluster runners ended at their wall-clock budget.
+## Final open-Intent resume
 
-The run recorded 286 client connection resets. The first reset occurred on the
-initial request, before retry amplification: an 80,645-token request waited
-200.696 seconds without a first stream chunk. Failed requests had a median
-context size of 93,064 tokens because Explore dispatches included the full,
-accumulated Fact graph (roughly 326--347 KB for the largest C7--C9 prompts).
-During the run, SGLang queue depth averaged 16.7 and peaked at 46; average
-time-to-first-token was 57.8 seconds, of which 53.2 seconds was queue time.
-Framework redispatch after a reset and delayed backend cancellation amplified
-the initial long-context/token-capacity problem but did not cause the first
-timeout.
+The final resume reused the original C7--C9 databases and checkpoints and ran
+only open Intents through Clairvoyant's native refill mechanism. It did not
+rerun already concluded work. Aggregate concurrency was 16 workers, split
+C7=5, C8=3, and C9=8. The final databases contain C7=58, C8=50, and C9=67
+concluded Intents with zero open Intents.
+
+Explore evidence remains in structured artifacts while database Facts use
+short cards. Explore workers receive complete cards only from the same
+snapshot or the same branch, plus the Fact that directly triggered the current
+Intent. This avoids sending the full accumulated Fact graph to every worker.
+
+During the monitored 16-worker run, SGLang queue depth averaged 3.25 and had a
+median of zero. It was zero in 62.3% of samples and peaked briefly at 38. The
+queue was therefore not a sustained runtime bottleneck.
+
+Relative to the 20/64 archive, the three additional exact hits are all in C8:
+usbvision in s10, ath9k_htc in s11, and hid-thrustmaster in s12. The latest
+22-to-23 improvement is the s12 hid-thrustmaster finding from Intent i048.
 
 The archive includes evaluator outputs, structured findings, checkpoints,
-terminal events, dispatcher prompts, project exports, and each SQLite
-blackboard. Large or reproducible local material is intentionally excluded:
+terminal events, dispatcher prompts, project exports, and each SQLite Fact
+graph. Large or reproducible local material is intentionally excluded:
 
 - materialized Linux source snapshots under `public/snapshots/`;
 - hidden Git snapshot metadata under `private/snapshot-git/`;
 - Claude configuration, MCP runtime files, and temporary analysis products;
-- raw worker stream/debug logs (retained only in the local experiment copy).
+- raw worker stream/debug logs retained only in the local experiment copy.
 
-The benchmark definition and preparation metadata are stored in
-`benchmark_curated/` at the repository's `experiments/` level.
+The benchmark definition can be downloaded from the organization repository's
+[`experiments/benchmark_curated`](https://github.com/Yuuoniy/vuln_variant_search/tree/vodkavortex/seed-family-search/experiments/benchmark_curated)
+directory; it is not duplicated in this repository.
