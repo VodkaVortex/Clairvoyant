@@ -26,12 +26,6 @@ determines every hit.
 
 The complete run archive is under `runs/10_cluster/`.
 
-## Dataset
-
-The compact 10-cluster dataset definition is included under
-[`dataset/10_cluster`](dataset/10_cluster). It contains the 10 cluster
-definitions, 10 seed SHAs, and 64 target SHAs, together with instructions for
-downloading and materializing the corresponding upstream Linux source trees.
 
 ## Security/evaluation boundary
 
