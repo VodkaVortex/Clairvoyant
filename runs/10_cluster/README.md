@@ -55,6 +55,5 @@ graph. Large or reproducible local material is intentionally excluded:
 - Claude configuration, MCP runtime files, and temporary analysis products;
 - raw worker stream/debug logs retained only in the local experiment copy.
 
-The benchmark definition can be downloaded from the organization repository's
-[`experiments/benchmark_curated`](https://github.com/Yuuoniy/vuln_variant_search/tree/vodkavortex/seed-family-search/experiments/benchmark_curated)
-directory; it is not duplicated in this repository.
+The compact benchmark definition and source-download instructions are included
+under [`dataset/10_cluster`](../../dataset/10_cluster).

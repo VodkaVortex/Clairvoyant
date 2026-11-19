@@ -26,19 +26,12 @@ determines every hit.
 
 The complete run archive is under `runs/10_cluster/`.
 
-## Download the curated 10-cluster dataset
+## Dataset
 
-The dataset is maintained in the organization repository at
-[`experiments/benchmark_curated`](https://github.com/Yuuoniy/vuln_variant_search/tree/vodkavortex/seed-family-search/experiments/benchmark_curated).
-Download only that directory with Git sparse checkout:
-
-```bash
-git clone --depth 1 --filter=blob:none --sparse \
-  --branch vodkavortex/seed-family-search \
-  https://github.com/Yuuoniy/vuln_variant_search.git
-cd vuln_variant_search
-git sparse-checkout set experiments/benchmark_curated
-```
+The compact 10-cluster dataset definition is included under
+[`dataset/10_cluster`](dataset/10_cluster). It contains the 10 cluster
+definitions, 10 seed SHAs, and 64 target SHAs, together with instructions for
+downloading and materializing the corresponding upstream Linux source trees.
 
 ## Security/evaluation boundary
 
