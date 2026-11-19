@@ -1,4 +1,4 @@
-# Clairvoyant single-cluster Linux variant search
+# Clairvoyant Linux variant search
 
 This adapter keeps the frozen benchmark and Clairvoyant core unchanged. It uses
 Clairvoyant for durable `Project → Intent → Fact` scheduling and Claude Code for
