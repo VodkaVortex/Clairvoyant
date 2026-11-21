@@ -1,0 +1,89 @@
+import json, os
+art = {
+  "version": 1,
+  "intent_id": "i036",
+  "branch": "tasklet-napi-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": ["s07"],
+  "findings": [
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "start": 762,
+      "end": 781,
+      "quote": "spin_lock_irqsave(&fep->lock, flags);\n\tspin_lock(&fep->tx_lock);\n\t(*fep->ops->stop)(dev);\n\tspin_unlock(&fep->tx_lock);",
+      "confidence": "medium",
+      "reason": "Lock object fs_enet_private.tx_lock (spin_lock_init at fs_enet-main.c:1013) is shared between a NAPI NET_RX-softirq poll and process-context close code, with the process side missing the bottom-half disable (tasklet/NAPI analogue of the seed's missing spin_lock_bh). SOFTIRQ SIDE: fs_enet_interrupt (hardirq, request_irq with IRQF_SHARED at fs_enet-main.c:741) -> napi_schedule_prep(&fep->napi) at 344 -> __napi_schedule(&fep->napi) at 352 -> fs_enet_napi (NAPI poll fn, def fs_enet-main.c:86, registered netif_napi_add at 1032) takes the SAME fep->tx_lock with plain spin_lock at line 99 and reaps/completes TX descriptors while looping up to budget against fep->dirty_tx. PROCESS SIDE (holder): fs_enet_close (.ndo_stop, netdev_ops at 905, def 762) runs in process context (ifconfig down / netlink) and acquires the SAME fep->tx_lock with plain spin_lock at line 774, nested inside spin_lock_irqsave(&fep->lock) at 773 - the outer irqsave disables hard IRQs but NOT bottom halves. MISSING GUARANTEE: zero spin_lock_bh/local_bh_disable anywhere in the file (grep count = 0); only plain sites 99 (NAPI), 523 (xmit), 774 (close) plus spin_lock_init at 1013. UNTRUSTED SOURCE: attacker-influenced concurrency - any packet arriving on the shared IRQ line schedules the NAPI poll, and any device close (ifconfig down/netlink) aligns the holder on the same CPU. COUNTEREVIDENCE: napi_disable(&fep->napi) at 769 waits out an in-flight poll and free_irq at 781 happens after the lock section, which narrows the window: the deadlock needs a NET_RX softirq (already scheduled or scheduled by the still-requested shared IRQ during lines 773-779) to run on the same CPU while close holds tx_lock; __napi_schedule at 352 can still fire during the lock section because free_irq only happens later. Impact: softirq spinning forever against a preempted holder -> soft lockup/RCU stall/DoS, the exact seed mechanism shape."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c",
+      "line": 99,
+      "status": "reported",
+      "reason": "NAPI-softirq side of the reported finding: fs_enet_napi (def 86, registered via netif_napi_add at 1032; scheduled from hardirq fs_enet_interrupt via napi_schedule_prep:344/__napi_schedule:352, request_irq at 741) takes plain spin_lock(&fep->tx_lock) at 99 while process-context fs_enet_close takes the same lock plainly at 774 with no BH disable anywhere in the file."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/ethernet/altera/altera_tse_main.c",
+      "line": 463,
+      "status": "reported",
+      "reason": "Second instance of the same invariant violation in s07 (already reported as the low-confidence finding of the sibling xmit-branch pass f017; re-verified here for the tasklet/NAPI branch): tse_tx_complete (def 455) takes plain spin_lock(&priv->tx_lock) at 463 and is called from NAPI poll tse_poll at 510 (napi_schedule_prep/__napi_schedule at 549/554 from hardirq altera_isr, spin_lock(&priv->rxdma_irq_lock) at 543/550), while process-context tse_shutdown (.ndo_stop at 1320, def 1273) takes the SAME plain spin_lock(&priv->tx_lock) at 1298 after napi_disable (1284) and free_irq (1293/1294); only one spin_lock_bh exists in the file (xmit site 579), proving the driver knows the lock needs BH disable in BH-enabled contexts. Window narrowed by napi_disable+free_irq before 1298; the residual risk is a NAPI poll already executing when close starts."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 303,
+      "status": "safe",
+      "reason": "bcm_enet_refill_rx_timer (timer callback, def 298) takes plain spin_lock(&priv->rx_lock) at 303 and bcm_enet_poll (NAPI poll, def 482, napi_schedule at 563 from the hardirq, netif_napi_add at 1861) takes the same lock plainly at 500; both sites are softirq-context (TIMER_SOFTIRQ and NET_RX softirq), and two distinct softirqs cannot preempt each other on the same CPU, so the holder-can-never-resume shape is absent; no process-context plain acquisition of rx_lock exists (only spin_lock_init)."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/marvell/mwl8k.c",
+      "line": 4642,
+      "status": "safe",
+      "reason": "mwl8k_tx_poll tasklet callback takes priv->tx_lock with plain spin_lock, but every process-context acquisition of the same tx_lock uses spin_lock_bh (1568/1581/1587/2054/2115 per the xmit-branch fact f017), so the holder side always disables BH; the tasklet plain site is the softirq side itself and the invariant holds. The separate mwl8k stream_lock defect is xmit-branch scope (f017) and is not re-reported here."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/ath/ath9k/main.c",
+      "line": 387,
+      "status": "safe",
+      "reason": "ath9k_tasklet (TASKLET_SOFTIRQ callback) takes sc->sc_pcu_lock with plain spin_lock at 387, but every process-context site of the same lock uses spin_lock_bh (main.c 295/340/674/845/865 per the xmit-branch pass f017); the plain acquisition is the softirq side itself, so no BH-enabled plain holder exists for a tasklet/NAPI softirq to spin against."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/intel/iwlwifi/pcie/rx.c",
+      "line": 1013,
+      "status": "unresolved",
+      "reason": "Plain spin_lock(&trans_pcie->irq_lock) at 1013/1046 and rxq->lock/rba->lock sites sit in NAPI-reachable RX handling (highest plain-spin_lock density in the tree); iwlwifi generally wraps irq_lock acquisitions with explicit local_irq_save/local_bh_disable at other sites, but full pairing of every plain site against BH-enabled process-context holders (trans.c power management, firmware load) was not completed before the finalize directive; carried from the sibling xmit-branch pass (f017 limitation)."
+    },
+    {
+      "snapshot": "s07",
+      "path": "drivers/net/wireless/mediatek/mt76/tx.c",
+      "line": 464,
+      "status": "unresolved",
+      "reason": "mt76 q->lock plain spin_lock at 464/486/495 (tx status/queue paths) is shared between mac80211 .tx machinery and NAPI poll/worker sides; per-site attribution of which plain sites are BH-enabled process context vs softirq was not completed before the finalize directive (carried from sibling pass f017 limitation)."
+    }
+  ],
+  "limitations": [
+    "Bounded search halted by the finalize directive: deep lock-object pairing was completed for fs_enet (reported), altera_tse (reported), bcm63xx_enet, mwl8k tx_lock and ath9k sc_pcu_lock (safe); iwlwifi pcie/rx.c irq_lock/rxq->lock/rba->lock and mt76 q->lock remain unresolved process-vs-NAPI pairings.",
+    "Static source analysis only: no kernel build, lockdep run or runtime reproducer was performed (the s07 tree lacks .config and generated headers); contexts were attributed from grep-visible wiring (request_irq at fs_enet-main.c:741, netif_napi_add at 1032, .ndo_stop at 905) rather than tracing.",
+    "The fs_enet window is narrowed by napi_disable at 769 and free_irq at 781: the residual deadlock needs a NET_RX softirq (already scheduled before napi_disable completed, or newly scheduled by the still-active shared IRQ during the 773-779 lock section) to run on the same CPU while close holds tx_lock - reflected in medium confidence.",
+    "The altera_tse window is narrowed further: tse_shutdown calls napi_disable at 1284 and free_irq at 1293/1294 BEFORE taking plain tx_lock at 1298, so only an already-running NAPI poll racing the close sequence remains; reported at the lower confidence already established by the sibling pass.",
+    "Branch scope excluded ndo_start_xmit chains covered by the xmit-softirq-lock branch (fs_enet_start_xmit:523 and mwl8k stream_lock were only used as same-lock evidence) and timer-callback chains covered by the timer-dwork-softirq-lock branch (tun tun_flow_cleanup, garp/mrp join timers, br_multicast multicast_lock, bcm63xx refill timer); hardirq-analogue shapes are branch-4 scope.",
+    "The staging ks7010 seed (tx_dev_lock) is present unpatched in s07 (ks_wlan_start_xmit / ks_wlan_hw_tx) but is the demonstration only and was never considered for reporting; candidate enumeration beyond the families above (tasklet_schedule/napi_schedule trigger sites tree-wide) was not re-run before the finalize order."
+  ]
+}
+os.makedirs(os.path.dirname("/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i036.json"), exist_ok=True)
+with open("/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i036.json","w") as f:
+    json.dump(art,f,indent=2)
+cp = {
+  "version":1,"intent_id":"i036","snapshot":"s07","status":"finalized",
+  "findings":[{"path":"drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c","lines":"762-781","confidence":"medium"}],
+  "candidates":["fs_enet-main.c:99 reported","altera_tse_main.c:463/1298 reported(low)","bcm63xx_enet.c:303 safe","mwl8k.c:4642 safe","ath9k/main.c:387 safe","iwlwifi rx.c:1013 unresolved","mt76 tx.c:464 unresolved"]
+}
+with open("/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/checkpoints/i036.json","w") as f:
+    json.dump(cp,f,indent=2)
+print("written")

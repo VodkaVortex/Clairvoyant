@@ -1,0 +1,17 @@
+{
+  "intent_id": "i039",
+  "phase": "start",
+  "snapshot": "s10",
+  "branch": "tasklet-napi-softirq-lock",
+  "invariant": "lock shared between process-context code and TASKLET/NET-softirq callbacks (tasklet_schedule bodies, NAPI polls via napi_schedule, other NET_RX/NET_TX softirq callbacks) where process side uses plain spin_lock() instead of spin_lock_bh(); softirq spins forever against preempted holder. Exclude ndo_start_xmit and timer-callback paths (covered by sibling branches).",
+  "candidates": [],
+  "next_queries": [
+    "fs_enet tx_lock NAPI vs close (known family in siblings)",
+    "altera_tse tx_lock NAPI vs shutdown (known family)",
+    "cassini tx_lock NAPI vs workqueue reset (known family)",
+    "tasklet_schedule bodies with plain spin_lock",
+    "NAPI poll fns with plain spin_lock",
+    "mwl8k tx_lock tasklet vs process sites",
+    "qtnfmac/cw1200 unresolved leads from s10 xmit pass"
+  ]
+}

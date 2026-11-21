@@ -1,0 +1,141 @@
+import json, os
+
+final = {
+  "version": 1,
+  "intent_id": "i016",
+  "branch": "vm-shared-desc-rereads",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/virtio/virtio_ring.c",
+      "start": 737,
+      "end": 758,
+      "quote": "while (vq->split.vring.desc[i].flags & nextflag) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: vq->split.vring.desc is the split virtqueue descriptor table, DMA-shared with and writable by the (potentially malicious/compromised) virtio device or, in paravirt/vduse setups, the peer; the driver itself treats on-ring descriptor contents as untrusted (it maintains a kernel-private vring_desc_extra[] shadow precisely because descriptor contents cannot be trusted after exposure). Violated invariant: at virtqueue_add_split() time the kernel established the authoritative chain shape in kernel-private memory (virtqueue_add_desc_split() stores extra[i].flags/addr/len and chain next in desc_extra, and around lines 620-624 even updates desc_extra[...].flags &= ~VRING_DESC_F_NEXT for the final descriptor), but detach_buf_split() decides loop continuation by re-reading the live shared copy vq->split.vring.desc[i].flags instead of its own snapshot desc_extra[i].flags — so the value that built the chain (shadow) and the value that tears it down (shared re-read) can differ under a racing device. Unsafe use: if the device re-sets VRING_DESC_F_NEXT in the on-ring flags after the kernel cleared it, the loop keeps walking i = vq->split.desc_extra[i].next onto free-list/foreign desc_extra entries, calling vring_unmap_one_split() (dma_unmap_page on addr/len belonging to other live buffers -> unbalanced double unmap at their real detach) and inflating vq->vq.num_free; it then splices vq->free_head through a corrupted tail (vq->split.desc_extra[i].next = vq->free_head; vq->free_head = head), so later virtqueue_add_split() pops descriptors still owned by in-flight buffers and virtqueue_add_desc_split() overwrites their desc[]/desc_extra[] -> kernel memory/descriptor corruption in the guest. Conversely, an early NEXT clear by the device truncates the walk (num_free undercount, mapping leak, ENOSPC DoS). Counterevidence checked: vring_unmap_one_split() itself reads only the kernel-private desc_extra snapshot; the indirect-table branch of detach_buf_split() uses the kmalloc'd copy and desc_extra[head].len (safe); vhost's guest-facing equivalent (vhost_get_vq_desc/get_indirect) copies each descriptor once into a local struct with READ_ONCE(desc->next), and __vringh_iov() likewise copies each descriptor into a local struct with i bounds-checked against desc_max — showing this guest-side flags re-read is the outlier. Impact chain (free-list corruption -> in-use descriptor overwrite) is a static hypothesis, not runtime-proven; hence medium confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2289,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc(): each guest descriptor is fetched exactly once into a kernel-local struct vring_desc via vhost_get_desc() (copy_from_user/__copy_from_user), and all checks (i >= vq->num, found > vq->num, flags, translate of desc.addr/desc.len) plus the next_desc() hop (READ_ONCE(desc->next) on the local copy) consume that single snapshot; no second fetch of guest memory for the same field."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2111,
+      "status": "safe",
+      "reason": "get_indirect(): indirect descriptors are streamed once through an iov_iter into a local struct vring_desc (copy_from_iter_full), count is bounded by len/sizeof(desc) computed from the one-time len snapshot, and nested-indirect/loop checks plus translate_desc all use the local copy."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vringh.c",
+      "line": 283,
+      "status": "safe",
+      "reason": "__vringh_iov(): every descriptor (direct and indirect) is copied into a local struct vring_desc via the copy/slow_copy callback before flags/addr/len are used, chained index i is bounds-checked against desc_max, and the rcheck-truncation path rewrites the local desc.len/desc.addr rather than re-reading shared memory."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vdpa.c",
+      "line": 304,
+      "status": "safe",
+      "reason": "vhost_vdpa_get_config()/set_config(): the vhost_vdpa_config header (off/len) is copy_from_user'ed once, validated against the device config size from that snapshot, and the same snapshot's config.len is then used for the payload copy (kvzalloc/vmemdup_user); no re-fetch of off/len between validation and use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vdpa/vdpa_user/vduse_dev.c",
+      "line": 1091,
+      "status": "safe",
+      "reason": "VDUSE_DEV_SET_CONFIG (and VDUSE_VQ_SETUP/VDUSE_IOTLB_GET_FD neighbors): struct copied once with copy_from_user; offset/length (or index) validated from and used from that single snapshot; buffer bytes fetched once via the second copy_from_user."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/virtio_net.c",
+      "line": 4005,
+      "status": "safe",
+      "reason": "virtnet_validate() and virtnet_probe() each read config mtu independently, but the probe-side use re-validates the second read (mtu < dev->min_mtu -> -EINVAL) before dev->mtu/dev->max_mtu assignment, and mtu is u16 so it cannot exceed ETH_MAX_MTU; a benign double-read with validation on the consuming copy."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/virtio_net.c",
+      "line": 1089,
+      "status": "safe",
+      "reason": "receive_buf_mrg(): hdr->num_buffers is read once into num_buf for the merge loop; the later hdr->num_buffers reads (lines ~1041, ~1264) occur only in pr_debug messages after an error, never in a security-sensitive use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vdpa/vdpa_sim/vdpa_sim_net.c",
+      "line": 126,
+      "status": "safe",
+      "reason": "vdpasim_handle_cvq() reaches guest descriptors only through vringh_getdesc_iotlb()/vringh_iov_pull_iotlb(), which copy descriptor data once into kernel iovecs/kvecs and a local virtio_net_ctrl_hdr before the switch on ctrl.class; no shared-memory re-read."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/virtio/virtio_ring.c",
+      "line": 749,
+      "status": "reported",
+      "reason": "detach_buf_split() loop condition reads the device-shared on-ring vq->split.vring.desc[i].flags instead of the kernel-private vq->split.desc_extra[i].flags snapshot; a racing device that re-sets VRING_DESC_F_NEXT after the kernel cleared it extends the walk onto free-list/foreign desc_extra entries (extra dma_unmap_page on other buffers' mappings, num_free inflation, free_head spliced through a corrupted tail -> later virtqueue_add_split reuses in-flight descriptors), while an early clear truncates it (num_free undercount, mapping leak, ENOSPC DoS). Reported as the primary finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/virtio/virtio_ring.c",
+      "line": 696,
+      "status": "safe",
+      "reason": "virtqueue_add_split() unmap_release error path walks the chain via i = vring_unmap_one_split(vq, i), whose body reads only the kernel-private vq->split.desc_extra snapshot and returns its ->next; the shared on-ring descriptor is not consulted for termination."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/vhost/vhost.c",
+      "line": 2228,
+      "status": "safe",
+      "reason": "vhost_get_vq_desc() avail handling: avail idx and ring head are each fetched once into locals (vhost_get_avail_idx/vhost_get_avail_head single __get_user), the idx delta is bounds-checked, and head is checked (head >= vq->num -> -EINVAL) before use; vhost_vq_is_avail() and vhost_notify() re-read avail idx but only for interrupt decisions, not security-sensitive state."
+    }
+  ],
+  "limitations": [
+    "The detach_buf_split finding is a static hypothesis backed by source reading of the full function plus its add-side counterpart; no runtime reproducer or DMA-racing harness was built, so the free-list-corruption-to-descriptor-overwrite chain is argued, not demonstrated.",
+    "Threat model nuance: guest-side virtio_ring.c normally assumes a cooperative device; the report presumes the device-writable descriptor-table threat model the branch specifies (malicious/compromised virtio device, vduse userspace device, or device-side DMA overwrite), which the driver's own desc_extra shadowing shows the authors partially anticipate.",
+    "Vendor vdpa drivers (drivers/vdpa/mlx5, ifcvf, alibaba, solidrun) and the vhost_net/scsi/vsock consumers of the validated iovecs were not audited for later re-reads of guest buffer contents.",
+    "virtio_mmio/virtio_pci config-space accessors were not audited for torn multi-word config reads; only their consumers (virtio_net, virtio_mem, virtio_balloon, virtio_input) were spot-checked.",
+    "Packed-ring paths (detach_buf_packed, virtqueue_enable_cb_delayed_packed) were spot-checked as using kernel-private desc_state/desc_extra but not exhaustively compared with the split-ring finding."
+  ]
+}
+
+path = "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i016.json"
+os.makedirs(os.path.dirname(path), exist_ok=True)
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(final, f, indent=2)
+os.replace(tmp, path)
+print("wrote", path)
+
+ckpt = {
+  "intent_id": "i016",
+  "branch": "vm-shared-desc-rereads",
+  "snapshot": "s04",
+  "status": "complete",
+  "checkpoint": "Final artifact written: 1 reported finding (drivers/virtio/virtio_ring.c:737-758 detach_buf_split, while-condition reads device-shared vring.desc[i].flags instead of kernel-private desc_extra[i].flags snapshot, medium confidence), 10 candidates classified safe, limitations recorded.",
+  "candidates": [
+    {"path": "drivers/virtio/virtio_ring.c", "line": 749, "status": "reported"},
+    {"path": "drivers/vhost/vhost.c", "line": 2289, "status": "safe"},
+    {"path": "drivers/vhost/vhost.c", "line": 2111, "status": "safe"},
+    {"path": "drivers/vhost/vringh.c", "line": 283, "status": "safe"},
+    {"path": "drivers/vhost/vdpa.c", "line": 304, "status": "safe"},
+    {"path": "drivers/vdpa/vdpa_user/vduse_dev.c", "line": 1091, "status": "safe"},
+    {"path": "drivers/net/virtio_net.c", "line": 4005, "status": "safe"},
+    {"path": "drivers/net/virtio_net.c", "line": 1089, "status": "safe"},
+    {"path": "drivers/vdpa/vdpa_sim/vdpa_sim_net.c", "line": 126, "status": "safe"},
+    {"path": "drivers/virtio/virtio_ring.c", "line": 696, "status": "safe"},
+    {"path": "drivers/vhost/vhost.c", "line": 2228, "status": "safe"}
+  ]
+}
+cpath = "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/checkpoints/i016.json"
+tmp = cpath + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(ckpt, f, indent=2)
+os.replace(tmp, cpath)
+print("wrote", cpath)

@@ -1,0 +1,160 @@
+fs/orangefs/orangefs-debugfs.c:405:	if (copy_from_user(buf, ubuf, count - 1)) {
+fs/orangefs/orangefs-debugfs.c:406:		gossip_debug(GOSSIP_DEBUGFS_DEBUG,
+fs/orangefs/orangefs-debugfs.c:407:			     "%s: copy_from_user failed!\n",
+fs/orangefs/orangefs-debugfs.c:408:			     __func__);
+fs/orangefs/orangefs-debugfs.c:409:		goto out;
+fs/orangefs/orangefs-debugfs.c:410:	}
+fs/orangefs/orangefs-debugfs.c:411:
+fs/orangefs/orangefs-debugfs.c:412:	/*
+fs/orangefs/orangefs-debugfs.c:413:	 * Map the keyword string from userspace into a valid debug mask.
+fs/orangefs/orangefs-debugfs.c:414:	 * The mapping process involves mapping the human-inputted string
+fs/orangefs/orangefs-debugfs.c:415:	 * into a valid mask, and then rebuilding the string from the
+fs/orangefs/orangefs-debugfs.c:416:	 * verified valid mask.
+fs/orangefs/orangefs-debugfs.c:417:	 *
+fs/orangefs/orangefs-debugfs.c:418:	 * A service operation is required to set a new client-side
+fs/orangefs/orangefs-debugfs.c:419:	 * debug mask.
+fs/orangefs/orangefs-debugfs.c:420:	 */
+fs/orangefs/orangefs-debugfs.c:421:	if (!strcmp(file->f_path.dentry->d_name.name,
+drivers/scsi/scsi_debug.c:1037:	if (copy_from_user(buf, ubuf, count)) {
+drivers/scsi/scsi_debug.c:1038:		kfree(buf);
+drivers/scsi/scsi_debug.c:1039:		return -EFAULT;
+drivers/scsi/scsi_debug.c:1040:	}
+drivers/scsi/scsi_debug.c:1041:
+drivers/scsi/scsi_debug.c:1042:	if (buf[0] == '-')
+drivers/scsi/scsi_debug.c:1043:		return sdebug_err_remove(sdev, buf, count);
+drivers/scsi/scsi_debug.c:1044:
+drivers/scsi/scsi_debug.c:1045:	if (sscanf(buf, "%d", &inject_type) != 1) {
+drivers/net/wireless/realtek/rtw88/debug.c:206:	ret = rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 2);
+drivers/net/wireless/realtek/rtw88/debug.c:207:	if (ret)
+drivers/net/wireless/realtek/rtw88/debug.c:208:		return ret;
+drivers/net/wireless/realtek/rtw88/debug.c:209:
+drivers/net/wireless/realtek/rtw88/debug.c:210:	num = sscanf(tmp, "%x %x", &addr, &len);
+drivers/net/wireless/realtek/rtw88/debug.c:296:	ret = rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 2);
+drivers/net/wireless/realtek/rtw88/debug.c:297:	if (ret)
+drivers/net/wireless/realtek/rtw88/debug.c:298:		return ret;
+drivers/net/wireless/realtek/rtw88/debug.c:299:
+drivers/net/wireless/realtek/rtw88/debug.c:300:	num = sscanf(tmp, "%d %d", &offset, &page_num);
+drivers/net/wireless/realtek/rtw88/debug.c:342:	ret = rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 3);
+drivers/net/wireless/realtek/rtw88/debug.c:343:	if (ret)
+drivers/net/wireless/realtek/rtw88/debug.c:344:		return ret;
+drivers/net/wireless/realtek/rtw88/debug.c:345:
+drivers/net/wireless/realtek/rtw88/debug.c:346:	/* write BB/MAC register */
+drivers/net/wireless/realtek/rtw88/debug.c:347:	num = sscanf(tmp, "%x %x %x", &addr, &val, &len);
+drivers/net/wireless/realtek/rtw88/debug.c:388:	ret = rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 3);
+drivers/net/wireless/realtek/rtw88/debug.c:389:	if (ret)
+drivers/net/wireless/realtek/rtw88/debug.c:390:		return ret;
+drivers/net/wireless/realtek/rtw88/debug.c:391:
+drivers/net/wireless/realtek/rtw88/debug.c:392:	num = sscanf(tmp, "%hhx,%hhx,%hhx,%hhx,%hhx,%hhx,%hhx,%hhx",
+drivers/net/wireless/realtek/rtw88/debug.c:418:	ret = rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 4);
+drivers/net/wireless/realtek/rtw88/debug.c:419:	if (ret)
+drivers/net/wireless/realtek/rtw88/debug.c:420:		return ret;
+drivers/net/wireless/realtek/rtw88/debug.c:421:
+drivers/net/wireless/realtek/rtw88/debug.c:422:	num = sscanf(tmp, "%x %x %x %x", &path, &addr, &mask, &val);
+drivers/net/wireless/realtek/rtw88/debug.c:451:	ret = rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 3);
+drivers/net/wireless/realtek/rtw88/debug.c:452:	if (ret)
+drivers/net/wireless/realtek/rtw88/debug.c:453:		return ret;
+drivers/net/wireless/realtek/rtw88/debug.c:454:
+drivers/net/wireless/realtek/rtw88/debug.c:455:	num = sscanf(tmp, "%x %x %x", &path, &addr, &mask);
+drivers/thunderbolt/debugfs.c:417:	buf = validate_and_copy_from_user(user_buf, &count);
+drivers/thunderbolt/debugfs.c:418:	if (IS_ERR(buf))
+drivers/thunderbolt/debugfs.c:419:		return PTR_ERR(buf);
+drivers/thunderbolt/debugfs.c:420:
+drivers/thunderbolt/debugfs.c:421:	buf[count - 1] = '\0';
+drivers/thunderbolt/debugfs.c:422:
+drivers/thunderbolt/debugfs.c:423:	if (mutex_lock_interruptible(&tb->lock)) {
+drivers/thunderbolt/debugfs.c:424:		ret = -ERESTARTSYS;
+drivers/thunderbolt/debugfs.c:425:		goto out_free;
+drivers/thunderbolt/debugfs.c:426:	}
+drivers/thunderbolt/debugfs.c:427:
+drivers/thunderbolt/debugfs.c:428:	if (!strcmp(buf, "0")) {
+drivers/thunderbolt/debugfs.c:490:	buf = validate_and_copy_from_user(user_buf, &count);
+drivers/thunderbolt/debugfs.c:491:	if (IS_ERR(buf))
+drivers/thunderbolt/debugfs.c:492:		return PTR_ERR(buf);
+drivers/thunderbolt/debugfs.c:493:
+drivers/thunderbolt/debugfs.c:494:	buf[count - 1] = '\0';
+drivers/thunderbolt/debugfs.c:495:
+drivers/thunderbolt/debugfs.c:496:	if (mutex_lock_interruptible(&tb->lock)) {
+drivers/thunderbolt/debugfs.c:497:		ret = -ERESTARTSYS;
+drivers/thunderbolt/debugfs.c:498:		goto out_free;
+drivers/thunderbolt/debugfs.c:499:	}
+drivers/thunderbolt/debugfs.c:500:
+drivers/thunderbolt/debugfs.c:501:	if (!strcmp(buf, "software")) {
+drivers/thunderbolt/debugfs.c:754:	buf = validate_and_copy_from_user(user_buf, &count);
+drivers/thunderbolt/debugfs.c:755:	if (IS_ERR(buf))
+drivers/thunderbolt/debugfs.c:756:		return PTR_ERR(buf);
+drivers/thunderbolt/debugfs.c:757:
+drivers/thunderbolt/debugfs.c:758:	buf[count - 1] = '\0';
+drivers/thunderbolt/debugfs.c:759:
+drivers/thunderbolt/debugfs.c:760:	if (mutex_lock_interruptible(&tb->lock)) {
+drivers/thunderbolt/debugfs.c:761:		ret = -ERESTARTSYS;
+drivers/thunderbolt/debugfs.c:762:		goto out_free;
+drivers/thunderbolt/debugfs.c:763:	}
+drivers/thunderbolt/debugfs.c:764:
+drivers/thunderbolt/debugfs.c:765:	if (!strcmp(buf, "time") && supports_time(usb4))
+drivers/thunderbolt/debugfs.c:813:	buf = validate_and_copy_from_user(user_buf, &count);
+drivers/thunderbolt/debugfs.c:814:	if (IS_ERR(buf))
+drivers/thunderbolt/debugfs.c:815:		return PTR_ERR(buf);
+drivers/thunderbolt/debugfs.c:816:
+drivers/thunderbolt/debugfs.c:817:	buf[count - 1] = '\0';
+drivers/thunderbolt/debugfs.c:818:
+drivers/thunderbolt/debugfs.c:819:	if (mutex_lock_interruptible(&tb->lock)) {
+drivers/thunderbolt/debugfs.c:820:		ret = -ERESTARTSYS;
+drivers/thunderbolt/debugfs.c:821:		goto out_free;
+drivers/thunderbolt/debugfs.c:822:	}
+drivers/thunderbolt/debugfs.c:823:
+drivers/thunderbolt/debugfs.c:824:	if (usb4->margining->time) {
+drivers/thunderbolt/debugfs.c:825:		if (!strcmp(buf, "left"))
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:107:	ret = copy_from_user(str, buf, size);
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:108:	if (ret)
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:109:		return -EFAULT;
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:110:
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:111:	ret = pm_runtime_get_sync(dev->dev);
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:112:	if (ret < 0) {
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:113:		pm_runtime_put_autosuspend(dev->dev);
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:114:		return ret;
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:115:	}
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:116:
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:117:	if (size < 3)
+drivers/gpu/drm/amd/amdgpu/amdgpu_securedisplay.c:118:		sscanf(str, "%u ", &op);
+drivers/misc/ibmvmc.c:1238:	bytes = copy_from_user(hmc->hmc_id, new_hmc_id, HMC_ID_LEN);
+drivers/misc/ibmvmc.c:1239:	if (bytes)
+drivers/misc/ibmvmc.c:1240:		return -EFAULT;
+drivers/misc/ibmvmc.c:1241:
+drivers/misc/ibmvmc.c:1242:	/* Send Open Session command */
+drivers/misc/ibmvmc.c:1243:	spin_lock_irqsave(&hmc->lock, flags);
+drivers/misc/ibmvmc.c:1244:	buffer = ibmvmc_get_valid_hmc_buffer(hmc->index);
+drivers/misc/ibmvmc.c:1245:	spin_unlock_irqrestore(&hmc->lock, flags);
+drivers/misc/ibmvmc.c:1246:
+drivers/misc/ibmvmc.c:1247:	if (!buffer || !buffer->real_addr_local) {
+drivers/misc/ibmvmc.c:1248:		pr_warn("ibmvmc: sethmcid: no buffer available\n");
+drivers/misc/ibmvmc.c:1249:		return -EIO;
+drivers/misc/ibmvmc.c:1250:	}
+drivers/misc/ibmvmc.c:1251:
+drivers/misc/ibmvmc.c:1252:	strscpy(print_buffer, hmc->hmc_id, sizeof(print_buffer));
+drivers/misc/ibmasm/ibmasmfs.c:533:	if (copy_from_user(buff, ubuff, count)) {
+drivers/misc/ibmasm/ibmasmfs.c:534:		kfree(buff);
+drivers/misc/ibmasm/ibmasmfs.c:535:		return -EFAULT;
+drivers/misc/ibmasm/ibmasmfs.c:536:	}
+drivers/misc/ibmasm/ibmasmfs.c:537:
+drivers/misc/ibmasm/ibmasmfs.c:538:	value = simple_strtoul(buff, NULL, 10);
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1303:	bytes_not_copied = copy_from_user(cmd_buf, buffer, *count);
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1304:	if (bytes_not_copied)
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1305:		return -EFAULT;
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1306:
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1307:	cmd_buf[*count] = '\0';
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1308:	cmd_buf_tmp = strchr(cmd_buf, '\n');
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:771:	bytes_not_copied = copy_from_user(cmd_buf, buffer, count);
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:772:	if (bytes_not_copied) {
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:773:		kfree(cmd_buf);
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:774:		return -EFAULT;
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:775:	}
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:776:	cmd_buf[count] = '\0';
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:777:
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:778:	cmd_buf_tmp = strchr(cmd_buf, '\n');
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:1696:	bytes_not_copied = copy_from_user(i40e_dbg_netdev_ops_buf,
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:1697:					  buffer, count);
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:1698:	if (bytes_not_copied)
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:1699:		return -EFAULT;
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:1700:	i40e_dbg_netdev_ops_buf[count] = '\0';
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:1701:
+drivers/net/ethernet/intel/i40e/i40e_debugfs.c:1702:	buf_tmp = strchr(i40e_dbg_netdev_ops_buf, '\n');

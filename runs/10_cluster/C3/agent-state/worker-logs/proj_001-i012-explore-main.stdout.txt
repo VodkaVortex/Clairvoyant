@@ -1,0 +1,2 @@
+Snapshot s03 contains the hwsim driver. Notably, `hwsim_del_edge_nl` (line 483) uses the fixed `||` guard, but `hwsim_new_edge_nl` (line 421) and `hwsim_set_edge_lqi` (line 531) still use the buggy `&&` guard before passing `info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE]` to `nla_parse_nested_deprecated`. Let me examine the policy table and ops flags, then triage the other direct hits.
+I have the exact evidence needed. Writing the checkpoint update and the final artifact now.

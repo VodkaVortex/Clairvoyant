@@ -1,0 +1,4 @@
+I'll start by writing the initial progress checkpoint, then examine the assigned snapshot s04.
+Both sites confirmed present in s04. Let me read the full functions and check registration modes and sibling handlers.
+ASan confirms f015's analysis: `buf[6] = '\0'` on `char buf[6]` when `len == sizeof(buf) == 6` is a 1-byte stack OOB write. f008's "safe" classification is refuted; both versal_edac.c and zynqmp_edac.c in s04 carry the defect. Now let me sweep the whole s04 tree for the same clamp-then-terminate pattern.
+All remaining ambiguous sites are safe (clamps use `-1`, or the destination is `+1`-sized, or kernel-internal data). The only two clamp-without-`-1` violations in s04 are the two EDAC handlers, confirmed by ASan. Writing the final artifact now.

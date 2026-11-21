@@ -1,0 +1,126 @@
+import json, os
+art = {
+  "version": 1,
+  "intent_id": "i002",
+  "branch": "xsk-umem-rereads",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "include/net/xdp_sock.h",
+      "start": 162,
+      "end": 182,
+      "quote": "static inline void xsk_tx_metadata_request(const struct xsk_tx_metadata *meta,\n\t\t\t\t   const struct xsk_tx_metadata_ops *ops,\n\t\t\t\t   void *priv)",
+      "confidence": "medium",
+      "reason": "Untrusted source: 'meta' is the AF_XDP TX metadata area located in the UMEM chunk immediately before the packet data (include/net/xdp_sock_drv.h:276 'meta = data - pool->tx_metadata_len'), i.e. userspace-mapped, concurrently writable shared memory. Violated invariant: in the zerocopy-driver TX path (igc_xdp_xmit_zc drivers/net/ethernet/intel/igc/igc_main.c:3076-3088, stmmac drivers/net/ethernet/stmicro/stmmac/stmmac_main.c:2734-2779, mlx5 drivers/net/ethernet/mellanox/mlx5/core/en/xsk/tx.c:100-102, libeth __libeth_xsk_xmit_fill_buf_md include/net/libeth/xsk.h:200-215 via xp_raw_get_ctx net/xdp/xsk_buff_pool.c:766-779) the sole validation of this shared memory is __xsk_buff_get_metadata()'s flag check (meta->flags & ~XDP_TXMD_FLAGS_VALID, xdp_sock_drv.h:262-266); xsk_tx_metadata_request() then independently re-reads meta->flags twice more (lines 170, 175, 179) and meta->request.launch_time (line 171) and meta->request.csum_start/csum_offset (line 180) from the same shared memory with no READ_ONCE-into-local snapshot, so the value validated by the flag check need not be the value consumed by the driver callback. Unsafe use: the fetched values flow into driver TX state, e.g. igc_xsk_request_launch_time programs the launch-time context descriptor from meta->request.launch_time and stmmac/mlx5/libeth program checksum-offload descriptor bits; xsk_tx_metadata_to_compl() (xdp_sock.h:140-151) additionally snapshots &meta->completion.tx_timestamp, a shared-memory address that xsk_destruct_skb() later writes at completion time. Counterevidence checked: current in-tree tmo_request_checksum implementations (mlx5e_xsk_request_checksum en/xdp.c:303-309 and libeth_xsktmo_req_csum include/net/libeth/xsk.h:162-167) ignore the csum_start/csum_offset arguments and only set a descriptor bit, and no driver validates csum_start/csum_offset against desc->len outside the SKB path, so immediate OOB impact in the ZC-driver path is not demonstrated; the demonstrated OOB producer (SKB-path double read of csum_start/csum_offset in xsk_skb_metadata, net/xdp/xsk.c:774-781) is the seed itself and is excluded. Report is a validated-fetch-then-later-independent-fetch hypothesis on the same shared-memory mechanism."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/xdp/xsk.c",
+      "line": 774,
+      "status": "unresolved",
+      "reason": "xsk_skb_metadata() reads meta->request.csum_start/csum_offset twice (validate at 775-777, use at 780-781) from UMEM-shared TX metadata; this is exactly the seed demonstration (pre-fix state of commit 22ba97ea9cc1), excluded from reporting per intent."
+    },
+    {
+      "snapshot": "s01",
+      "path": "include/net/xdp_sock.h",
+      "line": 174,
+      "status": "reported",
+      "reason": "xsk_tx_metadata_request(): meta->flags is re-read from shared memory at lines 170/175/179 after __xsk_buff_get_metadata() validated a different fetch; no local snapshot (finding 1)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/xdp/xsk_queue.h",
+      "line": 242,
+      "status": "safe",
+      "reason": "xskq_cons_read_desc()/xskq_cons_read_desc_batch() copy the TX descriptor out of the shared ring into a kernel-local struct xdp_desc ('*desc = ring->desc[idx]' / 'descs[nb_entries] = ring->desc[idx]') before xp_validate_desc() validates and drivers consume the local copy; single-fetch invariant holds for addr/len/options."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/xdp/xsk_buff_pool.c",
+      "line": 554,
+      "status": "safe",
+      "reason": "__xp_alloc() (and xp_alloc_new_from_fq at line 609) reads the fill-ring address into the local 'addr' via xskq_cons_peek_addr_unchecked()/__xskq_cons_read_addr_unchecked() and validates/uses that same local copy; no re-read of ring memory after validation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/xdp/xsk.c",
+      "line": 718,
+      "status": "unresolved",
+      "reason": "xsk_destruct_skb() writes *compl->tx_timestamp = ktime_get_tai_fast_ns() where compl->tx_timestamp was captured as &meta->completion.tx_timestamp, a pointer INTO userspace-mapped UMEM, at TX time by xsk_tx_metadata_to_compl(); racing userspace can alter meta->flags between to_compl and completion, but the pointer itself always points inside the validated UMEM chunk, so no kernel OOB was established."
+    },
+    {
+      "snapshot": "s01",
+      "path": "include/net/xdp_sock_drv.h",
+      "line": 277,
+      "status": "reported",
+      "reason": "__xsk_buff_get_metadata() validates meta->flags (one fetch) but returns the raw shared-memory pointer 'meta' rather than a snapshot; every later consumer (xsk_tx_metadata_request, xsk_tx_metadata_to_compl) re-fetches fields from that pointer, creating the validate/use divergence captured in finding 1."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/intel/igc/igc_main.c",
+      "line": 3077,
+      "status": "unresolved",
+      "reason": "igc_xdp_xmit_zc(): meta obtained via xsk_buff_get_metadata() then passed to xsk_tx_metadata_request(); igc's tmo_request_launch_time consumes meta->request.launch_time from shared memory with no bounds relation; no memory-safety sink proven for launch_time (schedule-time value only), and igc does not implement tmo_request_checksum, so OOB impact unproven."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/stmicro/stmmac/stmmac_main.c",
+      "line": 2735,
+      "status": "unresolved",
+      "reason": "stmmac AF_XDP TX: same un-snapshotted meta pointer passed to xsk_tx_metadata_request(); stmmac ops were not individually read (only the call site), so whether its callbacks consume csum offsets into descriptor fields is unverified."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/en/xsk/tx.c",
+      "line": 102,
+      "status": "safe",
+      "reason": "mlx5e_xsk_request_checksum() (en/xdp.c:303-309) ignores the fetched csum_start/csum_offset ('HW/FW is doing parsing, so offsets are largely ignored') and only sets MLX5_ETH_WQE_L3_CSUM|L4_CSUM bits, so the divergent second fetch has no memory-safety consequence in mlx5."
+    },
+    {
+      "snapshot": "s01",
+      "path": "include/net/libeth/xsk.h",
+      "line": 162,
+      "status": "safe",
+      "reason": "libeth_xsktmo_req_csum() ignores csum_start/csum_offset arguments and only sets LIBETH_XDP_TX_CSUM flag bit; Intel libeth ZC TX path has no value-dependent use of the divergent fetch."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/google/gve/gve_tx.c",
+      "line": 957,
+      "status": "unresolved",
+      "reason": "gve uses xsk_buff_raw_get_data(pool, desc.addr) for XSK TX but the surrounding function was not read; no evidence yet that any UMEM-resident field is fetched twice there (only data-pointer usage observed via grep)."
+    }
+  ],
+  "limitations": [
+    "Only the ZC driver call sites of xsk_tx_metadata_request() reachable by grep (igc, mlx5, stmmac, libeth/intel idpf-iavf family, gve) were triaged; stmmac's stmmac_xsk_tx_metadata_ops callbacks and gve's full TX function were not read line-by-line, so a value-consuming consumer of the divergent fetch may remain there.",
+    "The finding documents the validated-fetch-then-later-independent-fetch pattern (flags/launch_time/csum fields re-read from UMEM-shared metadata); no concrete OOB memory access is demonstrated in the ZC-driver path because all in-tree tmo_request_checksum implementations currently ignore the fetched values, hence confidence medium.",
+    "SKB-mode xsk_skb_metadata() (net/xdp/xsk.c:761-798) in s01 is the unfixed seed mechanism itself and is excluded from reporting by intent; its re-read of meta->flags for LAUNCH_TIME (line 793) is the same benign-inconsistency class acknowledged by the seed commit message.",
+    "Four snapshots exist but only s01 was searched, per intent assignment; s02-s04 are out of scope for i002.",
+    "No dynamic/compile-time verification was performed; the analysis is static reading of s01 sources (net/xdp/*, include/net/xdp_sock*.h, include/net/libeth/xsk.h, and the four driver TX paths)."
+  ]
+}
+path = "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/findings/i002.json"
+os.makedirs(os.path.dirname(path), exist_ok=True)
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(art, f, indent=2)
+os.replace(tmp, path)
+print("artifact written:", path)
+# final checkpoint update
+ckpt = {
+  "intent_id": "i002",
+  "branch": "xsk-umem-rereads",
+  "snapshot": "s01",
+  "status": "complete",
+  "step": "finalized; 1 finding (include/net/xdp_sock.h:162-182 xsk_tx_metadata_request re-fetch of validated shared-memory fields), 11 candidates classified",
+}
+cpath = "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C5/agent-state/checkpoints/i002.json"
+tmp2 = cpath + ".tmp"
+with open(tmp2, "w") as f:
+    json.dump(ckpt, f, indent=2)
+os.replace(tmp2, cpath)
+print("checkpoint updated")

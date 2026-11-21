@@ -1,0 +1,129 @@
+import json, os
+art = {
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "rx-pull-stale-hdr",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/rx.c",
+      "start": 3324,
+      "end": 3331,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;",
+      "confidence": "high",
+      "reason": "UNTRUSTED SOURCE: remote 802.11 data frames converted to 802.3 whose ethertype is ETH_P_TDLS reach this block of ieee80211_rx_h_data (after __ieee80211_data_to_8023 at net/mac80211/rx.c:3310); the frame bytes at rx->skb->data are fully attacker-controlled by any peer station. VIOLATED INVARIANT: tf is captured at line 3324 as a direct cast of rx->skb->data, a raw pointer into skb->head, and must be refetched after any call that can reallocate the head. pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) at lines 3326-3327 calls __pskb_pull_tail and, for a cloned or non-linear wireless RX skb (A-MSDU/frag hardware paths), pskb_expand_head() which frees/replaces skb->head (requirement documented in this snapshot at net/core/skbuff.c:2277 and 2855: 'All the pointers pointing into skb header may change and must be reloaded'). UNSAFE USE: because the pull is the left operand of &&, on success lines 3328-3331 immediately dereference the stale pre-pull tf (tf->payload_type at 3328, tf->category at 3329, tf->action_code at 3330-3331) with no refetch -- the exact pep_get_sb() shape (ph captured, pskb_may_pull, ph->sb_type read) on a receive-path parser. The bytes read gate whether the frame is queued via __ieee80211_queue_skb_to_iface (line 3333) into the interface queue consumed by the kernel TDLS channel-switch worker (ieee80211_process_tdls_channel_switch), i.e. kernel state transitions selected through possibly-freed slab memory. IMPACT: KASAN-detectable slab use-after-free read; the sibling s02/s01 audits (facts f007/f013) independently reported this same unpatched site. COUNTEREVIDENCE: triggering requires a non-linear or cloned skb at that offset (driver RX dependent); the reads are 3 bytes whose result selects queuing, and the downstream worker re-parses the frame, so impact is the dispatch decision on stale bytes rather than proven corruption; not dynamically reproduced."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/rx.c",
+      "start": 4972,
+      "end": 5068,
+      "quote": "if (rx->key && !ieee80211_has_protected(hdr->frame_control))",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: ieee80211_invoke_fast_rx() (net/mac80211/rx.c:4968) is the mac80211 fast-RX handler for remotely received data frames; hdr points at the attacker-supplied 802.11 MAC header bytes of rx->skb. VIOLATED INVARIANT: hdr is captured at line 4972 as (void *)skb->data and is never reassigned in the function (pre-pull reads at 5006/5021/5024 only); pskb_may_pull(skb, snap_offs + sizeof(*payload)) at line 5039 -- where snap_offs grows with the CCMP IV length, i.e. depends on packet key/parsing state -- can call __pskb_pull_tail -> pskb_expand_head and free/reallocate skb->head when the RX skb is non-linear at that offset (contrast payload, correctly re-derived from skb->data after the pull at line 5042). UNSAFE USE: line 5068 reads ieee80211_has_protected(hdr->frame_control) through the possibly stale pre-pull hdr with no refetch; the result routes the frame to 'goto drop' vs continued fast-path delivery -- a receive-path state transition through potentially freed slab memory, same class as the seed's ph->sb_type read after pskb_may_pull(skb, ph->sb_len). COUNTEREVIDENCE: mac80211 RX requires the 802.11 header itself to be linear in the head before rx handlers run (pskb_may_pull of hdrlen at rx.c:81 in ieee80211_rx_is_valid_sta_status/ieee80211_rx path helpers), and snap_offs + sizeof(*payload) often already lies within the pulled linear region, so the realloc precondition (non-linear skb at the SNAP/CCMP offset) is path-dependent and was not dynamically reproduced. Reported at medium confidence per the seed-shape match (capture -> may_pull -> stale dereference in one RX function)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mpls/af_mpls.c",
+      "start": 221,
+      "end": 238,
+      "quote": "v4hdr = (const struct iphdr *)(hdr + 1);",
+      "confidence": "medium",
+      "reason": "UNTRUSTED SOURCE: mpls_multipath_hash() (net/mpls/af_mpls.c:180) parses network-received MPLS label stacks; it is reached from mpls_select_multipath() (line 258) on the RX forwarding path of mpls_forward() and from the route-output path; the label stack and the payload after the bottom label are fully attacker-controlled (number of labels via the BOS flag, and which v4/v6 header follows). VIOLATED INVARIANT: hdr (struct mpls_shim_hdr *, a raw pointer into skb->head via mpls_hdr(skb)) is captured at line 196 inside the label-stack for-loop after that iteration's first pskb_may_pull(skb, mpls_hdr_len) at 192; the bottom-of-stack branch then executes pskb_may_pull(skb, mpls_hdr_len + sizeof(struct iphdr)) at line 221 and pskb_may_pull(skb, mpls_hdr_len + sizeof(struct ipv6hdr)) at 230-231 -- either may call __pskb_pull_tail -> pskb_expand_head and free/reallocate skb->head for a cloned/non-linear skb (reload requirement at net/core/skbuff.c:2277/2855) -- while hdr is never refetched. UNSAFE USE: line 224 derives v4hdr = (const struct iphdr *)(hdr + 1) from the pre-pull hdr and reads v4hdr->version/saddr/daddr/protocol (225-228) for the multipath hash; line 233 derives v6hdr from the same stale hdr AFTER the second pull and reads saddr/daddr/nexthdr (234-237) -- reads through a potentially freed slab pointer (KASAN slab-UAF read) that selects the forwarded nexthop, the seed's consequence class. The sibling s01/s02/s03/s05 intents (facts f010, f004/f009, f011, f004) independently reported this same site, confirming the pattern persists across snapshots. COUNTEREVIDENCE: read-only use feeding only hash/nexthop selection; requires a cloned/non-linear MPLS skb at the payload offset, multipath with >1 nexthop, and MPLS platform labels enabled; not dynamically reproduced."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/phonet/pep.c",
+      "start": 55,
+      "end": 65,
+      "quote": "if (ph == NULL || ph->sb_len < 2 || !pskb_may_pull(skb, ph->sb_len))",
+      "confidence": "high",
+      "reason": "Baseline seed mechanism still present unpatched in s04, recorded as the reference rather than a new variant: pep_get_sb() is the canonical 'get next record' RX helper -- ph = skb_header_pointer(skb, 0, 2, &h) captured at line 55, interior pskb_may_pull(skb, ph->sb_len) at line 56 whose length is the attacker-controlled Phonet pipe-control header byte (exactly the 'pull length derives from the untrusted header' case), then the stale ph is WRITTEN at line 58 (ph->sb_len -= 2) and READ at lines 59-60 and 62-65 with no refetch. UNTRUSTED SOURCE: Phonet pipe control skbs delivered from the pep_do_rcv RX path, first bytes fully peer-controlled; unauthenticated/untrusted peer reachable UAF write+read (KASAN-detectable), the seed's exact consequence. Called from the record loops at lines 314, 499 and 826."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/rx.c",
+      "line": 3328,
+      "status": "reported",
+      "reason": "ieee80211_rx_h_data TDLS block: tf captured from rx->skb->data at 3324; pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) at 3326-3327; stale tf->payload_type/category/action_code read at 3328-3331 with no refetch. Raised as high-confidence finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/rx.c",
+      "line": 5068,
+      "status": "reported",
+      "reason": "ieee80211_invoke_fast_rx: hdr captured at 4972 from skb->data, never reassigned; pskb_may_pull at 5039 may reallocate the head; stale hdr->frame_control read at 5068; contrast payload re-derived at 5042. Raised as medium-confidence finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mpls/af_mpls.c",
+      "line": 224,
+      "status": "reported",
+      "reason": "mpls_multipath_hash(): hdr captured at 196 after first pull at 192; second/third pskb_may_pull at 221 and 230-231 inside the same loop; v4hdr derived from stale hdr at 224 and v6hdr at 233, dereferenced at 225-228/234-237. Raised as medium-confidence finding."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/phonet/pep.c",
+      "line": 56,
+      "status": "reported",
+      "reason": "Seed itself present unpatched in s04: ph at 55, pskb_may_pull(skb, ph->sb_len) at 56 with attacker-controlled length, stale ph->sb_len write at 58 and ph->sb_type read at 59. Reported as baseline finding, not a new variant."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/bridge/br_multicast.c",
+      "line": 3616,
+      "status": "safe",
+      "reason": "br_ip6_multicast_query() (s04:3562-3630) is the FIXED version, unlike the s02/s05 siblings: after pskb_may_pull(skb, offset + sizeof(*mld)) at 3588 and pskb_may_pull(skb, offset + sizeof(*mld2q)) at 3597, mld/mld2q are correctly re-derived from icmp6_hdr(skb) at 3593/3601, the function explicitly refetches 'hdr = ipv6_hdr(skb);' inside the ICMPV6 branch before the daddr check, and the saddr read at 3616 is a fresh accessor call ipv6_hdr(skb)->saddr, not a stale captured pointer. No stale dereference."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/bridge/br_multicast.c",
+      "line": 2872,
+      "status": "safe",
+      "reason": "br_ip4_multicast_igmp3_report() (s04:2843-2940): the per-record ip_mc_may_pull at 2866 precedes grec capture at 2869; the attacker-length-driven second pull (len += nsrcs*4 after copying grec_mca/grec_type/grec_nsrcs into scalars at 2871-2873) at 2875 executes before any further grec dereference, and grec is explicitly RELOADED from skb->data with the comment 'reload grec and host addr' at 2921 before the grec_src uses at 2930-2946. Correctly written in s04; no stale post-pull grec dereference."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/ip6_output.c",
+      "line": 477,
+      "status": "safe",
+      "reason": "ip6_forward_proxy_check() (s04:434-495): hdr captured at 435 via ipv6_hdr(skb); pskb_may_pull(skb, skb_network_header(skb) + offset + 1 - skb->data) at 451-452 in the ICMPV6 branch; the code explicitly refetches 'hdr = ipv6_hdr(skb);' after the ndisc-type switch (before the daddr link-local check at ~477), so the ipv6_addr_type(&hdr->daddr) evaluation uses the post-pull pointer. Refetch discipline present; the s02 sibling's stale-read shape does not exist in s04."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/xfrm4_policy.c",
+      "line": 1,
+      "status": "unresolved",
+      "reason": "Targeted grep of net/ipv4/xfrm4_policy.c in s04 returned no pskb_may_pull/ip_hdr capture matches (the _decode_session4 pattern reported in s02 at xfrm4_policy.c:109 appears absent or relocated, likely to net/xfrm/xfrm_policy.c), but the relocation was not chased down line-by-line before the bounded search was halted; whether a decode_session4-style stale iph->ihl re-read exists elsewhere in s04 remains unverified."
+    }
+  ],
+  "limitations": [
+    "All findings are static-analysis hypotheses: no runtime reproducer or KASAN trace was produced; each requires the skb to actually be cloned or non-linear at the flagged pull so __pskb_pull_tail -> pskb_expand_head really frees the old head (documented reload requirement at s04 net/core/skbuff.c:2277 and 2855), which is driver/GRO-path dependent and was not dynamically verified on s04.",
+    "The planned function-scoped capture->pull->use scanner over s04 net/ was interrupted (TMPDIR setup then finalize directive); coverage instead came from exact reads of the seed site (net/phonet/pep.c) and the highest-signal RX hotspots established by sibling intents (mac80211 rx, br_multicast, mpls af_mpls, ip6_output), so a same-shape bug in a less-promising net/ RX parser could be missed.",
+    "drivers/ receive-path parsers outside net/ (wired/wireless driver *_rx handlers) were not audited for this branch; the parallel s04 tx-cow intent (f014) covered mwl8k and drivers/net TX sites only.",
+    "The xfrm4_policy.c decode_session4 relocation and net/sctp/nf_conntrack_proto_sctp.c pull sites in s04 were grep-located but not deep-read before the bounded search was halted; they remain unclassified here.",
+    "Loop-parser shapes in s04 (GARP parse loops, X25, NFC, batman-adv BLA) were classified by the parallel s04 loop-parser intent (fact f003) and were not re-read here; the garp_pdu_parse_attr site it reported is a duplicate surface of the same mechanism and is not re-listed in this artifact.",
+    "Whether upstream Linux has since fixed the mac80211 TDLS/fast_rx or mpls_multipath_hash sites could not be checked (no network or Git access); findings reflect the source as present in snapshots/s04."
+  ]
+}
+os.makedirs(os.path.dirname("/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i012.json"), exist_ok=True)
+tmp = "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i012.json.tmp"
+with open(tmp, "w") as f:
+    json.dump(art, f, indent=2)
+os.replace(tmp, "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i012.json")
+# checkpoint update
+chk = {
+  "intent_id": "i012", "branch": "rx-pull-stale-hdr", "snapshot": "s04", "status": "complete",
+  "findings": ["net/mac80211/rx.c:3324-3331 TDLS high", "net/mac80211/rx.c:4972-5068 fast_rx medium", "net/mpls/af_mpls.c:221-238 medium", "net/phonet/pep.c:55-65 seed baseline high"],
+  "candidates": "4 reported, 3 safe (br_multicast x2, ip6_output), 1 unresolved (xfrm4_policy)",
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/findings/i012.json"
+}
+ctp = "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C6/agent-state/checkpoints/i012.json"
+with open(ctp + ".tmp", "w") as f:
+    json.dump(chk, f, indent=2)
+os.replace(ctp + ".tmp", ctp)
+print("final artifact and checkpoint written")

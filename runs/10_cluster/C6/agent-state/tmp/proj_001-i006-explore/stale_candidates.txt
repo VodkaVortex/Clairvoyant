@@ -1,0 +1,60 @@
+net/bridge/br_multicast.c :: br_ip6_multicast_query :: var=ip6h
+   capture L1430: const struct ipv6hdr *ip6h = ipv6_hdr(skb);
+   pull: pskb_may_pull -> stale deref L1474: ...query) { 		saddr.proto = htons(ETH_P_IPV6); 		saddr.u.ip6 = ip6h->saddr;  		br_multicast_query_received(br, port, &br->ip6_oth...
+
+net/bridge/br_multicast.c :: br_ip6_multicast_query :: var=ip6h
+   capture L1430: const struct ipv6hdr *ip6h = ipv6_hdr(skb);
+   pull: pskb_may_pull -> stale deref L1474: ...query) { 		saddr.proto = htons(ETH_P_IPV6); 		saddr.u.ip6 = ip6h->saddr;  		br_multicast_query_received(br, port, &br->ip6_oth...
+
+net/ipv4/icmp.c :: icmp_socket_deliver :: var=iph
+   capture L741: const struct iphdr *iph = (const struct iphdr *) skb->data;
+   pull: pskb_may_pull -> stale deref L748: ...pskb_may_pull(skb, iph->ihl * 4 + 8)) { 		__ICMP_INC_STATS(dev_net(skb->dev), ICMP_M...
+
+net/ipv4/igmp.c :: igmp_heard_query :: var=ih3
+   capture L897: struct igmpv3_query *ih3 = igmpv3_query_hdr(skb);
+   pull: pskb_may_pull -> stale deref L948: ...b_may_pull(skb, sizeof(struct igmpv3_query) 					   + ntohs(ih3->nsrcs)*sizeof(__be32))) 				return true; ...
+
+net/ipv4/udp_offload.c :: __skb_udp_tunnel_segment :: var=uh
+   capture L26: struct udphdr *uh = udp_hdr(skb);
+   pull: pskb_may_pull -> stale deref L37: ...te old length. 	 * We cannot rely on the value contained in uh->len as it is 	 * possible that the actual value exceeds the ...
+
+net/ipv4/xfrm4_policy.c :: decode_session4 :: var=iph
+   capture L109: const struct iphdr *iph = ip_hdr(skb);
+   pull: pskb_may_pull -> stale deref L132: ...{ 				__be16 *ports;  				xprth = skb_network_header(skb) + iph->ihl * 4; 				ports = (__be16 *)xprth;  				fl4->fl4_sport = ...
+
+net/ipv4/xfrm4_policy.c :: decode_session4 :: var=iph
+   capture L109: const struct iphdr *iph = ip_hdr(skb);
+   pull: pskb_may_pull -> stale deref L145: ...ta)) { 				u8 *icmp;  				xprth = skb_network_header(skb) + iph->ihl * 4; 				icmp = xprth;  				fl4->fl4_icmp_type = icmp[0]...
+
+net/ipv4/xfrm4_policy.c :: decode_session4 :: var=iph
+   capture L109: const struct iphdr *iph = ip_hdr(skb);
+   pull: pskb_may_pull -> stale deref L158: ... { 				__be32 *ehdr;  				xprth = skb_network_header(skb) + iph->ihl * 4; 				ehdr = (__be32 *)xprth;  				fl4->fl4_ipsec_spi...
+
+net/ipv4/xfrm4_policy.c :: decode_session4 :: var=iph
+   capture L109: const struct iphdr *iph = ip_hdr(skb);
+   pull: pskb_may_pull -> stale deref L170: ... 				__be32 *ah_hdr;  				xprth = skb_network_header(skb) + iph->ihl * 4; 				ah_hdr = (__be32 *)xprth;  				fl4->fl4_ipsec_s...
+
+net/ipv4/xfrm4_policy.c :: decode_session4 :: var=iph
+   capture L109: const struct iphdr *iph = ip_hdr(skb);
+   pull: pskb_may_pull -> stale deref L182: ...	__be16 *ipcomp_hdr;  				xprth = skb_network_header(skb) + iph->ihl * 4; 				ipcomp_hdr = (__be16 *)xprth;  				fl4->fl4_ips...
+
+net/ipv4/xfrm4_policy.c :: decode_session4 :: var=iph
+   capture L109: const struct iphdr *iph = ip_hdr(skb);
+   pull: pskb_may_pull -> stale deref L195: ...				__be32 *gre_hdr;  				xprth = skb_network_header(skb) + iph->ihl * 4; 				greflags = (__be16 *)xprth; 				gre_hdr = (__be...
+
+net/ipv6/ip6_output.c :: ip6_forward_proxy_check :: var=hdr
+   capture L308: struct ipv6hdr *hdr = ipv6_hdr(skb);
+   pull: pskb_may_pull -> stale deref L350: ...ified by the MIPv6 specification. 	 */ 	if (ipv6_addr_type(&hdr->daddr) & IPV6_ADDR_LINKLOCAL) { 		dst_link_failure(skb); 		r...
+
+net/mac80211/rx.c :: eee80211_rx_h_data :: var=tf
+   capture L2558: struct ieee80211_tdls_data *tf = (void *)rx->skb->data;
+   pull: pskb_may_pull -> stale deref L2562: ...kb, 				  offsetof(struct ieee80211_tdls_data, u)) && 		    tf->payload_type == WLAN_TDLS_SNAP_RFTYPE && 		    tf->category ...
+
+net/mac80211/rx.c :: ieee80211_invoke_fast_rx :: var=hdr
+   capture L3785: struct ieee80211_hdr *hdr = (void *)skb->data;
+   pull: pskb_may_pull -> stale deref L3913: ... of statistics */  	if (rx->key && !ieee80211_has_protected(hdr->frame_control)) 		goto drop;  	/* do the header conversion -...
+
+net/mac80211/tdls.c :: eee80211_process_tdls_channel_switch :: var=tf
+   capture L1923: struct ieee80211_tdls_data *tf = (void *)skb->data;
+   pull: skb_linearize -> stale deref L1939: ...11 Rx path, only look 	 * at the action type. 	 */ 	switch (tf->action_code) { 	case WLAN_TDLS_CHANNEL_SWITCH_REQUEST: 		iee...
+

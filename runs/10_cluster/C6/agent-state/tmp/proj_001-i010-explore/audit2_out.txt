@@ -1,0 +1,95 @@
+=== net/ipv6/exthdrs.c:ipv6_dest_hao (fn 232-293) call@271 pskb_expand_head
+    capture ipv6h @ 236: ipv6_hdr(skb)
+    USE ipv6h @ 277: ipv6h = ipv6_hdr(skb);
+    USE ipv6h @ 283: swap(ipv6h->saddr, hao->addr);
+
+=== net/ipv6/ip6_output.c:ip6_forward (fn 519-700) call@678 skb_cow
+    capture hdr @ 522: ipv6_hdr(skb)
+    USE hdr @ 684: hdr = ipv6_hdr(skb);
+    USE hdr @ 688: hdr->hop_limit--;
+
+=== net/mac80211/tdls.c:eee80211_process_tdls_channel_switch (fn 2007-2037) call@2020 skb_linearize
+    capture tf @ 2010: (void *)skb->data
+    USE tf @ 2026: switch (tf->action_code) {
+
+=== net/mac80211/wpa.c:eee80211_rx_h_michael_mic_verify (fn 94-191) call@154 skb_linearize
+    capture hdr @ 102: (struct ieee80211_hdr *)skb->data
+    USE hdr @ 156: hdr = (void *)skb->data;
+    USE hdr @ 161: michael_mic(key, hdr, data, data_len, mic);
+    USE hdr @ 184: cfg80211_michael_mic_failure(rx->sdata->dev, hdr->addr2,
+    USE hdr @ 185: is_multicast_ether_addr(hdr->addr1) ?
+
+=== net/mac80211/wpa.c:eee80211_crypto_tkip_decrypt (fn 264-311) call@281 skb_linearize
+    capture hdr @ 266: (struct ieee80211_hdr *) rx->skb->data
+    USE hdr @ 283: hdr = (void *)skb->data;
+    USE hdr @ 296: hdr->addr1, hwaccel, rx->security_idx,
+
+=== net/mac80211/wpa.c:eee80211_crypto_ccmp_decrypt (fn 518-609) call@543 skb_linearize
+    capture hdr @ 521: (struct ieee80211_hdr *)rx->skb->data
+    USE hdr @ 547: /* reload hdr - skb might have been reallocated */
+    USE hdr @ 548: hdr = (void *)rx->skb->data;
+    USE hdr @ 574: if (is_unicast_ether_addr(hdr->addr1) &&
+    USE hdr @ 575: !ieee80211_is_data(hdr->frame_control)) {
+    USE hdr @ 598: if (unlikely(ieee80211_is_frag(hdr)))
+
+=== net/mac80211/wpa.c:eee80211_crypto_gcmp_decrypt (fn 732-821) call@755 skb_linearize
+    capture hdr @ 734: (struct ieee80211_hdr *)rx->skb->data
+    USE hdr @ 759: /* reload hdr - skb might have been reallocated */
+    USE hdr @ 760: hdr = (void *)rx->skb->data;
+    USE hdr @ 786: if (is_unicast_ether_addr(hdr->addr1) &&
+    USE hdr @ 787: !ieee80211_is_data(hdr->frame_control)) {
+    USE hdr @ 810: if (unlikely(ieee80211_is_frag(hdr)))
+
+=== net/netfilter/nf_flow_table_ip.c:nf_flow_tunnel_ipip_push (fn 591-635) call@608 skb_cow_head
+    capture iph @ 595: (struct iphdr *)skb_network_header(skb)
+    USE iph @ 616: skb_push(skb, sizeof(*iph));
+    USE iph @ 619: iph = ip_hdr(skb);
+    USE iph @ 620: iph->version	= 4;
+    USE iph @ 621: iph->ihl	= sizeof(*iph) >> 2;
+    USE iph @ 622: iph->frag_off	= ip_mtu_locked(&rt->dst) ? 0 : frag_off;
+    USE iph @ 623: iph->protocol	= tuple->tun.l3_proto;
+    USE iph @ 624: iph->tos	= tos;
+    USE iph @ 625: iph->daddr	= tuple->tun.src_v4.s_addr;
+    USE iph @ 626: iph->saddr	= tuple->tun.dst_v4.s_addr;
+    USE iph @ 627: iph->ttl	= ttl;
+    USE iph @ 628: iph->tot_len	= htons(skb->len);
+    USE iph @ 629: __ip_select_ident(net, iph, skb_shinfo(skb)->gso_segs ?: 1);
+    USE iph @ 630: ip_send_check(iph);
+
+=== net/netfilter/nf_flow_table_ip.c:nf_flow_tunnel_ip6ip6_push (fn 647-695) call@670 skb_cow_head
+    capture ip6h @ 651: (struct ipv6hdr *)skb_network_header(skb)
+    USE ip6h @ 675: mtu = dst_mtu(&rt->dst) - sizeof(*ip6h);
+    USE ip6h @ 679: skb_push(skb, sizeof(*ip6h));
+    USE ip6h @ 682: ip6h = ipv6_hdr(skb);
+    USE ip6h @ 683: ip6_flow_hdr(ip6h, dsfield,
+    USE ip6h @ 685: ip6h->hop_limit = hop_limit;
+    USE ip6h @ 686: ip6h->nexthdr = IPPROTO_IPV6;
+    USE ip6h @ 687: ip6h->daddr = tuple->tun.src_v6;
+    USE ip6h @ 688: ip6h->saddr = tuple->tun.dst_v6;
+    USE ip6h @ 689: ipv6_hdr(skb)->payload_len = htons(skb->len - sizeof(*ip6h));
+
+=== drivers/net/wan/hdlc_fr.c:fr_rx (fn 889-994) call@940 skb_share_check
+    capture fh @ 893: (struct fr_hdr *)skb->data
+    capture data @ 894: skb->data
+    USE data @ 946: if (data[3] == NLPID_IP) {
+    USE data @ 954: } else if (data[3] == NLPID_IPV6) {
+    USE data @ 962: } else if (data[3] == FR_PAD) {
+    USE data @ 965: if (data[4] == NLPID_SNAP) { /* A SNAP header follows */
+    USE data @ 977: data[3], skb->len);
+
+=== drivers/net/wireless/intel/iwlwifi/dvm/tx.c:iwlagn_tx_skb (fn 260-461) call@301 pskb_expand_head
+    capture hdr @ 264: (struct ieee80211_hdr *)skb->data
+    USE hdr @ 304: hdr = (struct ieee80211_hdr *)skb->data;
+    USE hdr @ 318: hdr->addr1);
+    USE hdr @ 349: dev_cmd->hdr.cmd = REPLY_TX;
+    USE hdr @ 360: iwlagn_tx_cmd_build_basic(priv, skb, tx_cmd, info, hdr, sta_id);
+    USE hdr @ 376: qc = ieee80211_get_qos_ctl(hdr);
+    USE hdr @ 404: hdr->seq_ctrl &= cpu_to_le16(IEEE80211_SCTL_FRAG);
+    USE hdr @ 405: hdr->seq_ctrl |= cpu_to_le16(seq_number);
+    USE hdr @ 414: memcpy(tx_cmd->hdr, hdr, hdr_len);
+    USE hdr @ 425: hdr->frame_control |=
+
+=== drivers/net/wireless/mediatek/mt76/mt7925/mcu.c:mt7925_mcu_rx_event (fn 640-653) call@644 skb_linearize
+    capture rxd @ 642: (struct mt7925_mcu_rxd *)skb->data
+    USE rxd @ 647: if (rxd->option & MCU_UNI_CMD_UNSOLICITED_EVENT) {
+

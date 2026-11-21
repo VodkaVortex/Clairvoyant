@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "sysctl-unbounded-knob",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/sysctl_net_ipv4.c",
+      "start": 1279,
+      "end": 1285,
+      "quote": ".procname\t= \"tcp_challenge_ack_limit\",\n\t\t.data\t\t= &init_net.ipv4.sysctl_tcp_challenge_ack_limit,\n\t\t.maxlen\t\t= sizeof(int),\n\t\t.mode\t\t= 0644,\n\t\t.proc_handler\t= proc_dointvec",
+      "confidence": "medium",
+      "reason": "Security-relevant knob parsed without bounds, in the same pattern family as the seed (net.sctp.auth_enable): the table entry uses plain proc_dointvec with no proc_dointvec_minmax and no extra1/extra2 range, so any signed 32-bit value (including negative and 0) can be committed to net->ipv4.sysctl_tcp_challenge_ack_limit, the per-netns RFC 5961 challenge-ACK rate limit (ipv4_net_table, registered per-net via register_net_sysctl at net/ipv4/sysctl_net_ipv4.c:1439; default 1000 at net/ipv4/tcp_ipv4.c:3169). Counterevidence checked: unlike the seed, this entry has no custom handler and no uninitialized out-param, and write requires CAP_NET_ADMIN in the netns. Unsafe use: net/ipv4/tcp_input.c:3615-3619 reads the int into u32 ack_limit and computes half = (ack_limit + 1) >> 1 and challenge_count = half + prandom_u32_max(ack_limit); prandom_u32_max (include/linux/prandom.h:94-97) is documented for ep_ro > 0, so an out-of-range write of 0 (or a negative int wrapping to a huge u32) is consumed by rate-limiting/security logic with no range validation; a value of 0 in particular disables the challenge-ACK rate limit (challenge_count = 0 each second), degrading the RFC 5961 blind-data-injection mitigation that this knob exists to enforce. Report is a hypothesis about missing bounds on an anti-spoofing enforcement knob, not a proven exploit."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/sysctl_net_ipv4.c",
+      "line": 1280,
+      "status": "reported",
+      "reason": "tcp_challenge_ack_limit: int + proc_dointvec, no extra1/extra2; consumed as u32 at net/ipv4/tcp_input.c:3615 (half = (ack_limit+1)>>1; prandom_u32_max(ack_limit)); value 0/negative accepted and disables/degrades RFC 5961 challenge-ACK rate limiting."
+    },
+    {
+      "snapshot": "s01",
+      "path": "kernel/sysctl.c",
+      "line": 2473,
+      "status": "safe",
+      "reason": "randomize_va_space: plain proc_dointvec without minmax (unbounded), but consumers (mm/mmap.c, arch/*/process.c) branch on nonzero vs 0/2 semantics; only root can write; out-of-range values do not alter enforcement beyond documented on/off/full-randomization selection; no memory-safety or range-sensitive use found."
+    },
+    {
+      "snapshot": "s01",
+      "path": "kernel/sysctl.c",
+      "line": 2601,
+      "status": "safe",
+      "reason": "perf_event_paranoid: plain proc_dointvec unbounded, but consumers only do comparisons (kernel/kallsyms.c:782 <= 1; include/linux/perf_event.h:1318 > -1, 1323 > 1), so any int maps to a sane policy decision; no OOB or garbage-sensitive use."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/addrconf.c",
+      "line": 6917,
+      "status": "safe",
+      "reason": "seg6_require_hmac: int + proc_dointvec without minmax, but net/ipv6/seg6_hmac.c:252-263 explicitly handles the tri-state (<0 no check, ==0 optional, >0 mandatory), so out-of-range ints still produce defined HMAC enforcement behavior; no unsafe transition."
+    },
+    {
+      "snapshot": "s01",
+      "path": "security/apparmor/lsm.c",
+      "line": 1731,
+      "status": "safe",
+      "reason": "kernel.unprivileged_userns_apparmor_policy uses apparmor_dointvec -> proc_dointvec with no extra1/extra2 (unbounded), but mode 0600, handler gates on policy_admin_capable(NULL) and apparmor_enabled, and the consumer (security/apparmor/policy.c:655) treats it purely as boolean (!= 0), so out-of-range values cannot create undefined enforcement."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/xfrm/xfrm_sysctl.c",
+      "line": 26,
+      "status": "safe",
+      "reason": "xfrm_larval_drop: int + proc_dointvec unbounded, but the consumer is a boolean policy branch on larval XFRM acquire state; no range-sensitive or memory-unsafe use; table explicitly not exported to non-init user namespaces."
+    },
+    {
+      "snapshot": "s01",
+      "path": "crypto/fips.c",
+      "line": 35,
+      "status": "safe",
+      "reason": "fips_enabled is mode 0444 (read-only); no write path, no bounds issue."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sctp/sysctl.c",
+      "line": 257,
+      "status": "safe",
+      "reason": "sctp addip_enable/addip_noauth_enable/intl_enable/ecn_enable (lines 250-297) use plain proc_dointvec without minmax, i.e. unbounded ints feeding boolean auth/feature gates; however these are the seed subsystem's neighbors, the seed's own proc_sctp_do_auth return-check bug (line 481-497) is already fixed in this tree (gates on 'write && ret == 0'), and these entries use the generic handler so no out-param issue; out-of-range values only reinterpret as nonzero/zero booleans. Excluded from reporting per task rules (seed demonstration subsystem) and because no unsafe transition was identified."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/ipvs/ip_vs_ctl.c",
+      "line": 1890,
+      "status": "safe",
+      "reason": "secure_tcp uses custom proc_do_defense_mode (ip_vs_ctl.c:1775-1799) which explicitly validates val in [0,3] and rejects otherwise (rc = -EINVAL), so the security posture knob is bounded."
+    },
+    {
+      "snapshot": "s01",
+      "path": "kernel/sysctl.c",
+      "line": 2094,
+      "status": "safe",
+      "reason": "kexec_load_disabled and modules_disabled (kernel/sysctl.c:2094-2120) use proc_dointvec_minmax with extra1=extra2=SYSCTL_ONE (locked to 1), correctly bounded one-way security switches; dmesg_restrict/kptr_restrict (2292-2310), protected_* (3316-3350), unprivileged_userfaultfd, unprivileged_bpf_disabled, bpf_jit_harden/kallsyms/limit, yama ptrace_scope, fs/verity require_signatures, security/keys/*, loadpin enforce, tipc key_exchange_enabled, conntrack checksum/tcp_loose/tcp_be_liberal, tagged_addr_disabled, tcp_fastopen_blackhole_timeout_sec, ipv4_privileged_ports all use proc_dointvec_minmax/proc_dou8vec_minmax with explicit extra1/extra2 and are correctly bounded."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/char/random.c",
+      "line": 2106,
+      "status": "unresolved",
+      "reason": "urandom_min_reseed_secs (int + proc_dointvec, no minmax, 0644) is an unbounded entropy-adjacent knob; a scan of drivers/char/random.c found only the definition and table entry, but time did not permit fully tracing all consumers of random_min_urandom_seed (grep showed definition at line 2023 and entry only), so its safety remains unverified; lower priority since no consumer with range-sensitive use was identified."
+    }
+  ],
+  "limitations": [
+    "Bounded search: enumerated sysctl tables via security-relevant procname keywords and by scanning all 186 plain proc_dointvec handler usages across the tree; non-security-named integer knobs (routing/timer/scheduler) with unbounded parses were not exhaustively audited.",
+    "tcp_challenge_ack_limit impact is a hypothesis: the unbounded parse and the u32 consumption at tcp_input.c:3615-3619 are verified in-source, but exploitability of the rate-limit bypass (e.g., value 0) and whether any consumer misbehaves on huge u32 wraps was not dynamically tested.",
+    "urandom_min_reseed_secs (drivers/char/random.c:2106) remained unresolved: entry is unbounded int/proc_dointvec but its consumers were not fully traced.",
+    "Other unbounded proc_dointvec entries in kernel/sysctl.c (47 occurrences) and net/ipv6/addrconf.c (32 occurrences) were only reviewed where names were security-relevant; a full per-entry consumer audit was out of scope.",
+    "Snapshot s02 was not searched (out of scope for intent i005); no cross-snapshot comparison was performed."
+  ]
+}

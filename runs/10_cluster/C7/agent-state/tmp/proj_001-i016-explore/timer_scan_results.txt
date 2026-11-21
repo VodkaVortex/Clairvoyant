@@ -1,0 +1,349 @@
+files_scanned=33038 files_with_timer_cb_defs=738 groups_total=3583 candidate_groups=41
+
+=== #1 dir=drivers/infiniband/hw/hfi1 lock=qp->s_lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/infiniband/hw/hfi1/tid_rdma.c:3991 [lock via cb=hfi1_tid_timeout] spin_lock(&qp->s_lock);
+    drivers/infiniband/hw/hfi1/tid_rdma.c:4807 [lock via cb=hfi1_tid_retry_timeout] spin_lock(&qp->s_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/infiniband/hw/hfi1/qp.c:897 [func~hfi1_qp_iter_cb] spin_lock(&qp->s_lock);
+    drivers/infiniband/hw/hfi1/rc.c:361 [func~TID_OP] spin_lock(&qp->s_lock);
+    drivers/infiniband/hw/hfi1/tid_rdma.c:2609 [func~tid_rdma_tid_err] spin_lock(&qp->s_lock);
+    drivers/infiniband/hw/hfi1/tid_rdma.c:2677 [func~handle_read_kdeth_eflags] spin_lock(&qp->s_lock);
+    drivers/infiniband/hw/hfi1/tid_rdma.c:2934 [func~hfi1_handle_kdeth_eflags] spin_lock(&qp->s_lock);
+    drivers/infiniband/hw/hfi1/verbs.c:593 [func~verbs_sdma_complete] spin_lock(&qp->s_lock);
+
+=== #2 dir=drivers/net/ethernet/natsemi lock=np->lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/natsemi/natsemi.c:1806 [lock_irq via cb=netdev_timer] spin_lock_irq(&np->lock);
+    drivers/net/ethernet/natsemi/natsemi.c:1818 [lock_irq via cb=netdev_timer] spin_lock_irq(&np->lock);
+    drivers/net/ethernet/natsemi/natsemi.c:1836 [lock_irq via cb=netdev_timer] spin_lock_irq(&np->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/natsemi/natsemi.c:2248 [func~natsemi_poll] spin_lock(&np->lock);
+    drivers/net/ethernet/natsemi/natsemi.c:2267 [func~natsemi_poll] spin_lock(&np->lock);
+    drivers/net/ethernet/natsemi/natsemi.c:2399 [func~netdev_error] spin_lock(&np->lock);
+    drivers/net/ethernet/natsemi/natsemi.c:2538 [func~natsemi_change_mtu] spin_lock(&np->lock);
+
+=== #3 dir=drivers/usb/gadget/udc lock=dum->lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/usb/gadget/udc/dummy_hcd.c:1898 [lock via cb=dummy_timer] spin_lock(&dum->lock);
+    drivers/usb/gadget/udc/dummy_hcd.c:1922 [lock via cb=dummy_timer] spin_lock(&dum->lock);
+    drivers/usb/gadget/udc/dummy_hcd.c:1989 [lock via cb=dummy_timer] spin_lock(&dum->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/usb/gadget/udc/dummy_hcd.c:340 [func~nuke] spin_lock(&dum->lock);
+    drivers/usb/gadget/udc/dummy_hcd.c:468 [func~set_link_state] spin_lock(&dum->lock);
+    drivers/usb/gadget/udc/dummy_hcd.c:479 [func~set_link_state] spin_lock(&dum->lock);
+    drivers/usb/gadget/udc/dummy_hcd.c:737 [func~dummy_queue] spin_lock(&dum->lock);
+    drivers/usb/gadget/udc/dummy_hcd.c:765 [func~dummy_dequeue] spin_lock(&dum->lock);
+    drivers/usb/gadget/udc/dummy_hcd.c:1517 [func~transfer] spin_lock(&dum->lock);
+
+=== #4 dir=drivers/infiniband/sw/rdmavt lock=qp->s_lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/infiniband/sw/rdmavt/qp.c:2596 [lock via cb=rvt_rc_timeout] spin_lock(&qp->s_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/infiniband/sw/rdmavt/qp.c:700 [func~rvt_qp_mr_clean] spin_lock(&qp->s_lock);
+    drivers/infiniband/sw/rdmavt/qp.c:909 [func~_rvt_reset_qp] spin_lock(&qp->s_lock);
+    drivers/infiniband/sw/rdmavt/qp.c:938 [func~rvt_reset_qp] spin_lock(&qp->s_lock);
+    drivers/infiniband/sw/rdmavt/qp.c:1421 [func~rvt_modify_qp] spin_lock(&qp->s_lock);
+
+=== #5 dir=drivers/net/ethernet/nvidia lock=np->lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/nvidia/forcedeth.c:4200 [lock via cb=nv_do_nic_poll] spin_lock(&np->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/nvidia/forcedeth.c:797 [func~?] * Locking: Within irq hander or disable_irq+spin_lock(&np->lock);
+    drivers/net/ethernet/nvidia/forcedeth.c:818 [func~?] * Locking: Within irq hander or disable_irq+spin_lock(&np->lock);
+    drivers/net/ethernet/nvidia/forcedeth.c:3120 [func~nv_change_mtu] spin_lock(&np->lock);
+    drivers/net/ethernet/nvidia/forcedeth.c:3980 [func~nv_nic_irq_test] spin_lock(&np->lock);
+    drivers/net/ethernet/nvidia/forcedeth.c:4620 [func~nv_nway_reset] spin_lock(&np->lock);
+    drivers/net/ethernet/nvidia/forcedeth.c:4737 [func~nv_set_ringparam] spin_lock(&np->lock);
+    drivers/net/ethernet/nvidia/forcedeth.c:4824 [func~nv_set_pauseparam] spin_lock(&np->lock);
+
+=== #6 dir=drivers/s390/block lock=get_ccwdev_lock(device->cdev variants=['lock', 'lock_irq', 'lock_irqsave'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/s390/block/dasd.c:1492 [lock_irqsave via cb=dasd_device_timeout] spin_lock_irqsave(get_ccwdev_lock(device->cdev), flags);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/s390/block/dasd.c:3146 [func~dasd_times_out] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:321 [func~_add_device_to_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:852 [func~_stop_all_devices_on_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:857 [func~_stop_all_devices_on_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:863 [func~_stop_all_devices_on_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:868 [func~_stop_all_devices_on_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:881 [func~_unstop_all_devices_on_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:886 [func~_unstop_all_devices_on_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:892 [func~_unstop_all_devices_on_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+    drivers/s390/block/dasd_alias.c:897 [func~_unstop_all_devices_on_lcu] spin_lock(get_ccwdev_lock(device->cdev));
+
+=== #7 dir=drivers/scsi/lpfc lock=phba->hbalock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/scsi/lpfc/lpfc_init.c:5129 [lock_irq via cb=lpfc_sli4_fcf_redisc_wait_tmo] spin_lock_irq(&phba->hbalock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/scsi/lpfc/lpfc_els.c:12397 [func~lpfc_issue_els_qfpa] spin_lock(&phba->hbalock);
+    drivers/scsi/lpfc/lpfc_nvmet.c:1443 [func~?] spin_lock(&phba->hbalock);
+    drivers/scsi/lpfc/lpfc_scsi.c:5556 [func~lpfc_vmid_vport_cleanup] spin_lock(&phba->hbalock);
+    drivers/scsi/lpfc/lpfc_sli.c:14047 [func~?] spin_lock(&phba->hbalock);
+
+=== #8 dir=drivers/watchdog lock=pcwd_private.io_lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/watchdog/pcwd.c:379 [lock via cb=pcwd_timer_ping] spin_lock(&pcwd_private.io_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/watchdog/pcwd.c:255 [func~set_command_mode] spin_lock(&pcwd_private.io_lock);
+    drivers/watchdog/pcwd.c:282 [func~unset_command_mode] spin_lock(&pcwd_private.io_lock);
+    drivers/watchdog/pcwd.c:413 [func~pcwd_start] spin_lock(&pcwd_private.io_lock);
+    drivers/watchdog/pcwd.c:439 [func~pcwd_stop] spin_lock(&pcwd_private.io_lock);
+    drivers/watchdog/pcwd.c:487 [func~pcwd_get_status] spin_lock(&pcwd_private.io_lock);
+    drivers/watchdog/pcwd.c:535 [func~pcwd_clear_status] spin_lock(&pcwd_private.io_lock);
+    drivers/watchdog/pcwd.c:571 [func~pcwd_get_temperature] spin_lock(&pcwd_private.io_lock);
+    drivers/watchdog/pcwd.c:788 [func~get_revision] spin_lock(&pcwd_private.io_lock);
+
+=== #9 dir=drivers/net/ethernet/dec/tulip lock=np->lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/dec/tulip/winbond-840.c:774 [lock_irq via cb=netdev_timer] spin_lock_irq(&np->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/dec/tulip/winbond-840.c:1127 [func~intr_handler] spin_lock(&np->lock);
+    drivers/net/ethernet/dec/tulip/winbond-840.c:1143 [func~intr_handler] spin_lock(&np->lock);
+    drivers/net/ethernet/dec/tulip/winbond-840.c:1282 [func~netdev_error] spin_lock(&np->lock);
+
+=== #10 dir=drivers/s390/cio lock=sch->lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/s390/cio/eadm_sch.c:104 [lock_irq via cb=eadm_subchannel_timeout] spin_lock_irq(sch->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/s390/cio/chsc_sch.c:214 [func~chsc_async] spin_lock(sch->lock);
+    drivers/s390/cio/cio.c:549 [func~do_cio_interrupt] spin_lock(sch->lock);
+    drivers/s390/cio/eadm_sch.c:166 [func~eadm_get_idle_sch] spin_lock(sch->lock);
+
+=== #11 dir=drivers/usb/usbip lock=udc->lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/usb/usbip/vudc_transfer.c:381 [lock via cb=v_timer] spin_lock(&udc->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/usb/usbip/vudc_dev.c:85 [func~nuke] spin_lock(&udc->lock);
+    drivers/usb/usbip/vudc_sysfs.c:42 [func~get_gadget_descs] spin_lock(&udc->lock);
+    drivers/usb/usbip/vudc_transfer.c:285 [func~transfer] spin_lock(&udc->lock);
+
+=== #12 dir=drivers/media/dvb-core lock=dmxdevfilter->dev->lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/media/dvb-core/dmxdev.c:358 [lock_irq via cb=dvb_dmxdev_filter_timeout] spin_lock_irq(&dmxdevfilter->dev->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/media/dvb-core/dmxdev.c:389 [func~dvb_dmxdev_section_callback] spin_lock(&dmxdevfilter->dev->lock);
+    drivers/media/dvb-core/dmxdev.c:433 [func~dvb_dmxdev_ts_callback] spin_lock(&dmxdevfilter->dev->lock);
+
+=== #13 dir=drivers/media/rc/img-ir lock=priv->lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/media/rc/img-ir/img-ir-hw.c:870 [lock_irq via cb=img_ir_end_timer] spin_lock_irq(&priv->lock);
+    drivers/media/rc/img-ir/img-ir-hw.c:884 [lock_irq via cb=img_ir_suspend_timer] spin_lock_irq(&priv->lock);
+    drivers/media/rc/img-ir/img-ir-raw.c:70 [lock_irq via cb=img_ir_echo_timer] spin_lock_irq(&priv->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/media/rc/img-ir/img-ir-core.c:26 [func~img_ir_isr] spin_lock(&priv->lock);
+
+=== #14 dir=drivers/net/ethernet/sun lock=hp->happy_lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/sun/sunhme.c:615 [lock_irq via cb=happy_meal_timer] spin_lock_irq(&hp->happy_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/sun/sunhme.c:1976 [func~happy_meal_interrupt] spin_lock(&hp->happy_lock);
+    drivers/net/ethernet/sun/sunhme.c:2018 [func~quattro_sbus_interrupt] spin_lock(&hp->happy_lock);
+
+=== #15 dir=drivers/net/ethernet/broadcom lock=bp->lock variants=['lock', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/broadcom/b44.c:602 [lock_irq via cb=b44_timer] spin_lock_irq(&bp->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/broadcom/b44.c:915 [func~b44_interrupt] spin_lock(&bp->lock);
+
+=== #16 dir=drivers/net/ethernet/broadcom lock=priv->rx_lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/broadcom/bcm63xx_enet.c:292 [lock via cb=bcm_enet_refill_rx_timer] spin_lock(&priv->rx_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/broadcom/bcm63xx_enet.c:504 [func~bcm_enet_poll] spin_lock(&priv->rx_lock);
+
+=== #17 dir=drivers/net/ethernet/realtek lock=lp->lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/realtek/atp.c:726 [lock via cb=atp_timed_checker] spin_lock(&lp->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/realtek/atp.c:606 [func~atp_interrupt] spin_lock(&lp->lock);
+
+=== #18 dir=drivers/net/wan lock=st->lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/wan/hdlc_cisco.c:250 [lock via cb=cisco_timer] spin_lock(&st->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/wan/hdlc_cisco.c:208 [func~cisco_rx] spin_lock(&st->lock);
+
+=== #19 dir=drivers/s390/char lock=get_ccwdev_lock(raw->cdev variants=['lock', 'lock_irqsave'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/s390/char/con3215.c:290 [lock_irqsave via cb=raw3215_timeout] spin_lock_irqsave(get_ccwdev_lock(raw->cdev), flags);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/s390/char/con3215.c:503 [func~raw3215_make_room] spin_lock(get_ccwdev_lock(raw->cdev));
+
+=== #20 dir=drivers/usb/usbip lock=udc->lock_tx variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/usb/usbip/vudc_transfer.c:419 [lock via cb=v_timer] spin_lock(&udc->lock_tx);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/usb/usbip/vudc_rx.c:79 [func~v_recv_cmd_unlink] spin_lock(&udc->lock_tx);
+
+=== #21 dir=net/core lock=tbl->proxy_queue.lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/core/neighbour.c:1636 [lock via cb=neigh_proxy_process] spin_lock(&tbl->proxy_queue.lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/core/neighbour.c:1679 [func~pneigh_enqueue] spin_lock(&tbl->proxy_queue.lock);
+
+=== #22 dir=net/sched lock=dev->tx_global_lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/sched/sch_generic.c:500 [lock via cb=dev_watchdog] spin_lock(&dev->tx_global_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/sched/sch_generic.c:467 [func~netif_tx_lock] spin_lock(&dev->tx_global_lock);
+
+=== #23 dir=net/tipc lock=sub->lock variants=['lock'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/tipc/subscr.c:110 [lock via cb=tipc_sub_timeout] spin_lock(&sub->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/tipc/subscr.c:101 [func~tipc_sub_report_overlap] spin_lock(&sub->lock);
+
+=== #24 dir=drivers/mmc/host lock=host->lock variants=['lock', 'lock_bh', 'lock_irq'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/mmc/host/atmel-mci.c:1655 [lock via cb=atmci_detect_change] spin_lock(&host->lock);
+    drivers/mmc/host/atmel-mci.c:1712 [lock via cb=atmci_detect_change] spin_lock(&host->lock);
+    drivers/mmc/host/wbsd.c:956 [lock_bh via cb=wbsd_reset_ignore] spin_lock_bh(&host->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/mmc/host/atmel-mci.c:1595 [func~atmci_request_end] spin_lock(&host->lock);
+    drivers/mmc/host/atmel-mci.c:1730 [func~atmci_tasklet_func] spin_lock(&host->lock);
+    drivers/mmc/host/bcm2835.c:975 [func~bcm2835_irq] spin_lock(&host->lock);
+    drivers/mmc/host/dw_mmc.c:1920 [func~dw_mci_request_end] spin_lock(&host->lock);
+    drivers/mmc/host/dw_mmc.c:2070 [func~dw_mci_tasklet_func] spin_lock(&host->lock);
+    drivers/mmc/host/meson-gx-mmc.c:973 [func~meson_mmc_irq] spin_lock(&host->lock);
+    drivers/mmc/host/mmci.c:1617 [func~mmci_irq] spin_lock(&host->lock);
+    drivers/mmc/host/moxart-mmc.c:467 [func~moxart_irq] spin_lock(&host->lock);
+    drivers/mmc/host/mtk-sd.c:1637 [func~msdc_irq] spin_lock(&host->lock);
+    drivers/mmc/host/mvsdio.c:370 [func~mvsd_irq] spin_lock(&host->lock);
+
+=== #25 dir=drivers/net/wireless/intersil/hostap lock=ap->sta_table_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/wireless/intersil/hostap/hostap_ap.c:218 [lock via cb=ap_handle_timer] spin_lock(&ap->sta_table_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/wireless/intersil/hostap/hostap_ap.c:666 [func~hostap_ap_tx_cb_auth] spin_lock(&ap->sta_table_lock);
+    drivers/net/wireless/intersil/hostap/hostap_ap.c:730 [func~hostap_ap_tx_cb_assoc] spin_lock(&ap->sta_table_lock);
+    drivers/net/wireless/intersil/hostap/hostap_ap.c:775 [func~hostap_ap_tx_cb_poll] spin_lock(&ap->sta_table_lock);
+    drivers/net/wireless/intersil/hostap/hostap_ap.c:3096 [func~hostap_is_sta_assoc] spin_lock(&ap->sta_table_lock);
+    drivers/net/wireless/intersil/hostap/hostap_ap.c:3112 [func~hostap_is_sta_authorized] spin_lock(&ap->sta_table_lock);
+    drivers/net/wireless/intersil/hostap/hostap_ap.c:3133 [func~hostap_add_sta] spin_lock(&ap->sta_table_lock);
+    drivers/net/wireless/intersil/hostap/hostap_ap.c:3173 [func~hostap_update_rx_stats] spin_lock(&ap->sta_table_lock);
+
+=== #26 dir=net/ax25 lock=ax25_list_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/ax25/ax25_ds_timer.c:78 [lock via cb=ax25_ds_timeout] spin_lock(&ax25_list_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/ax25/af_ax25.c:177 [func~ax25_find_listener] spin_lock(&ax25_list_lock);
+    net/ax25/af_ax25.c:205 [func~ax25_get_socket] spin_lock(&ax25_list_lock);
+    net/ax25/af_ax25.c:264 [func~ax25_send_to_raw] spin_lock(&ax25_list_lock);
+    net/ax25/ax25_ds_subr.c:78 [func~ax25_ds_enquiry_response] spin_lock(&ax25_list_lock);
+    net/ax25/ax25_ds_subr.c:159 [func~ax25_check_dama_slave] spin_lock(&ax25_list_lock);
+
+=== #27 dir=net/sched lock=root_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/sched/sch_fq_pie.c:377 [lock via cb=fq_pie_timer] spin_lock(root_lock);
+    net/sched/sch_pie.c:426 [lock via cb=pie_timer] spin_lock(root_lock);
+    net/sched/sch_red.c:326 [lock via cb=red_adaptative_timer] spin_lock(root_lock);
+    net/sched/sch_sfq.c:613 [lock via cb=sfq_perturbation] spin_lock(root_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/sched/sch_generic.c:332 [func~sch_direct_xmit] spin_lock(root_lock);
+    net/sched/sch_generic.c:349 [func~sch_direct_xmit] spin_lock(root_lock);
+    net/sched/sch_generic.c:354 [func~sch_direct_xmit] spin_lock(root_lock);
+
+=== #28 dir=drivers/net/slip lock=sl->lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/slip/slip.c:1383 [lock via cb=sl_outfill] spin_lock(&sl->lock);
+    drivers/net/slip/slip.c:1414 [lock via cb=sl_keepalive] spin_lock(&sl->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/slip/slip.c:469 [func~sl_tx_timeout] spin_lock(&sl->lock);
+    drivers/net/slip/slip.c:503 [func~sl_tx_timeout] spin_lock(&sl->lock);
+
+=== #29 dir=net/802 lock=app->lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/802/garp.c:418 [lock via cb=garp_join_timer] spin_lock(&app->lock);
+    net/802/mrp.c:603 [lock via cb=mrp_join_timer] spin_lock(&app->lock);
+    net/802/mrp.c:609 [lock via cb=mrp_join_timer] spin_lock(&app->lock);
+    net/802/mrp.c:625 [lock via cb=mrp_periodic_timer] spin_lock(&app->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/802/garp.c:533 [func~garp_pdu_rcv] spin_lock(&app->lock);
+    net/802/mrp.c:817 [func~mrp_rcv] spin_lock(&app->lock);
+
+=== #30 dir=net/bridge lock=br->multicast_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/bridge/br_multicast.c:629 [lock via cb=br_multicast_group_expired] spin_lock(&br->multicast_lock);
+    net/bridge/br_multicast.c:744 [lock via cb=br_multicast_port_group_expired] spin_lock(&br->multicast_lock);
+    net/bridge/br_multicast.c:1199 [lock via cb=br_multicast_group_src_expired] spin_lock(&br->multicast_lock);
+    net/bridge/br_multicast.c:1793 [lock via cb=br_multicast_port_group_rexmit] spin_lock(&br->multicast_lock);
+    net/bridge/br_multicast_eht.c:213 [lock via cb=br_multicast_eht_set_entry_expired] spin_lock(&br->multicast_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/bridge/br_multicast.c:1507 [func~br_multicast_router_expired] spin_lock(&br->multicast_lock);
+    net/bridge/br_multicast.c:1752 [func~br_multicast_send_query] spin_lock(&br->multicast_lock);
+
+=== #31 dir=net/netfilter/ipvs lock=svc->sched_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/netfilter/ipvs/ip_vs_lblc.c:323 [lock via cb=ip_vs_lblc_check_expire] spin_lock(&svc->sched_lock);
+    net/netfilter/ipvs/ip_vs_lblcr.c:487 [lock via cb=ip_vs_lblcr_check_expire] spin_lock(&svc->sched_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/netfilter/ipvs/ip_vs_lblc.c:267 [func~ip_vs_lblc_full_check] spin_lock(&svc->sched_lock);
+    net/netfilter/ipvs/ip_vs_lblcr.c:432 [func~ip_vs_lblcr_full_check] spin_lock(&svc->sched_lock);
+
+=== #32 dir=net/xfrm lock=x->lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/xfrm/xfrm_state.c:572 [lock via cb=xfrm_timer_handler] spin_lock(&x->lock);
+    net/xfrm/xfrm_state.c:2354 [lock via cb=xfrm_replay_timer_handler] spin_lock(&x->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/xfrm/xfrm_input.c:601 [func~xfrm_input] spin_lock(&x->lock);
+    net/xfrm/xfrm_input.c:651 [func~xfrm_input] spin_lock(&x->lock);
+
+=== #33 dir=drivers/scsi lock=session->frwd_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/scsi/libiscsi.c:1903 [lock via cb=iscsi_tmf_timedout] spin_lock(&session->frwd_lock);
+    drivers/scsi/libiscsi.c:2247 [lock via cb=iscsi_check_transport_timeouts] spin_lock(&session->frwd_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/scsi/libiscsi.c:1248 [func~__iscsi_complete_pdu] spin_lock(&session->frwd_lock);
+
+=== #34 dir=net/bridge lock=br->lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/bridge/br_stp_timer.c:35 [lock via cb=br_hello_timer_expired] spin_lock(&br->lock);
+    net/bridge/br_stp_timer.c:65 [lock via cb=br_message_age_timer_expired] spin_lock(&br->lock);
+    net/bridge/br_stp_timer.c:86 [lock via cb=br_forward_delay_timer_expired] spin_lock(&br->lock);
+    net/bridge/br_stp_timer.c:108 [lock via cb=br_tcn_timer_expired] spin_lock(&br->lock);
+    net/bridge/br_stp_timer.c:122 [lock via cb=br_topology_change_timer_expired] spin_lock(&br->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/bridge/br_stp_bpdu.c:167 [func~br_stp_rcv] spin_lock(&br->lock);
+
+=== #35 dir=drivers/net lock=eql->queue.lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/eql.c:149 [lock via cb=eql_timer] spin_lock(&eql->queue.lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/eql.c:342 [func~eql_slave_xmit] spin_lock(&eql->queue.lock);
+
+=== #36 dir=drivers/net/ethernet/broadcom lock=tp->lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/broadcom/tg3.c:10965 [lock via cb=tg3_timer] spin_lock(&tp->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/broadcom/tg3.c:7009 [func~tg3_poll_link] spin_lock(&tp->lock);
+
+=== #37 dir=drivers/net/ethernet/chelsio/cxgb4 lock=adap->ptp_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/ethernet/chelsio/cxgb4/sge.c:4303 [lock via cb=sge_tx_timer_cb] spin_lock(&adap->ptp_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/ethernet/chelsio/cxgb4/sge.c:2490 [func~t4_start_xmit] spin_lock(&adap->ptp_lock);
+
+=== #38 dir=drivers/net/wireless/intel/iwlwifi/queue lock=txq->lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    drivers/net/wireless/intel/iwlwifi/queue/tx.c:1009 [lock via cb=iwl_txq_stuck_timer] spin_lock(&txq->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    drivers/net/wireless/intel/iwlwifi/queue/tx.c:728 [func~iwl_txq_gen2_tx] spin_lock(&txq->lock);
+
+=== #39 dir=net/netfilter lock=inst->lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/netfilter/nfnetlink_log.c:385 [lock_bh via cb=nfulnl_timer] spin_lock_bh(&inst->lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/netfilter/nfnetlink_log.c:226 [func~nfulnl_instance_free_rcu] spin_lock(&inst->lock);
+
+=== #40 dir=net/sched lock=gact->tcf_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/sched/act_gate.c:76 [lock via cb=gate_timer_func] spin_lock(&gact->tcf_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/sched/act_gate.c:123 [func~tcf_gate_act] spin_lock(&gact->tcf_lock);
+
+=== #41 dir=net/sctp lock=net->sctp.addr_wq_lock variants=['lock', 'lock_bh'] ===
+  TIMER-SIDE (inside timer/hrtimer callback):
+    net/sctp/protocol.c:639 [lock_bh via cb=sctp_addr_wq_timeout_handler] spin_lock_bh(&net->sctp.addr_wq_lock);
+  OTHER-SIDE plain spin_lock (candidate process ctx):
+    net/sctp/socket.c:366 [func~sctp_auto_asconf_init] spin_lock(&net->sctp.addr_wq_lock);

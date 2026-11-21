@@ -1,0 +1,1302 @@
+net/phonet/af_phonet.c-424-			goto out;
+net/phonet/af_phonet.c-425-		}
+net/phonet/af_phonet.c-426-
+net/phonet/af_phonet.c-427-		__skb_push(skb, sizeof(struct phonethdr));
+net/phonet/af_phonet.c-428-		skb->dev = out_dev;
+net/phonet/af_phonet.c-429-		if (out_dev == dev) {
+net/phonet/af_phonet.c-430-			net_dbg_ratelimited("Phonet loop to %02X on %s\n",
+net/phonet/af_phonet.c-431-					    pn_sockaddr_get_addr(&sa),
+net/phonet/af_phonet.c-432-					    dev->name);
+net/phonet/af_phonet.c-433-			goto out_dev;
+net/phonet/af_phonet.c-434-		}
+net/phonet/af_phonet.c-435-		/* Some drivers (e.g. TUN) do not allocate HW header space */
+net/phonet/af_phonet.c:436:		if (skb_cow_head(skb, out_dev->hard_header_len))
+net/phonet/af_phonet.c-437-			goto out_dev;
+net/phonet/af_phonet.c-438-
+net/phonet/af_phonet.c-439-		if (dev_hard_header(skb, out_dev, ETH_P_PHONET, NULL, NULL,
+net/phonet/af_phonet.c-440-					skb->len) < 0)
+net/phonet/af_phonet.c-441-			goto out_dev;
+net/phonet/af_phonet.c-442-		dev_queue_xmit(skb);
+net/phonet/af_phonet.c-443-		dev_put(out_dev);
+net/phonet/af_phonet.c-444-		return NET_RX_SUCCESS;
+net/phonet/af_phonet.c-445-out_dev:
+net/phonet/af_phonet.c-446-		dev_put(out_dev);
+net/phonet/af_phonet.c-447-	}
+net/phonet/af_phonet.c-448-
+--
+net/xfrm/xfrm_input.c-299-out:
+net/xfrm/xfrm_input.c-300-	return err;
+net/xfrm/xfrm_input.c-301-}
+net/xfrm/xfrm_input.c-302-
+net/xfrm/xfrm_input.c-303-static int xfrm6_remove_beet_encap(struct xfrm_state *x, struct sk_buff *skb)
+net/xfrm/xfrm_input.c-304-{
+net/xfrm/xfrm_input.c-305-	struct ipv6hdr *ip6h;
+net/xfrm/xfrm_input.c-306-	int size = sizeof(struct ipv6hdr);
+net/xfrm/xfrm_input.c-307-	int err;
+net/xfrm/xfrm_input.c-308-
+net/xfrm/xfrm_input.c-309-	skb->protocol = htons(ETH_P_IPV6);
+net/xfrm/xfrm_input.c-310-
+net/xfrm/xfrm_input.c:311:	err = skb_cow_head(skb, size + skb->mac_len);
+net/xfrm/xfrm_input.c-312-	if (err)
+net/xfrm/xfrm_input.c-313-		goto out;
+net/xfrm/xfrm_input.c-314-
+net/xfrm/xfrm_input.c-315-	__skb_push(skb, size);
+net/xfrm/xfrm_input.c-316-	skb_reset_network_header(skb);
+net/xfrm/xfrm_input.c-317-	skb_mac_header_rebuild(skb);
+net/xfrm/xfrm_input.c-318-
+net/xfrm/xfrm_input.c-319-	xfrm6_beet_make_header(skb);
+net/xfrm/xfrm_input.c-320-
+net/xfrm/xfrm_input.c-321-	ip6h = ipv6_hdr(skb);
+net/xfrm/xfrm_input.c-322-	ip6h->payload_len = htons(skb->len - size);
+net/xfrm/xfrm_input.c-323-	ip6h->daddr = x->sel.daddr.in6;
+--
+net/l2tp/l2tp_ppp.c-341-	session = pppol2tp_sock_to_session(sk);
+net/l2tp/l2tp_ppp.c-342-	if (!session)
+net/l2tp/l2tp_ppp.c-343-		goto abort;
+net/l2tp/l2tp_ppp.c-344-
+net/l2tp/l2tp_ppp.c-345-	tunnel = session->tunnel;
+net/l2tp/l2tp_ppp.c-346-
+net/l2tp/l2tp_ppp.c-347-	uhlen = (tunnel->encap == L2TP_ENCAPTYPE_UDP) ? sizeof(struct udphdr) : 0;
+net/l2tp/l2tp_ppp.c-348-	headroom = NET_SKB_PAD +
+net/l2tp/l2tp_ppp.c-349-		   sizeof(struct iphdr) + /* IP header */
+net/l2tp/l2tp_ppp.c-350-		   uhlen +		/* UDP header (if L2TP_ENCAPTYPE_UDP) */
+net/l2tp/l2tp_ppp.c-351-		   session->hdr_len +	/* L2TP header */
+net/l2tp/l2tp_ppp.c-352-		   2;			/* 2 bytes for PPP_ALLSTATIONS & PPP_UI */
+net/l2tp/l2tp_ppp.c:353:	if (skb_cow_head(skb, headroom))
+net/l2tp/l2tp_ppp.c-354-		goto abort_put_sess;
+net/l2tp/l2tp_ppp.c-355-
+net/l2tp/l2tp_ppp.c-356-	/* Setup PPP header */
+net/l2tp/l2tp_ppp.c-357-	__skb_push(skb, 2);
+net/l2tp/l2tp_ppp.c-358-	skb->data[0] = PPP_ALLSTATIONS;
+net/l2tp/l2tp_ppp.c-359-	skb->data[1] = PPP_UI;
+net/l2tp/l2tp_ppp.c-360-
+net/l2tp/l2tp_ppp.c-361-	local_bh_disable();
+net/l2tp/l2tp_ppp.c-362-	l2tp_xmit_skb(session, skb);
+net/l2tp/l2tp_ppp.c-363-	local_bh_enable();
+net/l2tp/l2tp_ppp.c-364-
+net/l2tp/l2tp_ppp.c-365-	l2tp_session_put(session);
+--
+net/core/filter.c-3579-	u16 mac_len = 0, inner_net = 0, inner_trans = 0;
+net/core/filter.c-3580-	const u8 meta_len = skb_metadata_len(skb);
+net/core/filter.c-3581-	unsigned int gso_type = SKB_GSO_DODGY;
+net/core/filter.c-3582-	int ret;
+net/core/filter.c-3583-
+net/core/filter.c-3584-	if (skb_is_gso(skb) && !skb_is_gso_tcp(skb)) {
+net/core/filter.c-3585-		/* udp gso_size delineates datagrams, only allow if fixed */
+net/core/filter.c-3586-		if (!(skb_shinfo(skb)->gso_type & SKB_GSO_UDP_L4) ||
+net/core/filter.c-3587-		    !(flags & BPF_F_ADJ_ROOM_FIXED_GSO))
+net/core/filter.c-3588-			return -ENOTSUPP;
+net/core/filter.c-3589-	}
+net/core/filter.c-3590-
+net/core/filter.c:3591:	ret = skb_cow_head(skb, meta_len + len_diff);
+net/core/filter.c-3592-	if (unlikely(ret < 0))
+net/core/filter.c-3593-		return ret;
+net/core/filter.c-3594-
+net/core/filter.c-3595-	if (encap) {
+net/core/filter.c-3596-		if (skb->protocol != htons(ETH_P_IP) &&
+net/core/filter.c-3597-		    skb->protocol != htons(ETH_P_IPV6))
+net/core/filter.c-3598-			return -ENOTSUPP;
+net/core/filter.c-3599-
+net/core/filter.c-3600-		if (flags & BPF_F_ADJ_ROOM_ENCAP_L3_IPV4 &&
+net/core/filter.c-3601-		    flags & BPF_F_ADJ_ROOM_ENCAP_L3_IPV6)
+net/core/filter.c-3602-			return -EINVAL;
+net/core/filter.c-3603-
+--
+net/core/filter.c-6943-	srh_tlvs = (void *)((unsigned char *)srh + sizeof(*srh) +
+net/core/filter.c-6944-			((srh->first_segment + 1) << 4));
+net/core/filter.c-6945-	srh_end = (void *)((unsigned char *)srh + sizeof(*srh) +
+net/core/filter.c-6946-			srh_state->hdrlen);
+net/core/filter.c-6947-	ptr = skb->data + offset;
+net/core/filter.c-6948-
+net/core/filter.c-6949-	if (unlikely(ptr < srh_tlvs || ptr > srh_end))
+net/core/filter.c-6950-		return -EFAULT;
+net/core/filter.c-6951-	if (unlikely(len < 0 && (void *)((char *)ptr - len) > srh_end))
+net/core/filter.c-6952-		return -EFAULT;
+net/core/filter.c-6953-
+net/core/filter.c-6954-	if (len > 0) {
+net/core/filter.c:6955:		ret = skb_cow_head(skb, len);
+net/core/filter.c-6956-		if (unlikely(ret < 0))
+net/core/filter.c-6957-			return ret;
+net/core/filter.c-6958-
+net/core/filter.c-6959-		ret = bpf_skb_net_hdr_push(skb, offset, len);
+net/core/filter.c-6960-	} else {
+net/core/filter.c-6961-		ret = bpf_skb_net_hdr_pop(skb, offset, -1 * len);
+net/core/filter.c-6962-	}
+net/core/filter.c-6963-
+net/core/filter.c-6964-	bpf_compute_data_pointers(skb);
+net/core/filter.c-6965-	if (unlikely(ret < 0))
+net/core/filter.c-6966-		return ret;
+net/core/filter.c-6967-
+--
+net/core/skbuff.c-4913-				pos += size;
+net/core/skbuff.c-4914-				frag++;
+net/core/skbuff.c-4915-			}
+net/core/skbuff.c-4916-
+net/core/skbuff.c-4917-			list_skb = list_skb->next;
+net/core/skbuff.c-4918-
+net/core/skbuff.c-4919-			if (unlikely(pskb_trim(nskb, len))) {
+net/core/skbuff.c-4920-				kfree_skb(nskb);
+net/core/skbuff.c-4921-				goto err;
+net/core/skbuff.c-4922-			}
+net/core/skbuff.c-4923-
+net/core/skbuff.c-4924-			hsize = skb_end_offset(nskb);
+net/core/skbuff.c:4925:			if (skb_cow_head(nskb, doffset + headroom)) {
+net/core/skbuff.c-4926-				kfree_skb(nskb);
+net/core/skbuff.c-4927-				goto err;
+net/core/skbuff.c-4928-			}
+net/core/skbuff.c-4929-
+net/core/skbuff.c-4930-			nskb->truesize += skb_end_offset(nskb) - hsize;
+net/core/skbuff.c-4931-			skb_release_head_state(nskb);
+net/core/skbuff.c-4932-			__skb_push(nskb, doffset);
+net/core/skbuff.c-4933-		} else {
+net/core/skbuff.c-4934-			if (hsize < 0)
+net/core/skbuff.c-4935-				hsize = 0;
+net/core/skbuff.c-4936-			if (hsize > len || !sg)
+net/core/skbuff.c-4937-				hsize = len;
+--
+net/core/skbuff.c-6532- *
+net/core/skbuff.c-6533- * Returns 0 on success, -errno otherwise.
+net/core/skbuff.c-6534- */
+net/core/skbuff.c-6535-int skb_eth_push(struct sk_buff *skb, const unsigned char *dst,
+net/core/skbuff.c-6536-		 const unsigned char *src)
+net/core/skbuff.c-6537-{
+net/core/skbuff.c-6538-	struct ethhdr *eth;
+net/core/skbuff.c-6539-	int err;
+net/core/skbuff.c-6540-
+net/core/skbuff.c-6541-	if (skb_network_offset(skb) || skb_vlan_tag_present(skb))
+net/core/skbuff.c-6542-		return -EPROTO;
+net/core/skbuff.c-6543-
+net/core/skbuff.c:6544:	err = skb_cow_head(skb, sizeof(*eth));
+net/core/skbuff.c-6545-	if (err < 0)
+net/core/skbuff.c-6546-		return err;
+net/core/skbuff.c-6547-
+net/core/skbuff.c-6548-	skb_push(skb, sizeof(*eth));
+net/core/skbuff.c-6549-	skb_reset_mac_header(skb);
+net/core/skbuff.c-6550-	skb_reset_mac_len(skb);
+net/core/skbuff.c-6551-
+net/core/skbuff.c-6552-	eth = eth_hdr(skb);
+net/core/skbuff.c-6553-	ether_addr_copy(eth->h_dest, dst);
+net/core/skbuff.c-6554-	ether_addr_copy(eth->h_source, src);
+net/core/skbuff.c-6555-	eth->h_proto = skb->protocol;
+net/core/skbuff.c-6556-
+--
+net/core/skbuff.c-6592-		  int mac_len, bool ethernet)
+net/core/skbuff.c-6593-{
+net/core/skbuff.c-6594-	struct mpls_shim_hdr *lse;
+net/core/skbuff.c-6595-	int err;
+net/core/skbuff.c-6596-
+net/core/skbuff.c-6597-	if (unlikely(!eth_p_mpls(mpls_proto)))
+net/core/skbuff.c-6598-		return -EINVAL;
+net/core/skbuff.c-6599-
+net/core/skbuff.c-6600-	/* Networking stack does not allow simultaneous Tunnel and MPLS GSO. */
+net/core/skbuff.c-6601-	if (skb->encapsulation)
+net/core/skbuff.c-6602-		return -EINVAL;
+net/core/skbuff.c-6603-
+net/core/skbuff.c:6604:	err = skb_cow_head(skb, MPLS_HLEN);
+net/core/skbuff.c-6605-	if (unlikely(err))
+net/core/skbuff.c-6606-		return err;
+net/core/skbuff.c-6607-
+net/core/skbuff.c-6608-	if (!skb->inner_protocol) {
+net/core/skbuff.c-6609-		skb_set_inner_network_header(skb, skb_network_offset(skb));
+net/core/skbuff.c-6610-		skb_set_inner_protocol(skb, skb->protocol);
+net/core/skbuff.c-6611-	}
+net/core/skbuff.c-6612-
+net/core/skbuff.c-6613-	skb_push(skb, MPLS_HLEN);
+net/core/skbuff.c-6614-	memmove(skb_mac_header(skb) - MPLS_HLEN, skb_mac_header(skb),
+net/core/skbuff.c-6615-		mac_len);
+net/core/skbuff.c-6616-	skb_reset_mac_header(skb);
+--
+net/core/lwt_bpf.c-245-	}
+net/core/lwt_bpf.c-246-	if (unlikely(dst->error)) {
+net/core/lwt_bpf.c-247-		err = dst->error;
+net/core/lwt_bpf.c-248-		dst_release(dst);
+net/core/lwt_bpf.c-249-		goto err;
+net/core/lwt_bpf.c-250-	}
+net/core/lwt_bpf.c-251-
+net/core/lwt_bpf.c-252-	/* Although skb header was reserved in bpf_lwt_push_ip_encap(), it
+net/core/lwt_bpf.c-253-	 * was done for the previous dst, so we are doing it here again, in
+net/core/lwt_bpf.c-254-	 * case the new dst needs much more space. The call below is a noop
+net/core/lwt_bpf.c-255-	 * if there is enough header space in skb.
+net/core/lwt_bpf.c-256-	 */
+net/core/lwt_bpf.c:257:	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst->dev));
+net/core/lwt_bpf.c-258-	if (unlikely(err))
+net/core/lwt_bpf.c-259-		goto err;
+net/core/lwt_bpf.c-260-
+net/core/lwt_bpf.c-261-	skb_dst_drop(skb);
+net/core/lwt_bpf.c-262-	skb_dst_set(skb, dst);
+net/core/lwt_bpf.c-263-
+net/core/lwt_bpf.c-264-	err = dst_output(dev_net(skb_dst(skb)->dev), skb->sk, skb);
+net/core/lwt_bpf.c-265-	if (unlikely(err))
+net/core/lwt_bpf.c-266-		return net_xmit_errno(err);
+net/core/lwt_bpf.c-267-
+net/core/lwt_bpf.c-268-	/* ip[6]_finish_output2 understand LWTUNNEL_XMIT_DONE */
+net/core/lwt_bpf.c-269-	return LWTUNNEL_XMIT_DONE;
+--
+net/core/lwt_bpf.c-619-	} else if (iph->version == 6) {
+net/core/lwt_bpf.c-620-		ipv4 = false;
+net/core/lwt_bpf.c-621-		if (unlikely(len < sizeof(struct ipv6hdr)))
+net/core/lwt_bpf.c-622-			return -EINVAL;
+net/core/lwt_bpf.c-623-		is_udp_tunnel = ((struct ipv6hdr *)iph)->nexthdr == NEXTHDR_UDP;
+net/core/lwt_bpf.c-624-		if (unlikely(is_udp_tunnel && len < sizeof(struct ipv6hdr) + sizeof(struct udphdr)))
+net/core/lwt_bpf.c-625-			return -EINVAL;
+net/core/lwt_bpf.c-626-	} else {
+net/core/lwt_bpf.c-627-		return -EINVAL;
+net/core/lwt_bpf.c-628-	}
+net/core/lwt_bpf.c-629-
+net/core/lwt_bpf.c-630-	if (ingress)
+net/core/lwt_bpf.c:631:		err = skb_cow_head(skb, len + skb->mac_len);
+net/core/lwt_bpf.c-632-	else
+net/core/lwt_bpf.c:633:		err = skb_cow_head(skb,
+net/core/lwt_bpf.c-634-				   len + LL_RESERVED_SPACE(skb_dst(skb)->dev));
+net/core/lwt_bpf.c-635-	if (unlikely(err))
+net/core/lwt_bpf.c-636-		return err;
+net/core/lwt_bpf.c-637-
+net/core/lwt_bpf.c-638-	/* push the encap headers and fix pointers */
+net/core/lwt_bpf.c-639-	skb_reset_inner_headers(skb);
+net/core/lwt_bpf.c-640-	skb_reset_inner_mac_header(skb);  /* mac header is not yet set */
+net/core/lwt_bpf.c-641-	skb_set_inner_protocol(skb, skb->protocol);
+net/core/lwt_bpf.c-642-	skb->encapsulation = 1;
+net/core/lwt_bpf.c-643-	skb_push(skb, len);
+net/core/lwt_bpf.c-644-	if (ingress)
+net/core/lwt_bpf.c-645-		skb_postpush_rcsum(skb, iph, len);
+--
+net/core/gso.c-85- *
+net/core/gso.c-86- *	Segmentation preserves SKB_GSO_CB_OFFSET bytes of previous skb cb.
+net/core/gso.c-87- */
+net/core/gso.c-88-struct sk_buff *__skb_gso_segment(struct sk_buff *skb,
+net/core/gso.c-89-				  netdev_features_t features, bool tx_path)
+net/core/gso.c-90-{
+net/core/gso.c-91-	struct sk_buff *segs;
+net/core/gso.c-92-
+net/core/gso.c-93-	if (unlikely(skb_needs_check(skb, tx_path))) {
+net/core/gso.c-94-		int err;
+net/core/gso.c-95-
+net/core/gso.c-96-		/* We're going to init ->check field in TCP or UDP header */
+net/core/gso.c:97:		err = skb_cow_head(skb, 0);
+net/core/gso.c-98-		if (err < 0)
+net/core/gso.c-99-			return ERR_PTR(err);
+net/core/gso.c-100-	}
+net/core/gso.c-101-
+net/core/gso.c-102-	/* Only report GSO partial support if it will enable us to
+net/core/gso.c-103-	 * support segmentation on this frame without needing additional
+net/core/gso.c-104-	 * work.
+net/core/gso.c-105-	 */
+net/core/gso.c-106-	if (features & NETIF_F_GSO_PARTIAL) {
+net/core/gso.c-107-		netdev_features_t partial_features = NETIF_F_GSO_ROBUST;
+net/core/gso.c-108-		struct net_device *dev = skb->dev;
+net/core/gso.c-109-
+--
+net/l2tp/l2tp_core.c-1229-	struct sock *sk = tunnel->sock;
+net/l2tp/l2tp_core.c-1230-	int headroom, uhlen, udp_len;
+net/l2tp/l2tp_core.c-1231-	int ret = NET_XMIT_SUCCESS;
+net/l2tp/l2tp_core.c-1232-	struct inet_sock *inet;
+net/l2tp/l2tp_core.c-1233-	struct udphdr *uh;
+net/l2tp/l2tp_core.c-1234-
+net/l2tp/l2tp_core.c-1235-	/* Check that there's enough headroom in the skb to insert IP,
+net/l2tp/l2tp_core.c-1236-	 * UDP and L2TP headers. If not enough, expand it to
+net/l2tp/l2tp_core.c-1237-	 * make room. Adjust truesize.
+net/l2tp/l2tp_core.c-1238-	 */
+net/l2tp/l2tp_core.c-1239-	uhlen = (tunnel->encap == L2TP_ENCAPTYPE_UDP) ? sizeof(*uh) : 0;
+net/l2tp/l2tp_core.c-1240-	headroom = NET_SKB_PAD + sizeof(struct iphdr) + uhlen + session->hdr_len;
+net/l2tp/l2tp_core.c:1241:	if (skb_cow_head(skb, headroom)) {
+net/l2tp/l2tp_core.c-1242-		kfree_skb(skb);
+net/l2tp/l2tp_core.c-1243-		return NET_XMIT_DROP;
+net/l2tp/l2tp_core.c-1244-	}
+net/l2tp/l2tp_core.c-1245-
+net/l2tp/l2tp_core.c-1246-	/* Setup L2TP header */
+net/l2tp/l2tp_core.c-1247-	if (tunnel->version == L2TP_HDR_VER_2)
+net/l2tp/l2tp_core.c-1248-		l2tp_build_l2tpv2_header(session, __skb_push(skb, session->hdr_len));
+net/l2tp/l2tp_core.c-1249-	else
+net/l2tp/l2tp_core.c-1250-		l2tp_build_l2tpv3_header(session, __skb_push(skb, session->hdr_len));
+net/l2tp/l2tp_core.c-1251-
+net/l2tp/l2tp_core.c-1252-	/* Reset control buffer */
+net/l2tp/l2tp_core.c-1253-	memset(skb->cb, 0, sizeof(skb->cb));
+--
+net/openvswitch/actions.c-685-	flow_key->tp.src = sh->source;
+net/openvswitch/actions.c-686-	flow_key->tp.dst = sh->dest;
+net/openvswitch/actions.c-687-
+net/openvswitch/actions.c-688-	return 0;
+net/openvswitch/actions.c-689-}
+net/openvswitch/actions.c-690-
+net/openvswitch/actions.c-691-static int ovs_vport_output(struct net *net, struct sock *sk,
+net/openvswitch/actions.c-692-			    struct sk_buff *skb)
+net/openvswitch/actions.c-693-{
+net/openvswitch/actions.c-694-	struct ovs_frag_data *data = this_cpu_ptr(&ovs_pcpu_storage->frag_data);
+net/openvswitch/actions.c-695-	struct vport *vport = data->vport;
+net/openvswitch/actions.c-696-
+net/openvswitch/actions.c:697:	if (skb_cow_head(skb, data->l2_len) < 0) {
+net/openvswitch/actions.c-698-		kfree_skb_reason(skb, SKB_DROP_REASON_NOMEM);
+net/openvswitch/actions.c-699-		return -ENOMEM;
+net/openvswitch/actions.c-700-	}
+net/openvswitch/actions.c-701-
+net/openvswitch/actions.c-702-	__skb_dst_copy(skb, data->dst);
+net/openvswitch/actions.c-703-	*OVS_CB(skb) = data->cb;
+net/openvswitch/actions.c-704-	skb->inner_protocol = data->inner_protocol;
+net/openvswitch/actions.c-705-	if (data->vlan_tci & VLAN_CFI_MASK)
+net/openvswitch/actions.c-706-		__vlan_hwaccel_put_tag(skb, data->vlan_proto, data->vlan_tci & ~VLAN_CFI_MASK);
+net/openvswitch/actions.c-707-	else
+net/openvswitch/actions.c-708-		__vlan_hwaccel_clear_tag(skb);
+net/openvswitch/actions.c-709-
+--
+net/nsh/nsh.c-18-	size_t length = nsh_hdr_len(pushed_nh);
+net/nsh/nsh.c-19-	u8 next_proto;
+net/nsh/nsh.c-20-
+net/nsh/nsh.c-21-	if (skb->mac_len) {
+net/nsh/nsh.c-22-		next_proto = TUN_P_ETHERNET;
+net/nsh/nsh.c-23-	} else {
+net/nsh/nsh.c-24-		next_proto = tun_p_from_eth_p(skb->protocol);
+net/nsh/nsh.c-25-		if (!next_proto)
+net/nsh/nsh.c-26-			return -EAFNOSUPPORT;
+net/nsh/nsh.c-27-	}
+net/nsh/nsh.c-28-
+net/nsh/nsh.c-29-	/* Add the NSH header */
+net/nsh/nsh.c:30:	if (skb_cow_head(skb, length) < 0)
+net/nsh/nsh.c-31-		return -ENOMEM;
+net/nsh/nsh.c-32-
+net/nsh/nsh.c-33-	skb_push(skb, length);
+net/nsh/nsh.c-34-	nh = (struct nshhdr *)(skb->data);
+net/nsh/nsh.c-35-	memcpy(nh, pushed_nh, length);
+net/nsh/nsh.c-36-	nh->np = next_proto;
+net/nsh/nsh.c-37-	skb_postpush_rcsum(skb, nh, length);
+net/nsh/nsh.c-38-
+net/nsh/nsh.c-39-	skb->protocol = htons(ETH_P_NSH);
+net/nsh/nsh.c-40-	skb_reset_mac_header(skb);
+net/nsh/nsh.c-41-	skb_reset_network_header(skb);
+net/nsh/nsh.c-42-	skb_reset_mac_len(skb);
+--
+net/mpls/mpls_iptunnel.c-97-
+net/mpls/mpls_iptunnel.c-98-	/* Verify the destination can hold the packet */
+net/mpls/mpls_iptunnel.c-99-	new_header_size = mpls_encap_size(tun_encap_info);
+net/mpls/mpls_iptunnel.c-100-	mtu = mpls_dev_mtu(out_dev);
+net/mpls/mpls_iptunnel.c-101-	if (mpls_pkt_too_big(skb, mtu - new_header_size))
+net/mpls/mpls_iptunnel.c-102-		goto drop;
+net/mpls/mpls_iptunnel.c-103-
+net/mpls/mpls_iptunnel.c-104-	hh_len = LL_RESERVED_SPACE(out_dev);
+net/mpls/mpls_iptunnel.c-105-	if (!out_dev->header_ops)
+net/mpls/mpls_iptunnel.c-106-		hh_len = 0;
+net/mpls/mpls_iptunnel.c-107-
+net/mpls/mpls_iptunnel.c-108-	/* Ensure there is enough space for the headers in the skb */
+net/mpls/mpls_iptunnel.c:109:	if (skb_cow_head(skb, hh_len + new_header_size))
+net/mpls/mpls_iptunnel.c-110-		goto drop;
+net/mpls/mpls_iptunnel.c-111-
+net/mpls/mpls_iptunnel.c-112-	skb_set_inner_protocol(skb, skb->protocol);
+net/mpls/mpls_iptunnel.c-113-	skb_reset_inner_network_header(skb);
+net/mpls/mpls_iptunnel.c-114-
+net/mpls/mpls_iptunnel.c-115-	skb_push(skb, new_header_size);
+net/mpls/mpls_iptunnel.c-116-
+net/mpls/mpls_iptunnel.c-117-	skb_reset_network_header(skb);
+net/mpls/mpls_iptunnel.c-118-
+net/mpls/mpls_iptunnel.c-119-	skb->dev = out_dev;
+net/mpls/mpls_iptunnel.c-120-	skb->protocol = htons(ETH_P_MPLS_UC);
+net/mpls/mpls_iptunnel.c-121-
+--
+net/ipv6/ip6_gre.c-752-		fl6->flowlabel = key->label;
+net/ipv6/ip6_gre.c-753-		fl6->flowi6_uid = sock_net_uid(dev_net(dev), NULL);
+net/ipv6/ip6_gre.c-754-		fl6->fl6_gre_key = tunnel_id_to_key32(key->tun_id);
+net/ipv6/ip6_gre.c-755-
+net/ipv6/ip6_gre.c-756-		dsfield = key->tos;
+net/ipv6/ip6_gre.c-757-		ip_tunnel_flags_zero(flags);
+net/ipv6/ip6_gre.c-758-		__set_bit(IP_TUNNEL_CSUM_BIT, flags);
+net/ipv6/ip6_gre.c-759-		__set_bit(IP_TUNNEL_KEY_BIT, flags);
+net/ipv6/ip6_gre.c-760-		__set_bit(IP_TUNNEL_SEQ_BIT, flags);
+net/ipv6/ip6_gre.c-761-		ip_tunnel_flags_and(flags, flags, key->tun_flags);
+net/ipv6/ip6_gre.c-762-		tun_hlen = gre_calc_hlen(flags);
+net/ipv6/ip6_gre.c-763-
+net/ipv6/ip6_gre.c:764:		if (skb_cow_head(skb, dev->needed_headroom ?: tun_hlen + tunnel->encap_hlen))
+net/ipv6/ip6_gre.c-765-			return -ENOMEM;
+net/ipv6/ip6_gre.c-766-
+net/ipv6/ip6_gre.c-767-		gre_build_header(skb, tun_hlen,
+net/ipv6/ip6_gre.c-768-				 flags, protocol,
+net/ipv6/ip6_gre.c-769-				 tunnel_id_to_key32(tun_info->key.tun_id),
+net/ipv6/ip6_gre.c-770-				 test_bit(IP_TUNNEL_SEQ_BIT, flags) ?
+net/ipv6/ip6_gre.c-771-				 htonl(atomic_fetch_inc(&tunnel->o_seqno)) :
+net/ipv6/ip6_gre.c-772-				 0);
+net/ipv6/ip6_gre.c-773-
+net/ipv6/ip6_gre.c-774-	} else {
+net/ipv6/ip6_gre.c:775:		if (skb_cow_head(skb, dev->needed_headroom ?: tunnel->hlen))
+net/ipv6/ip6_gre.c-776-			return -ENOMEM;
+net/ipv6/ip6_gre.c-777-
+net/ipv6/ip6_gre.c-778-		ip_tunnel_flags_copy(flags, tunnel->parms.o_flags);
+net/ipv6/ip6_gre.c-779-
+net/ipv6/ip6_gre.c-780-		gre_build_header(skb, tunnel->tun_hlen, flags,
+net/ipv6/ip6_gre.c-781-				 protocol, tunnel->parms.o_key,
+net/ipv6/ip6_gre.c-782-				 test_bit(IP_TUNNEL_SEQ_BIT, flags) ?
+net/ipv6/ip6_gre.c-783-				 htonl(atomic_fetch_inc(&tunnel->o_seqno)) :
+net/ipv6/ip6_gre.c-784-				 0);
+net/ipv6/ip6_gre.c-785-	}
+net/ipv6/ip6_gre.c-786-
+net/ipv6/ip6_gre.c-787-	return ip6_tnl_xmit(skb, dev, dsfield, fl6, encap_limit, pmtu,
+--
+net/ipv6/ip6_gre.c-952-
+net/ipv6/ip6_gre.c-953-	if (skb->protocol == htons(ETH_P_IPV6)) {
+net/ipv6/ip6_gre.c-954-		int thoff;
+net/ipv6/ip6_gre.c-955-
+net/ipv6/ip6_gre.c-956-		if (skb_transport_header_was_set(skb))
+net/ipv6/ip6_gre.c-957-			thoff = skb_transport_offset(skb);
+net/ipv6/ip6_gre.c-958-		else
+net/ipv6/ip6_gre.c-959-			thoff = nhoff + sizeof(struct ipv6hdr);
+net/ipv6/ip6_gre.c-960-		if (ntohs(ipv6_hdr(skb)->payload_len) > skb->len - thoff)
+net/ipv6/ip6_gre.c-961-			truncate = true;
+net/ipv6/ip6_gre.c-962-	}
+net/ipv6/ip6_gre.c-963-
+net/ipv6/ip6_gre.c:964:	if (skb_cow_head(skb, dev->needed_headroom ?: t->hlen))
+net/ipv6/ip6_gre.c-965-		goto tx_err;
+net/ipv6/ip6_gre.c-966-
+net/ipv6/ip6_gre.c-967-	__clear_bit(IP_TUNNEL_KEY_BIT, t->parms.o_flags);
+net/ipv6/ip6_gre.c-968-	IPCB(skb)->flags = 0;
+net/ipv6/ip6_gre.c-969-
+net/ipv6/ip6_gre.c-970-	/* For collect_md mode, derive fl6 from the tunnel key,
+net/ipv6/ip6_gre.c-971-	 * for native mode, call prepare_ip6gre_xmit_{ipv4,ipv6}.
+net/ipv6/ip6_gre.c-972-	 */
+net/ipv6/ip6_gre.c-973-	if (t->parms.collect_md) {
+net/ipv6/ip6_gre.c-974-		const struct ip_tunnel_key *key;
+net/ipv6/ip6_gre.c-975-		struct erspan_metadata *md;
+net/ipv6/ip6_gre.c-976-		__be32 tun_id;
+--
+net/nfc/nci/data.c-218-	int reassembly_len;
+net/nfc/nci/data.c-219-	int err = 0;
+net/nfc/nci/data.c-220-
+net/nfc/nci/data.c-221-	if (status) {
+net/nfc/nci/data.c-222-		err = status;
+net/nfc/nci/data.c-223-		goto exit;
+net/nfc/nci/data.c-224-	}
+net/nfc/nci/data.c-225-
+net/nfc/nci/data.c-226-	if (ndev->rx_data_reassembly) {
+net/nfc/nci/data.c-227-		reassembly_len = ndev->rx_data_reassembly->len;
+net/nfc/nci/data.c-228-
+net/nfc/nci/data.c-229-		/* first, make enough room for the already accumulated data */
+net/nfc/nci/data.c:230:		if (skb_cow_head(skb, reassembly_len)) {
+net/nfc/nci/data.c-231-			pr_err("error adding room for accumulated rx data\n");
+net/nfc/nci/data.c-232-
+net/nfc/nci/data.c-233-			kfree_skb(skb);
+net/nfc/nci/data.c-234-			skb = NULL;
+net/nfc/nci/data.c-235-
+net/nfc/nci/data.c-236-			kfree_skb(ndev->rx_data_reassembly);
+net/nfc/nci/data.c-237-			ndev->rx_data_reassembly = NULL;
+net/nfc/nci/data.c-238-
+net/nfc/nci/data.c-239-			err = -ENOMEM;
+net/nfc/nci/data.c-240-			goto exit;
+net/nfc/nci/data.c-241-		}
+net/nfc/nci/data.c-242-
+--
+net/ipv6/ioam6_iptunnel.c-253-	return 0;
+net/ipv6/ioam6_iptunnel.c-254-}
+net/ipv6/ioam6_iptunnel.c-255-
+net/ipv6/ioam6_iptunnel.c-256-static int ioam6_do_inline(struct net *net, struct sk_buff *skb,
+net/ipv6/ioam6_iptunnel.c-257-			   struct ioam6_lwt_encap *tuninfo,
+net/ipv6/ioam6_iptunnel.c-258-			   struct dst_entry *cache_dst)
+net/ipv6/ioam6_iptunnel.c-259-{
+net/ipv6/ioam6_iptunnel.c-260-	struct ipv6hdr *oldhdr, *hdr;
+net/ipv6/ioam6_iptunnel.c-261-	int hdrlen, err;
+net/ipv6/ioam6_iptunnel.c-262-
+net/ipv6/ioam6_iptunnel.c-263-	hdrlen = (tuninfo->eh.hdrlen + 1) << 3;
+net/ipv6/ioam6_iptunnel.c-264-
+net/ipv6/ioam6_iptunnel.c:265:	err = skb_cow_head(skb, hdrlen + dst_dev_overhead(cache_dst, skb));
+net/ipv6/ioam6_iptunnel.c-266-	if (unlikely(err))
+net/ipv6/ioam6_iptunnel.c-267-		return err;
+net/ipv6/ioam6_iptunnel.c-268-
+net/ipv6/ioam6_iptunnel.c-269-	oldhdr = ipv6_hdr(skb);
+net/ipv6/ioam6_iptunnel.c-270-	skb_pull(skb, sizeof(*oldhdr));
+net/ipv6/ioam6_iptunnel.c-271-	skb_postpull_rcsum(skb, skb_network_header(skb), sizeof(*oldhdr));
+net/ipv6/ioam6_iptunnel.c-272-
+net/ipv6/ioam6_iptunnel.c-273-	skb_push(skb, sizeof(*oldhdr) + hdrlen);
+net/ipv6/ioam6_iptunnel.c-274-	skb_reset_network_header(skb);
+net/ipv6/ioam6_iptunnel.c-275-	skb_mac_header_rebuild(skb);
+net/ipv6/ioam6_iptunnel.c-276-
+net/ipv6/ioam6_iptunnel.c-277-	hdr = ipv6_hdr(skb);
+--
+net/ipv6/ioam6_iptunnel.c-294-			  bool has_tunsrc,
+net/ipv6/ioam6_iptunnel.c-295-			  struct in6_addr *tunsrc,
+net/ipv6/ioam6_iptunnel.c-296-			  struct in6_addr *tundst,
+net/ipv6/ioam6_iptunnel.c-297-			  struct dst_entry *cache_dst)
+net/ipv6/ioam6_iptunnel.c-298-{
+net/ipv6/ioam6_iptunnel.c-299-	struct dst_entry *dst = skb_dst(skb);
+net/ipv6/ioam6_iptunnel.c-300-	struct ipv6hdr *hdr, *inner_hdr;
+net/ipv6/ioam6_iptunnel.c-301-	int hdrlen, len, err;
+net/ipv6/ioam6_iptunnel.c-302-
+net/ipv6/ioam6_iptunnel.c-303-	hdrlen = (tuninfo->eh.hdrlen + 1) << 3;
+net/ipv6/ioam6_iptunnel.c-304-	len = sizeof(*hdr) + hdrlen;
+net/ipv6/ioam6_iptunnel.c-305-
+net/ipv6/ioam6_iptunnel.c:306:	err = skb_cow_head(skb, len + dst_dev_overhead(cache_dst, skb));
+net/ipv6/ioam6_iptunnel.c-307-	if (unlikely(err))
+net/ipv6/ioam6_iptunnel.c-308-		return err;
+net/ipv6/ioam6_iptunnel.c-309-
+net/ipv6/ioam6_iptunnel.c-310-	inner_hdr = ipv6_hdr(skb);
+net/ipv6/ioam6_iptunnel.c-311-
+net/ipv6/ioam6_iptunnel.c-312-	skb_push(skb, len);
+net/ipv6/ioam6_iptunnel.c-313-	skb_reset_network_header(skb);
+net/ipv6/ioam6_iptunnel.c-314-	skb_mac_header_rebuild(skb);
+net/ipv6/ioam6_iptunnel.c-315-	skb_set_transport_header(skb, sizeof(*hdr));
+net/ipv6/ioam6_iptunnel.c-316-
+net/ipv6/ioam6_iptunnel.c-317-	tuninfo->eh.nexthdr = NEXTHDR_IPV6;
+net/ipv6/ioam6_iptunnel.c-318-	memcpy(skb_transport_header(skb), (u8 *)tuninfo, hdrlen);
+--
+net/ipv6/ioam6_iptunnel.c-425-		 * the cache in order to avoid a reference loop. Instead, we add
+net/ipv6/ioam6_iptunnel.c-426-		 * our fake dst_entry to the cache as a way to detect this case.
+net/ipv6/ioam6_iptunnel.c-427-		 * Otherwise, we add the resolved destination to the cache.
+net/ipv6/ioam6_iptunnel.c-428-		 */
+net/ipv6/ioam6_iptunnel.c-429-		local_bh_disable();
+net/ipv6/ioam6_iptunnel.c-430-		if (orig_dst->lwtstate == dst->lwtstate)
+net/ipv6/ioam6_iptunnel.c-431-			dst_cache_set_ip6(&ilwt->cache,
+net/ipv6/ioam6_iptunnel.c-432-					  &ilwt->null_rt.dst, &fl6.saddr);
+net/ipv6/ioam6_iptunnel.c-433-		else
+net/ipv6/ioam6_iptunnel.c-434-			dst_cache_set_ip6(&ilwt->cache, dst, &fl6.saddr);
+net/ipv6/ioam6_iptunnel.c-435-		local_bh_enable();
+net/ipv6/ioam6_iptunnel.c-436-
+net/ipv6/ioam6_iptunnel.c:437:		err = skb_cow_head(skb, LL_RESERVED_SPACE(dst_dev(dst)));
+net/ipv6/ioam6_iptunnel.c-438-		if (unlikely(err))
+net/ipv6/ioam6_iptunnel.c-439-			goto drop;
+net/ipv6/ioam6_iptunnel.c-440-	}
+net/ipv6/ioam6_iptunnel.c-441-
+net/ipv6/ioam6_iptunnel.c-442-	/* avoid lwtunnel_output() reentry loop when destination is the same
+net/ipv6/ioam6_iptunnel.c-443-	 * after transformation (e.g., with the inline mode)
+net/ipv6/ioam6_iptunnel.c-444-	 */
+net/ipv6/ioam6_iptunnel.c-445-	if (orig_dst->lwtstate != dst->lwtstate) {
+net/ipv6/ioam6_iptunnel.c-446-		skb_dst_drop(skb);
+net/ipv6/ioam6_iptunnel.c-447-		skb_dst_set(skb, dst);
+net/ipv6/ioam6_iptunnel.c-448-		return dst_output(net, sk, skb);
+net/ipv6/ioam6_iptunnel.c-449-	}
+--
+net/ipv6/seg6_iptunnel.c-142-{
+net/ipv6/seg6_iptunnel.c-143-	struct dst_entry *dst = skb_dst(skb);
+net/ipv6/seg6_iptunnel.c-144-	struct net_device *dev = dst_dev(dst);
+net/ipv6/seg6_iptunnel.c-145-	struct net *net = dev_net(dev);
+net/ipv6/seg6_iptunnel.c-146-	struct ipv6hdr *hdr, *inner_hdr;
+net/ipv6/seg6_iptunnel.c-147-	struct ipv6_sr_hdr *isrh;
+net/ipv6/seg6_iptunnel.c-148-	int hdrlen, tot_len, err;
+net/ipv6/seg6_iptunnel.c-149-	__be32 flowlabel;
+net/ipv6/seg6_iptunnel.c-150-
+net/ipv6/seg6_iptunnel.c-151-	hdrlen = (osrh->hdrlen + 1) << 3;
+net/ipv6/seg6_iptunnel.c-152-	tot_len = hdrlen + sizeof(*hdr);
+net/ipv6/seg6_iptunnel.c-153-
+net/ipv6/seg6_iptunnel.c:154:	err = skb_cow_head(skb, tot_len + dst_dev_overhead(cache_dst, skb));
+net/ipv6/seg6_iptunnel.c-155-	if (unlikely(err))
+net/ipv6/seg6_iptunnel.c-156-		return err;
+net/ipv6/seg6_iptunnel.c-157-
+net/ipv6/seg6_iptunnel.c-158-	inner_hdr = ipv6_hdr(skb);
+net/ipv6/seg6_iptunnel.c-159-	flowlabel = seg6_make_flowlabel(net, skb, inner_hdr);
+net/ipv6/seg6_iptunnel.c-160-
+net/ipv6/seg6_iptunnel.c-161-	skb_push(skb, tot_len);
+net/ipv6/seg6_iptunnel.c-162-	skb_reset_network_header(skb);
+net/ipv6/seg6_iptunnel.c-163-	skb_mac_header_rebuild(skb);
+net/ipv6/seg6_iptunnel.c-164-	hdr = ipv6_hdr(skb);
+net/ipv6/seg6_iptunnel.c-165-
+net/ipv6/seg6_iptunnel.c-166-	/* inherit tc, flowlabel and hlim
+--
+net/ipv6/seg6_iptunnel.c-244-	} else {
+net/ipv6/seg6_iptunnel.c-245-		/* NOTE: if tag/flags and/or other TLVs are introduced in the
+net/ipv6/seg6_iptunnel.c-246-		 * seg6_iptunnel infrastructure, they should be considered when
+net/ipv6/seg6_iptunnel.c-247-		 * deciding to skip the SRH.
+net/ipv6/seg6_iptunnel.c-248-		 */
+net/ipv6/seg6_iptunnel.c-249-		skip_srh = !sr_has_hmac(osrh);
+net/ipv6/seg6_iptunnel.c-250-
+net/ipv6/seg6_iptunnel.c-251-		red_hdrlen = skip_srh ? 0 : hdrlen;
+net/ipv6/seg6_iptunnel.c-252-	}
+net/ipv6/seg6_iptunnel.c-253-
+net/ipv6/seg6_iptunnel.c-254-	tot_len = red_hdrlen + sizeof(struct ipv6hdr);
+net/ipv6/seg6_iptunnel.c-255-
+net/ipv6/seg6_iptunnel.c:256:	err = skb_cow_head(skb, tot_len + dst_dev_overhead(cache_dst, skb));
+net/ipv6/seg6_iptunnel.c-257-	if (unlikely(err))
+net/ipv6/seg6_iptunnel.c-258-		return err;
+net/ipv6/seg6_iptunnel.c-259-
+net/ipv6/seg6_iptunnel.c-260-	inner_hdr = ipv6_hdr(skb);
+net/ipv6/seg6_iptunnel.c-261-	flowlabel = seg6_make_flowlabel(net, skb, inner_hdr);
+net/ipv6/seg6_iptunnel.c-262-
+net/ipv6/seg6_iptunnel.c-263-	skb_push(skb, tot_len);
+net/ipv6/seg6_iptunnel.c-264-	skb_reset_network_header(skb);
+net/ipv6/seg6_iptunnel.c-265-	skb_mac_header_rebuild(skb);
+net/ipv6/seg6_iptunnel.c-266-	hdr = ipv6_hdr(skb);
+net/ipv6/seg6_iptunnel.c-267-
+net/ipv6/seg6_iptunnel.c-268-	/* based on seg6_do_srh_encap() */
+--
+net/ipv6/seg6_iptunnel.c-340-	return 0;
+net/ipv6/seg6_iptunnel.c-341-}
+net/ipv6/seg6_iptunnel.c-342-
+net/ipv6/seg6_iptunnel.c-343-static int __seg6_do_srh_inline(struct sk_buff *skb, struct ipv6_sr_hdr *osrh,
+net/ipv6/seg6_iptunnel.c-344-				struct dst_entry *cache_dst)
+net/ipv6/seg6_iptunnel.c-345-{
+net/ipv6/seg6_iptunnel.c-346-	struct ipv6hdr *hdr, *oldhdr;
+net/ipv6/seg6_iptunnel.c-347-	struct ipv6_sr_hdr *isrh;
+net/ipv6/seg6_iptunnel.c-348-	int hdrlen, err;
+net/ipv6/seg6_iptunnel.c-349-
+net/ipv6/seg6_iptunnel.c-350-	hdrlen = (osrh->hdrlen + 1) << 3;
+net/ipv6/seg6_iptunnel.c-351-
+net/ipv6/seg6_iptunnel.c:352:	err = skb_cow_head(skb, hdrlen + dst_dev_overhead(cache_dst, skb));
+net/ipv6/seg6_iptunnel.c-353-	if (unlikely(err))
+net/ipv6/seg6_iptunnel.c-354-		return err;
+net/ipv6/seg6_iptunnel.c-355-
+net/ipv6/seg6_iptunnel.c-356-	oldhdr = ipv6_hdr(skb);
+net/ipv6/seg6_iptunnel.c-357-
+net/ipv6/seg6_iptunnel.c-358-	skb_pull(skb, sizeof(struct ipv6hdr));
+net/ipv6/seg6_iptunnel.c-359-	skb_postpull_rcsum(skb, skb_network_header(skb),
+net/ipv6/seg6_iptunnel.c-360-			   sizeof(struct ipv6hdr));
+net/ipv6/seg6_iptunnel.c-361-
+net/ipv6/seg6_iptunnel.c-362-	skb_push(skb, sizeof(struct ipv6hdr) + hdrlen);
+net/ipv6/seg6_iptunnel.c-363-	skb_reset_network_header(skb);
+net/ipv6/seg6_iptunnel.c-364-	skb_mac_header_rebuild(skb);
+--
+net/ipv6/seg6_iptunnel.c-525-			err = -ENETUNREACH;
+net/ipv6/seg6_iptunnel.c-526-			goto drop;
+net/ipv6/seg6_iptunnel.c-527-		}
+net/ipv6/seg6_iptunnel.c-528-
+net/ipv6/seg6_iptunnel.c-529-		/* cache only if we don't create a dst reference loop */
+net/ipv6/seg6_iptunnel.c-530-		if (!dst->error && lwtst != dst->lwtstate) {
+net/ipv6/seg6_iptunnel.c-531-			local_bh_disable();
+net/ipv6/seg6_iptunnel.c-532-			dst_cache_set_ip6(&slwt->cache_input, dst,
+net/ipv6/seg6_iptunnel.c-533-					  &ipv6_hdr(skb)->saddr);
+net/ipv6/seg6_iptunnel.c-534-			local_bh_enable();
+net/ipv6/seg6_iptunnel.c-535-		}
+net/ipv6/seg6_iptunnel.c-536-
+net/ipv6/seg6_iptunnel.c:537:		err = skb_cow_head(skb, LL_RESERVED_SPACE(dst_dev(dst)));
+net/ipv6/seg6_iptunnel.c-538-		if (unlikely(err))
+net/ipv6/seg6_iptunnel.c-539-			goto drop;
+net/ipv6/seg6_iptunnel.c-540-	} else {
+net/ipv6/seg6_iptunnel.c-541-		skb_dst_drop(skb);
+net/ipv6/seg6_iptunnel.c-542-		skb_dst_set(skb, dst);
+net/ipv6/seg6_iptunnel.c-543-	}
+net/ipv6/seg6_iptunnel.c-544-
+net/ipv6/seg6_iptunnel.c-545-	if (static_branch_unlikely(&nf_hooks_lwtunnel_enabled))
+net/ipv6/seg6_iptunnel.c-546-		return NF_HOOK(NFPROTO_IPV6, NF_INET_LOCAL_OUT,
+net/ipv6/seg6_iptunnel.c-547-			       dev_net(skb->dev), NULL, skb, NULL,
+net/ipv6/seg6_iptunnel.c-548-			       skb_dst_dev(skb), seg6_input_finish);
+net/ipv6/seg6_iptunnel.c-549-
+--
+net/ipv6/seg6_iptunnel.c-611-		if (dst->error) {
+net/ipv6/seg6_iptunnel.c-612-			err = dst->error;
+net/ipv6/seg6_iptunnel.c-613-			goto drop;
+net/ipv6/seg6_iptunnel.c-614-		}
+net/ipv6/seg6_iptunnel.c-615-
+net/ipv6/seg6_iptunnel.c-616-		/* cache only if we don't create a dst reference loop */
+net/ipv6/seg6_iptunnel.c-617-		if (orig_dst->lwtstate != dst->lwtstate) {
+net/ipv6/seg6_iptunnel.c-618-			local_bh_disable();
+net/ipv6/seg6_iptunnel.c-619-			dst_cache_set_ip6(&slwt->cache_output, dst, &fl6.saddr);
+net/ipv6/seg6_iptunnel.c-620-			local_bh_enable();
+net/ipv6/seg6_iptunnel.c-621-		}
+net/ipv6/seg6_iptunnel.c-622-
+net/ipv6/seg6_iptunnel.c:623:		err = skb_cow_head(skb, LL_RESERVED_SPACE(dst_dev(dst)));
+net/ipv6/seg6_iptunnel.c-624-		if (unlikely(err))
+net/ipv6/seg6_iptunnel.c-625-			goto drop;
+net/ipv6/seg6_iptunnel.c-626-	}
+net/ipv6/seg6_iptunnel.c-627-
+net/ipv6/seg6_iptunnel.c-628-	skb_dst_drop(skb);
+net/ipv6/seg6_iptunnel.c-629-	skb_dst_set(skb, dst);
+net/ipv6/seg6_iptunnel.c-630-
+net/ipv6/seg6_iptunnel.c-631-	if (static_branch_unlikely(&nf_hooks_lwtunnel_enabled))
+net/ipv6/seg6_iptunnel.c-632-		return NF_HOOK(NFPROTO_IPV6, NF_INET_LOCAL_OUT, net, sk, skb,
+net/ipv6/seg6_iptunnel.c-633-			       NULL, dst_dev(dst), dst_output);
+net/ipv6/seg6_iptunnel.c-634-
+net/ipv6/seg6_iptunnel.c-635-	return dst_output(net, sk, skb);
+--
+net/bridge/netfilter/nf_conntrack_bridge.c-357-		return NF_DROP;
+net/bridge/netfilter/nf_conntrack_bridge.c-358-	}
+net/bridge/netfilter/nf_conntrack_bridge.c-359-
+net/bridge/netfilter/nf_conntrack_bridge.c-360-	return NF_STOLEN;
+net/bridge/netfilter/nf_conntrack_bridge.c-361-}
+net/bridge/netfilter/nf_conntrack_bridge.c-362-
+net/bridge/netfilter/nf_conntrack_bridge.c-363-/* Actually only slow path refragmentation needs this. */
+net/bridge/netfilter/nf_conntrack_bridge.c-364-static int nf_ct_bridge_frag_restore(struct sk_buff *skb,
+net/bridge/netfilter/nf_conntrack_bridge.c-365-				     const struct nf_bridge_frag_data *data)
+net/bridge/netfilter/nf_conntrack_bridge.c-366-{
+net/bridge/netfilter/nf_conntrack_bridge.c-367-	int err;
+net/bridge/netfilter/nf_conntrack_bridge.c-368-
+net/bridge/netfilter/nf_conntrack_bridge.c:369:	err = skb_cow_head(skb, ETH_HLEN);
+net/bridge/netfilter/nf_conntrack_bridge.c-370-	if (err) {
+net/bridge/netfilter/nf_conntrack_bridge.c-371-		kfree_skb(skb);
+net/bridge/netfilter/nf_conntrack_bridge.c-372-		return -ENOMEM;
+net/bridge/netfilter/nf_conntrack_bridge.c-373-	}
+net/bridge/netfilter/nf_conntrack_bridge.c-374-	if (data->vlan_present)
+net/bridge/netfilter/nf_conntrack_bridge.c-375-		__vlan_hwaccel_put_tag(skb, data->vlan_proto, data->vlan_tci);
+net/bridge/netfilter/nf_conntrack_bridge.c-376-	else if (skb_vlan_tag_present(skb))
+net/bridge/netfilter/nf_conntrack_bridge.c-377-		__vlan_hwaccel_clear_tag(skb);
+net/bridge/netfilter/nf_conntrack_bridge.c-378-
+net/bridge/netfilter/nf_conntrack_bridge.c-379-	skb_copy_to_linear_data_offset(skb, -ETH_HLEN, data->mac, ETH_HLEN);
+net/bridge/netfilter/nf_conntrack_bridge.c-380-	skb_reset_mac_header(skb);
+net/bridge/netfilter/nf_conntrack_bridge.c-381-
+--
+net/ipv6/rpl_iptunnel.c-145-	csrh = (struct ipv6_rpl_sr_hdr *)(buf + ((srh->hdrlen + 1) << 3));
+net/ipv6/rpl_iptunnel.c-146-
+net/ipv6/rpl_iptunnel.c-147-	memcpy(isrh, srh, sizeof(*isrh));
+net/ipv6/rpl_iptunnel.c-148-	memcpy(isrh->rpl_segaddr, &srh->rpl_segaddr[1],
+net/ipv6/rpl_iptunnel.c-149-	       (srh->segments_left - 1) * 16);
+net/ipv6/rpl_iptunnel.c-150-	isrh->rpl_segaddr[srh->segments_left - 1] = oldhdr.daddr;
+net/ipv6/rpl_iptunnel.c-151-
+net/ipv6/rpl_iptunnel.c-152-	ipv6_rpl_srh_compress(csrh, isrh, &srh->rpl_segaddr[0],
+net/ipv6/rpl_iptunnel.c-153-			      isrh->segments_left - 1);
+net/ipv6/rpl_iptunnel.c-154-
+net/ipv6/rpl_iptunnel.c-155-	hdrlen = ((csrh->hdrlen + 1) << 3);
+net/ipv6/rpl_iptunnel.c-156-
+net/ipv6/rpl_iptunnel.c:157:	err = skb_cow_head(skb, hdrlen + dst_dev_overhead(cache_dst, skb));
+net/ipv6/rpl_iptunnel.c-158-	if (unlikely(err)) {
+net/ipv6/rpl_iptunnel.c-159-		kfree(buf);
+net/ipv6/rpl_iptunnel.c-160-		return err;
+net/ipv6/rpl_iptunnel.c-161-	}
+net/ipv6/rpl_iptunnel.c-162-
+net/ipv6/rpl_iptunnel.c-163-	skb_pull(skb, sizeof(struct ipv6hdr));
+net/ipv6/rpl_iptunnel.c-164-	skb_postpull_rcsum(skb, skb_network_header(skb),
+net/ipv6/rpl_iptunnel.c-165-			   sizeof(struct ipv6hdr));
+net/ipv6/rpl_iptunnel.c-166-
+net/ipv6/rpl_iptunnel.c-167-	skb_push(skb, sizeof(struct ipv6hdr) + hdrlen);
+net/ipv6/rpl_iptunnel.c-168-	skb_reset_network_header(skb);
+net/ipv6/rpl_iptunnel.c-169-	skb_mac_header_rebuild(skb);
+--
+net/ipv6/rpl_iptunnel.c-233-		if (dst->error) {
+net/ipv6/rpl_iptunnel.c-234-			err = dst->error;
+net/ipv6/rpl_iptunnel.c-235-			goto drop;
+net/ipv6/rpl_iptunnel.c-236-		}
+net/ipv6/rpl_iptunnel.c-237-
+net/ipv6/rpl_iptunnel.c-238-		/* cache only if we don't create a dst reference loop */
+net/ipv6/rpl_iptunnel.c-239-		if (orig_dst->lwtstate != dst->lwtstate) {
+net/ipv6/rpl_iptunnel.c-240-			local_bh_disable();
+net/ipv6/rpl_iptunnel.c-241-			dst_cache_set_ip6(&rlwt->cache, dst, &fl6.saddr);
+net/ipv6/rpl_iptunnel.c-242-			local_bh_enable();
+net/ipv6/rpl_iptunnel.c-243-		}
+net/ipv6/rpl_iptunnel.c-244-
+net/ipv6/rpl_iptunnel.c:245:		err = skb_cow_head(skb, LL_RESERVED_SPACE(dst_dev(dst)));
+net/ipv6/rpl_iptunnel.c-246-		if (unlikely(err))
+net/ipv6/rpl_iptunnel.c-247-			goto drop;
+net/ipv6/rpl_iptunnel.c-248-	}
+net/ipv6/rpl_iptunnel.c-249-
+net/ipv6/rpl_iptunnel.c-250-	skb_dst_drop(skb);
+net/ipv6/rpl_iptunnel.c-251-	skb_dst_set(skb, dst);
+net/ipv6/rpl_iptunnel.c-252-
+net/ipv6/rpl_iptunnel.c-253-	return dst_output(net, sk, skb);
+net/ipv6/rpl_iptunnel.c-254-
+net/ipv6/rpl_iptunnel.c-255-drop:
+net/ipv6/rpl_iptunnel.c-256-	dst_release(dst);
+net/ipv6/rpl_iptunnel.c-257-	kfree_skb(skb);
+--
+net/ipv6/rpl_iptunnel.c-297-			err = -ENETUNREACH;
+net/ipv6/rpl_iptunnel.c-298-			goto drop;
+net/ipv6/rpl_iptunnel.c-299-		}
+net/ipv6/rpl_iptunnel.c-300-
+net/ipv6/rpl_iptunnel.c-301-		/* cache only if we don't create a dst reference loop */
+net/ipv6/rpl_iptunnel.c-302-		if (!dst->error && lwtst != dst->lwtstate) {
+net/ipv6/rpl_iptunnel.c-303-			local_bh_disable();
+net/ipv6/rpl_iptunnel.c-304-			dst_cache_set_ip6(&rlwt->cache, dst,
+net/ipv6/rpl_iptunnel.c-305-					  &ipv6_hdr(skb)->saddr);
+net/ipv6/rpl_iptunnel.c-306-			local_bh_enable();
+net/ipv6/rpl_iptunnel.c-307-		}
+net/ipv6/rpl_iptunnel.c-308-
+net/ipv6/rpl_iptunnel.c:309:		err = skb_cow_head(skb, LL_RESERVED_SPACE(dst_dev(dst)));
+net/ipv6/rpl_iptunnel.c-310-		if (unlikely(err))
+net/ipv6/rpl_iptunnel.c-311-			goto drop;
+net/ipv6/rpl_iptunnel.c-312-	} else {
+net/ipv6/rpl_iptunnel.c-313-		skb_dst_drop(skb);
+net/ipv6/rpl_iptunnel.c-314-		skb_dst_set(skb, dst);
+net/ipv6/rpl_iptunnel.c-315-	}
+net/ipv6/rpl_iptunnel.c-316-
+net/ipv6/rpl_iptunnel.c-317-	return dst_input(skb);
+net/ipv6/rpl_iptunnel.c-318-
+net/ipv6/rpl_iptunnel.c-319-drop:
+net/ipv6/rpl_iptunnel.c-320-	kfree_skb(skb);
+net/ipv6/rpl_iptunnel.c-321-	return err;
+--
+net/mac80211/rx.c-3066-	if (multicast) {
+net/mac80211/rx.c-3067-		int extra_head = sizeof(struct ieee80211_hdr) - sizeof(*eth);
+net/mac80211/rx.c-3068-
+net/mac80211/rx.c-3069-		fwd_skb = skb_copy_expand(skb, local->tx_headroom + extra_head +
+net/mac80211/rx.c-3070-					       IEEE80211_ENCRYPT_HEADROOM,
+net/mac80211/rx.c-3071-					  tailroom, GFP_ATOMIC);
+net/mac80211/rx.c-3072-		if (!fwd_skb)
+net/mac80211/rx.c-3073-			goto rx_accept;
+net/mac80211/rx.c-3074-	} else {
+net/mac80211/rx.c-3075-		fwd_skb = skb;
+net/mac80211/rx.c-3076-		skb = NULL;
+net/mac80211/rx.c-3077-
+net/mac80211/rx.c:3078:		if (skb_cow_head(fwd_skb, hdrlen - sizeof(struct ethhdr)))
+net/mac80211/rx.c-3079-			return RX_DROP_U_OOM;
+net/mac80211/rx.c-3080-
+net/mac80211/rx.c-3081-		if (skb_linearize(fwd_skb))
+net/mac80211/rx.c-3082-			return RX_DROP_U_OOM;
+net/mac80211/rx.c-3083-	}
+net/mac80211/rx.c-3084-
+net/mac80211/rx.c-3085-	fwd_hdr = skb_push(fwd_skb, hdrlen - sizeof(struct ethhdr));
+net/mac80211/rx.c-3086-	memcpy(fwd_hdr, &hdr, hdrlen - 2);
+net/mac80211/rx.c-3087-	qos = ieee80211_get_qos_ctl(fwd_hdr);
+net/mac80211/rx.c-3088-	qos[0] = qos[1] = 0;
+net/mac80211/rx.c-3089-
+net/mac80211/rx.c-3090-	skb_reset_mac_header(fwd_skb);
+--
+net/batman-adv/mesh-interface.c-61- */
+net/batman-adv/mesh-interface.c-62-int batadv_skb_head_push(struct sk_buff *skb, unsigned int len)
+net/batman-adv/mesh-interface.c-63-{
+net/batman-adv/mesh-interface.c-64-	int result;
+net/batman-adv/mesh-interface.c-65-
+net/batman-adv/mesh-interface.c-66-	/* TODO: We must check if we can release all references to non-payload
+net/batman-adv/mesh-interface.c-67-	 * data using __skb_header_release in our skbs to allow skb_cow_header
+net/batman-adv/mesh-interface.c-68-	 * to work optimally. This means that those skbs are not allowed to read
+net/batman-adv/mesh-interface.c-69-	 * or write any data which is before the current position of skb->data
+net/batman-adv/mesh-interface.c-70-	 * after that call and thus allow other skbs with the same data buffer
+net/batman-adv/mesh-interface.c-71-	 * to write freely in that area.
+net/batman-adv/mesh-interface.c-72-	 */
+net/batman-adv/mesh-interface.c:73:	result = skb_cow_head(skb, len);
+net/batman-adv/mesh-interface.c-74-	if (result < 0)
+net/batman-adv/mesh-interface.c-75-		return result;
+net/batman-adv/mesh-interface.c-76-
+net/batman-adv/mesh-interface.c-77-	skb_push(skb, len);
+net/batman-adv/mesh-interface.c-78-	return 0;
+net/batman-adv/mesh-interface.c-79-}
+net/batman-adv/mesh-interface.c-80-
+net/batman-adv/mesh-interface.c-81-/**
+net/batman-adv/mesh-interface.c-82- * batadv_sum_counter() - Sum the cpu-local counters for index 'idx'
+net/batman-adv/mesh-interface.c-83- * @bat_priv: the bat priv with all the mesh interface information
+net/batman-adv/mesh-interface.c-84- * @idx: index of counter to sum up
+net/batman-adv/mesh-interface.c-85- *
+--
+net/bridge/br_netfilter_hooks.c-779-	if (IS_ARP(skb) || is_vlan_arp(skb, state->net))
+net/bridge/br_netfilter_hooks.c-780-		return br_nf_forward_arp(skb, state);
+net/bridge/br_netfilter_hooks.c-781-
+net/bridge/br_netfilter_hooks.c-782-	return NF_ACCEPT;
+net/bridge/br_netfilter_hooks.c-783-}
+net/bridge/br_netfilter_hooks.c-784-
+net/bridge/br_netfilter_hooks.c-785-static int br_nf_push_frag_xmit(struct net *net, struct sock *sk, struct sk_buff *skb)
+net/bridge/br_netfilter_hooks.c-786-{
+net/bridge/br_netfilter_hooks.c-787-	struct brnf_frag_data *data;
+net/bridge/br_netfilter_hooks.c-788-	int err;
+net/bridge/br_netfilter_hooks.c-789-
+net/bridge/br_netfilter_hooks.c-790-	data = this_cpu_ptr(&brnf_frag_data_storage);
+net/bridge/br_netfilter_hooks.c:791:	err = skb_cow_head(skb, data->size);
+net/bridge/br_netfilter_hooks.c-792-
+net/bridge/br_netfilter_hooks.c-793-	if (err) {
+net/bridge/br_netfilter_hooks.c-794-		kfree_skb(skb);
+net/bridge/br_netfilter_hooks.c-795-		return 0;
+net/bridge/br_netfilter_hooks.c-796-	}
+net/bridge/br_netfilter_hooks.c-797-
+net/bridge/br_netfilter_hooks.c-798-	if (data->vlan_proto)
+net/bridge/br_netfilter_hooks.c-799-		__vlan_hwaccel_put_tag(skb, data->vlan_proto, data->vlan_tci);
+net/bridge/br_netfilter_hooks.c-800-
+net/bridge/br_netfilter_hooks.c-801-	skb_copy_to_linear_data_offset(skb, -data->size, data->mac, data->size);
+net/bridge/br_netfilter_hooks.c-802-	__skb_push(skb, data->encap_size);
+net/bridge/br_netfilter_hooks.c-803-
+--
+net/batman-adv/fragmentation.c-591-		ret = batadv_send_unicast_skb(skb_fragment, neigh_node);
+net/batman-adv/fragmentation.c-592-		if (ret != NET_XMIT_SUCCESS) {
+net/batman-adv/fragmentation.c-593-			ret = NET_XMIT_DROP;
+net/batman-adv/fragmentation.c-594-			goto put_primary_if;
+net/batman-adv/fragmentation.c-595-		}
+net/batman-adv/fragmentation.c-596-
+net/batman-adv/fragmentation.c-597-		frag_header.no++;
+net/batman-adv/fragmentation.c-598-	}
+net/batman-adv/fragmentation.c-599-
+net/batman-adv/fragmentation.c-600-	/* make sure that there is at least enough head for the fragmentation
+net/batman-adv/fragmentation.c-601-	 * and ethernet headers
+net/batman-adv/fragmentation.c-602-	 */
+net/batman-adv/fragmentation.c:603:	ret = skb_cow_head(skb, ETH_HLEN + header_size);
+net/batman-adv/fragmentation.c-604-	if (ret < 0)
+net/batman-adv/fragmentation.c-605-		goto put_primary_if;
+net/batman-adv/fragmentation.c-606-
+net/batman-adv/fragmentation.c-607-	skb_push(skb, header_size);
+net/batman-adv/fragmentation.c-608-	memcpy(skb->data, &frag_header, header_size);
+net/batman-adv/fragmentation.c-609-
+net/batman-adv/fragmentation.c-610-	/* Send the last fragment */
+net/batman-adv/fragmentation.c-611-	batadv_inc_counter(bat_priv, BATADV_CNT_FRAG_TX);
+net/batman-adv/fragmentation.c-612-	batadv_add_counter(bat_priv, BATADV_CNT_FRAG_TX_BYTES,
+net/batman-adv/fragmentation.c-613-			   skb->len + ETH_HLEN);
+net/batman-adv/fragmentation.c-614-	ret = batadv_send_unicast_skb(skb, neigh_node);
+net/batman-adv/fragmentation.c-615-	/* skb was consumed */
+--
+net/netfilter/nf_flow_table_ip.c-521-		nf_ct_acct_update(flow->ct, tuplehash->tuple.dir, skb->len);
+net/netfilter/nf_flow_table_ip.c-522-
+net/netfilter/nf_flow_table_ip.c-523-	return 1;
+net/netfilter/nf_flow_table_ip.c-524-}
+net/netfilter/nf_flow_table_ip.c-525-
+net/netfilter/nf_flow_table_ip.c-526-/* Similar to skb_vlan_push. */
+net/netfilter/nf_flow_table_ip.c-527-static int nf_flow_vlan_push(struct sk_buff *skb, __be16 proto, u16 id,
+net/netfilter/nf_flow_table_ip.c-528-			     u32 needed_headroom)
+net/netfilter/nf_flow_table_ip.c-529-{
+net/netfilter/nf_flow_table_ip.c-530-	if (skb_vlan_tag_present(skb)) {
+net/netfilter/nf_flow_table_ip.c-531-		struct vlan_hdr *vhdr;
+net/netfilter/nf_flow_table_ip.c-532-
+net/netfilter/nf_flow_table_ip.c:533:		if (skb_cow_head(skb, needed_headroom + VLAN_HLEN))
+net/netfilter/nf_flow_table_ip.c-534-			return -1;
+net/netfilter/nf_flow_table_ip.c-535-
+net/netfilter/nf_flow_table_ip.c-536-		__skb_push(skb, VLAN_HLEN);
+net/netfilter/nf_flow_table_ip.c-537-		if (skb_mac_header_was_set(skb))
+net/netfilter/nf_flow_table_ip.c-538-			skb->mac_header -= VLAN_HLEN;
+net/netfilter/nf_flow_table_ip.c-539-
+net/netfilter/nf_flow_table_ip.c-540-		vhdr = (struct vlan_hdr *)skb->data;
+net/netfilter/nf_flow_table_ip.c-541-		skb->network_header -= VLAN_HLEN;
+net/netfilter/nf_flow_table_ip.c-542-		vhdr->h_vlan_TCI = htons(skb_vlan_tag_get(skb));
+net/netfilter/nf_flow_table_ip.c-543-		vhdr->h_vlan_encapsulated_proto = skb->protocol;
+net/netfilter/nf_flow_table_ip.c-544-		skb->protocol = skb->vlan_proto;
+net/netfilter/nf_flow_table_ip.c-545-		skb_postpush_rcsum(skb, skb->data, VLAN_HLEN);
+--
+net/netfilter/nf_flow_table_ip.c-550-}
+net/netfilter/nf_flow_table_ip.c-551-
+net/netfilter/nf_flow_table_ip.c-552-static int nf_flow_pppoe_push(struct sk_buff *skb, u16 id,
+net/netfilter/nf_flow_table_ip.c-553-			      u32 needed_headroom)
+net/netfilter/nf_flow_table_ip.c-554-{
+net/netfilter/nf_flow_table_ip.c-555-	int data_len = skb->len + sizeof(__be16);
+net/netfilter/nf_flow_table_ip.c-556-	struct ppp_hdr {
+net/netfilter/nf_flow_table_ip.c-557-		struct pppoe_hdr hdr;
+net/netfilter/nf_flow_table_ip.c-558-		__be16 proto;
+net/netfilter/nf_flow_table_ip.c-559-	} *ph;
+net/netfilter/nf_flow_table_ip.c-560-	__be16 proto;
+net/netfilter/nf_flow_table_ip.c-561-
+net/netfilter/nf_flow_table_ip.c:562:	if (skb_cow_head(skb, needed_headroom + PPPOE_SES_HLEN))
+net/netfilter/nf_flow_table_ip.c-563-		return -1;
+net/netfilter/nf_flow_table_ip.c-564-
+net/netfilter/nf_flow_table_ip.c-565-	switch (skb->protocol) {
+net/netfilter/nf_flow_table_ip.c-566-	case htons(ETH_P_IP):
+net/netfilter/nf_flow_table_ip.c-567-		proto = htons(PPP_IP);
+net/netfilter/nf_flow_table_ip.c-568-		break;
+net/netfilter/nf_flow_table_ip.c-569-	case htons(ETH_P_IPV6):
+net/netfilter/nf_flow_table_ip.c-570-		proto = htons(PPP_IPV6);
+net/netfilter/nf_flow_table_ip.c-571-		break;
+net/netfilter/nf_flow_table_ip.c-572-	default:
+net/netfilter/nf_flow_table_ip.c-573-		return -1;
+net/netfilter/nf_flow_table_ip.c-574-	}
+--
+net/netfilter/nf_flow_table_ip.c-596-	struct rtable *rt = dst_rtable(tuple->dst_cache);
+net/netfilter/nf_flow_table_ip.c-597-	u8 tos = iph->tos, ttl = iph->ttl;
+net/netfilter/nf_flow_table_ip.c-598-	__be16 frag_off = iph->frag_off;
+net/netfilter/nf_flow_table_ip.c-599-	u32 headroom = sizeof(*iph);
+net/netfilter/nf_flow_table_ip.c-600-	int err;
+net/netfilter/nf_flow_table_ip.c-601-
+net/netfilter/nf_flow_table_ip.c-602-	err = iptunnel_handle_offloads(skb, SKB_GSO_IPXIP4);
+net/netfilter/nf_flow_table_ip.c-603-	if (err)
+net/netfilter/nf_flow_table_ip.c-604-		return err;
+net/netfilter/nf_flow_table_ip.c-605-
+net/netfilter/nf_flow_table_ip.c-606-	skb_set_inner_ipproto(skb, IPPROTO_IPIP);
+net/netfilter/nf_flow_table_ip.c-607-	headroom += LL_RESERVED_SPACE(rt->dst.dev) + rt->dst.header_len;
+net/netfilter/nf_flow_table_ip.c:608:	err = skb_cow_head(skb, headroom);
+net/netfilter/nf_flow_table_ip.c-609-	if (err)
+net/netfilter/nf_flow_table_ip.c-610-		return err;
+net/netfilter/nf_flow_table_ip.c-611-
+net/netfilter/nf_flow_table_ip.c-612-	skb_scrub_packet(skb, true);
+net/netfilter/nf_flow_table_ip.c-613-	skb_clear_hash_if_not_l4(skb);
+net/netfilter/nf_flow_table_ip.c-614-
+net/netfilter/nf_flow_table_ip.c-615-	/* Push down and install the IP header. */
+net/netfilter/nf_flow_table_ip.c-616-	skb_push(skb, sizeof(*iph));
+net/netfilter/nf_flow_table_ip.c-617-	skb_reset_network_header(skb);
+net/netfilter/nf_flow_table_ip.c-618-
+net/netfilter/nf_flow_table_ip.c-619-	iph = ip_hdr(skb);
+net/netfilter/nf_flow_table_ip.c-620-	iph->version	= 4;
+--
+net/netfilter/nf_flow_table_ip.c-658-	};
+net/netfilter/nf_flow_table_ip.c-659-	u8 hop_limit = ip6h->hop_limit;
+net/netfilter/nf_flow_table_ip.c-660-	int err, mtu;
+net/netfilter/nf_flow_table_ip.c-661-	u32 headroom;
+net/netfilter/nf_flow_table_ip.c-662-
+net/netfilter/nf_flow_table_ip.c-663-	err = iptunnel_handle_offloads(skb, SKB_GSO_IPXIP6);
+net/netfilter/nf_flow_table_ip.c-664-	if (err)
+net/netfilter/nf_flow_table_ip.c-665-		return err;
+net/netfilter/nf_flow_table_ip.c-666-
+net/netfilter/nf_flow_table_ip.c-667-	skb_set_inner_ipproto(skb, IPPROTO_IPV6);
+net/netfilter/nf_flow_table_ip.c-668-	headroom = sizeof(*ip6h) + LL_RESERVED_SPACE(rt->dst.dev) +
+net/netfilter/nf_flow_table_ip.c-669-		   rt->dst.header_len;
+net/netfilter/nf_flow_table_ip.c:670:	err = skb_cow_head(skb, headroom);
+net/netfilter/nf_flow_table_ip.c-671-	if (err)
+net/netfilter/nf_flow_table_ip.c-672-		return err;
+net/netfilter/nf_flow_table_ip.c-673-
+net/netfilter/nf_flow_table_ip.c-674-	skb_scrub_packet(skb, true);
+net/netfilter/nf_flow_table_ip.c-675-	mtu = dst_mtu(&rt->dst) - sizeof(*ip6h);
+net/netfilter/nf_flow_table_ip.c-676-	mtu = max(mtu, IPV6_MIN_MTU);
+net/netfilter/nf_flow_table_ip.c-677-	skb_dst_update_pmtu_no_confirm(skb, mtu);
+net/netfilter/nf_flow_table_ip.c-678-
+net/netfilter/nf_flow_table_ip.c-679-	skb_push(skb, sizeof(*ip6h));
+net/netfilter/nf_flow_table_ip.c-680-	skb_reset_network_header(skb);
+net/netfilter/nf_flow_table_ip.c-681-
+net/netfilter/nf_flow_table_ip.c-682-	ip6h = ipv6_hdr(skb);
+--
+net/netfilter/nf_dup_netdev.c-8-#include <linux/module.h>
+net/netfilter/nf_dup_netdev.c-9-#include <linux/netlink.h>
+net/netfilter/nf_dup_netdev.c-10-#include <linux/netfilter.h>
+net/netfilter/nf_dup_netdev.c-11-#include <linux/netfilter/nf_tables.h>
+net/netfilter/nf_dup_netdev.c-12-#include <net/netfilter/nf_tables.h>
+net/netfilter/nf_dup_netdev.c-13-#include <net/netfilter/nf_tables_offload.h>
+net/netfilter/nf_dup_netdev.c-14-#include <net/netfilter/nf_dup_netdev.h>
+net/netfilter/nf_dup_netdev.c-15-
+net/netfilter/nf_dup_netdev.c-16-static void nf_do_netdev_egress(struct sk_buff *skb, struct net_device *dev,
+net/netfilter/nf_dup_netdev.c-17-				enum nf_dev_hooks hook)
+net/netfilter/nf_dup_netdev.c-18-{
+net/netfilter/nf_dup_netdev.c-19-	if (hook == NF_NETDEV_INGRESS && skb_mac_header_was_set(skb)) {
+net/netfilter/nf_dup_netdev.c:20:		if (skb_cow_head(skb, skb->mac_len))
+net/netfilter/nf_dup_netdev.c-21-			goto err;
+net/netfilter/nf_dup_netdev.c-22-
+net/netfilter/nf_dup_netdev.c-23-		skb_push(skb, skb->mac_len);
+net/netfilter/nf_dup_netdev.c-24-	}
+net/netfilter/nf_dup_netdev.c-25-
+net/netfilter/nf_dup_netdev.c-26-	skb->dev = dev;
+net/netfilter/nf_dup_netdev.c-27-	skb_clear_tstamp(skb);
+net/netfilter/nf_dup_netdev.c-28-	local_bh_disable();
+net/netfilter/nf_dup_netdev.c-29-	if (nf_dev_xmit_recursion()) {
+net/netfilter/nf_dup_netdev.c-30-		local_bh_enable();
+net/netfilter/nf_dup_netdev.c-31-		goto err;
+net/netfilter/nf_dup_netdev.c-32-	}
+--
+net/ife/ife.c-34-void *ife_encode(struct sk_buff *skb, u16 metalen)
+net/ife/ife.c-35-{
+net/ife/ife.c-36-	/* OUTERHDR:TOTMETALEN:{TLVHDR:Metadatum:TLVHDR..}:ORIGDATA
+net/ife/ife.c-37-	 * where ORIGDATA = original ethernet header ...
+net/ife/ife.c-38-	 */
+net/ife/ife.c-39-	int hdrm = metalen + IFE_METAHDRLEN;
+net/ife/ife.c-40-	int total_push = hdrm + skb->dev->hard_header_len;
+net/ife/ife.c-41-	struct ifeheadr *ifehdr;
+net/ife/ife.c-42-	struct ethhdr *iethh;	/* inner ether header */
+net/ife/ife.c-43-	int skboff = 0;
+net/ife/ife.c-44-	int err;
+net/ife/ife.c-45-
+net/ife/ife.c:46:	err = skb_cow_head(skb, total_push);
+net/ife/ife.c-47-	if (unlikely(err))
+net/ife/ife.c-48-		return NULL;
+net/ife/ife.c-49-
+net/ife/ife.c-50-	iethh = (struct ethhdr *) skb->data;
+net/ife/ife.c-51-
+net/ife/ife.c-52-	__skb_push(skb, total_push);
+net/ife/ife.c-53-	memcpy(skb->data, iethh, skb->dev->hard_header_len);
+net/ife/ife.c-54-	skb_reset_mac_header(skb);
+net/ife/ife.c-55-	skboff += skb->dev->hard_header_len;
+net/ife/ife.c-56-
+net/ife/ife.c-57-	/* total metadata length */
+net/ife/ife.c-58-	ifehdr = (struct ifeheadr *) (skb->data + skboff);
+--
+net/ipv4/ip_tunnel.c-637-	tos = ip_tunnel_ecn_encap(tos, inner_iph, skb);
+net/ipv4/ip_tunnel.c-638-	ttl = key->ttl;
+net/ipv4/ip_tunnel.c-639-	if (ttl == 0) {
+net/ipv4/ip_tunnel.c-640-		if (skb->protocol == htons(ETH_P_IP))
+net/ipv4/ip_tunnel.c-641-			ttl = inner_iph->ttl;
+net/ipv4/ip_tunnel.c-642-		else if (skb->protocol == htons(ETH_P_IPV6))
+net/ipv4/ip_tunnel.c-643-			ttl = ((const struct ipv6hdr *)inner_iph)->hop_limit;
+net/ipv4/ip_tunnel.c-644-		else
+net/ipv4/ip_tunnel.c-645-			ttl = ip4_dst_hoplimit(&rt->dst);
+net/ipv4/ip_tunnel.c-646-	}
+net/ipv4/ip_tunnel.c-647-
+net/ipv4/ip_tunnel.c-648-	headroom += LL_RESERVED_SPACE(rt->dst.dev) + rt->dst.header_len;
+net/ipv4/ip_tunnel.c:649:	if (skb_cow_head(skb, headroom)) {
+net/ipv4/ip_tunnel.c-650-		ip_rt_put(rt);
+net/ipv4/ip_tunnel.c-651-		goto tx_dropped;
+net/ipv4/ip_tunnel.c-652-	}
+net/ipv4/ip_tunnel.c-653-
+net/ipv4/ip_tunnel.c-654-	ip_tunnel_adj_headroom(dev, headroom);
+net/ipv4/ip_tunnel.c-655-
+net/ipv4/ip_tunnel.c-656-	iptunnel_xmit(NULL, rt, skb, fl4.saddr, fl4.daddr, proto, tos, ttl,
+net/ipv4/ip_tunnel.c-657-		      df, !net_eq(tunnel->net, dev_net(dev)), 0);
+net/ipv4/ip_tunnel.c-658-	return;
+net/ipv4/ip_tunnel.c-659-tx_error:
+net/ipv4/ip_tunnel.c-660-	DEV_STATS_INC(dev, tx_errors);
+net/ipv4/ip_tunnel.c-661-	goto kfree;
+--
+net/ipv4/ip_tunnel.c-827-			ttl = inner_iph->ttl;
+net/ipv4/ip_tunnel.c-828-#if IS_ENABLED(CONFIG_IPV6)
+net/ipv4/ip_tunnel.c-829-		else if (payload_protocol == htons(ETH_P_IPV6))
+net/ipv4/ip_tunnel.c-830-			ttl = ((const struct ipv6hdr *)inner_iph)->hop_limit;
+net/ipv4/ip_tunnel.c-831-#endif
+net/ipv4/ip_tunnel.c-832-		else
+net/ipv4/ip_tunnel.c-833-			ttl = ip4_dst_hoplimit(&rt->dst);
+net/ipv4/ip_tunnel.c-834-	}
+net/ipv4/ip_tunnel.c-835-
+net/ipv4/ip_tunnel.c-836-	max_headroom = LL_RESERVED_SPACE(rt->dst.dev) + sizeof(struct iphdr)
+net/ipv4/ip_tunnel.c-837-			+ rt->dst.header_len + ip_encap_hlen(&tunnel->encap);
+net/ipv4/ip_tunnel.c-838-
+net/ipv4/ip_tunnel.c:839:	if (skb_cow_head(skb, max_headroom)) {
+net/ipv4/ip_tunnel.c-840-		ip_rt_put(rt);
+net/ipv4/ip_tunnel.c-841-		DEV_STATS_INC(dev, tx_dropped);
+net/ipv4/ip_tunnel.c-842-		kfree_skb(skb);
+net/ipv4/ip_tunnel.c-843-		return;
+net/ipv4/ip_tunnel.c-844-	}
+net/ipv4/ip_tunnel.c-845-
+net/ipv4/ip_tunnel.c-846-	ip_tunnel_adj_headroom(dev, max_headroom);
+net/ipv4/ip_tunnel.c-847-
+net/ipv4/ip_tunnel.c-848-	iptunnel_xmit(NULL, rt, skb, fl4.saddr, fl4.daddr, protocol, tos, ttl,
+net/ipv4/ip_tunnel.c-849-		      df, !net_eq(tunnel->net, dev_net(dev)), 0);
+net/ipv4/ip_tunnel.c-850-	return;
+net/ipv4/ip_tunnel.c-851-
+--
+net/ipv4/ip_gre.c-504-	struct ip_tunnel_info *tun_info;
+net/ipv4/ip_gre.c-505-	const struct ip_tunnel_key *key;
+net/ipv4/ip_gre.c-506-	int tunnel_hlen;
+net/ipv4/ip_gre.c-507-
+net/ipv4/ip_gre.c-508-	tun_info = skb_tunnel_info(skb);
+net/ipv4/ip_gre.c-509-	if (unlikely(!tun_info || !(tun_info->mode & IP_TUNNEL_INFO_TX) ||
+net/ipv4/ip_gre.c-510-		     ip_tunnel_info_af(tun_info) != AF_INET))
+net/ipv4/ip_gre.c-511-		goto err_free_skb;
+net/ipv4/ip_gre.c-512-
+net/ipv4/ip_gre.c-513-	key = &tun_info->key;
+net/ipv4/ip_gre.c-514-	tunnel_hlen = gre_calc_hlen(key->tun_flags);
+net/ipv4/ip_gre.c-515-
+net/ipv4/ip_gre.c:516:	if (skb_cow_head(skb, dev->needed_headroom))
+net/ipv4/ip_gre.c-517-		goto err_free_skb;
+net/ipv4/ip_gre.c-518-
+net/ipv4/ip_gre.c-519-	/* Push Tunnel header. */
+net/ipv4/ip_gre.c-520-	if (gre_handle_offloads(skb, test_bit(IP_TUNNEL_CSUM_BIT,
+net/ipv4/ip_gre.c-521-					      tunnel->parms.o_flags)))
+net/ipv4/ip_gre.c-522-		goto err_free_skb;
+net/ipv4/ip_gre.c-523-
+net/ipv4/ip_gre.c-524-	__set_bit(IP_TUNNEL_CSUM_BIT, flags);
+net/ipv4/ip_gre.c-525-	__set_bit(IP_TUNNEL_KEY_BIT, flags);
+net/ipv4/ip_gre.c-526-	__set_bit(IP_TUNNEL_SEQ_BIT, flags);
+net/ipv4/ip_gre.c-527-	ip_tunnel_flags_and(flags, tun_info->key.tun_flags, flags);
+net/ipv4/ip_gre.c-528-
+--
+net/ipv4/ip_gre.c-560-
+net/ipv4/ip_gre.c-561-	key = &tun_info->key;
+net/ipv4/ip_gre.c-562-	if (!test_bit(IP_TUNNEL_ERSPAN_OPT_BIT, tun_info->key.tun_flags))
+net/ipv4/ip_gre.c-563-		goto err_free_skb;
+net/ipv4/ip_gre.c-564-	if (tun_info->options_len < sizeof(*md))
+net/ipv4/ip_gre.c-565-		goto err_free_skb;
+net/ipv4/ip_gre.c-566-	md = ip_tunnel_info_opts(tun_info);
+net/ipv4/ip_gre.c-567-
+net/ipv4/ip_gre.c-568-	/* ERSPAN has fixed 8 byte GRE header */
+net/ipv4/ip_gre.c-569-	version = md->version;
+net/ipv4/ip_gre.c-570-	tunnel_hlen = 8 + erspan_hdr_len(version);
+net/ipv4/ip_gre.c-571-
+net/ipv4/ip_gre.c:572:	if (skb_cow_head(skb, dev->needed_headroom))
+net/ipv4/ip_gre.c-573-		goto err_free_skb;
+net/ipv4/ip_gre.c-574-
+net/ipv4/ip_gre.c-575-	if (gre_handle_offloads(skb, false))
+net/ipv4/ip_gre.c-576-		goto err_free_skb;
+net/ipv4/ip_gre.c-577-
+net/ipv4/ip_gre.c-578-	if (skb->len > dev->mtu + dev->hard_header_len) {
+net/ipv4/ip_gre.c-579-		if (pskb_trim(skb, dev->mtu + dev->hard_header_len))
+net/ipv4/ip_gre.c-580-			goto err_free_skb;
+net/ipv4/ip_gre.c-581-		truncate = true;
+net/ipv4/ip_gre.c-582-	}
+net/ipv4/ip_gre.c-583-
+net/ipv4/ip_gre.c-584-	nhoff = skb_network_offset(skb);
+--
+net/ipv4/ip_gre.c-657-
+net/ipv4/ip_gre.c-658-	if (!pskb_inet_may_pull(skb))
+net/ipv4/ip_gre.c-659-		goto free_skb;
+net/ipv4/ip_gre.c-660-
+net/ipv4/ip_gre.c-661-	if (tunnel->collect_md) {
+net/ipv4/ip_gre.c-662-		gre_fb_xmit(skb, dev, skb->protocol);
+net/ipv4/ip_gre.c-663-		return NETDEV_TX_OK;
+net/ipv4/ip_gre.c-664-	}
+net/ipv4/ip_gre.c-665-
+net/ipv4/ip_gre.c-666-	if (dev->header_ops) {
+net/ipv4/ip_gre.c-667-		int pull_len = tunnel->hlen + sizeof(struct iphdr);
+net/ipv4/ip_gre.c-668-
+net/ipv4/ip_gre.c:669:		if (skb_cow_head(skb, 0))
+net/ipv4/ip_gre.c-670-			goto free_skb;
+net/ipv4/ip_gre.c-671-
+net/ipv4/ip_gre.c-672-		if (!pskb_may_pull(skb, pull_len))
+net/ipv4/ip_gre.c-673-			goto free_skb;
+net/ipv4/ip_gre.c-674-
+net/ipv4/ip_gre.c-675-		tnl_params = (const struct iphdr *)skb->data;
+net/ipv4/ip_gre.c-676-
+net/ipv4/ip_gre.c-677-		/* ip_tunnel_xmit() needs skb->data pointing to gre header. */
+net/ipv4/ip_gre.c-678-		skb_pull(skb, pull_len);
+net/ipv4/ip_gre.c-679-		skb_reset_mac_header(skb);
+net/ipv4/ip_gre.c-680-
+net/ipv4/ip_gre.c-681-		if (skb->ip_summed == CHECKSUM_PARTIAL &&
+net/ipv4/ip_gre.c-682-		    skb_checksum_start(skb) < skb->data)
+net/ipv4/ip_gre.c-683-			goto free_skb;
+net/ipv4/ip_gre.c-684-	} else {
+net/ipv4/ip_gre.c:685:		if (skb_cow_head(skb, dev->needed_headroom))
+net/ipv4/ip_gre.c-686-			goto free_skb;
+net/ipv4/ip_gre.c-687-
+net/ipv4/ip_gre.c-688-		tnl_params = &tunnel->parms.iph;
+net/ipv4/ip_gre.c-689-	}
+net/ipv4/ip_gre.c-690-
+net/ipv4/ip_gre.c-691-	if (gre_handle_offloads(skb, test_bit(IP_TUNNEL_CSUM_BIT,
+net/ipv4/ip_gre.c-692-					      tunnel->parms.o_flags)))
+net/ipv4/ip_gre.c-693-		goto free_skb;
+net/ipv4/ip_gre.c-694-
+net/ipv4/ip_gre.c-695-	__gre_xmit(skb, dev, tnl_params, skb->protocol);
+net/ipv4/ip_gre.c-696-	return NETDEV_TX_OK;
+net/ipv4/ip_gre.c-697-
+--
+net/ipv4/ip_gre.c-710-
+net/ipv4/ip_gre.c-711-	if (!pskb_inet_may_pull(skb))
+net/ipv4/ip_gre.c-712-		goto free_skb;
+net/ipv4/ip_gre.c-713-
+net/ipv4/ip_gre.c-714-	if (tunnel->collect_md) {
+net/ipv4/ip_gre.c-715-		erspan_fb_xmit(skb, dev);
+net/ipv4/ip_gre.c-716-		return NETDEV_TX_OK;
+net/ipv4/ip_gre.c-717-	}
+net/ipv4/ip_gre.c-718-
+net/ipv4/ip_gre.c-719-	if (gre_handle_offloads(skb, false))
+net/ipv4/ip_gre.c-720-		goto free_skb;
+net/ipv4/ip_gre.c-721-
+net/ipv4/ip_gre.c:722:	if (skb_cow_head(skb, dev->needed_headroom))
+net/ipv4/ip_gre.c-723-		goto free_skb;
+net/ipv4/ip_gre.c-724-
+net/ipv4/ip_gre.c-725-	if (skb->len > dev->mtu + dev->hard_header_len) {
+net/ipv4/ip_gre.c-726-		if (pskb_trim(skb, dev->mtu + dev->hard_header_len))
+net/ipv4/ip_gre.c-727-			goto free_skb;
+net/ipv4/ip_gre.c-728-		truncate = true;
+net/ipv4/ip_gre.c-729-	}
+net/ipv4/ip_gre.c-730-
+net/ipv4/ip_gre.c-731-	/* Push ERSPAN header */
+net/ipv4/ip_gre.c-732-	if (tunnel->erspan_ver == 0) {
+net/ipv4/ip_gre.c-733-		proto = htons(ETH_P_ERSPAN);
+net/ipv4/ip_gre.c-734-		__clear_bit(IP_TUNNEL_SEQ_BIT, tunnel->parms.o_flags);
+--
+net/ipv4/ip_gre.c-764-	if (!pskb_inet_may_pull(skb))
+net/ipv4/ip_gre.c-765-		goto free_skb;
+net/ipv4/ip_gre.c-766-
+net/ipv4/ip_gre.c-767-	if (tunnel->collect_md) {
+net/ipv4/ip_gre.c-768-		gre_fb_xmit(skb, dev, htons(ETH_P_TEB));
+net/ipv4/ip_gre.c-769-		return NETDEV_TX_OK;
+net/ipv4/ip_gre.c-770-	}
+net/ipv4/ip_gre.c-771-
+net/ipv4/ip_gre.c-772-	if (gre_handle_offloads(skb, test_bit(IP_TUNNEL_CSUM_BIT,
+net/ipv4/ip_gre.c-773-					      tunnel->parms.o_flags)))
+net/ipv4/ip_gre.c-774-		goto free_skb;
+net/ipv4/ip_gre.c-775-
+net/ipv4/ip_gre.c:776:	if (skb_cow_head(skb, dev->needed_headroom))
+net/ipv4/ip_gre.c-777-		goto free_skb;
+net/ipv4/ip_gre.c-778-
+net/ipv4/ip_gre.c-779-	__gre_xmit(skb, dev, &tunnel->parms.iph, htons(ETH_P_TEB));
+net/ipv4/ip_gre.c-780-	return NETDEV_TX_OK;
+net/ipv4/ip_gre.c-781-
+net/ipv4/ip_gre.c-782-free_skb:
+net/ipv4/ip_gre.c-783-	kfree_skb(skb);
+net/ipv4/ip_gre.c-784-	DEV_STATS_INC(dev, tx_dropped);
+net/ipv4/ip_gre.c-785-	return NETDEV_TX_OK;
+net/ipv4/ip_gre.c-786-}
+net/ipv4/ip_gre.c-787-
+net/ipv4/ip_gre.c-788-static void ipgre_link_update(struct net_device *dev, bool set_mtu)
+--
+net/psp/psp_main.c-247- */
+net/psp/psp_main.c-248-bool psp_dev_encapsulate(struct net *net, struct sk_buff *skb, __be32 spi,
+net/psp/psp_main.c-249-			 u8 ver, __be16 sport)
+net/psp/psp_main.c-250-{
+net/psp/psp_main.c-251-	u32 network_len = skb_network_header_len(skb);
+net/psp/psp_main.c-252-	u32 ethr_len = skb_mac_header_len(skb);
+net/psp/psp_main.c-253-	u32 bufflen = ethr_len + network_len;
+net/psp/psp_main.c-254-
+net/psp/psp_main.c-255-	if (skb->protocol != htons(ETH_P_IP) &&
+net/psp/psp_main.c-256-	    skb->protocol != htons(ETH_P_IPV6))
+net/psp/psp_main.c-257-		return false;
+net/psp/psp_main.c-258-
+net/psp/psp_main.c:259:	if (skb_cow_head(skb, PSP_ENCAP_HLEN))
+net/psp/psp_main.c-260-		return false;
+net/psp/psp_main.c-261-
+net/psp/psp_main.c-262-	skb_push(skb, PSP_ENCAP_HLEN);
+net/psp/psp_main.c-263-	skb->mac_header		-= PSP_ENCAP_HLEN;
+net/psp/psp_main.c-264-	skb->network_header	-= PSP_ENCAP_HLEN;
+net/psp/psp_main.c-265-	skb->transport_header	-= PSP_ENCAP_HLEN;
+net/psp/psp_main.c-266-	memmove(skb->data, skb->data + PSP_ENCAP_HLEN, bufflen);
+net/psp/psp_main.c-267-
+net/psp/psp_main.c-268-	if (skb->protocol == htons(ETH_P_IP)) {
+net/psp/psp_main.c-269-		ip_hdr(skb)->protocol = IPPROTO_UDP;
+net/psp/psp_main.c-270-		be16_add_cpu(&ip_hdr(skb)->tot_len, PSP_ENCAP_HLEN);
+net/psp/psp_main.c-271-		ip_hdr(skb)->check = 0;
+--
+net/sched/sch_frag.c-20-	local_lock_t bh_lock;
+net/sched/sch_frag.c-21-};
+net/sched/sch_frag.c-22-
+net/sched/sch_frag.c-23-static DEFINE_PER_CPU(struct sch_frag_data, sch_frag_data_storage) = {
+net/sched/sch_frag.c-24-	.bh_lock = INIT_LOCAL_LOCK(bh_lock),
+net/sched/sch_frag.c-25-};
+net/sched/sch_frag.c-26-
+net/sched/sch_frag.c-27-static int sch_frag_xmit(struct net *net, struct sock *sk, struct sk_buff *skb)
+net/sched/sch_frag.c-28-{
+net/sched/sch_frag.c-29-	struct sch_frag_data *data = this_cpu_ptr(&sch_frag_data_storage);
+net/sched/sch_frag.c-30-
+net/sched/sch_frag.c-31-	lockdep_assert_held(&data->bh_lock);
+net/sched/sch_frag.c:32:	if (skb_cow_head(skb, data->l2_len) < 0) {
+net/sched/sch_frag.c-33-		kfree_skb(skb);
+net/sched/sch_frag.c-34-		return -ENOMEM;
+net/sched/sch_frag.c-35-	}
+net/sched/sch_frag.c-36-
+net/sched/sch_frag.c-37-	__skb_dst_copy(skb, data->dst);
+net/sched/sch_frag.c-38-	*qdisc_skb_cb(skb) = data->cb;
+net/sched/sch_frag.c-39-	skb->inner_protocol = data->inner_protocol;
+net/sched/sch_frag.c-40-	if (data->vlan_tci & VLAN_CFI_MASK)
+net/sched/sch_frag.c-41-		__vlan_hwaccel_put_tag(skb, data->vlan_proto,
+net/sched/sch_frag.c-42-				       data->vlan_tci & ~VLAN_CFI_MASK);
+net/sched/sch_frag.c-43-	else
+net/sched/sch_frag.c-44-		__vlan_hwaccel_clear_tag(skb);

@@ -1,0 +1,13 @@
+{
+  "intent_id": "i026",
+  "branch": "callee-pull-caller-stale",
+  "status": "in_progress",
+  "snapshot": "s05",
+  "note": "l2tp priority pass: l2tp_v3_ensure_opt_in_linear (l2tp_core.h:301-319) is a callee that pskb_may_pulls and correctly repairs caller ptr/optr via pointer-to-pointer; callers l2tp_udp_recv_core (c:884), l2tp_ip_recv (ip.c:164), l2tp_ip6_recv (ip6.c:177) all pass &ptr/&optr and do not deref captured pointers after the call (pass to l2tp_recv_common). l2tp_recv_common (c:616) pulls at 734 but ptr/optr not dereferenced after. pppol2tp_recv uses skb->data[0]/[1] fresh. Classifying l2tp trio SAFE. Next: systematic callee->caller enumeration via scan script.",
+  "candidates": [
+    {"path": "net/l2tp/l2tp_core.c:884 (l2tp_udp_recv_core -> l2tp_v3_ensure_opt_in_linear)", "status": "safe", "reason": "callee pulls via pskb_may_pull(skb, off+opt_len) but takes unsigned char **ptr/**optr and repairs both when skb->data moved (l2tp_core.h:312-315); no pre-call pointer dereferenced after return"},
+    {"path": "net/l2tp/l2tp_ip.c:164 (l2tp_ip_recv -> l2tp_v3_ensure_opt_in_linear)", "status": "safe", "reason": "same repair-by-pointer-to-pointer; ptr/optr passed straight to l2tp_recv_common"},
+    {"path": "net/l2tp/l2tp_ip6.c:177 (l2tp_ip6_recv -> l2tp_v3_ensure_opt_in_linear)", "status": "safe", "reason": "same repair-by-pointer-to-pointer"},
+    {"path": "net/l2tp/l2tp_core.c:734 (l2tp_recv_common internal pskb_may_pull)", "status": "safe", "reason": "ptr/optr not dereferenced after the pull; offset used only for __skb_pull; length stored in skb->cb not head"}
+  ]
+}

@@ -1,0 +1,5 @@
+I'll start by writing the initial checkpoint, then examining the seed and the assigned snapshot.
+The seed is confirmed: `memdup_user` → `sscanf` OOB read, fixed by `memdup_user_nul`. My intent (i007) targets sysfs `->store()` callbacks in snapshot s02. Let me explore the snapshot structure first.
+I'll finalize using the evidence collected. First, let me get exact line numbers for the strongest candidate (versal_edac inject_*_store family) and its registration.
+I'll finalize using the evidence already collected. Two quick verification calls to pin exact lines and confirm the kernfs negative evidence, then write the artifact.
+The ASAN harness confirms the exact off-by-one: when `count >= sizeof(buf)` (6), `len` clamps to 6 and `buf[len] = '\0'` writes the terminator one byte past the 6-byte stack array — the same "no +1 terminator slot for attacker-chosen length" invariant as the seed, manifesting as a stack OOB write. Both `drivers/edac/versal_edac.c` and `drivers/edac/zynqmp_edac.c` contain this identical pattern in their debugfs `inject_ue` write handlers. Writing the final artifacts now.

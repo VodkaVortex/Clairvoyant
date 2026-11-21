@@ -1,0 +1,2055 @@
+kernel/workqueue.c:7877:	ret = kstrtoul(val, 0, &thresh);
+kernel/workqueue.c-7878-	if (ret)
+kernel/workqueue.c-7879-		return ret;
+kernel/workqueue.c-7880-
+kernel/workqueue.c-7881-	if (system_percpu_wq)
+kernel/workqueue.c-7882-		wq_watchdog_set_thresh(thresh);
+kernel/workqueue.c-7883-	else
+kernel/workqueue.c-7884-		wq_watchdog_thresh = thresh;
+kernel/workqueue.c-7885-
+--
+security/smack/smackfs.c:1615:	if (kstrtoul(temp, 10, &u))
+security/smack/smackfs.c-1616-		return -EINVAL;
+security/smack/smackfs.c-1617-
+security/smack/smackfs.c-1618-	if (u == CIPSO_V4_DOI_UNKNOWN || u > U32_MAX)
+security/smack/smackfs.c-1619-		return -EINVAL;
+security/smack/smackfs.c-1620-
+security/smack/smackfs.c-1621-	return smk_cipso_doi(u, GFP_KERNEL) ? : count;
+security/smack/smackfs.c-1622-}
+security/smack/smackfs.c-1623-
+--
+block/blk-sysfs.c:46:	err = kstrtoul(page, 10, &v);
+block/blk-sysfs.c-47-	if (err || v > UINT_MAX)
+block/blk-sysfs.c-48-		return -EINVAL;
+block/blk-sysfs.c-49-
+block/blk-sysfs.c-50-	*var = v;
+block/blk-sysfs.c-51-
+block/blk-sysfs.c-52-	return count;
+block/blk-sysfs.c-53-}
+block/blk-sysfs.c-54-
+--
+block/blk-sysfs.c:548:	err = kstrtou32(page, 10, &val);
+block/blk-sysfs.c-549-	if (err || val == 0)
+block/blk-sysfs.c-550-		return -EINVAL;
+block/blk-sysfs.c-551-
+block/blk-sysfs.c-552-	blk_queue_rq_timeout(q, msecs_to_jiffies(val));
+block/blk-sysfs.c-553-
+block/blk-sysfs.c-554-	return count;
+block/blk-sysfs.c-555-}
+block/blk-sysfs.c-556-
+--
+block/blk-sysfs.c:685:	err = kstrtos64(page, 10, &v);
+block/blk-sysfs.c-686-	if (err < 0)
+block/blk-sysfs.c-687-		return err;
+block/blk-sysfs.c-688-
+block/blk-sysfs.c-689-	*var = v;
+block/blk-sysfs.c-690-	return 0;
+block/blk-sysfs.c-691-}
+block/blk-sysfs.c-692-
+block/blk-sysfs.c-693-static ssize_t queue_wb_lat_show(struct gendisk *disk, char *page)
+--
+block/blk-integrity.c:234:	err = kstrtoul(page, 10, &val);
+block/blk-integrity.c-235-	if (err)
+block/blk-integrity.c-236-		return err;
+block/blk-integrity.c-237-
+block/blk-integrity.c-238-	/* note that the flags are inverted vs the values in the sysfs files */
+block/blk-integrity.c-239-	lim = queue_limits_start_update(q);
+block/blk-integrity.c-240-	if (val)
+block/blk-integrity.c-241-		lim.integrity.flags &= ~flag;
+block/blk-integrity.c-242-	else
+--
+mm/slub.c:9035:	err = kstrtoul(buf, 10, &min);
+mm/slub.c-9036-	if (err)
+mm/slub.c-9037-		return err;
+mm/slub.c-9038-
+mm/slub.c-9039-	s->min_partial = min;
+mm/slub.c-9040-	return length;
+mm/slub.c-9041-}
+mm/slub.c-9042-SLAB_ATTR(min_partial);
+mm/slub.c-9043-
+--
+block/bfq-iosched.c:7388:	int ret = kstrtoul(page, 10, &new_val);
+block/bfq-iosched.c-7389-
+block/bfq-iosched.c-7390-	if (ret)
+block/bfq-iosched.c-7391-		return ret;
+block/bfq-iosched.c-7392-	*var = new_val;
+block/bfq-iosched.c-7393-	return 0;
+block/bfq-iosched.c-7394-}
+block/bfq-iosched.c-7395-
+block/bfq-iosched.c-7396-#define SHOW_FUNCTION(__FUNC, __VAR, __CONV)				\
+--
+security/device_cgroup.c:687:		rc = kstrtou32(temp, 10, &ex.major);
+security/device_cgroup.c-688-		if (rc)
+security/device_cgroup.c-689-			return -EINVAL;
+security/device_cgroup.c-690-	} else {
+security/device_cgroup.c-691-		return -EINVAL;
+security/device_cgroup.c-692-	}
+security/device_cgroup.c-693-	if (*b != ':')
+security/device_cgroup.c-694-		return -EINVAL;
+security/device_cgroup.c-695-	b++;
+--
+security/device_cgroup.c:709:		rc = kstrtou32(temp, 10, &ex.minor);
+security/device_cgroup.c-710-		if (rc)
+security/device_cgroup.c-711-			return -EINVAL;
+security/device_cgroup.c-712-	} else {
+security/device_cgroup.c-713-		return -EINVAL;
+security/device_cgroup.c-714-	}
+security/device_cgroup.c-715-	if (!isspace(*b))
+security/device_cgroup.c-716-		return -EINVAL;
+security/device_cgroup.c-717-	for (b++, count = 0; count < 3; count++, b++) {
+--
+kernel/trace/trace_uprobe.c:626:		ret = kstrtoul(rctr, 0, &ref_ctr_offset);
+kernel/trace/trace_uprobe.c-627-		if (ret) {
+kernel/trace/trace_uprobe.c-628-			trace_probe_log_err(rctr - filename, BAD_REFCNT);
+kernel/trace/trace_uprobe.c-629-			return ret;
+kernel/trace/trace_uprobe.c-630-		}
+kernel/trace/trace_uprobe.c-631-	}
+kernel/trace/trace_uprobe.c-632-
+kernel/trace/trace_uprobe.c-633-	/* Check if there is %return suffix */
+kernel/trace/trace_uprobe.c-634-	tmp = strchr(arg, '%');
+--
+kernel/trace/trace_uprobe.c:646:	ret = kstrtoul(arg, 0, &offset);
+kernel/trace/trace_uprobe.c-647-	if (ret) {
+kernel/trace/trace_uprobe.c-648-		trace_probe_log_err(arg - filename, BAD_UPROBE_OFFS);
+kernel/trace/trace_uprobe.c-649-		return ret;
+kernel/trace/trace_uprobe.c-650-	}
+kernel/trace/trace_uprobe.c-651-
+kernel/trace/trace_uprobe.c-652-	/* setup a probe */
+kernel/trace/trace_uprobe.c-653-	trace_probe_log_set_index(0);
+kernel/trace/trace_uprobe.c-654-	if (event) {
+--
+security/keys/trusted-keys/trusted_tpm1.c:737:			res = kstrtoul(args[0].from, 16, &handle);
+security/keys/trusted-keys/trusted_tpm1.c-738-			if (res < 0)
+security/keys/trusted-keys/trusted_tpm1.c-739-				return -EINVAL;
+security/keys/trusted-keys/trusted_tpm1.c-740-			opt->keytype = SEAL_keytype;
+security/keys/trusted-keys/trusted_tpm1.c-741-			opt->keyhandle = handle;
+security/keys/trusted-keys/trusted_tpm1.c-742-			break;
+security/keys/trusted-keys/trusted_tpm1.c-743-		case Opt_keyauth:
+security/keys/trusted-keys/trusted_tpm1.c-744-			if (strlen(args[0].from) != 2 * SHA1_DIGEST_SIZE)
+security/keys/trusted-keys/trusted_tpm1.c-745-				return -EINVAL;
+--
+security/keys/trusted-keys/trusted_tpm1.c:786:			res = kstrtoul(args[0].from, 10, &lock);
+security/keys/trusted-keys/trusted_tpm1.c-787-			if (res < 0)
+security/keys/trusted-keys/trusted_tpm1.c-788-				return -EINVAL;
+security/keys/trusted-keys/trusted_tpm1.c-789-			opt->pcrlock = lock;
+security/keys/trusted-keys/trusted_tpm1.c-790-			break;
+security/keys/trusted-keys/trusted_tpm1.c-791-		case Opt_hash:
+security/keys/trusted-keys/trusted_tpm1.c-792-			if (test_bit(Opt_policydigest, &token_mask))
+security/keys/trusted-keys/trusted_tpm1.c-793-				return -EINVAL;
+security/keys/trusted-keys/trusted_tpm1.c-794-			for (i = 0; i < HASH_ALGO__LAST; i++) {
+--
+security/keys/trusted-keys/trusted_tpm1.c:820:			res = kstrtoul(args[0].from, 16, &handle);
+security/keys/trusted-keys/trusted_tpm1.c-821-			if (res < 0)
+security/keys/trusted-keys/trusted_tpm1.c-822-				return -EINVAL;
+security/keys/trusted-keys/trusted_tpm1.c-823-			opt->policyhandle = handle;
+security/keys/trusted-keys/trusted_tpm1.c-824-			break;
+security/keys/trusted-keys/trusted_tpm1.c-825-		default:
+security/keys/trusted-keys/trusted_tpm1.c-826-			return -EINVAL;
+security/keys/trusted-keys/trusted_tpm1.c-827-		}
+security/keys/trusted-keys/trusted_tpm1.c-828-	}
+--
+security/keys/encrypted-keys/encrypted.c:590:	ret = kstrtol(datalen, 10, &dlen);
+security/keys/encrypted-keys/encrypted.c-591-	if (ret < 0 || dlen < MIN_DATA_SIZE || dlen > MAX_DATA_SIZE)
+security/keys/encrypted-keys/encrypted.c-592-		return ERR_PTR(-EINVAL);
+security/keys/encrypted-keys/encrypted.c-593-
+security/keys/encrypted-keys/encrypted.c-594-	format_len = (!format) ? strlen(key_format_default) : strlen(format);
+security/keys/encrypted-keys/encrypted.c-595-	decrypted_datalen = dlen;
+security/keys/encrypted-keys/encrypted.c-596-	payload_datalen = decrypted_datalen;
+security/keys/encrypted-keys/encrypted.c-597-
+security/keys/encrypted-keys/encrypted.c-598-	if (decrypted_data) {
+--
+security/keys/trusted-keys/trusted_pkwm.c:48:			res = kstrtou16(args[0].from, 16, &wrap_flags);
+security/keys/trusted-keys/trusted_pkwm.c-49-			if (res < 0 || wrap_flags > 2)
+security/keys/trusted-keys/trusted_pkwm.c-50-				return -EINVAL;
+security/keys/trusted-keys/trusted_pkwm.c-51-			pkwm->wrap_flags = wrap_flags;
+security/keys/trusted-keys/trusted_pkwm.c-52-			break;
+security/keys/trusted-keys/trusted_pkwm.c-53-		default:
+security/keys/trusted-keys/trusted_pkwm.c-54-			return -EINVAL;
+security/keys/trusted-keys/trusted_pkwm.c-55-		}
+security/keys/trusted-keys/trusted_pkwm.c-56-	}
+--
+security/apparmor/lsm.c:1893:	int error = kstrtoul(str, 0, &enabled);
+security/apparmor/lsm.c-1894-	if (!error)
+security/apparmor/lsm.c-1895-		apparmor_enabled = enabled ? 1 : 0;
+security/apparmor/lsm.c-1896-	return 1;
+security/apparmor/lsm.c-1897-}
+security/apparmor/lsm.c-1898-
+security/apparmor/lsm.c-1899-__setup("apparmor=", apparmor_enabled_setup);
+security/apparmor/lsm.c-1900-
+security/apparmor/lsm.c-1901-/* set global flag turning off the ability to load policy */
+--
+security/ipe/policy_parser.c:105:		rc = kstrtou16(token, 10, cv[sep_count]);
+security/ipe/policy_parser.c-106-		if (rc)
+security/ipe/policy_parser.c-107-			return rc;
+security/ipe/policy_parser.c-108-
+security/ipe/policy_parser.c-109-		++sep_count;
+security/ipe/policy_parser.c-110-	}
+security/ipe/policy_parser.c-111-
+security/ipe/policy_parser.c-112-	/* prevent underflow */
+security/ipe/policy_parser.c-113-	if (sep_count != ARRAY_SIZE(cv))
+--
+security/keys/trusted-keys/trusted_core.c:101:		ret = kstrtol(c, 10, &keylen);
+security/keys/trusted-keys/trusted_core.c-102-		if (ret < 0 || keylen < MIN_KEY_SIZE || keylen > MAX_KEY_SIZE)
+security/keys/trusted-keys/trusted_core.c-103-			return -EINVAL;
+security/keys/trusted-keys/trusted_core.c-104-		p->key_len = keylen;
+security/keys/trusted-keys/trusted_core.c-105-		ret = Opt_new;
+security/keys/trusted-keys/trusted_core.c-106-		break;
+security/keys/trusted-keys/trusted_core.c-107-	case Opt_load:
+security/keys/trusted-keys/trusted_core.c-108-		/* first argument is sealed blob */
+security/keys/trusted-keys/trusted_core.c-109-		c = strsep(datablob, " \t");
+--
+security/keys/trusted-keys/trusted_caam.c:64:			res = kstrtou16(args[0].from, 16, &key_enc_algo);
+security/keys/trusted-keys/trusted_caam.c-65-			if (res < 0)
+security/keys/trusted-keys/trusted_caam.c-66-				return -EINVAL;
+security/keys/trusted-keys/trusted_caam.c-67-			pkey_info->key_enc_algo = key_enc_algo;
+security/keys/trusted-keys/trusted_caam.c-68-			break;
+security/keys/trusted-keys/trusted_caam.c-69-		default:
+security/keys/trusted-keys/trusted_caam.c-70-			return -EINVAL;
+security/keys/trusted-keys/trusted_caam.c-71-		}
+security/keys/trusted-keys/trusted_caam.c-72-	}
+--
+kernel/trace/trace_snapshot.c:968:	ret = kstrtoul(number, 0, (unsigned long *)&count);
+kernel/trace/trace_snapshot.c-969-	if (ret)
+kernel/trace/trace_snapshot.c-970-		return ret;
+kernel/trace/trace_snapshot.c-971-
+kernel/trace/trace_snapshot.c-972- out_reg:
+kernel/trace/trace_snapshot.c-973-	ret = tracing_arm_snapshot(tr);
+kernel/trace/trace_snapshot.c-974-	if (ret < 0)
+kernel/trace/trace_snapshot.c-975-		return ret;
+kernel/trace/trace_snapshot.c-976-
+--
+security/selinux/hooks.c:123:	if (!kstrtoul(str, 0, &enforcing))
+security/selinux/hooks.c-124-		selinux_enforcing_boot = enforcing ? 1 : 0;
+security/selinux/hooks.c-125-	return 1;
+security/selinux/hooks.c-126-}
+security/selinux/hooks.c-127-__setup("enforcing=", enforcing_setup);
+security/selinux/hooks.c-128-#else
+security/selinux/hooks.c-129-#define selinux_enforcing_boot 1
+security/selinux/hooks.c-130-#endif
+security/selinux/hooks.c-131-
+--
+security/selinux/hooks.c:137:	if (!kstrtoul(str, 0, &enabled))
+security/selinux/hooks.c-138-		selinux_enabled_boot = enabled ? 1 : 0;
+security/selinux/hooks.c-139-	return 1;
+security/selinux/hooks.c-140-}
+security/selinux/hooks.c-141-__setup("selinux=", selinux_enabled_setup);
+security/selinux/hooks.c-142-#endif
+security/selinux/hooks.c-143-
+security/selinux/hooks.c-144-static int __init checkreqprot_setup(char *str)
+security/selinux/hooks.c-145-{
+--
+security/selinux/hooks.c:148:	if (!kstrtoul(str, 0, &checkreqprot)) {
+security/selinux/hooks.c-149-		if (checkreqprot)
+security/selinux/hooks.c-150-			pr_err("SELinux: checkreqprot set to 1 via kernel parameter.  This is no longer supported.\n");
+security/selinux/hooks.c-151-	}
+security/selinux/hooks.c-152-	return 1;
+security/selinux/hooks.c-153-}
+security/selinux/hooks.c-154-__setup("checkreqprot=", checkreqprot_setup);
+security/selinux/hooks.c-155-
+security/selinux/hooks.c-156-/**
+--
+mm/mempolicy.c:3647:	    kstrtou8(buf, 0, &weight) || weight == 0)
+mm/mempolicy.c-3648-		return -EINVAL;
+mm/mempolicy.c-3649-
+mm/mempolicy.c-3650-	new_wi_state = kzalloc_flex(*new_wi_state, iw_table, nr_node_ids);
+mm/mempolicy.c-3651-	if (!new_wi_state)
+mm/mempolicy.c-3652-		return -ENOMEM;
+mm/mempolicy.c-3653-
+mm/mempolicy.c-3654-	mutex_lock(&wi_state_lock);
+mm/mempolicy.c-3655-	old_wi_state = rcu_dereference_protected(wi_state,
+--
+mm/hugetlb.c:4487:	if (kstrtoul(s, 0, &allocation_threads) != 0)
+mm/hugetlb.c-4488-		return 1;
+mm/hugetlb.c-4489-
+mm/hugetlb.c-4490-	if (allocation_threads == 0)
+mm/hugetlb.c-4491-		return 1;
+mm/hugetlb.c-4492-
+mm/hugetlb.c-4493-	hugepage_allocation_threads = allocation_threads;
+mm/hugetlb.c-4494-
+mm/hugetlb.c-4495-	return 1;
+--
+mm/huge_memory.c:418:	ret = kstrtoul(buf, 10, &value);
+mm/huge_memory.c-419-	if (ret < 0)
+mm/huge_memory.c-420-		return ret;
+mm/huge_memory.c-421-	if (value > 1)
+mm/huge_memory.c-422-		return -EINVAL;
+mm/huge_memory.c-423-
+mm/huge_memory.c-424-	if (value)
+mm/huge_memory.c-425-		set_bit(flag, &transparent_hugepage_flags);
+mm/huge_memory.c-426-	else
+--
+kernel/trace/trace_probe.c:130:		if (kstrtoul(type, 0, &bs))
+kernel/trace/trace_probe.c-131-			goto fail;
+kernel/trace/trace_probe.c-132-
+kernel/trace/trace_probe.c-133-		switch (bs) {
+kernel/trace/trace_probe.c-134-		case 8:
+kernel/trace/trace_probe.c-135-			return find_fetch_type("u8", flags);
+kernel/trace/trace_probe.c-136-		case 16:
+kernel/trace/trace_probe.c-137-			return find_fetch_type("u16", flags);
+kernel/trace/trace_probe.c-138-		case 32:
+--
+kernel/trace/trace_probe.c:241:		ret = kstrtol(tmp, 0, offset);
+kernel/trace/trace_probe.c-242-		if (ret)
+kernel/trace/trace_probe.c-243-			return ret;
+kernel/trace/trace_probe.c-244-		*tmp = '\0';
+kernel/trace/trace_probe.c-245-	} else
+kernel/trace/trace_probe.c-246-		*offset = 0;
+kernel/trace/trace_probe.c-247-
+kernel/trace/trace_probe.c-248-	return 0;
+kernel/trace/trace_probe.c-249-}
+--
+kernel/trace/trace_probe.c:1098:			ret = kstrtoul(arg + len, 10, &param);
+kernel/trace/trace_probe.c-1099-			if (ret)
+kernel/trace/trace_probe.c-1100-				goto inval;
+kernel/trace/trace_probe.c-1101-
+kernel/trace/trace_probe.c-1102-			if ((ctx->flags & TPARG_FL_KERNEL) &&
+kernel/trace/trace_probe.c-1103-			    param > PARAM_MAX_STACK) {
+kernel/trace/trace_probe.c-1104-				err = TP_ERR_BAD_STACK_NUM;
+kernel/trace/trace_probe.c-1105-				goto inval;
+kernel/trace/trace_probe.c-1106-			}
+--
+kernel/trace/trace_probe.c:1122:		ret = kstrtoul(arg + len, 10, &param);
+kernel/trace/trace_probe.c-1123-		if (ret)
+kernel/trace/trace_probe.c-1124-			goto inval;
+kernel/trace/trace_probe.c-1125-
+kernel/trace/trace_probe.c-1126-		if (!param || param > PARAM_MAX_STACK) {
+kernel/trace/trace_probe.c-1127-			err = TP_ERR_BAD_ARG_NUM;
+kernel/trace/trace_probe.c-1128-			goto inval;
+kernel/trace/trace_probe.c-1129-		}
+kernel/trace/trace_probe.c-1130-		param--; /* argN starts from 1, but internal arg[N] starts from 0 */
+--
+kernel/trace/trace_probe.c:1165:		return kstrtoul(str, 0, imm);
+kernel/trace/trace_probe.c-1166-	else if (str[0] == '-')
+kernel/trace/trace_probe.c:1167:		return kstrtol(str, 0, (long *)imm);
+kernel/trace/trace_probe.c-1168-	else if (str[0] == '+')
+kernel/trace/trace_probe.c:1169:		return kstrtol(str + 1, 0, (long *)imm);
+kernel/trace/trace_probe.c-1170-	return -EINVAL;
+kernel/trace/trace_probe.c-1171-}
+kernel/trace/trace_probe.c-1172-
+kernel/trace/trace_probe.c-1173-static int __parse_imm_string(char *str, char **pbuf, int offs)
+kernel/trace/trace_probe.c-1174-{
+kernel/trace/trace_probe.c-1175-	size_t len = strlen(str);
+kernel/trace/trace_probe.c-1176-
+kernel/trace/trace_probe.c-1177-	if (!len || str[len - 1] != '"') {
+--
+kernel/trace/trace_probe.c:1222:			ret = kstrtoul(arg + 1, 0, &param);
+kernel/trace/trace_probe.c-1223-			if (ret) {
+kernel/trace/trace_probe.c-1224-				trace_probe_log_err(ctx->offset, BAD_MEM_ADDR);
+kernel/trace/trace_probe.c-1225-				break;
+kernel/trace/trace_probe.c-1226-			}
+kernel/trace/trace_probe.c-1227-			/* load address */
+kernel/trace/trace_probe.c-1228-			code->op = FETCH_OP_IMM;
+kernel/trace/trace_probe.c-1229-			code->immediate = param;
+kernel/trace/trace_probe.c-1230-		} else if (arg[1] == '+') {
+--
+kernel/trace/trace_probe.c:1236:			ret = kstrtol(arg + 2, 0, &offset);
+kernel/trace/trace_probe.c-1237-			if (ret) {
+kernel/trace/trace_probe.c-1238-				trace_probe_log_err(ctx->offset, BAD_FILE_OFFS);
+kernel/trace/trace_probe.c-1239-				break;
+kernel/trace/trace_probe.c-1240-			}
+kernel/trace/trace_probe.c-1241-
+kernel/trace/trace_probe.c-1242-			code->op = FETCH_OP_FOFFS;
+kernel/trace/trace_probe.c-1243-			code->immediate = (unsigned long)offset;  // imm64?
+kernel/trace/trace_probe.c-1244-		} else {
+--
+kernel/trace/trace_probe.c:1280:			arg++;	/* Skip '+', because kstrtol() rejects it. */
+kernel/trace/trace_probe.c-1281-		tmp = strchr(arg, '(');
+kernel/trace/trace_probe.c-1282-		if (!tmp) {
+kernel/trace/trace_probe.c-1283-			trace_probe_log_err(ctx->offset, DEREF_NEED_BRACE);
+kernel/trace/trace_probe.c-1284-			return -EINVAL;
+kernel/trace/trace_probe.c-1285-		}
+kernel/trace/trace_probe.c-1286-		*tmp = '\0';
+kernel/trace/trace_probe.c:1287:		ret = kstrtol(arg, 0, &offset);
+kernel/trace/trace_probe.c-1288-		if (ret) {
+kernel/trace/trace_probe.c-1289-			trace_probe_log_err(ctx->offset, BAD_DEREF_OFFS);
+kernel/trace/trace_probe.c-1290-			break;
+kernel/trace/trace_probe.c-1291-		}
+kernel/trace/trace_probe.c-1292-		ctx->offset += (tmp + 1 - arg) + (arg[0] != '-' ? 1 : 0);
+kernel/trace/trace_probe.c-1293-		arg = tmp + 1;
+kernel/trace/trace_probe.c-1294-		tmp = strrchr(arg, ')');
+kernel/trace/trace_probe.c-1295-		if (!tmp) {
+--
+mm/debug_page_alloc.c:25:	if (kstrtoul(buf, 10, &res) < 0 ||  res > MAX_PAGE_ORDER / 2) {
+mm/debug_page_alloc.c-26-		pr_err("Bad debug_guardpage_minorder value: %s\n", buf);
+mm/debug_page_alloc.c-27-		return 0;
+mm/debug_page_alloc.c-28-	}
+mm/debug_page_alloc.c-29-	_debug_guardpage_minorder = res;
+mm/debug_page_alloc.c-30-	pr_info("Setting debug_guardpage_minorder to %lu\n", res);
+mm/debug_page_alloc.c-31-	return 0;
+mm/debug_page_alloc.c-32-}
+mm/debug_page_alloc.c-33-early_param("debug_guardpage_minorder", debug_guardpage_minorder_setup);
+--
+kernel/trace/trace_pid.c:214:		if (kstrtoul(parser.buffer, 0, &val))
+kernel/trace/trace_pid.c-215-			break;
+kernel/trace/trace_pid.c-216-
+kernel/trace/trace_pid.c-217-		pid = (pid_t)val;
+kernel/trace/trace_pid.c-218-
+kernel/trace/trace_pid.c-219-		if (trace_pid_list_set(pid_list, pid) < 0) {
+kernel/trace/trace_pid.c-220-			ret = -1;
+kernel/trace/trace_pid.c-221-			break;
+kernel/trace/trace_pid.c-222-		}
+--
+security/safesetid/securityfs.c:45:	ret = kstrtou32(buf, 0, &parsed_parent);
+security/safesetid/securityfs.c-46-	if (ret)
+security/safesetid/securityfs.c-47-		return ret;
+security/safesetid/securityfs.c-48-
+security/safesetid/securityfs.c:49:	ret = kstrtou32(child_str, 0, &parsed_child);
+security/safesetid/securityfs.c-50-	if (ret)
+security/safesetid/securityfs.c-51-		return ret;
+security/safesetid/securityfs.c-52-
+security/safesetid/securityfs.c-53-	if (rule->type == UID){
+security/safesetid/securityfs.c-54-		rule->src_id.uid = make_kuid(file->f_cred->user_ns, parsed_parent);
+security/safesetid/securityfs.c-55-		rule->dst_id.uid = make_kuid(file->f_cred->user_ns, parsed_child);
+security/safesetid/securityfs.c-56-		if (!uid_valid(rule->src_id.uid) || !uid_valid(rule->dst_id.uid))
+security/safesetid/securityfs.c-57-			return -EINVAL;
+--
+security/integrity/integrity_audit.c:22:	if (!kstrtoul(str, 0, &audit))
+security/integrity/integrity_audit.c-23-		integrity_audit_info = audit ? 1 : 0;
+security/integrity/integrity_audit.c-24-	return 1;
+security/integrity/integrity_audit.c-25-}
+security/integrity/integrity_audit.c-26-__setup("integrity_audit=", integrity_audit_setup);
+security/integrity/integrity_audit.c-27-
+security/integrity/integrity_audit.c-28-void integrity_audit_msg(int audit_msgno, struct inode *inode,
+security/integrity/integrity_audit.c-29-			 const unsigned char *fname, const char *op,
+security/integrity/integrity_audit.c-30-			 const char *cause, int result, int audit_info)
+--
+mm/kmemleak.c:2055:	if (kstrtoul(str, 0, &addr))
+mm/kmemleak.c-2056-		return -EINVAL;
+mm/kmemleak.c-2057-
+mm/kmemleak.c-2058-	found |= __dump_str_object_info(addr, 0);
+mm/kmemleak.c-2059-	found |= __dump_str_object_info(addr, OBJECT_PHYS);
+mm/kmemleak.c-2060-	found |= __dump_str_object_info(addr, OBJECT_PERCPU);
+mm/kmemleak.c-2061-
+mm/kmemleak.c-2062-	if (!found) {
+mm/kmemleak.c-2063-		pr_info("Unknown object at 0x%08lx\n", addr);
+--
+mm/hugetlb_sysfs.c:67:	err = kstrtoul(buf, 10, &count);
+mm/hugetlb_sysfs.c-68-	if (err)
+mm/hugetlb_sysfs.c-69-		return err;
+mm/hugetlb_sysfs.c-70-
+mm/hugetlb_sysfs.c-71-	h = kobj_to_hstate(kobj, &nid);
+mm/hugetlb_sysfs.c-72-	return __nr_hugepages_store_common(obey_mempolicy, h, nid, count, len);
+mm/hugetlb_sysfs.c-73-}
+mm/hugetlb_sysfs.c-74-
+mm/hugetlb_sysfs.c-75-static ssize_t nr_hugepages_show(struct kobject *kobj,
+--
+mm/hugetlb_sysfs.c:127:	err = kstrtoul(buf, 10, &input);
+mm/hugetlb_sysfs.c-128-	if (err)
+mm/hugetlb_sysfs.c-129-		return err;
+mm/hugetlb_sysfs.c-130-
+mm/hugetlb_sysfs.c-131-	spin_lock_irq(&hugetlb_lock);
+mm/hugetlb_sysfs.c-132-	h->nr_overcommit_huge_pages = input;
+mm/hugetlb_sysfs.c-133-	spin_unlock_irq(&hugetlb_lock);
+mm/hugetlb_sysfs.c-134-
+mm/hugetlb_sysfs.c-135-	return count;
+--
+mm/hugetlb_sysfs.c:191:	err = kstrtoul(buf, 10, &nr_demote);
+mm/hugetlb_sysfs.c-192-	if (err)
+mm/hugetlb_sysfs.c-193-		return err;
+mm/hugetlb_sysfs.c-194-	h = kobj_to_hstate(kobj, &nid);
+mm/hugetlb_sysfs.c-195-
+mm/hugetlb_sysfs.c-196-	if (nid != NUMA_NO_NODE) {
+mm/hugetlb_sysfs.c-197-		init_nodemask_of_node(&nodes_allowed, nid);
+mm/hugetlb_sysfs.c-198-		n_mask = &nodes_allowed;
+mm/hugetlb_sysfs.c-199-	} else {
+--
+kernel/trace/trace_kprobe.c:940:	if (kstrtoul(argv[1], 0, (unsigned long *)&addr)) {
+kernel/trace/trace_kprobe.c-941-		trace_probe_log_set_index(1);
+kernel/trace/trace_kprobe.c-942-		/* Check whether uprobe event specified */
+kernel/trace/trace_kprobe.c-943-		if (strchr(argv[1], '/') && strchr(argv[1], ':'))
+kernel/trace/trace_kprobe.c-944-			return -ECANCELED;
+kernel/trace/trace_kprobe.c-945-
+kernel/trace/trace_kprobe.c-946-		/* a symbol specified */
+kernel/trace/trace_kprobe.c-947-		symbol = kstrdup(argv[1], GFP_KERNEL);
+kernel/trace/trace_kprobe.c-948-		if (!symbol)
+--
+mm/backing-dev.c:268:	ret = kstrtoul(buf, 10, &read_ahead_kb);
+mm/backing-dev.c-269-	if (ret < 0)
+mm/backing-dev.c-270-		return ret;
+mm/backing-dev.c-271-
+mm/backing-dev.c-272-	bdi->ra_pages = read_ahead_kb >> (PAGE_SHIFT - 10);
+mm/backing-dev.c-273-
+mm/backing-dev.c-274-	return count;
+mm/backing-dev.c-275-}
+mm/backing-dev.c-276-
+--
+kernel/trace/trace_kdb.c:107:		err = kstrtol(argv[2], 0, &cpu_file);
+kernel/trace/trace_kdb.c-108-		if (err || cpu_file >= NR_CPUS || cpu_file < 0 ||
+kernel/trace/trace_kdb.c-109-		    !cpu_online(cpu_file))
+kernel/trace/trace_kdb.c-110-			return KDB_BADINT;
+kernel/trace/trace_kdb.c-111-	} else {
+kernel/trace/trace_kdb.c-112-		cpu_file = RING_BUFFER_ALL_CPUS;
+kernel/trace/trace_kdb.c-113-	}
+kernel/trace/trace_kdb.c-114-
+kernel/trace/trace_kdb.c-115-	kdb_trap_printk++;
+--
+mm/khugepaged.c:262:	err = kstrtoul(buf, 10, &max_ptes_none);
+mm/khugepaged.c-263-	if (err || max_ptes_none > KHUGEPAGED_MAX_PTES_LIMIT)
+mm/khugepaged.c-264-		return -EINVAL;
+mm/khugepaged.c-265-
+mm/khugepaged.c-266-	khugepaged_max_ptes_none = max_ptes_none;
+mm/khugepaged.c-267-
+mm/khugepaged.c-268-	return count;
+mm/khugepaged.c-269-}
+mm/khugepaged.c-270-static struct kobj_attribute khugepaged_max_ptes_none_attr =
+--
+mm/khugepaged.c:287:	err  = kstrtoul(buf, 10, &max_ptes_swap);
+mm/khugepaged.c-288-	if (err || max_ptes_swap > KHUGEPAGED_MAX_PTES_LIMIT)
+mm/khugepaged.c-289-		return -EINVAL;
+mm/khugepaged.c-290-
+mm/khugepaged.c-291-	khugepaged_max_ptes_swap = max_ptes_swap;
+mm/khugepaged.c-292-
+mm/khugepaged.c-293-	return count;
+mm/khugepaged.c-294-}
+mm/khugepaged.c-295-
+--
+mm/khugepaged.c:313:	err  = kstrtoul(buf, 10, &max_ptes_shared);
+mm/khugepaged.c-314-	if (err || max_ptes_shared > KHUGEPAGED_MAX_PTES_LIMIT)
+mm/khugepaged.c-315-		return -EINVAL;
+mm/khugepaged.c-316-
+mm/khugepaged.c-317-	khugepaged_max_ptes_shared = max_ptes_shared;
+mm/khugepaged.c-318-
+mm/khugepaged.c-319-	return count;
+mm/khugepaged.c-320-}
+mm/khugepaged.c-321-
+--
+security/integrity/ima/ima_policy.c:1599:			result = kstrtoul(args[0].from, 16, &entry->fsmagic);
+security/integrity/ima/ima_policy.c-1600-			if (!result)
+security/integrity/ima/ima_policy.c-1601-				entry->flags |= IMA_FSMAGIC;
+security/integrity/ima/ima_policy.c-1602-			break;
+security/integrity/ima/ima_policy.c-1603-		case Opt_fsname:
+security/integrity/ima/ima_policy.c-1604-			ima_log_string(ab, "fsname", args[0].from);
+security/integrity/ima/ima_policy.c-1605-
+security/integrity/ima/ima_policy.c-1606-			entry->fsname = kstrdup(args[0].from, GFP_KERNEL);
+security/integrity/ima/ima_policy.c-1607-			if (!entry->fsname) {
+--
+security/integrity/ima/ima_policy.c:1700:			result = kstrtoul(args[0].from, 10, &lnum);
+security/integrity/ima/ima_policy.c-1701-			if (!result) {
+security/integrity/ima/ima_policy.c-1702-				entry->uid = make_kuid(current_user_ns(),
+security/integrity/ima/ima_policy.c-1703-						       (uid_t) lnum);
+security/integrity/ima/ima_policy.c-1704-				if (!uid_valid(entry->uid) ||
+security/integrity/ima/ima_policy.c-1705-				    (uid_t)lnum != lnum)
+security/integrity/ima/ima_policy.c-1706-					result = -EINVAL;
+security/integrity/ima/ima_policy.c-1707-				else
+security/integrity/ima/ima_policy.c-1708-					entry->flags |= eid_token
+--
+security/integrity/ima/ima_policy.c:1735:			result = kstrtoul(args[0].from, 10, &lnum);
+security/integrity/ima/ima_policy.c-1736-			if (!result) {
+security/integrity/ima/ima_policy.c-1737-				entry->gid = make_kgid(current_user_ns(),
+security/integrity/ima/ima_policy.c-1738-						       (gid_t)lnum);
+security/integrity/ima/ima_policy.c-1739-				if (!gid_valid(entry->gid) ||
+security/integrity/ima/ima_policy.c-1740-				    (((gid_t)lnum) != lnum))
+security/integrity/ima/ima_policy.c-1741-					result = -EINVAL;
+security/integrity/ima/ima_policy.c-1742-				else
+security/integrity/ima/ima_policy.c-1743-					entry->flags |= eid_token
+--
+security/integrity/ima/ima_policy.c:1762:			result = kstrtoul(args[0].from, 10, &lnum);
+security/integrity/ima/ima_policy.c-1763-			if (!result) {
+security/integrity/ima/ima_policy.c-1764-				entry->fowner = make_kuid(current_user_ns(),
+security/integrity/ima/ima_policy.c-1765-							  (uid_t)lnum);
+security/integrity/ima/ima_policy.c-1766-				if (!uid_valid(entry->fowner) ||
+security/integrity/ima/ima_policy.c-1767-				    (((uid_t)lnum) != lnum))
+security/integrity/ima/ima_policy.c-1768-					result = -EINVAL;
+security/integrity/ima/ima_policy.c-1769-				else
+security/integrity/ima/ima_policy.c-1770-					entry->flags |= IMA_FOWNER;
+--
+security/integrity/ima/ima_policy.c:1788:			result = kstrtoul(args[0].from, 10, &lnum);
+security/integrity/ima/ima_policy.c-1789-			if (!result) {
+security/integrity/ima/ima_policy.c-1790-				entry->fgroup = make_kgid(current_user_ns(),
+security/integrity/ima/ima_policy.c-1791-							  (gid_t)lnum);
+security/integrity/ima/ima_policy.c-1792-				if (!gid_valid(entry->fgroup) ||
+security/integrity/ima/ima_policy.c-1793-				    (((gid_t)lnum) != lnum))
+security/integrity/ima/ima_policy.c-1794-					result = -EINVAL;
+security/integrity/ima/ima_policy.c-1795-				else
+security/integrity/ima/ima_policy.c-1796-					entry->flags |= IMA_FGROUP;
+--
+kernel/trace/trace_functions.c:881:	ret = kstrtoul(number, 0, (unsigned long *)&count);
+kernel/trace/trace_functions.c-882-	if (ret)
+kernel/trace/trace_functions.c-883-		return ret;
+kernel/trace/trace_functions.c-884-
+kernel/trace/trace_functions.c-885- out_reg:
+kernel/trace/trace_functions.c-886-	ret = register_ftrace_function_probe(glob, tr, ops, count);
+kernel/trace/trace_functions.c-887-
+kernel/trace/trace_functions.c-888-	return ret < 0 ? ret : 0;
+kernel/trace/trace_functions.c-889-}
+--
+mm/damon/lru_sort.c:397:	int err = kstrtoul(val, 0, &input_addr_unit);
+mm/damon/lru_sort.c-398-
+mm/damon/lru_sort.c-399-	if (err)
+mm/damon/lru_sort.c-400-		return err;
+mm/damon/lru_sort.c-401-	if (!input_addr_unit)
+mm/damon/lru_sort.c-402-		return -EINVAL;
+mm/damon/lru_sort.c-403-
+mm/damon/lru_sort.c-404-	addr_unit = input_addr_unit;
+mm/damon/lru_sort.c-405-	return 0;
+--
+mm/damon/sysfs.c:42:	int err = kstrtoul(buf, 0, &region->ar.start);
+mm/damon/sysfs.c-43-
+mm/damon/sysfs.c-44-	return err ? err : count;
+mm/damon/sysfs.c-45-}
+mm/damon/sysfs.c-46-
+mm/damon/sysfs.c-47-static ssize_t end_show(struct kobject *kobj, struct kobj_attribute *attr,
+mm/damon/sysfs.c-48-		char *buf)
+mm/damon/sysfs.c-49-{
+mm/damon/sysfs.c-50-	struct damon_sysfs_region *region = container_of(kobj,
+--
+mm/damon/sysfs.c:61:	int err = kstrtoul(buf, 0, &region->ar.end);
+mm/damon/sysfs.c-62-
+mm/damon/sysfs.c-63-	return err ? err : count;
+mm/damon/sysfs.c-64-}
+mm/damon/sysfs.c-65-
+mm/damon/sysfs.c-66-static void damon_sysfs_region_release(struct kobject *kobj)
+mm/damon/sysfs.c-67-{
+mm/damon/sysfs.c-68-	kfree(container_of(kobj, struct damon_sysfs_region, kobj));
+mm/damon/sysfs.c-69-}
+--
+mm/damon/sysfs.c:483:	int err = kstrtoul(buf, 0, &nr);
+mm/damon/sysfs.c-484-
+mm/damon/sysfs.c-485-	if (err)
+mm/damon/sysfs.c-486-		return err;
+mm/damon/sysfs.c-487-
+mm/damon/sysfs.c-488-	goal->access_bp = nr;
+mm/damon/sysfs.c-489-	return count;
+mm/damon/sysfs.c-490-}
+mm/damon/sysfs.c-491-
+--
+mm/damon/sysfs.c:507:	int err = kstrtoul(buf, 0, &nr);
+mm/damon/sysfs.c-508-
+mm/damon/sysfs.c-509-	if (err)
+mm/damon/sysfs.c-510-		return err;
+mm/damon/sysfs.c-511-
+mm/damon/sysfs.c-512-	goal->aggrs = nr;
+mm/damon/sysfs.c-513-	return count;
+mm/damon/sysfs.c-514-}
+mm/damon/sysfs.c-515-
+--
+mm/damon/sysfs.c:531:	int err = kstrtoul(buf, 0, &nr);
+mm/damon/sysfs.c-532-
+mm/damon/sysfs.c-533-	if (err)
+mm/damon/sysfs.c-534-		return err;
+mm/damon/sysfs.c-535-
+mm/damon/sysfs.c-536-	goal->min_sample_us = nr;
+mm/damon/sysfs.c-537-	return count;
+mm/damon/sysfs.c-538-}
+mm/damon/sysfs.c-539-
+--
+mm/damon/sysfs.c:555:	int err = kstrtoul(buf, 0, &nr);
+mm/damon/sysfs.c-556-
+mm/damon/sysfs.c-557-	if (err)
+mm/damon/sysfs.c-558-		return err;
+mm/damon/sysfs.c-559-
+mm/damon/sysfs.c-560-	goal->max_sample_us = nr;
+mm/damon/sysfs.c-561-	return count;
+mm/damon/sysfs.c-562-}
+mm/damon/sysfs.c-563-
+--
+mm/damon/sysfs.c:665:	int err = kstrtoul(buf, 0, &us);
+mm/damon/sysfs.c-666-
+mm/damon/sysfs.c-667-	if (err)
+mm/damon/sysfs.c-668-		return err;
+mm/damon/sysfs.c-669-
+mm/damon/sysfs.c-670-	intervals->sample_us = us;
+mm/damon/sysfs.c-671-	return count;
+mm/damon/sysfs.c-672-}
+mm/damon/sysfs.c-673-
+--
+mm/damon/sysfs.c:689:	int err = kstrtoul(buf, 0, &us);
+mm/damon/sysfs.c-690-
+mm/damon/sysfs.c-691-	if (err)
+mm/damon/sysfs.c-692-		return err;
+mm/damon/sysfs.c-693-
+mm/damon/sysfs.c-694-	intervals->aggr_us = us;
+mm/damon/sysfs.c-695-	return count;
+mm/damon/sysfs.c-696-}
+mm/damon/sysfs.c-697-
+--
+mm/damon/sysfs.c:713:	int err = kstrtoul(buf, 0, &us);
+mm/damon/sysfs.c-714-
+mm/damon/sysfs.c-715-	if (err)
+mm/damon/sysfs.c-716-		return err;
+mm/damon/sysfs.c-717-
+mm/damon/sysfs.c-718-	intervals->update_us = us;
+mm/damon/sysfs.c-719-	return count;
+mm/damon/sysfs.c-720-}
+mm/damon/sysfs.c-721-
+--
+mm/damon/sysfs.c:1045:	int err = kstrtoul(buf, 0, &input_addr_unit);
+mm/damon/sysfs.c-1046-
+mm/damon/sysfs.c-1047-	if (err)
+mm/damon/sysfs.c-1048-		return err;
+mm/damon/sysfs.c-1049-	if (!input_addr_unit)
+mm/damon/sysfs.c-1050-		return -EINVAL;
+mm/damon/sysfs.c-1051-
+mm/damon/sysfs.c-1052-	context->addr_unit = input_addr_unit;
+mm/damon/sysfs.c-1053-	return count;
+--
+kernel/trace/trace_events_user.c:1239:			if (kstrtou32(part, 10, &size))
+kernel/trace/trace_events_user.c-1240-				return -EINVAL;
+kernel/trace/trace_events_user.c-1241-			break;
+kernel/trace/trace_events_user.c-1242-		default:
+kernel/trace/trace_events_user.c-1243-			return -EINVAL;
+kernel/trace/trace_events_user.c-1244-		}
+kernel/trace/trace_events_user.c-1245-	}
+kernel/trace/trace_events_user.c-1246-
+kernel/trace/trace_events_user.c-1247-	if (depth < FIELD_DEPTH_SIZE || !name)
+--
+mm/damon/reclaim.c:299:	int err = kstrtoul(val, 0, &input_addr_unit);
+mm/damon/reclaim.c-300-
+mm/damon/reclaim.c-301-	if (err)
+mm/damon/reclaim.c-302-		return err;
+mm/damon/reclaim.c-303-	if (!input_addr_unit)
+mm/damon/reclaim.c-304-		return -EINVAL;
+mm/damon/reclaim.c-305-
+mm/damon/reclaim.c-306-	addr_unit = input_addr_unit;
+mm/damon/reclaim.c-307-	return 0;
+--
+mm/ksm.c:3571:	err = kstrtoul(buf, 10, &knob);
+mm/ksm.c-3572-	if (err)
+mm/ksm.c-3573-		return err;
+mm/ksm.c-3574-	if (knob > 1)
+mm/ksm.c-3575-		return -EINVAL;
+mm/ksm.c-3576-
+mm/ksm.c-3577-	mutex_lock(&ksm_thread_mutex);
+mm/ksm.c-3578-	wait_while_offlining();
+mm/ksm.c-3579-	if (ksm_merge_across_nodes != knob) {
+--
+mm/ksm.c:3864:	err = kstrtoul(buf, 10, &value);
+mm/ksm.c-3865-	if (err)
+mm/ksm.c-3866-		return -EINVAL;
+mm/ksm.c-3867-
+mm/ksm.c-3868-	ksm_advisor_max_cpu = value;
+mm/ksm.c-3869-	return count;
+mm/ksm.c-3870-}
+mm/ksm.c-3871-KSM_ATTR(advisor_max_cpu);
+mm/ksm.c-3872-
+--
+mm/ksm.c:3886:	err = kstrtoul(buf, 10, &value);
+mm/ksm.c-3887-	if (err)
+mm/ksm.c-3888-		return -EINVAL;
+mm/ksm.c-3889-
+mm/ksm.c-3890-	ksm_advisor_min_pages_to_scan = value;
+mm/ksm.c-3891-	return count;
+mm/ksm.c-3892-}
+mm/ksm.c-3893-KSM_ATTR(advisor_min_pages_to_scan);
+mm/ksm.c-3894-
+--
+mm/ksm.c:3908:	err = kstrtoul(buf, 10, &value);
+mm/ksm.c-3909-	if (err)
+mm/ksm.c-3910-		return -EINVAL;
+mm/ksm.c-3911-
+mm/ksm.c-3912-	ksm_advisor_max_pages_to_scan = value;
+mm/ksm.c-3913-	return count;
+mm/ksm.c-3914-}
+mm/ksm.c-3915-KSM_ATTR(advisor_max_pages_to_scan);
+mm/ksm.c-3916-
+--
+mm/ksm.c:3930:	err = kstrtoul(buf, 10, &value);
+mm/ksm.c-3931-	if (err)
+mm/ksm.c-3932-		return -EINVAL;
+mm/ksm.c-3933-	if (value < 1)
+mm/ksm.c-3934-		return -EINVAL;
+mm/ksm.c-3935-
+mm/ksm.c-3936-	ksm_advisor_target_scan_time = value;
+mm/ksm.c-3937-	return count;
+mm/ksm.c-3938-}
+--
+mm/damon/sysfs-schemes.c:290:	unsigned long max_nr_snapshots, err = kstrtoul(buf, 0, &max_nr_snapshots);
+mm/damon/sysfs-schemes.c-291-
+mm/damon/sysfs-schemes.c-292-	if (err)
+mm/damon/sysfs-schemes.c-293-		return err;
+mm/damon/sysfs-schemes.c-294-	stats->max_nr_snapshots = max_nr_snapshots;
+mm/damon/sysfs-schemes.c-295-	return count;
+mm/damon/sysfs-schemes.c-296-}
+mm/damon/sysfs-schemes.c-297-
+mm/damon/sysfs-schemes.c-298-static void damon_sysfs_stats_release(struct kobject *kobj)
+--
+mm/damon/sysfs-schemes.c:581:	int err = kstrtoul(buf, 0, &filter->addr_range.start);
+mm/damon/sysfs-schemes.c-582-
+mm/damon/sysfs-schemes.c-583-	return err ? err : count;
+mm/damon/sysfs-schemes.c-584-}
+mm/damon/sysfs-schemes.c-585-
+mm/damon/sysfs-schemes.c-586-static ssize_t addr_end_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-587-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-588-{
+mm/damon/sysfs-schemes.c-589-	struct damon_sysfs_scheme_filter *filter = container_of(kobj,
+--
+mm/damon/sysfs-schemes.c:600:	int err = kstrtoul(buf, 0, &filter->addr_range.end);
+mm/damon/sysfs-schemes.c-601-
+mm/damon/sysfs-schemes.c-602-	return err ? err : count;
+mm/damon/sysfs-schemes.c-603-}
+mm/damon/sysfs-schemes.c-604-
+mm/damon/sysfs-schemes.c-605-static ssize_t min_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-606-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-607-{
+mm/damon/sysfs-schemes.c-608-	struct damon_sysfs_scheme_filter *filter = container_of(kobj,
+--
+mm/damon/sysfs-schemes.c:619:	int err = kstrtoul(buf, 0, &filter->sz_range.min);
+mm/damon/sysfs-schemes.c-620-
+mm/damon/sysfs-schemes.c-621-	return err ? err : count;
+mm/damon/sysfs-schemes.c-622-}
+mm/damon/sysfs-schemes.c-623-
+mm/damon/sysfs-schemes.c-624-static ssize_t max_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-625-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-626-{
+mm/damon/sysfs-schemes.c-627-	struct damon_sysfs_scheme_filter *filter = container_of(kobj,
+--
+mm/damon/sysfs-schemes.c:638:	int err = kstrtoul(buf, 0, &filter->sz_range.max);
+mm/damon/sysfs-schemes.c-639-
+mm/damon/sysfs-schemes.c-640-	return err ? err : count;
+mm/damon/sysfs-schemes.c-641-}
+mm/damon/sysfs-schemes.c-642-
+mm/damon/sysfs-schemes.c-643-static ssize_t damon_target_idx_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-644-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-645-{
+mm/damon/sysfs-schemes.c-646-	struct damon_sysfs_scheme_filter *filter = container_of(kobj,
+--
+mm/damon/sysfs-schemes.c:941:	int err = kstrtoul(buf, 0, &watermarks->interval_us);
+mm/damon/sysfs-schemes.c-942-
+mm/damon/sysfs-schemes.c-943-	return err ? err : count;
+mm/damon/sysfs-schemes.c-944-}
+mm/damon/sysfs-schemes.c-945-
+mm/damon/sysfs-schemes.c-946-static ssize_t high_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-947-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-948-{
+mm/damon/sysfs-schemes.c-949-	struct damon_sysfs_watermarks *watermarks = container_of(kobj,
+--
+mm/damon/sysfs-schemes.c:960:	int err = kstrtoul(buf, 0, &watermarks->high);
+mm/damon/sysfs-schemes.c-961-
+mm/damon/sysfs-schemes.c-962-	return err ? err : count;
+mm/damon/sysfs-schemes.c-963-}
+mm/damon/sysfs-schemes.c-964-
+mm/damon/sysfs-schemes.c-965-static ssize_t mid_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-966-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-967-{
+mm/damon/sysfs-schemes.c-968-	struct damon_sysfs_watermarks *watermarks = container_of(kobj,
+--
+mm/damon/sysfs-schemes.c:979:	int err = kstrtoul(buf, 0, &watermarks->mid);
+mm/damon/sysfs-schemes.c-980-
+mm/damon/sysfs-schemes.c-981-	return err ? err : count;
+mm/damon/sysfs-schemes.c-982-}
+mm/damon/sysfs-schemes.c-983-
+mm/damon/sysfs-schemes.c-984-static ssize_t low_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-985-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-986-{
+mm/damon/sysfs-schemes.c-987-	struct damon_sysfs_watermarks *watermarks = container_of(kobj,
+--
+mm/damon/sysfs-schemes.c:998:	int err = kstrtoul(buf, 0, &watermarks->low);
+mm/damon/sysfs-schemes.c-999-
+mm/damon/sysfs-schemes.c-1000-	return err ? err : count;
+mm/damon/sysfs-schemes.c-1001-}
+mm/damon/sysfs-schemes.c-1002-
+mm/damon/sysfs-schemes.c-1003-static void damon_sysfs_watermarks_release(struct kobject *kobj)
+mm/damon/sysfs-schemes.c-1004-{
+mm/damon/sysfs-schemes.c-1005-	kfree(container_of(kobj, struct damon_sysfs_watermarks, kobj));
+mm/damon/sysfs-schemes.c-1006-}
+--
+mm/damon/sysfs-schemes.c:1148:	int err = kstrtoul(buf, 0, &goal->target_value);
+mm/damon/sysfs-schemes.c-1149-
+mm/damon/sysfs-schemes.c-1150-	return err ? err : count;
+mm/damon/sysfs-schemes.c-1151-}
+mm/damon/sysfs-schemes.c-1152-
+mm/damon/sysfs-schemes.c-1153-static ssize_t current_value_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-1154-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-1155-{
+mm/damon/sysfs-schemes.c-1156-	struct damos_sysfs_quota_goal *goal = container_of(kobj, struct
+--
+mm/damon/sysfs-schemes.c:1167:	int err = kstrtoul(buf, 0, &goal->current_value);
+mm/damon/sysfs-schemes.c-1168-
+mm/damon/sysfs-schemes.c-1169-	/* feed callback should check existence of this file and read value */
+mm/damon/sysfs-schemes.c-1170-	return err ? err : count;
+mm/damon/sysfs-schemes.c-1171-}
+mm/damon/sysfs-schemes.c-1172-
+mm/damon/sysfs-schemes.c-1173-static ssize_t nid_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-1174-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-1175-{
+--
+mm/damon/sysfs-schemes.c:1575:	int err = kstrtoul(buf, 0, &quotas->ms);
+mm/damon/sysfs-schemes.c-1576-
+mm/damon/sysfs-schemes.c-1577-	if (err)
+mm/damon/sysfs-schemes.c-1578-		return -EINVAL;
+mm/damon/sysfs-schemes.c-1579-	return count;
+mm/damon/sysfs-schemes.c-1580-}
+mm/damon/sysfs-schemes.c-1581-
+mm/damon/sysfs-schemes.c-1582-static ssize_t bytes_show(struct kobject *kobj, struct kobj_attribute *attr,
+mm/damon/sysfs-schemes.c-1583-		char *buf)
+--
+mm/damon/sysfs-schemes.c:1596:	int err = kstrtoul(buf, 0, &quotas->sz);
+mm/damon/sysfs-schemes.c-1597-
+mm/damon/sysfs-schemes.c-1598-	if (err)
+mm/damon/sysfs-schemes.c-1599-		return -EINVAL;
+mm/damon/sysfs-schemes.c-1600-	return count;
+mm/damon/sysfs-schemes.c-1601-}
+mm/damon/sysfs-schemes.c-1602-
+mm/damon/sysfs-schemes.c-1603-static ssize_t reset_interval_ms_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-1604-		struct kobj_attribute *attr, char *buf)
+--
+mm/damon/sysfs-schemes.c:1617:	int err = kstrtoul(buf, 0, &quotas->reset_interval_ms);
+mm/damon/sysfs-schemes.c-1618-
+mm/damon/sysfs-schemes.c-1619-	if (err)
+mm/damon/sysfs-schemes.c-1620-		return -EINVAL;
+mm/damon/sysfs-schemes.c-1621-	return count;
+mm/damon/sysfs-schemes.c-1622-}
+mm/damon/sysfs-schemes.c-1623-
+mm/damon/sysfs-schemes.c-1624-static ssize_t effective_bytes_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-1625-		struct kobj_attribute *attr, char *buf)
+--
+mm/damon/sysfs-schemes.c:2389:	int err = kstrtoul(buf, 0, &scheme->apply_interval_us);
+mm/damon/sysfs-schemes.c-2390-
+mm/damon/sysfs-schemes.c-2391-	return err ? err : count;
+mm/damon/sysfs-schemes.c-2392-}
+mm/damon/sysfs-schemes.c-2393-
+mm/damon/sysfs-schemes.c-2394-static ssize_t target_nid_show(struct kobject *kobj,
+mm/damon/sysfs-schemes.c-2395-		struct kobj_attribute *attr, char *buf)
+mm/damon/sysfs-schemes.c-2396-{
+mm/damon/sysfs-schemes.c-2397-	struct damon_sysfs_scheme *scheme = container_of(kobj,
+--
+mm/kasan/tags.c:68:	return kstrtoul(arg, 0, &stack_ring.size);
+mm/kasan/tags.c-69-}
+mm/kasan/tags.c-70-early_param("kasan.stack_ring_size", early_kasan_flag_stack_ring_size);
+mm/kasan/tags.c-71-
+mm/kasan/tags.c-72-void __init kasan_init_tags(void)
+mm/kasan/tags.c-73-{
+mm/kasan/tags.c-74-	switch (kasan_arg_stacktrace) {
+mm/kasan/tags.c-75-	case KASAN_ARG_STACKTRACE_DEFAULT:
+mm/kasan/tags.c-76-		/* Default is specified by kasan_flag_stacktrace definition. */
+--
+kernel/trace/trace_events_trigger.c:1016:		ret = kstrtoul(number, 0, &trigger_data->count);
+kernel/trace/trace_events_trigger.c-1017-	}
+kernel/trace/trace_events_trigger.c-1018-
+kernel/trace/trace_events_trigger.c-1019-	return ret;
+kernel/trace/trace_events_trigger.c-1020-}
+kernel/trace/trace_events_trigger.c-1021-
+kernel/trace/trace_events_trigger.c-1022-/**
+kernel/trace/trace_events_trigger.c-1023- * event_trigger_set_filter - set an event trigger's filter
+kernel/trace/trace_events_trigger.c-1024- * @cmd_ops: The event_command operations for the trigger
+--
+mm/damon/sysfs-common.c:50:	err = kstrtoul(buf, 0, &min);
+mm/damon/sysfs-common.c-51-	if (err)
+mm/damon/sysfs-common.c-52-		return err;
+mm/damon/sysfs-common.c-53-
+mm/damon/sysfs-common.c-54-	range->min = min;
+mm/damon/sysfs-common.c-55-	return count;
+mm/damon/sysfs-common.c-56-}
+mm/damon/sysfs-common.c-57-
+mm/damon/sysfs-common.c-58-static ssize_t max_show(struct kobject *kobj, struct kobj_attribute *attr,
+--
+mm/damon/sysfs-common.c:75:	err = kstrtoul(buf, 0, &max);
+mm/damon/sysfs-common.c-76-	if (err)
+mm/damon/sysfs-common.c-77-		return err;
+mm/damon/sysfs-common.c-78-
+mm/damon/sysfs-common.c-79-	range->max = max;
+mm/damon/sysfs-common.c-80-	return count;
+mm/damon/sysfs-common.c-81-}
+mm/damon/sysfs-common.c-82-
+mm/damon/sysfs-common.c-83-void damon_sysfs_ul_range_release(struct kobject *kobj)
+--
+mm/kasan/report_generic.c:235:	if (value != NULL && kstrtoul(token, 10, value)) {
+mm/kasan/report_generic.c-236-		pr_err("internal error: not a valid number: %s\n", token);
+mm/kasan/report_generic.c-237-		return false;
+mm/kasan/report_generic.c-238-	}
+mm/kasan/report_generic.c-239-
+mm/kasan/report_generic.c-240-	return true;
+mm/kasan/report_generic.c-241-}
+mm/kasan/report_generic.c-242-
+mm/kasan/report_generic.c-243-static void print_decoded_frame_descr(const char *frame_descr)
+--
+mm/kfence/core.c:69:	int ret = kstrtoul(val, 0, &num);
+mm/kfence/core.c-70-
+mm/kfence/core.c-71-	if (ret < 0)
+mm/kfence/core.c-72-		return ret;
+mm/kfence/core.c-73-
+mm/kfence/core.c-74-	/* Using 0 to indicate KFENCE is disabled. */
+mm/kfence/core.c-75-	if (!num && READ_ONCE(kfence_enabled)) {
+mm/kfence/core.c-76-		pr_info("disabled\n");
+mm/kfence/core.c-77-		WRITE_ONCE(kfence_enabled, false);
+--
+mm/kasan/hw_tags.c:175:	rv = kstrtoul(arg, 0, &kasan_page_alloc_sample);
+mm/kasan/hw_tags.c-176-	if (rv)
+mm/kasan/hw_tags.c-177-		return rv;
+mm/kasan/hw_tags.c-178-
+mm/kasan/hw_tags.c-179-	if (!kasan_page_alloc_sample || kasan_page_alloc_sample > LONG_MAX) {
+mm/kasan/hw_tags.c-180-		kasan_page_alloc_sample = PAGE_ALLOC_SAMPLE_DEFAULT;
+mm/kasan/hw_tags.c-181-		return -EINVAL;
+mm/kasan/hw_tags.c-182-	}
+mm/kasan/hw_tags.c-183-
+--
+fs/dcache.c:3439:	return kstrtoul(str, 0, &dhash_entries) == 0;
+fs/dcache.c-3440-}
+fs/dcache.c-3441-__setup("dhash_entries=", set_dhash_entries);
+fs/dcache.c-3442-
+fs/dcache.c-3443-static void __init dcache_init_early(void)
+fs/dcache.c-3444-{
+fs/dcache.c-3445-	/* If hashes are distributed across NUMA nodes, defer
+fs/dcache.c-3446-	 * hash allocation until vmalloc space is available.
+fs/dcache.c-3447-	 */
+--
+kernel/fork.c:1027:	if (kstrtoul(s, 0, &coredump_filter))
+kernel/fork.c-1028-		return 0;
+kernel/fork.c-1029-	coredump_filter <<= MMF_DUMP_FILTER_SHIFT;
+kernel/fork.c-1030-	coredump_filter &= MMF_DUMP_FILTER_MASK;
+kernel/fork.c-1031-	return 1;
+kernel/fork.c-1032-}
+kernel/fork.c-1033-
+kernel/fork.c-1034-__setup("coredump_filter=", coredump_filter_setup);
+kernel/fork.c-1035-
+--
+kernel/trace/trace_events_hist.c:1422:	ret = kstrtoul(str, 0, &size);
+kernel/trace/trace_events_hist.c-1423-	if (ret)
+kernel/trace/trace_events_hist.c-1424-		goto out;
+kernel/trace/trace_events_hist.c-1425-
+kernel/trace/trace_events_hist.c-1426-	map_bits = ilog2(roundup_pow_of_two(size));
+kernel/trace/trace_events_hist.c-1427-	if (map_bits < TRACING_MAP_BITS_MIN ||
+kernel/trace/trace_events_hist.c-1428-	    map_bits > TRACING_MAP_BITS_MAX)
+kernel/trace/trace_events_hist.c-1429-		ret = -EINVAL;
+kernel/trace/trace_events_hist.c-1430-	else
+--
+kernel/trace/trace_events_hist.c:2374:			ret = kstrtoul(modifier, 0, buckets);
+kernel/trace/trace_events_hist.c-2375-			if (ret || !(*buckets))
+kernel/trace/trace_events_hist.c-2376-				goto error;
+kernel/trace/trace_events_hist.c-2377-			*flags |= HIST_FIELD_FL_BUCKET;
+kernel/trace/trace_events_hist.c-2378-		} else if (strncmp(modifier, "percent", 7) == 0) {
+kernel/trace/trace_events_hist.c-2379-			if (*flags & (HIST_FIELD_FL_VAR | HIST_FIELD_FL_KEY))
+kernel/trace/trace_events_hist.c-2380-				goto error;
+kernel/trace/trace_events_hist.c-2381-			*flags |= HIST_FIELD_FL_PERCENT;
+kernel/trace/trace_events_hist.c-2382-		} else if (strncmp(modifier, "graph", 5) == 0) {
+--
+kernel/kexec_core.c:1287:	if (kstrtoul(buf, 0, &cnt))
+kernel/kexec_core.c-1288-		return -EINVAL;
+kernel/kexec_core.c-1289-
+kernel/kexec_core.c-1290-	ret = crash_shrink_memory(cnt);
+kernel/kexec_core.c-1291-	return ret < 0 ? ret : count;
+kernel/kexec_core.c-1292-}
+kernel/kexec_core.c-1293-static struct kobj_attribute crash_size_attr = __ATTR_RW(crash_size);
+kernel/kexec_core.c-1294-
+kernel/kexec_core.c-1295-#ifdef CONFIG_CRASH_HOTPLUG
+--
+kernel/cgroup/misc.c:282:		ret = kstrtou64(buf, 0, &max);
+kernel/cgroup/misc.c-283-		if (ret)
+kernel/cgroup/misc.c-284-			return ret;
+kernel/cgroup/misc.c-285-	}
+kernel/cgroup/misc.c-286-
+kernel/cgroup/misc.c-287-	cg = css_misc(of_css(of));
+kernel/cgroup/misc.c-288-
+kernel/cgroup/misc.c-289-	if (READ_ONCE(misc_res_capacity[type]))
+kernel/cgroup/misc.c-290-		WRITE_ONCE(cg->res[type].max, max);
+--
+kernel/gcov/fs.c:78:	if (kstrtoul(str, 0, &val)) {
+kernel/gcov/fs.c-79-		pr_warn("invalid gcov_persist parameter '%s'\n", str);
+kernel/gcov/fs.c-80-		return 0;
+kernel/gcov/fs.c-81-	}
+kernel/gcov/fs.c-82-	gcov_persist = val;
+kernel/gcov/fs.c-83-	pr_info("setting gcov_persist to %d\n", gcov_persist);
+kernel/gcov/fs.c-84-
+kernel/gcov/fs.c-85-	return 1;
+kernel/gcov/fs.c-86-}
+--
+kernel/trace/trace_events_filter.c:1751:			ret = kstrtoul(num_buf, 0, &ip);
+kernel/trace/trace_events_filter.c-1752-			if (ret) {
+kernel/trace/trace_events_filter.c-1753-				parse_error(pe, FILT_ERR_INVALID_VALUE, pos + i);
+kernel/trace/trace_events_filter.c-1754-				goto err_free;
+kernel/trace/trace_events_filter.c-1755-			}
+kernel/trace/trace_events_filter.c-1756-		} else {
+kernel/trace/trace_events_filter.c-1757-			s = i;
+kernel/trace/trace_events_filter.c-1758-			for (; str[i] && !isspace(str[i]); i++)
+kernel/trace/trace_events_filter.c-1759-				;
+--
+kernel/trace/trace_events.c:4366:		ret = kstrtoul(number, 0, &count);
+kernel/trace/trace_events.c-4367-		if (ret)
+kernel/trace/trace_events.c-4368-			return ret;
+kernel/trace/trace_events.c-4369-	}
+kernel/trace/trace_events.c-4370-
+kernel/trace/trace_events.c-4371-	/* Don't let event modules unload while probe registered */
+kernel/trace/trace_events.c-4372-	ret = trace_event_try_get_ref(file->event_call);
+kernel/trace/trace_events.c-4373-	if (!ret)
+kernel/trace/trace_events.c-4374-		return -EBUSY;
+--
+kernel/events/core.c:12061:			ret = kstrtoul(args[0].from, 0, &filter->offset);
+kernel/events/core.c-12062-			if (ret)
+kernel/events/core.c-12063-				goto fail;
+kernel/events/core.c-12064-
+kernel/events/core.c-12065-			if (token == IF_SRC_KERNEL || token == IF_SRC_FILE) {
+kernel/events/core.c-12066-				*args[1].to = 0;
+kernel/events/core.c:12067:				ret = kstrtoul(args[1].from, 0, &filter->size);
+kernel/events/core.c-12068-				if (ret)
+kernel/events/core.c-12069-					goto fail;
+kernel/events/core.c-12070-			}
+kernel/events/core.c-12071-
+kernel/events/core.c-12072-			if (token == IF_SRC_FILE || token == IF_SRC_FILEADDR) {
+kernel/events/core.c-12073-				int fpos = token == IF_SRC_FILE ? 2 : 1;
+kernel/events/core.c-12074-
+kernel/events/core.c-12075-				kfree(filename);
+--
+kernel/kcsan/debugfs.c:239:		if (kstrtoul(&arg[strlen("microbench=")], 0, &iters))
+kernel/kcsan/debugfs.c-240-			return -EINVAL;
+kernel/kcsan/debugfs.c-241-		microbenchmark(iters);
+kernel/kcsan/debugfs.c-242-	} else if (!strcmp(arg, "whitelist")) {
+kernel/kcsan/debugfs.c-243-		set_report_filterlist_whitelist(true);
+kernel/kcsan/debugfs.c-244-	} else if (!strcmp(arg, "blacklist")) {
+kernel/kcsan/debugfs.c-245-		set_report_filterlist_whitelist(false);
+kernel/kcsan/debugfs.c-246-	} else if (arg[0] == '!') {
+kernel/kcsan/debugfs.c-247-		ssize_t ret = insert_report_filterlist(&arg[1]);
+--
+kernel/irq/handle.c:155:	ret = kstrtoul(arg, 0, &val);
+kernel/irq/handle.c-156-	if (ret) {
+kernel/irq/handle.c-157-		pr_err("Unable to parse irqhandler.duration_warn_us setting: ret=%d\n", ret);
+kernel/irq/handle.c-158-		return 0;
+kernel/irq/handle.c-159-	}
+kernel/irq/handle.c-160-
+kernel/irq/handle.c-161-	if (!val) {
+kernel/irq/handle.c-162-		pr_err("Invalid irqhandler.duration_warn_us setting, must be > 0\n");
+kernel/irq/handle.c-163-		return 0;
+--
+kernel/trace/trace_boot.c:45:		if (kstrtoul(p, 10, &v))
+kernel/trace/trace_boot.c-46-			pr_err("Failed to set tracing on: %s\n", p);
+kernel/trace/trace_boot.c-47-		if (v)
+kernel/trace/trace_boot.c-48-			tracer_tracing_on(tr);
+kernel/trace/trace_boot.c-49-		else
+kernel/trace/trace_boot.c-50-			tracer_tracing_off(tr);
+kernel/trace/trace_boot.c-51-	}
+kernel/trace/trace_boot.c-52-
+kernel/trace/trace_boot.c-53-	p = xbc_node_find_value(node, "trace_clock", NULL);
+--
+kernel/trace/trace.c:1038:	ret = kstrtoul(str, 0, &threshold);
+kernel/trace/trace.c-1039-	if (ret < 0)
+kernel/trace/trace.c-1040-		return 0;
+kernel/trace/trace.c-1041-	tracing_thresh = threshold * 1000;
+kernel/trace/trace.c-1042-	return 1;
+kernel/trace/trace.c-1043-}
+kernel/trace/trace.c-1044-__setup("tracing_thresh=", set_tracing_thresh);
+kernel/trace/trace.c-1045-
+kernel/trace/trace.c-1046-unsigned long nsecs_to_usecs(unsigned long nsecs)
+--
+fs/cachefiles/ondemand.c:187:	ret = kstrtoul(pid, 0, &id);
+fs/cachefiles/ondemand.c-188-	if (ret)
+fs/cachefiles/ondemand.c-189-		return ret;
+fs/cachefiles/ondemand.c-190-
+fs/cachefiles/ondemand.c-191-	xa_lock(&cache->reqs);
+fs/cachefiles/ondemand.c-192-	xas.xa_index = id;
+fs/cachefiles/ondemand.c-193-	req = xas_load(&xas);
+fs/cachefiles/ondemand.c-194-	if (!req || req->msg.opcode != CACHEFILES_OP_OPEN ||
+fs/cachefiles/ondemand.c-195-	    !req->object->ondemand->ondemand_id) {
+--
+fs/cachefiles/ondemand.c:204:	ret = kstrtol(psize, 0, &size);
+fs/cachefiles/ondemand.c-205-	if (ret) {
+fs/cachefiles/ondemand.c-206-		req->error = ret;
+fs/cachefiles/ondemand.c-207-		goto out;
+fs/cachefiles/ondemand.c-208-	}
+fs/cachefiles/ondemand.c-209-
+fs/cachefiles/ondemand.c-210-	/* fail OPEN request if daemon reports an error */
+fs/cachefiles/ondemand.c-211-	if (size < 0) {
+fs/cachefiles/ondemand.c-212-		if (!IS_ERR_VALUE(size)) {
+--
+kernel/debug/kdb/kdb_main.c:272:	if (kstrtoul(ep, 0, value))
+kernel/debug/kdb/kdb_main.c-273-		return KDB_BADINT;
+kernel/debug/kdb/kdb_main.c-274-
+kernel/debug/kdb/kdb_main.c-275-	return 0;
+kernel/debug/kdb/kdb_main.c-276-}
+kernel/debug/kdb/kdb_main.c-277-
+kernel/debug/kdb/kdb_main.c-278-/*
+kernel/debug/kdb/kdb_main.c-279- * kdbgetintenv - This function will return the value of an
+kernel/debug/kdb/kdb_main.c-280- *	integer-valued environment variable.
+--
+kernel/debug/kdb/kdb_main.c:369:	if (kstrtoul(arg, 0, value))
+kernel/debug/kdb/kdb_main.c-370-		return KDB_BADINT;
+kernel/debug/kdb/kdb_main.c-371-	return 0;
+kernel/debug/kdb/kdb_main.c-372-}
+kernel/debug/kdb/kdb_main.c-373-
+kernel/debug/kdb/kdb_main.c-374-int kdbgetu64arg(const char *arg, u64 *value)
+kernel/debug/kdb/kdb_main.c-375-{
+kernel/debug/kdb/kdb_main.c:376:	if (kstrtou64(arg, 0, value))
+kernel/debug/kdb/kdb_main.c-377-		return KDB_BADINT;
+kernel/debug/kdb/kdb_main.c-378-	return 0;
+kernel/debug/kdb/kdb_main.c-379-}
+kernel/debug/kdb/kdb_main.c-380-
+kernel/debug/kdb/kdb_main.c-381-/*
+kernel/debug/kdb/kdb_main.c-382- * kdb_set - This function implements the 'set' command.  Alter an
+kernel/debug/kdb/kdb_main.c-383- *	existing environment variable or create a new one.
+kernel/debug/kdb/kdb_main.c-384- */
+--
+kernel/debug/kdb/kdb_main.c:2334:	if (kstrtol(argv[1], 0, &sig))
+kernel/debug/kdb/kdb_main.c-2335-		return KDB_BADINT;
+kernel/debug/kdb/kdb_main.c-2336-	if ((sig >= 0) || !valid_signal(-sig)) {
+kernel/debug/kdb/kdb_main.c-2337-		kdb_printf("Invalid signal parameter.<-signal>\n");
+kernel/debug/kdb/kdb_main.c-2338-		return 0;
+kernel/debug/kdb/kdb_main.c-2339-	}
+kernel/debug/kdb/kdb_main.c-2340-	sig = -sig;
+kernel/debug/kdb/kdb_main.c-2341-
+kernel/debug/kdb/kdb_main.c:2342:	if (kstrtol(argv[2], 0, &pid))
+kernel/debug/kdb/kdb_main.c-2343-		return KDB_BADINT;
+kernel/debug/kdb/kdb_main.c-2344-	if (pid <= 0) {
+kernel/debug/kdb/kdb_main.c-2345-		kdb_printf("Process ID must be large than 0.\n");
+kernel/debug/kdb/kdb_main.c-2346-		return 0;
+kernel/debug/kdb/kdb_main.c-2347-	}
+kernel/debug/kdb/kdb_main.c-2348-
+kernel/debug/kdb/kdb_main.c-2349-	/* Find the process. */
+kernel/debug/kdb/kdb_main.c-2350-	p = find_task_by_pid_ns(pid, &init_pid_ns);
+--
+fs/afs/addr_prefs.c:272:	ret = kstrtou16(argv[2], 10, &pref.prio);
+fs/afs/addr_prefs.c-273-	if (ret < 0) {
+fs/afs/addr_prefs.c-274-		pr_warn("Invalid priority\n");
+fs/afs/addr_prefs.c-275-		return ret;
+fs/afs/addr_prefs.c-276-	}
+fs/afs/addr_prefs.c-277-
+fs/afs/addr_prefs.c-278-	if (pref.family == AF_INET) {
+fs/afs/addr_prefs.c-279-		i = 0;
+fs/afs/addr_prefs.c-280-		stop = preflist->ipv6_off;
+--
+kernel/bpf/inode.c:1093:				err = kstrtou64(p, 0, &msk);
+kernel/bpf/inode.c-1094-				if (err)
+kernel/bpf/inode.c-1095-					return err;
+kernel/bpf/inode.c-1096-			}
+kernel/bpf/inode.c-1097-		}
+kernel/bpf/inode.c-1098-
+kernel/bpf/inode.c-1099-		/* Setting delegation mount options requires privileges */
+kernel/bpf/inode.c-1100-		if (msk && !capable(CAP_SYS_ADMIN))
+kernel/bpf/inode.c-1101-			return -EPERM;
+--
+kernel/power/wakelock.c:226:		ret = kstrtou64(skip_spaces(str), 10, &timeout_ns);
+kernel/power/wakelock.c-227-		if (ret)
+kernel/power/wakelock.c-228-			return -EINVAL;
+kernel/power/wakelock.c-229-	}
+kernel/power/wakelock.c-230-
+kernel/power/wakelock.c-231-	mutex_lock(&wakelocks_lock);
+kernel/power/wakelock.c-232-
+kernel/power/wakelock.c-233-	wl = wakelock_lookup_add(buf, len, true);
+kernel/power/wakelock.c-234-	if (IS_ERR(wl)) {
+--
+kernel/rcu/tree.c:480:	int ret = kstrtoul(val, 0, &j);
+kernel/rcu/tree.c-481-
+kernel/rcu/tree.c-482-	if (!ret) {
+kernel/rcu/tree.c-483-		WRITE_ONCE(*(ulong *)kp->arg, (j > HZ) ? HZ : j);
+kernel/rcu/tree.c-484-		adjust_jiffies_till_sched_qs();
+kernel/rcu/tree.c-485-	}
+kernel/rcu/tree.c-486-	return ret;
+kernel/rcu/tree.c-487-}
+kernel/rcu/tree.c-488-
+--
+kernel/rcu/tree.c:492:	int ret = kstrtoul(val, 0, &j);
+kernel/rcu/tree.c-493-
+kernel/rcu/tree.c-494-	if (!ret) {
+kernel/rcu/tree.c-495-		WRITE_ONCE(*(ulong *)kp->arg, clamp_val(j, 1, HZ));
+kernel/rcu/tree.c-496-		adjust_jiffies_till_sched_qs();
+kernel/rcu/tree.c-497-	}
+kernel/rcu/tree.c-498-	return ret;
+kernel/rcu/tree.c-499-}
+kernel/rcu/tree.c-500-
+--
+kernel/power/swap.c:1660:	if (kstrtoul(buf, 0, &val))
+kernel/power/swap.c-1661-		return -EINVAL;
+kernel/power/swap.c-1662-
+kernel/power/swap.c-1663-	if (val < 1)
+kernel/power/swap.c-1664-		return -EINVAL;
+kernel/power/swap.c-1665-
+kernel/power/swap.c-1666-	hibernate_compression_threads = val;
+kernel/power/swap.c-1667-	return n;
+kernel/power/swap.c-1668-}
+--
+kernel/power/suspend_test.c:164:		if (kstrtou32(repeat, 0, &test_repeat_count_max))
+kernel/power/suspend_test.c-165-			return 1;
+kernel/power/suspend_test.c-166-	}
+kernel/power/suspend_test.c-167-
+kernel/power/suspend_test.c-168-	for (i = PM_SUSPEND_MIN; i < PM_SUSPEND_MAX; i++)
+kernel/power/suspend_test.c-169-		if (!strcmp(pm_labels[i], suspend_type)) {
+kernel/power/suspend_test.c-170-			test_state_label = pm_labels[i];
+kernel/power/suspend_test.c-171-			return 1;
+kernel/power/suspend_test.c-172-		}
+--
+kernel/power/main.c:204:	if (kstrtoul(buf, 10, &val))
+kernel/power/main.c-205-		return -EINVAL;
+kernel/power/main.c-206-
+kernel/power/main.c-207-	if (val > 1)
+kernel/power/main.c-208-		return -EINVAL;
+kernel/power/main.c-209-
+kernel/power/main.c-210-	pm_async_enabled = val;
+kernel/power/main.c-211-	return n;
+kernel/power/main.c-212-}
+--
+kernel/power/main.c:310:	if (kstrtoul(buf, 10, &val))
+kernel/power/main.c-311-		return -EINVAL;
+kernel/power/main.c-312-
+kernel/power/main.c-313-	if (val > 1)
+kernel/power/main.c-314-		return -EINVAL;
+kernel/power/main.c-315-
+kernel/power/main.c-316-	sync_on_suspend_enabled = !!val;
+kernel/power/main.c-317-	return n;
+kernel/power/main.c-318-}
+--
+kernel/power/main.c:665:	if (kstrtoul(buf, 10, &val))
+kernel/power/main.c-666-		return -EINVAL;
+kernel/power/main.c-667-
+kernel/power/main.c-668-	if (val > 1)
+kernel/power/main.c-669-		return -EINVAL;
+kernel/power/main.c-670-
+kernel/power/main.c-671-	pm_print_times_enabled = !!val;
+kernel/power/main.c-672-	return n;
+kernel/power/main.c-673-}
+--
+kernel/power/main.c:714:	if (kstrtoul(buf, 10, &val))
+kernel/power/main.c-715-		return -EINVAL;
+kernel/power/main.c-716-
+kernel/power/main.c-717-	if (val > 1)
+kernel/power/main.c-718-		return -EINVAL;
+kernel/power/main.c-719-
+kernel/power/main.c-720-	pm_debug_messages_on = !!val;
+kernel/power/main.c-721-	return n;
+kernel/power/main.c-722-}
+--
+kernel/power/main.c:1036:	if (kstrtoul(buf, 10, &val))
+kernel/power/main.c-1037-		return -EINVAL;
+kernel/power/main.c-1038-
+kernel/power/main.c-1039-	freeze_timeout_msecs = val;
+kernel/power/main.c-1040-	return n;
+kernel/power/main.c-1041-}
+kernel/power/main.c-1042-
+kernel/power/main.c-1043-power_attr(pm_freeze_timeout);
+kernel/power/main.c-1044-
+--
+kernel/power/main.c:1062:	if (kstrtoul(buf, 10, &val))
+kernel/power/main.c-1063-		return -EINVAL;
+kernel/power/main.c-1064-
+kernel/power/main.c-1065-	if (val > 1)
+kernel/power/main.c-1066-		return -EINVAL;
+kernel/power/main.c-1067-
+kernel/power/main.c-1068-	filesystem_freeze_enabled = !!val;
+kernel/power/main.c-1069-	return n;
+kernel/power/main.c-1070-}
+--
+kernel/sched/core.c:5742:	if ((kstrtol(str, 0, &val))) {
+kernel/sched/core.c-5743-		pr_warn("Unable to set resched_latency_warn_ms\n");
+kernel/sched/core.c-5744-		return 1;
+kernel/sched/core.c-5745-	}
+kernel/sched/core.c-5746-
+kernel/sched/core.c-5747-	sysctl_resched_latency_warn_ms = val;
+kernel/sched/core.c-5748-	return 1;
+kernel/sched/core.c-5749-}
+kernel/sched/core.c-5750-__setup("resched_latency_warn_ms=", setup_resched_latency_warn_ms);
+--
+kernel/sched/core.c:10312:	if (kstrtol(str, 0, &val) || val < 0 || val > 1) {
+kernel/sched/core.c-10313-		pr_warn("Unable to set rt_group_sched\n");
+kernel/sched/core.c-10314-		return 1;
+kernel/sched/core.c-10315-	}
+kernel/sched/core.c-10316-	if (val)
+kernel/sched/core.c-10317-		static_branch_enable(&rt_group_sched);
+kernel/sched/core.c-10318-	else
+kernel/sched/core.c-10319-		static_branch_disable(&rt_group_sched);
+kernel/sched/core.c-10320-
+--
+kernel/panic.c:1257:	if (kstrtoul(taint_str, 16, &panic_on_taint))
+kernel/panic.c-1258-		return -EINVAL;
+kernel/panic.c-1259-
+kernel/panic.c-1260-	/* make sure panic_on_taint doesn't hold out-of-range TAINT flags */
+kernel/panic.c-1261-	panic_on_taint &= TAINT_FLAGS_MAX;
+kernel/panic.c-1262-
+kernel/panic.c-1263-	if (!panic_on_taint)
+kernel/panic.c-1264-		return -EINVAL;
+kernel/panic.c-1265-
+--
+fs/ceph/crypto.c:189:	ret = kstrtou64(inode_number, 10, &vino.ino);
+fs/ceph/crypto.c-190-	if (ret) {
+fs/ceph/crypto.c-191-		doutc(cl, "failed to parse inode number: %s\n", str);
+fs/ceph/crypto.c-192-		return ERR_PTR(ret);
+fs/ceph/crypto.c-193-	}
+fs/ceph/crypto.c-194-
+fs/ceph/crypto.c-195-	/* And finally the inode */
+fs/ceph/crypto.c-196-	dir = ceph_find_inode(parent->i_sb, vino);
+fs/ceph/crypto.c-197-	if (!dir) {
+--
+kernel/time/ntp.c:1094:	int rc = kstrtos64(str, 0, &tk_ntp_data[TIMEKEEPER_CORE].ntp_tick_adj);
+kernel/time/ntp.c-1095-	if (rc)
+kernel/time/ntp.c-1096-		return rc;
+kernel/time/ntp.c-1097-
+kernel/time/ntp.c-1098-	tk_ntp_data[TIMEKEEPER_CORE].ntp_tick_adj <<= NTP_SCALE_SHIFT;
+kernel/time/ntp.c-1099-	return 1;
+kernel/time/ntp.c-1100-}
+kernel/time/ntp.c-1101-__setup("ntp_tick_adj=", ntp_tick_adj_setup);
+kernel/time/ntp.c-1102-
+--
+kernel/trace/ftrace.c:4868:	if (kstrtoul(func_g->search, 0, &index) || --index < 0)
+kernel/trace/ftrace.c-4869-		return 0;
+kernel/trace/ftrace.c-4870-
+kernel/trace/ftrace.c-4871-	do_for_each_ftrace_rec(pg, rec) {
+kernel/trace/ftrace.c-4872-		if (pg->index <= index) {
+kernel/trace/ftrace.c-4873-			index -= pg->index;
+kernel/trace/ftrace.c-4874-			/* this is a double loop, break goes to the next page */
+kernel/trace/ftrace.c-4875-			break;
+kernel/trace/ftrace.c-4876-		}
+--
+fs/btrfs/sysfs.c:208:	ret = kstrtoul(skip_spaces(buf), 0, &val);
+fs/btrfs/sysfs.c-209-	if (ret)
+fs/btrfs/sysfs.c-210-		return ret;
+fs/btrfs/sysfs.c-211-
+fs/btrfs/sysfs.c-212-	if (fa->feature_set == FEAT_COMPAT) {
+fs/btrfs/sysfs.c-213-		set = BTRFS_FEATURE_COMPAT_SAFE_SET;
+fs/btrfs/sysfs.c-214-		clear = BTRFS_FEATURE_COMPAT_SAFE_CLEAR;
+fs/btrfs/sysfs.c-215-	} else if (fa->feature_set == FEAT_COMPAT_RO) {
+fs/btrfs/sysfs.c-216-		set = BTRFS_FEATURE_COMPAT_RO_SAFE_SET;
+--
+fs/btrfs/sysfs.c:545:	ret = kstrtou32(buf, 10, &iops_limit);
+fs/btrfs/sysfs.c-546-	if (ret)
+fs/btrfs/sysfs.c-547-		return -EINVAL;
+fs/btrfs/sysfs.c-548-
+fs/btrfs/sysfs.c-549-	WRITE_ONCE(discard_ctl->iops_limit, iops_limit);
+fs/btrfs/sysfs.c-550-	btrfs_discard_calc_delay(discard_ctl);
+fs/btrfs/sysfs.c-551-	btrfs_discard_schedule_work(discard_ctl, true);
+fs/btrfs/sysfs.c-552-	return len;
+fs/btrfs/sysfs.c-553-}
+--
+fs/btrfs/sysfs.c:576:	ret = kstrtou32(buf, 10, &kbps_limit);
+fs/btrfs/sysfs.c-577-	if (ret)
+fs/btrfs/sysfs.c-578-		return -EINVAL;
+fs/btrfs/sysfs.c-579-
+fs/btrfs/sysfs.c-580-	WRITE_ONCE(discard_ctl->kbps_limit, kbps_limit);
+fs/btrfs/sysfs.c-581-	btrfs_discard_schedule_work(discard_ctl, true);
+fs/btrfs/sysfs.c-582-	return len;
+fs/btrfs/sysfs.c-583-}
+fs/btrfs/sysfs.c-584-BTRFS_ATTR_RW(discard, kbps_limit, btrfs_discard_kbps_limit_show,
+--
+fs/btrfs/sysfs.c:606:	ret = kstrtou64(buf, 10, &max_discard_size);
+fs/btrfs/sysfs.c-607-	if (ret)
+fs/btrfs/sysfs.c-608-		return -EINVAL;
+fs/btrfs/sysfs.c-609-
+fs/btrfs/sysfs.c-610-	WRITE_ONCE(discard_ctl->max_discard_size, max_discard_size);
+fs/btrfs/sysfs.c-611-
+fs/btrfs/sysfs.c-612-	return len;
+fs/btrfs/sysfs.c-613-}
+fs/btrfs/sysfs.c-614-BTRFS_ATTR_RW(discard, max_discard_size, btrfs_discard_max_discard_size_show,
+--
+fs/btrfs/sysfs.c:1181:	ret = kstrtoul(buf, 10, &val);
+fs/btrfs/sysfs.c-1182-	if (ret)
+fs/btrfs/sysfs.c-1183-		return ret;
+fs/btrfs/sysfs.c-1184-	if (val)
+fs/btrfs/sysfs.c-1185-		return -EINVAL;
+fs/btrfs/sysfs.c-1186-
+fs/btrfs/sysfs.c-1187-	WRITE_ONCE(fs_info->commit_stats.max_commit_dur, 0);
+fs/btrfs/sysfs.c-1188-
+fs/btrfs/sysfs.c-1189-	return len;
+--
+fs/btrfs/sysfs.c:1227:	ret = kstrtoul(buf, 10, &knob);
+fs/btrfs/sysfs.c-1228-	if (ret)
+fs/btrfs/sysfs.c-1229-		return ret;
+fs/btrfs/sysfs.c-1230-	if (knob > 1)
+fs/btrfs/sysfs.c-1231-		return -EINVAL;
+fs/btrfs/sysfs.c-1232-
+fs/btrfs/sysfs.c-1233-	if (knob)
+fs/btrfs/sysfs.c-1234-		set_bit(BTRFS_FS_QUOTA_OVERRIDE, &fs_info->flags);
+fs/btrfs/sysfs.c-1235-	else
+--
+fs/btrfs/sysfs.c:2434:	ret = kstrtou8(buf, 10, &new_thres);
+fs/btrfs/sysfs.c-2435-	if (ret)
+fs/btrfs/sysfs.c-2436-		return -EINVAL;
+fs/btrfs/sysfs.c-2437-
+fs/btrfs/sysfs.c-2438-	if (new_thres > BTRFS_MAX_LEVEL)
+fs/btrfs/sysfs.c-2439-		return -EINVAL;
+fs/btrfs/sysfs.c-2440-
+fs/btrfs/sysfs.c-2441-	spin_lock(&fs_info->qgroup_lock);
+fs/btrfs/sysfs.c-2442-	fs_info->qgroup_drop_subtree_thres = new_thres;
+--
+net/devlink/netlink.c:216:		if (kstrtoul(devname, 10, &index))
+net/devlink/netlink.c-217-			return ERR_PTR(-ENODEV);
+net/devlink/netlink.c-218-		devlink = devlinks_xa_lookup_get(net, index);
+net/devlink/netlink.c-219-		if (!devlink)
+net/devlink/netlink.c-220-			return ERR_PTR(-ENODEV);
+net/devlink/netlink.c-221-		goto found;
+net/devlink/netlink.c-222-	}
+net/devlink/netlink.c-223-
+net/devlink/netlink.c-224-	devlinks_xa_for_each_registered_get(net, index, devlink) {
+--
+fs/nfs/super.c:1416:	ret = kstrtoul(val, 0, &num);
+fs/nfs/super.c-1417-	if (ret || num > NFS_CALLBACK_MAXPORTNR)
+fs/nfs/super.c-1418-		return -EINVAL;
+fs/nfs/super.c-1419-	*((unsigned int *)kp->arg) = num;
+fs/nfs/super.c-1420-	return 0;
+fs/nfs/super.c-1421-}
+fs/nfs/super.c-1422-static const struct kernel_param_ops param_ops_portnr = {
+fs/nfs/super.c-1423-	.set = param_set_portnr,
+fs/nfs/super.c-1424-	.get = param_get_uint,
+--
+net/9p/trans_usbg.c:835:	ret = kstrtou32(page, 0, &num);
+net/9p/trans_usbg.c-836-	if (ret)
+net/9p/trans_usbg.c-837-		return ret;
+net/9p/trans_usbg.c-838-
+net/9p/trans_usbg.c-839-	opts->buflen = num;
+net/9p/trans_usbg.c-840-
+net/9p/trans_usbg.c-841-	return len;
+net/9p/trans_usbg.c-842-}
+net/9p/trans_usbg.c-843-
+--
+net/core/utils.c:377:		if (kstrtou16(port, 0, &port_num))
+net/core/utils.c-378-			return -EINVAL;
+net/core/utils.c-379-	} else {
+net/core/utils.c-380-		port_num = 0;
+net/core/utils.c-381-	}
+net/core/utils.c-382-
+net/core/utils.c-383-	switch (af) {
+net/core/utils.c-384-	case AF_INET:
+net/core/utils.c-385-		ret = inet4_pton(src, port_num, addr);
+--
+fs/f2fs/sysfs.c:553:		ret = kstrtol(name, 10, &level);
+fs/f2fs/sysfs.c-554-		if (ret)
+fs/f2fs/sysfs.c-555-			return ret;
+fs/f2fs/sysfs.c-556-		if (level >= IOPRIO_NR_LEVELS || level < 0)
+fs/f2fs/sysfs.c-557-			return -EINVAL;
+fs/f2fs/sysfs.c-558-
+fs/f2fs/sysfs.c-559-		cprc->ckpt_thread_ioprio = IOPRIO_PRIO_VALUE(class, level);
+fs/f2fs/sysfs.c-560-		if (test_opt(sbi, MERGE_CHECKPOINT)) {
+fs/f2fs/sysfs.c-561-			ret = set_task_ioprio(cprc->f2fs_issue_ckpt,
+--
+fs/f2fs/sysfs.c:572:	ret = kstrtoul(skip_spaces(buf), 0, &t);
+fs/f2fs/sysfs.c-573-	if (ret < 0)
+fs/f2fs/sysfs.c-574-		return ret;
+fs/f2fs/sysfs.c-575-#ifdef CONFIG_F2FS_FAULT_INJECTION
+fs/f2fs/sysfs.c-576-	if (a->struct_type == FAULT_INFO_TYPE) {
+fs/f2fs/sysfs.c-577-		if (f2fs_build_fault_attr(sbi, 0, t, FAULT_TYPE))
+fs/f2fs/sysfs.c-578-			return -EINVAL;
+fs/f2fs/sysfs.c-579-		return count;
+fs/f2fs/sysfs.c-580-	}
+--
+fs/f2fs/sysfs.c:1113:	ret = kstrtoul(skip_spaces(buf), 0, &t);
+fs/f2fs/sysfs.c-1114-	if (ret)
+fs/f2fs/sysfs.c-1115-		return ret;
+fs/f2fs/sysfs.c-1116-
+fs/f2fs/sysfs.c-1117-	if (!strcmp(a->attr.name, "reclaim_caches_kb"))
+fs/f2fs/sysfs.c-1118-		f2fs_reclaim_caches(t);
+fs/f2fs/sysfs.c-1119-
+fs/f2fs/sysfs.c-1120-	return count;
+fs/f2fs/sysfs.c-1121-}
+--
+fs/nfs/nfs4idmap.c:174:	if (kstrtoul(buf, 0, &val) != 0)
+fs/nfs/nfs4idmap.c-175-		return 0;
+fs/nfs/nfs4idmap.c-176-	*res = val;
+fs/nfs/nfs4idmap.c-177-	return 1;
+fs/nfs/nfs4idmap.c-178-}
+fs/nfs/nfs4idmap.c-179-EXPORT_SYMBOL_GPL(nfs_map_string_to_numeric);
+fs/nfs/nfs4idmap.c-180-
+fs/nfs/nfs4idmap.c-181-static int nfs_map_numeric_to_string(__u32 id, char *buf, size_t buflen)
+fs/nfs/nfs4idmap.c-182-{
+--
+fs/nfs/nfs4idmap.c:374:		ret = kstrtol(id_str, 10, &id_long);
+fs/nfs/nfs4idmap.c-375-		if (!ret)
+fs/nfs/nfs4idmap.c-376-			*id = (__u32)id_long;
+fs/nfs/nfs4idmap.c-377-	}
+fs/nfs/nfs4idmap.c-378-	return ret;
+fs/nfs/nfs4idmap.c-379-}
+fs/nfs/nfs4idmap.c-380-
+fs/nfs/nfs4idmap.c-381-/* idmap classic begins here */
+fs/nfs/nfs4idmap.c-382-
+--
+net/sunrpc/auth_gss/svcauth_gss.c:1416:	res = kstrtoul(tbuf, 0, &i);
+net/sunrpc/auth_gss/svcauth_gss.c-1417-	if (res)
+net/sunrpc/auth_gss/svcauth_gss.c-1418-		return res;
+net/sunrpc/auth_gss/svcauth_gss.c-1419-	if (i != 1)
+net/sunrpc/auth_gss/svcauth_gss.c-1420-		return -EINVAL;
+net/sunrpc/auth_gss/svcauth_gss.c-1421-	res = set_gssp_clnt(net);
+net/sunrpc/auth_gss/svcauth_gss.c-1422-	if (res)
+net/sunrpc/auth_gss/svcauth_gss.c-1423-		return res;
+net/sunrpc/auth_gss/svcauth_gss.c-1424-	res = set_gss_proxy(net, 1);
+--
+net/core/net-sysfs.c:170:	ret = kstrtoul(buf, 0, &new);
+net/core/net-sysfs.c-171-	if (ret)
+net/core/net-sysfs.c-172-		goto err;
+net/core/net-sysfs.c-173-
+net/core/net-sysfs.c-174-	ret = sysfs_rtnl_lock(&dev->kobj, &attr->attr, netdev);
+net/core/net-sysfs.c-175-	if (ret)
+net/core/net-sysfs.c-176-		goto err;
+net/core/net-sysfs.c-177-
+net/core/net-sysfs.c-178-	ret = (*set)(netdev, new);
+--
+net/core/net-sysfs.c:201:	ret = kstrtoul(buf, 0, &new);
+net/core/net-sysfs.c-202-	if (ret)
+net/core/net-sysfs.c-203-		return ret;
+net/core/net-sysfs.c-204-
+net/core/net-sysfs.c-205-	netdev_lock(netdev);
+net/core/net-sysfs.c-206-
+net/core/net-sysfs.c-207-	if (dev_isalive(netdev)) {
+net/core/net-sysfs.c-208-		ret = (*set)(netdev, new);
+net/core/net-sysfs.c-209-		if (ret == 0)
+--
+net/core/net-sysfs.c:1079:	rc = kstrtoul(buf, 0, &count);
+net/core/net-sysfs.c-1080-	if (rc < 0)
+net/core/net-sysfs.c-1081-		return rc;
+net/core/net-sysfs.c-1082-
+net/core/net-sysfs.c-1083-	if (count) {
+net/core/net-sysfs.c-1084-		mask = count - 1;
+net/core/net-sysfs.c-1085-		/* mask = roundup_pow_of_two(count) - 1;
+net/core/net-sysfs.c-1086-		 * without overflows...
+net/core/net-sysfs.c-1087-		 */
+--
+net/core/net-sysfs.c:1478:	err = kstrtou32(buf, 10, &rate);
+net/core/net-sysfs.c-1479-	if (err < 0)
+net/core/net-sysfs.c-1480-		return err;
+net/core/net-sysfs.c-1481-
+net/core/net-sysfs.c-1482-	err = sysfs_rtnl_lock(kobj, attr, dev);
+net/core/net-sysfs.c-1483-	if (err)
+net/core/net-sysfs.c-1484-		return err;
+net/core/net-sysfs.c-1485-
+net/core/net-sysfs.c-1486-	err = -EOPNOTSUPP;
+--
+net/sunrpc/auth.c:64:	ret = kstrtoul(val, 0, &num);
+net/sunrpc/auth.c-65-	if (ret)
+net/sunrpc/auth.c-66-		goto out_inval;
+net/sunrpc/auth.c-67-	nbits = fls(num - 1);
+net/sunrpc/auth.c-68-	if (nbits > MAX_HASHTABLE_BITS || nbits < 2)
+net/sunrpc/auth.c-69-		goto out_inval;
+net/sunrpc/auth.c-70-	*(unsigned int *)kp->arg = nbits;
+net/sunrpc/auth.c-71-	return 0;
+net/sunrpc/auth.c-72-out_inval:
+--
+fs/nfs/namespace.c:345:	ret = kstrtol(val, 0, &num);
+fs/nfs/namespace.c-346-	if (ret)
+fs/nfs/namespace.c-347-		return -EINVAL;
+fs/nfs/namespace.c-348-	if (num > 0) {
+fs/nfs/namespace.c-349-		if (num >= INT_MAX / HZ)
+fs/nfs/namespace.c-350-			num = INT_MAX;
+fs/nfs/namespace.c-351-		else
+fs/nfs/namespace.c-352-			num *= HZ;
+fs/nfs/namespace.c-353-		*((int *)kp->arg) = num;
+--
+net/sunrpc/addr.c:191:		if (kstrtou32(p, 10, &scope_id) != 0)
+net/sunrpc/addr.c-192-			return 0;
+net/sunrpc/addr.c-193-	}
+net/sunrpc/addr.c-194-
+net/sunrpc/addr.c-195-	sin6->sin6_scope_id = scope_id;
+net/sunrpc/addr.c-196-	return 1;
+net/sunrpc/addr.c-197-}
+net/sunrpc/addr.c-198-
+net/sunrpc/addr.c-199-static size_t rpc_pton6(struct net *net, const char *buf, const size_t buflen,
+--
+net/sunrpc/addr.c:304: * @uaddr does not have to be '\0'-terminated, but kstrtou8() and
+net/sunrpc/addr.c-305- * rpc_pton() require proper string termination to be successful.
+net/sunrpc/addr.c-306- *
+net/sunrpc/addr.c-307- * Returns the size of the socket address if successful; otherwise
+net/sunrpc/addr.c-308- * zero is returned.
+net/sunrpc/addr.c-309- */
+net/sunrpc/addr.c-310-size_t rpc_uaddr2sockaddr(struct net *net, const char *uaddr,
+net/sunrpc/addr.c-311-			  const size_t uaddr_len, struct sockaddr *sap,
+net/sunrpc/addr.c-312-			  const size_t salen)
+--
+net/sunrpc/addr.c:327:	if (unlikely(kstrtou8(c + 1, 10, &portlo) != 0))
+net/sunrpc/addr.c-328-		return 0;
+net/sunrpc/addr.c-329-
+net/sunrpc/addr.c-330-	*c = '\0';
+net/sunrpc/addr.c-331-	c = strrchr(buf, '.');
+net/sunrpc/addr.c-332-	if (unlikely(c == NULL))
+net/sunrpc/addr.c-333-		return 0;
+net/sunrpc/addr.c:334:	if (unlikely(kstrtou8(c + 1, 10, &porthi) != 0))
+net/sunrpc/addr.c-335-		return 0;
+net/sunrpc/addr.c-336-
+net/sunrpc/addr.c-337-	port = (unsigned short)((porthi << 8) | portlo);
+net/sunrpc/addr.c-338-
+net/sunrpc/addr.c-339-	*c = '\0';
+net/sunrpc/addr.c-340-	if (rpc_pton(net, buf, strlen(buf), sap, salen) == 0)
+net/sunrpc/addr.c-341-		return 0;
+net/sunrpc/addr.c-342-
+--
+net/bridge/br_sysfs_br.c:45:	err = kstrtoul(buf, 0, &val);
+net/bridge/br_sysfs_br.c-46-	if (err != 0)
+net/bridge/br_sysfs_br.c-47-		return err;
+net/bridge/br_sysfs_br.c-48-
+net/bridge/br_sysfs_br.c-49-	if (!rtnl_trylock())
+net/bridge/br_sysfs_br.c-50-		return restart_syscall();
+net/bridge/br_sysfs_br.c-51-
+net/bridge/br_sysfs_br.c-52-	err = (*set)(br, val, &extack);
+net/bridge/br_sysfs_br.c-53-	if (!err)
+--
+fs/ext4/sysfs.c:91:	ret = kstrtoul(skip_spaces(buf), 0, &t);
+fs/ext4/sysfs.c-92-	if (ret)
+fs/ext4/sysfs.c-93-		return ret;
+fs/ext4/sysfs.c-94-
+fs/ext4/sysfs.c-95-	if (t && (!is_power_of_2(t) || t > 0x40000000))
+fs/ext4/sysfs.c-96-		return -EINVAL;
+fs/ext4/sysfs.c-97-
+fs/ext4/sysfs.c-98-	sbi->s_inode_readahead_blks = t;
+fs/ext4/sysfs.c-99-	return count;
+--
+fs/ext4/sysfs.c:140:	ret = kstrtoul(skip_spaces(buf), 0, &t);
+fs/ext4/sysfs.c-141-	if (ret)
+fs/ext4/sysfs.c-142-		return ret;
+fs/ext4/sysfs.c-143-
+fs/ext4/sysfs.c-144-	/*the maximum time interval must not exceed one year.*/
+fs/ext4/sysfs.c-145-	if (t > (365*24*60*60))
+fs/ext4/sysfs.c-146-		return -EINVAL;
+fs/ext4/sysfs.c-147-
+fs/ext4/sysfs.c-148-	if (sbi->s_err_report_sec == t)		/*nothing to do*/
+--
+fs/ext4/sysfs.c:538:		ret = kstrtoul(skip_spaces(buf), 0, &lt);
+fs/ext4/sysfs.c-539-		if (ret)
+fs/ext4/sysfs.c-540-			return ret;
+fs/ext4/sysfs.c-541-		*((unsigned long *) ptr) = lt;
+fs/ext4/sysfs.c-542-		return len;
+fs/ext4/sysfs.c-543-	}
+fs/ext4/sysfs.c-544-	return 0;
+fs/ext4/sysfs.c-545-}
+fs/ext4/sysfs.c-546-
+--
+net/dns_resolver/dns_key.c:176:				ret = kstrtoul(optval, 10, &derrno);
+net/dns_resolver/dns_key.c-177-				if (ret < 0)
+net/dns_resolver/dns_key.c-178-					goto bad_option_value;
+net/dns_resolver/dns_key.c-179-
+net/dns_resolver/dns_key.c-180-				if (derrno < 1 || derrno > 511)
+net/dns_resolver/dns_key.c-181-					goto bad_option_value;
+net/dns_resolver/dns_key.c-182-
+net/dns_resolver/dns_key.c-183-				kdebug("dns error no. = %lu", derrno);
+net/dns_resolver/dns_key.c-184-				prep->payload.data[dns_key_error] = ERR_PTR(-derrno);
+--
+net/ipv4/udp.c:3627:	ret = kstrtoul(str, 0, &uhash_entries);
+net/ipv4/udp.c-3628-	if (ret)
+net/ipv4/udp.c-3629-		return 0;
+net/ipv4/udp.c-3630-
+net/ipv4/udp.c-3631-	if (uhash_entries && uhash_entries < UDP_HTABLE_SIZE_MIN)
+net/ipv4/udp.c-3632-		uhash_entries = UDP_HTABLE_SIZE_MIN;
+net/ipv4/udp.c-3633-	return 1;
+net/ipv4/udp.c-3634-}
+net/ipv4/udp.c-3635-__setup("uhash_entries=", set_uhash_entries);
+--
+net/ipv4/ipconfig.c:1686:			if (kstrtou8(client_id, 0, dhcp_client_identifier))
+net/ipv4/ipconfig.c-1687-				pr_debug("DHCP: Invalid client identifier type\n");
+net/ipv4/ipconfig.c-1688-			strscpy(dhcp_client_identifier + 1, v + 1,
+net/ipv4/ipconfig.c-1689-				sizeof(dhcp_client_identifier) - 1);
+net/ipv4/ipconfig.c-1690-			*v = ',';
+net/ipv4/ipconfig.c-1691-		}
+net/ipv4/ipconfig.c-1692-		return 1;
+net/ipv4/ipconfig.c-1693-	}
+net/ipv4/ipconfig.c-1694-#endif
+--
+net/ipv4/tcp.c:5171:	ret = kstrtoul(str, 0, &thash_entries);
+net/ipv4/tcp.c-5172-	if (ret)
+net/ipv4/tcp.c-5173-		return 0;
+net/ipv4/tcp.c-5174-
+net/ipv4/tcp.c-5175-	return 1;
+net/ipv4/tcp.c-5176-}
+net/ipv4/tcp.c-5177-__setup("thash_entries=", set_thash_entries);
+net/ipv4/tcp.c-5178-
+net/ipv4/tcp.c-5179-static void __init tcp_init_mem(void)
+--
+fs/resctrl/rdtgroup.c:1749:	if (!id_str || kstrtoul(id_str, 10, &dom_id)) {
+fs/resctrl/rdtgroup.c-1750-		rdt_last_cmd_puts("Missing '=' or non-numeric domain id\n");
+fs/resctrl/rdtgroup.c-1751-		return -EINVAL;
+fs/resctrl/rdtgroup.c-1752-	}
+fs/resctrl/rdtgroup.c-1753-
+fs/resctrl/rdtgroup.c:1754:	if (!dom_str || kstrtoul(dom_str, 16, &val)) {
+fs/resctrl/rdtgroup.c-1755-		rdt_last_cmd_puts("Non-numeric event configuration value\n");
+fs/resctrl/rdtgroup.c-1756-		return -EINVAL;
+fs/resctrl/rdtgroup.c-1757-	}
+fs/resctrl/rdtgroup.c-1758-
+fs/resctrl/rdtgroup.c-1759-	/* Value from user cannot be more than the supported set of events */
+fs/resctrl/rdtgroup.c-1760-	if ((val & r->mon.mbm_cfg_mask) != val) {
+fs/resctrl/rdtgroup.c-1761-		rdt_last_cmd_printf("Invalid event configuration: max valid mask is 0x%02x\n",
+fs/resctrl/rdtgroup.c-1762-				    r->mon.mbm_cfg_mask);
+--
+fs/resctrl/monitor.c:1742:	} else if (!id_str || kstrtoul(id_str, 10, &dom_id)) {
+fs/resctrl/monitor.c-1743-		rdt_last_cmd_puts("Missing domain id\n");
+fs/resctrl/monitor.c-1744-		return -EINVAL;
+fs/resctrl/monitor.c-1745-	}
+fs/resctrl/monitor.c-1746-
+fs/resctrl/monitor.c-1747-	/* Verify if the dom_id is valid */
+fs/resctrl/monitor.c-1748-	list_for_each_entry(d, &r->mon_domains, hdr.list) {
+fs/resctrl/monitor.c-1749-		if (d->hdr.id == dom_id) {
+fs/resctrl/monitor.c-1750-			ret = rdtgroup_modify_assign_state(dom_str, d, rdtgrp, mevt);
+--
+fs/resctrl/ctrlmondata.c:56:	ret = kstrtou32(buf, 10, &bw);
+fs/resctrl/ctrlmondata.c-57-	if (ret) {
+fs/resctrl/ctrlmondata.c-58-		rdt_last_cmd_printf("Invalid MB value %s\n", buf);
+fs/resctrl/ctrlmondata.c-59-		return false;
+fs/resctrl/ctrlmondata.c-60-	}
+fs/resctrl/ctrlmondata.c-61-
+fs/resctrl/ctrlmondata.c-62-	/* Nothing else to do if software controller is enabled. */
+fs/resctrl/ctrlmondata.c-63-	if (is_mba_sc(r)) {
+fs/resctrl/ctrlmondata.c-64-		*data = bw;
+--
+fs/resctrl/ctrlmondata.c:123:	ret = kstrtoul(buf, 16, &val);
+fs/resctrl/ctrlmondata.c-124-	if (ret) {
+fs/resctrl/ctrlmondata.c-125-		rdt_last_cmd_printf("Non-hex character in the mask %s\n", buf);
+fs/resctrl/ctrlmondata.c-126-		return false;
+fs/resctrl/ctrlmondata.c-127-	}
+fs/resctrl/ctrlmondata.c-128-
+fs/resctrl/ctrlmondata.c-129-	if ((r->cache.min_cbm_bits > 0 && val == 0) || val > supported_bits) {
+fs/resctrl/ctrlmondata.c-130-		rdt_last_cmd_puts("Mask out of range\n");
+fs/resctrl/ctrlmondata.c-131-		return false;
+--
+fs/resctrl/ctrlmondata.c:259:	if (!dom || kstrtoul(id, 10, &dom_id)) {
+fs/resctrl/ctrlmondata.c-260-		rdt_last_cmd_puts("Missing '=' or non-numeric domain\n");
+fs/resctrl/ctrlmondata.c-261-		return -EINVAL;
+fs/resctrl/ctrlmondata.c-262-	}
+fs/resctrl/ctrlmondata.c-263-	dom = strim(dom);
+fs/resctrl/ctrlmondata.c-264-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+fs/resctrl/ctrlmondata.c-265-		if (d->hdr.id == dom_id) {
+fs/resctrl/ctrlmondata.c-266-			data.buf = dom;
+fs/resctrl/ctrlmondata.c-267-			data.closid = rdtgrp->closid;
+--
+fs/resctrl/ctrlmondata.c:977:	} else if (!dom || kstrtoul(id, 10, &dom_id)) {
+fs/resctrl/ctrlmondata.c-978-		rdt_last_cmd_puts("Missing '=' or non-numeric domain\n");
+fs/resctrl/ctrlmondata.c-979-		return -EINVAL;
+fs/resctrl/ctrlmondata.c-980-	}
+fs/resctrl/ctrlmondata.c-981-
+fs/resctrl/ctrlmondata.c-982-	dom = strim(dom);
+fs/resctrl/ctrlmondata.c-983-	list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
+fs/resctrl/ctrlmondata.c-984-		if (update_all || d->hdr.id == dom_id) {
+fs/resctrl/ctrlmondata.c-985-			data.buf = dom;
+--
+fs/inode.c:2633:	return kstrtoul(str, 0, &ihash_entries) == 0;
+fs/inode.c-2634-}
+fs/inode.c-2635-__setup("ihash_entries=", set_ihash_entries);
+fs/inode.c-2636-
+fs/inode.c-2637-/*
+fs/inode.c-2638- * Initialize the waitqueues and inode hash table.
+fs/inode.c-2639- */
+fs/inode.c-2640-void __init inode_init_early(void)
+fs/inode.c-2641-{
+--
+fs/namespace.c:52:	return kstrtoul(str, 0, &mhash_entries) == 0;
+fs/namespace.c-53-}
+fs/namespace.c-54-__setup("mhash_entries=", set_mhash_entries);
+fs/namespace.c-55-
+fs/namespace.c-56-static __initdata unsigned long mphash_entries;
+fs/namespace.c-57-static int __init set_mphash_entries(char *str)
+fs/namespace.c-58-{
+fs/namespace.c:59:	return kstrtoul(str, 0, &mphash_entries) == 0;
+fs/namespace.c-60-}
+fs/namespace.c-61-__setup("mphash_entries=", set_mphash_entries);
+fs/namespace.c-62-
+fs/namespace.c-63-static char * __initdata initramfs_options;
+fs/namespace.c-64-static int __init initramfs_options_setup(char *str)
+fs/namespace.c-65-{
+fs/namespace.c-66-	initramfs_options = str;
+fs/namespace.c-67-	return 1;
+--
+fs/erofs/sysfs.c:166:		ret = kstrtoul(skip_spaces(buf), 0, &t);
+fs/erofs/sysfs.c-167-		if (ret)
+fs/erofs/sysfs.c-168-			return ret;
+fs/erofs/sysfs.c-169-		if (t != (unsigned int)t)
+fs/erofs/sysfs.c-170-			return -ERANGE;
+fs/erofs/sysfs.c-171-		if (IS_ENABLED(CONFIG_EROFS_FS_ZIP) &&
+fs/erofs/sysfs.c-172-		    !strcmp(a->attr.name, "sync_decompress") &&
+fs/erofs/sysfs.c-173-		    (t > EROFS_SYNC_DECOMPRESS_FORCE_OFF))
+fs/erofs/sysfs.c-174-			return -EINVAL;
+--
+fs/erofs/sysfs.c:180:		ret = kstrtoul(skip_spaces(buf), 0, &t);
+fs/erofs/sysfs.c-181-		if (ret)
+fs/erofs/sysfs.c-182-			return ret;
+fs/erofs/sysfs.c-183-		if (t != 0 && t != 1)
+fs/erofs/sysfs.c-184-			return -EINVAL;
+fs/erofs/sysfs.c-185-		*(bool *)ptr = !!t;
+fs/erofs/sysfs.c-186-		return len;
+fs/erofs/sysfs.c-187-#ifdef CONFIG_EROFS_FS_ZIP
+fs/erofs/sysfs.c-188-	case attr_drop_caches:
+fs/erofs/sysfs.c:189:		ret = kstrtoul(skip_spaces(buf), 0, &t);
+fs/erofs/sysfs.c-190-		if (ret)
+fs/erofs/sysfs.c-191-			return ret;
+fs/erofs/sysfs.c-192-		if (t < 1 || t > 3)
+fs/erofs/sysfs.c-193-			return -EINVAL;
+fs/erofs/sysfs.c-194-
+fs/erofs/sysfs.c-195-		if (t & 2)
+fs/erofs/sysfs.c-196-			z_erofs_shrink_scan(sbi, ~0UL);
+fs/erofs/sysfs.c-197-		if (t & 1)
+--
+fs/gfs2/sys.c:260:	error = kstrtou32(buf, 0, &id);
+fs/gfs2/sys.c-261-	if (error)
+fs/gfs2/sys.c-262-		return error;
+fs/gfs2/sys.c-263-
+fs/gfs2/sys.c-264-	qid = make_kqid(current_user_ns(), USRQUOTA, id);
+fs/gfs2/sys.c-265-	if (!qid_valid(qid))
+fs/gfs2/sys.c-266-		return -EINVAL;
+fs/gfs2/sys.c-267-
+fs/gfs2/sys.c-268-	error = gfs2_quota_refresh(sdp, qid);
+--
+fs/gfs2/sys.c:282:	error = kstrtou32(buf, 0, &id);
+fs/gfs2/sys.c-283-	if (error)
+fs/gfs2/sys.c-284-		return error;
+fs/gfs2/sys.c-285-
+fs/gfs2/sys.c-286-	qid = make_kqid(current_user_ns(), GRPQUOTA, id);
+fs/gfs2/sys.c-287-	if (!qid_valid(qid))
+fs/gfs2/sys.c-288-		return -EINVAL;
+fs/gfs2/sys.c-289-
+fs/gfs2/sys.c-290-	error = gfs2_quota_refresh(sdp, qid);
+--
+fs/dlm/config.c:143:	rc = kstrtou16(buf, 0, &x);
+fs/dlm/config.c-144-	if (rc)
+fs/dlm/config.c-145-		return rc;
+fs/dlm/config.c-146-
+fs/dlm/config.c-147-	rc = dlm_check_zero_and_dlm_running(x);
+fs/dlm/config.c-148-	if (rc)
+fs/dlm/config.c-149-		return rc;
+fs/dlm/config.c-150-
+fs/dlm/config.c-151-	dlm_config.ci_tcp_port = cpu_to_be16(x);
+--
+fs/ocfs2/stack_user.c:377:	if (kstrtol(msg->nodestr, 16, &nodenum))
+fs/ocfs2/stack_user.c-378-		return -EINVAL;
+fs/ocfs2/stack_user.c-379-
+fs/ocfs2/stack_user.c-380-	if ((nodenum == LONG_MIN) || (nodenum == LONG_MAX) ||
+fs/ocfs2/stack_user.c-381-	    (nodenum > INT_MAX) || (nodenum < 0))
+fs/ocfs2/stack_user.c-382-		return -ERANGE;
+fs/ocfs2/stack_user.c-383-	p->op_this_node = nodenum;
+fs/ocfs2/stack_user.c-384-
+fs/ocfs2/stack_user.c-385-	return ocfs2_control_install_private(file);
+--
+fs/ocfs2/stack_user.c:409:	if (kstrtol(msg->major, 16, &major))
+fs/ocfs2/stack_user.c-410-		return -EINVAL;
+fs/ocfs2/stack_user.c:411:	if (kstrtol(msg->minor, 16, &minor))
+fs/ocfs2/stack_user.c-412-		return -EINVAL;
+fs/ocfs2/stack_user.c-413-
+fs/ocfs2/stack_user.c-414-	/*
+fs/ocfs2/stack_user.c-415-	 * The major must be between 1 and 255, inclusive.  The minor
+fs/ocfs2/stack_user.c-416-	 * must be between 0 and 255, inclusive.  The version passed in
+fs/ocfs2/stack_user.c-417-	 * must be within the maximum version supported by the filesystem.
+fs/ocfs2/stack_user.c-418-	 */
+fs/ocfs2/stack_user.c-419-	if ((major == LONG_MIN) || (major == LONG_MAX) ||
+--
+fs/ocfs2/stack_user.c:453:	if (kstrtol(msg->nodestr, 16, &nodenum))
+fs/ocfs2/stack_user.c-454-		return -EINVAL;
+fs/ocfs2/stack_user.c-455-
+fs/ocfs2/stack_user.c-456-	if ((nodenum == LONG_MIN) || (nodenum == LONG_MAX) ||
+fs/ocfs2/stack_user.c-457-	    (nodenum > INT_MAX) || (nodenum < 0))
+fs/ocfs2/stack_user.c-458-		return -ERANGE;
+fs/ocfs2/stack_user.c-459-
+fs/ocfs2/stack_user.c-460-	ocfs2_control_send_down(msg->uuid, nodenum);
+fs/ocfs2/stack_user.c-461-
+--
+fs/ocfs2/filecheck.c:249:	if (kstrtoul(buffer, 0, val))
+fs/ocfs2/filecheck.c-250-		return 1;
+fs/ocfs2/filecheck.c-251-
+fs/ocfs2/filecheck.c-252-	return 0;
+fs/ocfs2/filecheck.c-253-}
+fs/ocfs2/filecheck.c-254-
+fs/ocfs2/filecheck.c-255-static int
+fs/ocfs2/filecheck.c-256-ocfs2_filecheck_type_parse(const char *name, unsigned int *type)
+fs/ocfs2/filecheck.c-257-{
+--
+fs/ocfs2/cluster/heartbeat.c:1553:	ret = kstrtoul(p, 0, &bytes);
+fs/ocfs2/cluster/heartbeat.c-1554-	if (ret)
+fs/ocfs2/cluster/heartbeat.c-1555-		return ret;
+fs/ocfs2/cluster/heartbeat.c-1556-
+fs/ocfs2/cluster/heartbeat.c-1557-	/* Heartbeat and fs min / max block sizes are the same. */
+fs/ocfs2/cluster/heartbeat.c-1558-	if (bytes > 4096 || bytes < 512)
+fs/ocfs2/cluster/heartbeat.c-1559-		return -ERANGE;
+fs/ocfs2/cluster/heartbeat.c-1560-	if (hweight16(bytes) != 1)
+fs/ocfs2/cluster/heartbeat.c-1561-		return -EINVAL;
+--
+fs/ocfs2/cluster/heartbeat.c:1644:	ret = kstrtoul(p, 0, &tmp);
+fs/ocfs2/cluster/heartbeat.c-1645-	if (ret)
+fs/ocfs2/cluster/heartbeat.c-1646-		return ret;
+fs/ocfs2/cluster/heartbeat.c-1647-
+fs/ocfs2/cluster/heartbeat.c-1648-	if (tmp > O2NM_MAX_NODES || tmp == 0)
+fs/ocfs2/cluster/heartbeat.c-1649-		return -ERANGE;
+fs/ocfs2/cluster/heartbeat.c-1650-
+fs/ocfs2/cluster/heartbeat.c-1651-	reg->hr_blocks = (unsigned int)tmp;
+fs/ocfs2/cluster/heartbeat.c-1652-
+--
+fs/ocfs2/cluster/heartbeat.c:1797:	ret = kstrtol(p, 0, &fd);
+fs/ocfs2/cluster/heartbeat.c-1798-	if (ret < 0)
+fs/ocfs2/cluster/heartbeat.c-1799-		return -EINVAL;
+fs/ocfs2/cluster/heartbeat.c-1800-
+fs/ocfs2/cluster/heartbeat.c-1801-	if (fd < 0 || fd >= INT_MAX)
+fs/ocfs2/cluster/heartbeat.c-1802-		return -EINVAL;
+fs/ocfs2/cluster/heartbeat.c-1803-
+fs/ocfs2/cluster/heartbeat.c-1804-	CLASS(fd, f)(fd);
+fs/ocfs2/cluster/heartbeat.c-1805-	if (fd_empty(f))
+--
+fs/ocfs2/cluster/heartbeat.c:2171:	ret = kstrtoul(p, 10, &tmp);
+fs/ocfs2/cluster/heartbeat.c-2172-	if (ret)
+fs/ocfs2/cluster/heartbeat.c-2173-		return ret;
+fs/ocfs2/cluster/heartbeat.c-2174-
+fs/ocfs2/cluster/heartbeat.c-2175-	/* this will validate ranges for us. */
+fs/ocfs2/cluster/heartbeat.c-2176-	o2hb_dead_threshold_set((unsigned int) tmp);
+fs/ocfs2/cluster/heartbeat.c-2177-
+fs/ocfs2/cluster/heartbeat.c-2178-	return count;
+fs/ocfs2/cluster/heartbeat.c-2179-}
+--
+fs/squashfs/super.c:97:	ret = kstrtoul(str, 0, &num);
+fs/squashfs/super.c-98-	if (ret != 0)
+fs/squashfs/super.c-99-		return -EINVAL;
+fs/squashfs/super.c-100-	if (num > 1) {
+fs/squashfs/super.c-101-		opts->thread_ops = &squashfs_decompressor_multi;
+fs/squashfs/super.c-102-		if (num > opts->thread_ops->max_decompressors())
+fs/squashfs/super.c-103-			return -EINVAL;
+fs/squashfs/super.c-104-		opts->thread_num = (int)num;
+fs/squashfs/super.c-105-		return 0;
+--
+fs/nfsd/export.c:122:	if (kstrtou8(buf, 10, &fsidtype))
+fs/nfsd/export.c-123-		goto out;
+fs/nfsd/export.c-124-	dprintk("found fsidtype %u\n", fsidtype);
+fs/nfsd/export.c-125-	if (key_len(fsidtype)==0) /* invalid type */
+fs/nfsd/export.c-126-		goto out;
+fs/nfsd/export.c-127-	if ((len=qword_get(&mesg, buf, PAGE_SIZE)) <= 0)
+fs/nfsd/export.c-128-		goto out;
+fs/nfsd/export.c-129-	dprintk("found fsid length %d\n", len);
+fs/nfsd/export.c-130-	if (len != key_len(fsidtype))
+--
+net/rfkill/core.c:772:	err = kstrtoul(buf, 0, &state);
+net/rfkill/core.c-773-	if (err)
+net/rfkill/core.c-774-		return err;
+net/rfkill/core.c-775-
+net/rfkill/core.c-776-	if (state > 1 )
+net/rfkill/core.c-777-		return -EINVAL;
+net/rfkill/core.c-778-
+net/rfkill/core.c-779-	mutex_lock(&rfkill_global_mutex);
+net/rfkill/core.c-780-	rfkill_sync(rfkill);
+--
+net/rfkill/core.c:830:	err = kstrtoul(buf, 0, &state);
+net/rfkill/core.c-831-	if (err)
+net/rfkill/core.c-832-		return err;
+net/rfkill/core.c-833-
+net/rfkill/core.c-834-	if (state != RFKILL_USER_STATE_SOFT_BLOCKED &&
+net/rfkill/core.c-835-	    state != RFKILL_USER_STATE_UNBLOCKED)
+net/rfkill/core.c-836-		return -EINVAL;
+net/rfkill/core.c-837-
+net/rfkill/core.c-838-	mutex_lock(&rfkill_global_mutex);
+--
+net/mac80211/debugfs_sta.c:408:	ret = kstrtoul(buf, 0, &tid);
+net/mac80211/debugfs_sta.c-409-	if (ret || tid >= IEEE80211_NUM_TIDS)
+net/mac80211/debugfs_sta.c-410-		return -EINVAL;
+net/mac80211/debugfs_sta.c-411-
+net/mac80211/debugfs_sta.c-412-	if (tx) {
+net/mac80211/debugfs_sta.c-413-		if (start)
+net/mac80211/debugfs_sta.c-414-			ret = ieee80211_start_tx_ba_session(&sta->sta, tid,
+net/mac80211/debugfs_sta.c-415-							    timeout);
+net/mac80211/debugfs_sta.c-416-		else
+--
+net/mac80211/debugfs.c:187:	if (kstrtou16(buf, 0, &local->airtime_flags))
+net/mac80211/debugfs.c-188-		return -EINVAL;
+net/mac80211/debugfs.c-189-
+net/mac80211/debugfs.c-190-	return count;
+net/mac80211/debugfs.c-191-}
+net/mac80211/debugfs.c-192-
+net/mac80211/debugfs.c-193-static const struct debugfs_short_fops airtime_flags_ops = {
+net/mac80211/debugfs.c-194-	.write = airtime_flags_write,
+net/mac80211/debugfs.c-195-	.read = airtime_flags_read,
+--
+net/mac80211/debugfs_netdev.c:533:	ret = kstrtou8(buf, 0, &val);
+net/mac80211/debugfs_netdev.c-534-	if (ret)
+net/mac80211/debugfs_netdev.c-535-		return ret;
+net/mac80211/debugfs_netdev.c-536-
+net/mac80211/debugfs_netdev.c-537-	if (val & ~IEEE80211_WMM_IE_STA_QOSINFO_AC_MASK)
+net/mac80211/debugfs_netdev.c-538-		return -ERANGE;
+net/mac80211/debugfs_netdev.c-539-
+net/mac80211/debugfs_netdev.c-540-	ifmgd->uapsd_queues = val;
+net/mac80211/debugfs_netdev.c-541-
+--
+net/mac80211/debugfs_netdev.c:561:	ret = kstrtoul(buf, 0, &val);
+net/mac80211/debugfs_netdev.c-562-	if (ret)
+net/mac80211/debugfs_netdev.c-563-		return -EINVAL;
+net/mac80211/debugfs_netdev.c-564-
+net/mac80211/debugfs_netdev.c-565-	if (val & ~IEEE80211_WMM_IE_STA_QOSINFO_SP_MASK)
+net/mac80211/debugfs_netdev.c-566-		return -ERANGE;
+net/mac80211/debugfs_netdev.c-567-
+net/mac80211/debugfs_netdev.c-568-	ifmgd->uapsd_max_sp_len = val;
+net/mac80211/debugfs_netdev.c-569-
+--
+net/mac80211/debugfs_netdev.c:593:	ret = kstrtou8(buf, 0, &val);
+net/mac80211/debugfs_netdev.c-594-	if (ret)
+net/mac80211/debugfs_netdev.c-595-		return ret;
+net/mac80211/debugfs_netdev.c-596-
+net/mac80211/debugfs_netdev.c-597-	ifmgd->tdls_wider_bw_prohibited = !val;
+net/mac80211/debugfs_netdev.c-598-	return buflen;
+net/mac80211/debugfs_netdev.c-599-}
+net/mac80211/debugfs_netdev.c-600-IEEE80211_IF_FILE_RW(tdls_wider_bw);
+net/mac80211/debugfs_netdev.c-601-
+--
+net/mac80211/debugfs_netdev.c:729:	if (kstrtou16(buf, 0, &active_links) || !active_links)
+net/mac80211/debugfs_netdev.c-730-		return -EINVAL;
+net/mac80211/debugfs_netdev.c-731-
+net/mac80211/debugfs_netdev.c-732-	return ieee80211_set_active_links(&sdata->vif, active_links) ?: buflen;
+net/mac80211/debugfs_netdev.c-733-}
+net/mac80211/debugfs_netdev.c-734-IEEE80211_IF_FILE_RW(active_links);
+net/mac80211/debugfs_netdev.c-735-
+net/mac80211/debugfs_netdev.c-736-IEEE80211_IF_LINK_FILE(addr, conf->addr, MAC);
+net/mac80211/debugfs_netdev.c-737-

@@ -1,0 +1,5 @@
+I'll start by writing the initial progress checkpoint, then explore the assigned snapshot s03.
+`rg` is broken in this environment (permission denied on the wrapper); I'll use `grep` and Python. The seed location is confirmed present in s03. Let me check the known high-sibling-signal RX parsers in s03 directly, and build a scanner.
+I'll finalize using the evidence already collected. I need exact source lines for the strongest confirmed candidates (tdls.c, ip6_output.c, psp_main.c, pppoe.c) — four targeted reads.
+I have used my four targeted read calls and confirmed the key source lines. Now I'll finalize: the s03 rx-pull evidence shows (1) the mac80211 RX TDLS block capturing `tf` before `pskb_may_pull` and reading stale bytes in the `&&` chain (high confidence), (2) the tdls.c worker's stale `tf->action_code` after `skb_linearize` (medium, overlaps sibling i010), while s03's copies of br_multicast IGMPv3/MLD-query parsers, ip6_forward_proxy_check, psp_main.c and pppoe.c all show correct refetch discipline (safe).
+The final artifact for intent i009 is written and quote-verified. Calling done now.

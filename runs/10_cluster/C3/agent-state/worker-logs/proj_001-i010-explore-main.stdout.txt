@@ -1,0 +1,6 @@
+I'll start by writing the initial progress checkpoint and examining the workspace structure.
+The seed is clear: a presence guard joining negated attribute tests with `&&` instead of `||`. Now let me search s03 for that inverted-guard pattern.
+Checkpoint written. The seed mechanism is clear. Now let me read the strongest hits — notably there are TWO `&&` guards in `mac802154_hwsim.c` in this snapshot (the seed only mentions one), plus several other candidates.
+The key hits are in `mac802154_hwsim.c` — and notably `hwsim_del_edge_nl` (the seed, line ~518) is already fixed with `||`, but `hwsim_new_edge_nl` (line 421) and `hwsim_set_edge_lqi` (line 531) still use `&&`. Let me get exact line numbers and then triage the other candidates.
+The seed function `hwsim_del_edge_nl` is fixed (uses `||` at 483-484), but I see two sibling functions in the same file with the *unfixed* inverted guard: `hwsim_new_edge_nl` (line 421) and `hwsim_set_edge_lqi` (line 531). Let me verify these and the other candidates.
+All evidence is collected. The only true `&&`-inversion variants in s03 are the two hwsim edge handlers; every other hit uses the "at least one present" idiom with individually-guarded optional reads. Writing the final artifact now.

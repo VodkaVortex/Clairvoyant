@@ -1,0 +1,2351 @@
+net/8021q/vlan_core.c-16-	struct vlan_pcpu_stats *rx_stats;
+net/8021q/vlan_core.c-17-
+net/8021q/vlan_core.c-18-	vlan_dev = vlan_find_dev(skb->dev, vlan_proto, vlan_id);
+net/8021q/vlan_core.c-19-	if (!vlan_dev)
+net/8021q/vlan_core.c-20-		return false;
+net/8021q/vlan_core.c-21-
+net/8021q/vlan_core.c:22:	skb = *skbp = skb_share_check(skb, GFP_ATOMIC);
+net/8021q/vlan_core.c-23-	if (unlikely(!skb))
+net/8021q/vlan_core.c-24-		return false;
+net/8021q/vlan_core.c-25-
+net/8021q/vlan_core.c-26-	if (unlikely(!(vlan_dev->flags & IFF_UP))) {
+net/8021q/vlan_core.c-27-		kfree_skb(skb);
+net/8021q/vlan_core.c-28-		*skbp = NULL;
+--
+net/xfrm/xfrm_output.c-38-		if (ntail <= 0)
+net/xfrm/xfrm_output.c-39-			return 0;
+net/xfrm/xfrm_output.c-40-		nhead = 0;
+net/xfrm/xfrm_output.c-41-	} else if (ntail < 0)
+net/xfrm/xfrm_output.c-42-		ntail = 0;
+net/xfrm/xfrm_output.c-43-
+net/xfrm/xfrm_output.c:44:	return pskb_expand_head(skb, nhead, ntail, GFP_ATOMIC);
+net/xfrm/xfrm_output.c-45-}
+net/xfrm/xfrm_output.c-46-
+net/xfrm/xfrm_output.c-47-/* Children define the path of the packet through the
+net/xfrm/xfrm_output.c-48- * Linux networking.  Thus, destinations are stackable.
+net/xfrm/xfrm_output.c-49- */
+net/xfrm/xfrm_output.c-50-
+--
+net/802/mrp.c-803-
+net/802/mrp.c-804-	/* If the interface is in promiscuous mode, drop the packet if
+net/802/mrp.c-805-	 * it was unicast to another host.
+net/802/mrp.c-806-	 */
+net/802/mrp.c-807-	if (unlikely(skb->pkt_type == PACKET_OTHERHOST))
+net/802/mrp.c-808-		goto out;
+net/802/mrp.c:809:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/802/mrp.c-810-	if (unlikely(!skb))
+net/802/mrp.c-811-		goto out;
+net/802/mrp.c-812-	port = rcu_dereference(dev->mrp_port);
+net/802/mrp.c-813-	if (unlikely(!port))
+net/802/mrp.c-814-		goto out;
+net/802/mrp.c-815-	app = rcu_dereference(port->applicants[appl->type]);
+--
+net/xfrm/xfrm_iptfs.c-898-
+net/xfrm/xfrm_iptfs.c-899-	/* Try share then copy. */
+net/xfrm/xfrm_iptfs.c-900-	if (fragwalk &&
+net/xfrm/xfrm_iptfs.c-901-	    iptfs_skb_can_add_frags(newskb, fragwalk, data, copylen)) {
+net/xfrm/xfrm_iptfs.c-902-		iptfs_skb_add_frags(newskb, fragwalk, data, copylen);
+net/xfrm/xfrm_iptfs.c-903-	} else {
+net/xfrm/xfrm_iptfs.c:904:		if (skb_linearize(newskb)) {
+net/xfrm/xfrm_iptfs.c-905-			XFRM_INC_STATS(xs_net(xtfs->x),
+net/xfrm/xfrm_iptfs.c-906-				       LINUX_MIB_XFRMINBUFFERERROR);
+net/xfrm/xfrm_iptfs.c-907-			goto abandon;
+net/xfrm/xfrm_iptfs.c-908-		}
+net/xfrm/xfrm_iptfs.c-909-
+net/xfrm/xfrm_iptfs.c-910-		/* copy fragment data into newskb */
+--
+net/strparser/strparser.c-135-		}
+net/strparser/strparser.c-136-
+net/strparser/strparser.c-137-		if (!strp->skb_nextp) {
+net/strparser/strparser.c-138-			/* We are going to append to the frag_list of head.
+net/strparser/strparser.c-139-			 * Need to unshare the frag_list.
+net/strparser/strparser.c-140-			 */
+net/strparser/strparser.c:141:			err = skb_unclone(head, GFP_ATOMIC);
+net/strparser/strparser.c-142-			if (err) {
+net/strparser/strparser.c-143-				STRP_STATS_INCR(strp->stats.mem_fail);
+net/strparser/strparser.c-144-				desc->error = err;
+net/strparser/strparser.c-145-				return 0;
+net/strparser/strparser.c-146-			}
+net/strparser/strparser.c-147-
+--
+net/strparser/strparser.c-196-			stm->strp.offset = orig_offset + eaten;
+net/strparser/strparser.c-197-		} else {
+net/strparser/strparser.c-198-			/* Unclone if we are appending to an skb that we
+net/strparser/strparser.c-199-			 * already share a frag_list with.
+net/strparser/strparser.c-200-			 */
+net/strparser/strparser.c-201-			if (skb_has_frag_list(skb)) {
+net/strparser/strparser.c:202:				err = skb_unclone(skb, GFP_ATOMIC);
+net/strparser/strparser.c-203-				if (err) {
+net/strparser/strparser.c-204-					STRP_STATS_INCR(strp->stats.mem_fail);
+net/strparser/strparser.c-205-					desc->error = err;
+net/strparser/strparser.c-206-					break;
+net/strparser/strparser.c-207-				}
+net/strparser/strparser.c-208-			}
+--
+net/6lowpan/nhc_udp.c-99-	}
+net/6lowpan/nhc_udp.c-100-	pr_debug("uncompressed UDP length: src = %d", ntohs(uh.len));
+net/6lowpan/nhc_udp.c-101-
+net/6lowpan/nhc_udp.c-102-	/* replace the compressed UDP head by the uncompressed UDP
+net/6lowpan/nhc_udp.c-103-	 * header
+net/6lowpan/nhc_udp.c-104-	 */
+net/6lowpan/nhc_udp.c:105:	err = skb_cow(skb, needed);
+net/6lowpan/nhc_udp.c-106-	if (unlikely(err))
+net/6lowpan/nhc_udp.c-107-		return err;
+net/6lowpan/nhc_udp.c-108-
+net/6lowpan/nhc_udp.c-109-	skb_push(skb, sizeof(struct udphdr));
+net/6lowpan/nhc_udp.c-110-	skb_copy_to_linear_data(skb, &uh, sizeof(struct udphdr));
+net/6lowpan/nhc_udp.c-111-
+--
+net/xfrm/xfrm_input.c-240-
+net/xfrm/xfrm_input.c-241-	skb->protocol = htons(ETH_P_IP);
+net/xfrm/xfrm_input.c-242-
+net/xfrm/xfrm_input.c-243-	if (!pskb_may_pull(skb, sizeof(struct iphdr)))
+net/xfrm/xfrm_input.c-244-		goto out;
+net/xfrm/xfrm_input.c-245-
+net/xfrm/xfrm_input.c:246:	err = skb_unclone(skb, GFP_ATOMIC);
+net/xfrm/xfrm_input.c-247-	if (err)
+net/xfrm/xfrm_input.c-248-		goto out;
+net/xfrm/xfrm_input.c-249-
+net/xfrm/xfrm_input.c-250-	if (x->props.flags & XFRM_STATE_DECAP_DSCP)
+net/xfrm/xfrm_input.c-251-		ipv4_copy_dscp(XFRM_MODE_SKB_CB(skb)->tos, ipip_hdr(skb));
+net/xfrm/xfrm_input.c-252-	if (!(x->props.flags & XFRM_STATE_NOECN))
+--
+net/xfrm/xfrm_input.c-277-
+net/xfrm/xfrm_input.c-278-	skb->protocol = htons(ETH_P_IPV6);
+net/xfrm/xfrm_input.c-279-
+net/xfrm/xfrm_input.c-280-	if (!pskb_may_pull(skb, sizeof(struct ipv6hdr)))
+net/xfrm/xfrm_input.c-281-		goto out;
+net/xfrm/xfrm_input.c-282-
+net/xfrm/xfrm_input.c:283:	err = skb_unclone(skb, GFP_ATOMIC);
+net/xfrm/xfrm_input.c-284-	if (err)
+net/xfrm/xfrm_input.c-285-		goto out;
+net/xfrm/xfrm_input.c-286-
+net/xfrm/xfrm_input.c-287-	if (x->props.flags & XFRM_STATE_DECAP_DSCP)
+net/xfrm/xfrm_input.c-288-		ipv6_copy_dscp(XFRM_MODE_SKB_CB(skb)->tos, ipipv6_hdr(skb));
+net/xfrm/xfrm_input.c-289-	if (!(x->props.flags & XFRM_STATE_NOECN))
+--
+net/6lowpan/iphc.c-740-	/* Next header data uncompression */
+net/6lowpan/iphc.c-741-	if (iphc0 & LOWPAN_IPHC_NH) {
+net/6lowpan/iphc.c-742-		err = lowpan_nhc_do_uncompression(skb, dev, &hdr);
+net/6lowpan/iphc.c-743-		if (err < 0)
+net/6lowpan/iphc.c-744-			return err;
+net/6lowpan/iphc.c-745-	} else {
+net/6lowpan/iphc.c:746:		err = skb_cow(skb, sizeof(hdr));
+net/6lowpan/iphc.c-747-		if (unlikely(err))
+net/6lowpan/iphc.c-748-			return err;
+net/6lowpan/iphc.c-749-	}
+net/6lowpan/iphc.c-750-
+net/6lowpan/iphc.c-751-	switch (lowpan_dev(dev)->lltype) {
+net/6lowpan/iphc.c-752-	case LOWPAN_LLTYPE_IEEE802154:
+--
+net/bpf/test_run.c-1230-	if (ret)
+net/bpf/test_run.c-1231-		goto out;
+net/bpf/test_run.c-1232-	if (!is_l2) {
+net/bpf/test_run.c-1233-		if (skb_headroom(skb) < hh_len) {
+net/bpf/test_run.c-1234-			int nhead = HH_DATA_ALIGN(hh_len - skb_headroom(skb));
+net/bpf/test_run.c-1235-
+net/bpf/test_run.c:1236:			if (pskb_expand_head(skb, nhead, 0, GFP_USER)) {
+net/bpf/test_run.c-1237-				ret = -ENOMEM;
+net/bpf/test_run.c-1238-				goto out;
+net/bpf/test_run.c-1239-			}
+net/bpf/test_run.c-1240-		}
+net/bpf/test_run.c-1241-		memset(__skb_push(skb, hh_len), 0, hh_len);
+net/bpf/test_run.c-1242-	}
+--
+net/ieee802154/socket.c-344-		return err;
+net/ieee802154/socket.c-345-	return copied;
+net/ieee802154/socket.c-346-}
+net/ieee802154/socket.c-347-
+net/ieee802154/socket.c-348-static int raw_rcv_skb(struct sock *sk, struct sk_buff *skb)
+net/ieee802154/socket.c-349-{
+net/ieee802154/socket.c:350:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/ieee802154/socket.c-351-	if (!skb)
+net/ieee802154/socket.c-352-		return NET_RX_DROP;
+net/ieee802154/socket.c-353-
+net/ieee802154/socket.c-354-	if (sock_queue_rcv_skb(sk, skb) < 0) {
+net/ieee802154/socket.c-355-		kfree_skb(skb);
+net/ieee802154/socket.c-356-		return NET_RX_DROP;
+--
+net/ieee802154/socket.c-756-		return err;
+net/ieee802154/socket.c-757-	return copied;
+net/ieee802154/socket.c-758-}
+net/ieee802154/socket.c-759-
+net/ieee802154/socket.c-760-static int dgram_rcv_skb(struct sock *sk, struct sk_buff *skb)
+net/ieee802154/socket.c-761-{
+net/ieee802154/socket.c:762:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/ieee802154/socket.c-763-	if (!skb)
+net/ieee802154/socket.c-764-		return NET_RX_DROP;
+net/ieee802154/socket.c-765-
+net/ieee802154/socket.c-766-	if (sock_queue_rcv_skb(sk, skb) < 0) {
+net/ieee802154/socket.c-767-		kfree_skb(skb);
+net/ieee802154/socket.c-768-		return NET_RX_DROP;
+--
+net/mac80211/wpa.c-148-		goto mic_fail;
+net/mac80211/wpa.c-149-
+net/mac80211/wpa.c-150-	hdrlen = ieee80211_hdrlen(hdr->frame_control);
+net/mac80211/wpa.c-151-	if (skb->len < hdrlen + MICHAEL_MIC_LEN)
+net/mac80211/wpa.c-152-		return RX_DROP_U_SHORT_MMIC;
+net/mac80211/wpa.c-153-
+net/mac80211/wpa.c:154:	if (skb_linearize(rx->skb))
+net/mac80211/wpa.c-155-		return RX_DROP_U_OOM;
+net/mac80211/wpa.c-156-	hdr = (void *)skb->data;
+net/mac80211/wpa.c-157-
+net/mac80211/wpa.c-158-	data = skb->data + hdrlen;
+net/mac80211/wpa.c-159-	data_len = skb->len - hdrlen - MICHAEL_MIC_LEN;
+net/mac80211/wpa.c-160-	key = &rx->key->conf.key[NL80211_TKIP_DATA_OFFSET_RX_MIC_KEY];
+--
+net/mac80211/wpa.c-275-		return RX_CONTINUE;
+net/mac80211/wpa.c-276-
+net/mac80211/wpa.c-277-	if (!rx->sta || skb->len - hdrlen < 12)
+net/mac80211/wpa.c-278-		return RX_DROP_U_SHORT_TKIP;
+net/mac80211/wpa.c-279-
+net/mac80211/wpa.c-280-	/* it may be possible to optimize this a bit more */
+net/mac80211/wpa.c:281:	if (skb_linearize(rx->skb))
+net/mac80211/wpa.c-282-		return RX_DROP_U_OOM;
+net/mac80211/wpa.c-283-	hdr = (void *)skb->data;
+net/mac80211/wpa.c-284-
+net/mac80211/wpa.c-285-	/*
+net/mac80211/wpa.c-286-	 * Let TKIP code verify IV, but skip decryption.
+net/mac80211/wpa.c-287-	 * In the case where hardware checks the IV as well,
+--
+net/mac80211/wpa.c-537-	if (status->flag & RX_FLAG_DECRYPTED) {
+net/mac80211/wpa.c-538-		if (!pskb_may_pull(rx->skb, hdrlen + IEEE80211_CCMP_HDR_LEN))
+net/mac80211/wpa.c-539-			return RX_DROP_U_SHORT_CCMP;
+net/mac80211/wpa.c-540-		if (status->flag & RX_FLAG_MIC_STRIPPED)
+net/mac80211/wpa.c-541-			mic_len = 0;
+net/mac80211/wpa.c-542-	} else {
+net/mac80211/wpa.c:543:		if (skb_linearize(rx->skb))
+net/mac80211/wpa.c-544-			return RX_DROP_U_OOM;
+net/mac80211/wpa.c-545-	}
+net/mac80211/wpa.c-546-
+net/mac80211/wpa.c-547-	/* reload hdr - skb might have been reallocated */
+net/mac80211/wpa.c-548-	hdr = (void *)rx->skb->data;
+net/mac80211/wpa.c-549-
+--
+net/mac80211/wpa.c-749-	if (status->flag & RX_FLAG_DECRYPTED) {
+net/mac80211/wpa.c-750-		if (!pskb_may_pull(rx->skb, hdrlen + IEEE80211_GCMP_HDR_LEN))
+net/mac80211/wpa.c-751-			return RX_DROP_U_SHORT_GCMP;
+net/mac80211/wpa.c-752-		if (status->flag & RX_FLAG_MIC_STRIPPED)
+net/mac80211/wpa.c-753-			mic_len = 0;
+net/mac80211/wpa.c-754-	} else {
+net/mac80211/wpa.c:755:		if (skb_linearize(rx->skb))
+net/mac80211/wpa.c-756-			return RX_DROP_U_OOM;
+net/mac80211/wpa.c-757-	}
+net/mac80211/wpa.c-758-
+net/mac80211/wpa.c-759-	/* reload hdr - skb might have been reallocated */
+net/mac80211/wpa.c-760-	hdr = (void *)rx->skb->data;
+net/mac80211/wpa.c-761-
+--
+net/mac80211/wep.c-247-	__le16 fc = hdr->frame_control;
+net/mac80211/wep.c-248-
+net/mac80211/wep.c-249-	if (!ieee80211_is_data(fc) && !ieee80211_is_auth(fc))
+net/mac80211/wep.c-250-		return RX_CONTINUE;
+net/mac80211/wep.c-251-
+net/mac80211/wep.c-252-	if (!(status->flag & RX_FLAG_DECRYPTED)) {
+net/mac80211/wep.c:253:		if (skb_linearize(rx->skb))
+net/mac80211/wep.c-254-			return RX_DROP_U_OOM;
+net/mac80211/wep.c-255-		if (ieee80211_wep_decrypt(rx->local, rx->skb, rx->key))
+net/mac80211/wep.c-256-			return RX_DROP_U_WEP_DEC_FAIL;
+net/mac80211/wep.c-257-	} else if (!(status->flag & RX_FLAG_IV_STRIPPED)) {
+net/mac80211/wep.c-258-		if (!pskb_may_pull(rx->skb, ieee80211_hdrlen(fc) +
+net/mac80211/wep.c-259-					    IEEE80211_WEP_IV_LEN))
+--
+net/dsa/tag_trailer.c-27-
+net/dsa/tag_trailer.c-28-static struct sk_buff *trailer_rcv(struct sk_buff *skb, struct net_device *dev)
+net/dsa/tag_trailer.c-29-{
+net/dsa/tag_trailer.c-30-	u8 *trailer;
+net/dsa/tag_trailer.c-31-	int source_port;
+net/dsa/tag_trailer.c-32-
+net/dsa/tag_trailer.c:33:	if (skb_linearize(skb))
+net/dsa/tag_trailer.c-34-		return NULL;
+net/dsa/tag_trailer.c-35-
+net/dsa/tag_trailer.c-36-	trailer = skb_tail_pointer(skb) - 4;
+net/dsa/tag_trailer.c-37-	if (trailer[0] != 0x80 || (trailer[1] & 0xf8) != 0x00 ||
+net/dsa/tag_trailer.c-38-	    (trailer[2] & 0xef) != 0x00 || trailer[3] != 0x00)
+net/dsa/tag_trailer.c-39-		return NULL;
+--
+net/dsa/tag_rtl8_4.c-215-	return skb;
+net/dsa/tag_rtl8_4.c-216-}
+net/dsa/tag_rtl8_4.c-217-
+net/dsa/tag_rtl8_4.c-218-static struct sk_buff *rtl8_4t_tag_rcv(struct sk_buff *skb,
+net/dsa/tag_rtl8_4.c-219-				       struct net_device *dev)
+net/dsa/tag_rtl8_4.c-220-{
+net/dsa/tag_rtl8_4.c:221:	if (skb_linearize(skb))
+net/dsa/tag_rtl8_4.c-222-		return NULL;
+net/dsa/tag_rtl8_4.c-223-
+net/dsa/tag_rtl8_4.c-224-	if (unlikely(rtl8_4_read_tag(skb, dev, skb_tail_pointer(skb) - RTL8_4_TAG_LEN)))
+net/dsa/tag_rtl8_4.c-225-		return NULL;
+net/dsa/tag_rtl8_4.c-226-
+net/dsa/tag_rtl8_4.c-227-	if (pskb_trim_rcsum(skb, skb->len - RTL8_4_TAG_LEN))
+--
+net/batman-adv/fragmentation.c-150-	size_t data_len;
+net/batman-adv/fragmentation.c-151-
+net/batman-adv/fragmentation.c-152-	/* Linearize packet to avoid linearizing 16 packets in a row when doing
+net/batman-adv/fragmentation.c-153-	 * the later merge. Non-linear merge should be added to remove this
+net/batman-adv/fragmentation.c-154-	 * linearization.
+net/batman-adv/fragmentation.c-155-	 */
+net/batman-adv/fragmentation.c:156:	if (skb_linearize(skb) < 0)
+net/batman-adv/fragmentation.c-157-		goto err;
+net/batman-adv/fragmentation.c-158-
+net/batman-adv/fragmentation.c-159-	frag_packet = (struct batadv_frag_packet *)skb->data;
+net/batman-adv/fragmentation.c-160-	data_len = skb->len - hdr_size;
+net/batman-adv/fragmentation.c-161-	seqno = ntohs(frag_packet->seqno);
+net/batman-adv/fragmentation.c-162-	bucket = seqno % BATADV_FRAG_BUFFER_COUNT;
+--
+net/batman-adv/fragmentation.c-273-	kfree(entry);
+net/batman-adv/fragmentation.c-274-
+net/batman-adv/fragmentation.c-275-	packet = (struct batadv_frag_packet *)skb_out->data;
+net/batman-adv/fragmentation.c-276-	size = ntohs(packet->total_size) + hdr_size;
+net/batman-adv/fragmentation.c-277-
+net/batman-adv/fragmentation.c-278-	/* Make room for the rest of the fragments. */
+net/batman-adv/fragmentation.c:279:	if (pskb_expand_head(skb_out, 0, size - skb_out->len, GFP_ATOMIC) < 0) {
+net/batman-adv/fragmentation.c-280-		kfree_skb(skb_out);
+net/batman-adv/fragmentation.c-281-		skb_out = NULL;
+net/batman-adv/fragmentation.c-282-		dropped = true;
+net/batman-adv/fragmentation.c-283-		goto free;
+net/batman-adv/fragmentation.c-284-	}
+net/batman-adv/fragmentation.c-285-
+--
+net/batman-adv/fragmentation.c-421-			kfree_skb(skb);
+net/batman-adv/fragmentation.c-422-			*rx_result = NET_RX_DROP;
+net/batman-adv/fragmentation.c-423-			ret = true;
+net/batman-adv/fragmentation.c-424-			goto out;
+net/batman-adv/fragmentation.c-425-		}
+net/batman-adv/fragmentation.c-426-
+net/batman-adv/fragmentation.c:427:		if (skb_cow(skb, ETH_HLEN) < 0) {
+net/batman-adv/fragmentation.c-428-			kfree_skb(skb);
+net/batman-adv/fragmentation.c-429-			*rx_result = NET_RX_DROP;
+net/batman-adv/fragmentation.c-430-			ret = true;
+net/batman-adv/fragmentation.c-431-			goto out;
+net/batman-adv/fragmentation.c-432-		}
+net/batman-adv/fragmentation.c-433-
+--
+net/bluetooth/rfcomm/core.c-1969-
+net/bluetooth/rfcomm/core.c-1970-	BT_DBG("session %p state %ld qlen %d", s, s->state, skb_queue_len(&sk->sk_receive_queue));
+net/bluetooth/rfcomm/core.c-1971-
+net/bluetooth/rfcomm/core.c-1972-	/* Get data directly from socket receive queue without copying it. */
+net/bluetooth/rfcomm/core.c-1973-	while ((skb = skb_dequeue(&sk->sk_receive_queue))) {
+net/bluetooth/rfcomm/core.c-1974-		skb_orphan(skb);
+net/bluetooth/rfcomm/core.c:1975:		if (!skb_linearize(skb) && sk->sk_state != BT_CLOSED) {
+net/bluetooth/rfcomm/core.c-1976-			s = rfcomm_recv_frame(s, skb);
+net/bluetooth/rfcomm/core.c-1977-			if (!s)
+net/bluetooth/rfcomm/core.c-1978-				break;
+net/bluetooth/rfcomm/core.c-1979-		} else {
+net/bluetooth/rfcomm/core.c-1980-			kfree_skb(skb);
+net/bluetooth/rfcomm/core.c-1981-		}
+--
+net/core/skmsg.c-560-		/* skb linearize may fail with ENOMEM, but lets simply try again
+net/core/skmsg.c-561-		 * later if this happens. Under memory pressure we don't want to
+net/core/skmsg.c-562-		 * drop the skb. We need to linearize the skb so that the mapping
+net/core/skmsg.c-563-		 * in skb_to_sgvec can not error.
+net/core/skmsg.c-564-		 * Note that skb_linearize requires the skb not to be shared.
+net/core/skmsg.c-565-		 */
+net/core/skmsg.c:566:		if (skb_linearize(skb))
+net/core/skmsg.c-567-			return -EAGAIN;
+net/core/skmsg.c-568-
+net/core/skmsg.c-569-		num_sge = skb_to_sgvec(skb, msg->sg.data, off, len);
+net/core/skmsg.c-570-		if (unlikely(num_sge < 0))
+net/core/skmsg.c-571-			return num_sge;
+net/core/skmsg.c-572-	}
+--
+net/mac80211/tx.c-2019-		I802_DEBUG_INC(local->tx_expand_skb_head_cloned);
+net/mac80211/tx.c-2020-	else if (head_need || tail_need)
+net/mac80211/tx.c-2021-		I802_DEBUG_INC(local->tx_expand_skb_head);
+net/mac80211/tx.c-2022-	else
+net/mac80211/tx.c-2023-		return 0;
+net/mac80211/tx.c-2024-
+net/mac80211/tx.c:2025:	if (pskb_expand_head(skb, head_need, tail_need, GFP_ATOMIC)) {
+net/mac80211/tx.c-2026-		wiphy_debug(local->hw.wiphy,
+net/mac80211/tx.c-2027-			    "failed to reallocate TX buffer\n");
+net/mac80211/tx.c-2028-		return -ENOMEM;
+net/mac80211/tx.c-2029-	}
+net/mac80211/tx.c-2030-
+net/mac80211/tx.c-2031-	return 0;
+--
+net/mac80211/tx.c-2933-		info_id = ieee80211_store_ack_skb(local, skb, &info_flags,
+net/mac80211/tx.c-2934-						  cookie);
+net/mac80211/tx.c-2935-
+net/mac80211/tx.c-2936-	/*
+net/mac80211/tx.c-2937-	 * If the skb is shared we need to obtain our own copy.
+net/mac80211/tx.c-2938-	 */
+net/mac80211/tx.c:2939:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/mac80211/tx.c-2940-	if (unlikely(!skb)) {
+net/mac80211/tx.c-2941-		ret = -ENOMEM;
+net/mac80211/tx.c-2942-		goto free;
+net/mac80211/tx.c-2943-	}
+net/mac80211/tx.c-2944-
+net/mac80211/tx.c-2945-	hdr.frame_control = fc;
+--
+net/mac80211/tx.c-3367-static bool ieee80211_amsdu_realloc_pad(struct ieee80211_local *local,
+net/mac80211/tx.c-3368-					struct sk_buff *skb, int headroom)
+net/mac80211/tx.c-3369-{
+net/mac80211/tx.c-3370-	if (skb_headroom(skb) < headroom) {
+net/mac80211/tx.c-3371-		I802_DEBUG_INC(local->tx_expand_skb_head);
+net/mac80211/tx.c-3372-
+net/mac80211/tx.c:3373:		if (pskb_expand_head(skb, headroom, 0, GFP_ATOMIC)) {
+net/mac80211/tx.c-3374-			wiphy_debug(local->hw.wiphy,
+net/mac80211/tx.c-3375-				    "failed to reallocate TX buffer\n");
+net/mac80211/tx.c-3376-			return false;
+net/mac80211/tx.c-3377-		}
+net/mac80211/tx.c-3378-	}
+net/mac80211/tx.c-3379-
+--
+net/mac80211/tx.c-3727-	struct ieee80211_tx_info *info;
+net/mac80211/tx.c-3728-	struct ieee80211_tx_data tx;
+net/mac80211/tx.c-3729-	ieee80211_tx_result r;
+net/mac80211/tx.c-3730-	int hw_headroom = sdata->local->hw.extra_tx_headroom;
+net/mac80211/tx.c-3731-	int extra_head = fast_tx->hdr_len - (ETH_HLEN - 2);
+net/mac80211/tx.c-3732-
+net/mac80211/tx.c:3733:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/mac80211/tx.c-3734-	if (unlikely(!skb))
+net/mac80211/tx.c-3735-		return;
+net/mac80211/tx.c-3736-
+net/mac80211/tx.c-3737-	if ((hdr->frame_control & cpu_to_le16(IEEE80211_STYPE_QOS_DATA)) &&
+net/mac80211/tx.c-3738-	    ieee80211_amsdu_aggregate(sdata, sta, fast_tx, skb, da, sa))
+net/mac80211/tx.c-3739-		return;
+--
+net/mac80211/tx.c-3997-			spin_unlock_bh(&fq->lock);
+net/mac80211/tx.c-3998-		}
+net/mac80211/tx.c-3999-	}
+net/mac80211/tx.c-4000-
+net/mac80211/tx.c-4001-	if (skb_has_frag_list(skb) &&
+net/mac80211/tx.c-4002-	    !ieee80211_hw_check(&local->hw, TX_FRAG_LIST)) {
+net/mac80211/tx.c:4003:		if (skb_linearize(skb)) {
+net/mac80211/tx.c-4004-			ieee80211_free_txskb(&local->hw, skb);
+net/mac80211/tx.c-4005-			goto begin;
+net/mac80211/tx.c-4006-		}
+net/mac80211/tx.c-4007-	}
+net/mac80211/tx.c-4008-
+net/mac80211/tx.c-4009-	switch (tx.sdata->vif.type) {
+--
+net/mac80211/tx.c-4672-	skb_set_queue_mapping(skb, queue);
+net/mac80211/tx.c-4673-
+net/mac80211/tx.c-4674-	if (unlikely(test_bit(SCAN_SW_SCANNING, &local->scanning)) &&
+net/mac80211/tx.c-4675-	    test_bit(SDATA_STATE_OFFCHANNEL, &sdata->state))
+net/mac80211/tx.c-4676-		goto out_free;
+net/mac80211/tx.c-4677-
+net/mac80211/tx.c:4678:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/mac80211/tx.c-4679-	if (unlikely(!skb))
+net/mac80211/tx.c-4680-		return;
+net/mac80211/tx.c-4681-
+net/mac80211/tx.c-4682-	ieee80211_aggr_check(sdata, sta, skb);
+net/mac80211/tx.c-4683-
+net/mac80211/tx.c-4684-	tid = skb->priority & IEEE80211_QOS_CTL_TAG1D_MASK;
+--
+net/ieee802154/6lowpan/rx.c-280-
+net/ieee802154/6lowpan/rx.c-281-	ldev = wdev->ieee802154_ptr->lowpan_dev;
+net/ieee802154/6lowpan/rx.c-282-	if (!ldev || !netif_running(ldev))
+net/ieee802154/6lowpan/rx.c-283-		goto drop;
+net/ieee802154/6lowpan/rx.c-284-
+net/ieee802154/6lowpan/rx.c-285-	/* Replacing skb->dev and followed rx handlers will manipulate skb. */
+net/ieee802154/6lowpan/rx.c:286:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/ieee802154/6lowpan/rx.c-287-	if (!skb)
+net/ieee802154/6lowpan/rx.c-288-		goto out;
+net/ieee802154/6lowpan/rx.c-289-	skb->dev = ldev;
+net/ieee802154/6lowpan/rx.c-290-
+net/ieee802154/6lowpan/rx.c-291-	/* When receive frag1 it's likely that we manipulate the buffer.
+net/ieee802154/6lowpan/rx.c-292-	 * When recevie iphc we manipulate the data buffer. So we need
+--
+net/batman-adv/routing.c-192-
+net/batman-adv/routing.c-193-	/* packet with invalid sender address */
+net/batman-adv/routing.c-194-	if (!is_valid_ether_addr(ethhdr->h_source))
+net/batman-adv/routing.c-195-		return false;
+net/batman-adv/routing.c-196-
+net/batman-adv/routing.c-197-	/* create a copy of the skb, if needed, to modify it. */
+net/batman-adv/routing.c:198:	if (skb_cow(skb, 0) < 0)
+net/batman-adv/routing.c-199-		return false;
+net/batman-adv/routing.c-200-
+net/batman-adv/routing.c-201-	/* keep skb linear */
+net/batman-adv/routing.c:202:	if (skb_linearize(skb) < 0)
+net/batman-adv/routing.c-203-		return false;
+net/batman-adv/routing.c-204-
+net/batman-adv/routing.c-205-	return true;
+net/batman-adv/routing.c-206-}
+net/batman-adv/routing.c-207-
+net/batman-adv/routing.c-208-/**
+--
+net/batman-adv/routing.c-286-		/* get routing information */
+net/batman-adv/routing.c-287-		orig_node = batadv_orig_hash_find(bat_priv, icmph->orig);
+net/batman-adv/routing.c-288-		if (!orig_node)
+net/batman-adv/routing.c-289-			goto out;
+net/batman-adv/routing.c-290-
+net/batman-adv/routing.c-291-		/* create a copy of the skb, if needed, to modify it. */
+net/batman-adv/routing.c:292:		if (skb_cow(skb, ETH_HLEN) < 0)
+net/batman-adv/routing.c-293-			goto out;
+net/batman-adv/routing.c-294-
+net/batman-adv/routing.c-295-		icmph = (struct batadv_icmp_header *)skb->data;
+net/batman-adv/routing.c-296-
+net/batman-adv/routing.c-297-		ether_addr_copy(icmph->dst, icmph->orig);
+net/batman-adv/routing.c-298-		ether_addr_copy(icmph->orig, primary_if->net_dev->dev_addr);
+--
+net/batman-adv/routing.c-352-	/* get routing information */
+net/batman-adv/routing.c-353-	orig_node = batadv_orig_hash_find(bat_priv, icmp_packet->orig);
+net/batman-adv/routing.c-354-	if (!orig_node)
+net/batman-adv/routing.c-355-		goto out;
+net/batman-adv/routing.c-356-
+net/batman-adv/routing.c-357-	/* create a copy of the skb, if needed, to modify it. */
+net/batman-adv/routing.c:358:	if (skb_cow(skb, ETH_HLEN) < 0)
+net/batman-adv/routing.c-359-		goto out;
+net/batman-adv/routing.c-360-
+net/batman-adv/routing.c-361-	icmp_packet = (struct batadv_icmp_packet *)skb->data;
+net/batman-adv/routing.c-362-
+net/batman-adv/routing.c-363-	ether_addr_copy(icmp_packet->dst, icmp_packet->orig);
+net/batman-adv/routing.c-364-	ether_addr_copy(icmp_packet->orig, primary_if->net_dev->dev_addr);
+--
+net/batman-adv/routing.c-420-	icmph = (struct batadv_icmp_header *)skb->data;
+net/batman-adv/routing.c-421-
+net/batman-adv/routing.c-422-	/* add record route information if not full */
+net/batman-adv/routing.c-423-	if ((icmph->msg_type == BATADV_ECHO_REPLY ||
+net/batman-adv/routing.c-424-	     icmph->msg_type == BATADV_ECHO_REQUEST) &&
+net/batman-adv/routing.c-425-	    skb->len >= sizeof(struct batadv_icmp_packet_rr)) {
+net/batman-adv/routing.c:426:		if (skb_linearize(skb) < 0)
+net/batman-adv/routing.c-427-			goto free_skb;
+net/batman-adv/routing.c-428-
+net/batman-adv/routing.c-429-		/* create a copy of the skb, if needed, to modify it. */
+net/batman-adv/routing.c:430:		if (skb_cow(skb, ETH_HLEN) < 0)
+net/batman-adv/routing.c-431-			goto free_skb;
+net/batman-adv/routing.c-432-
+net/batman-adv/routing.c-433-		ethhdr = eth_hdr(skb);
+net/batman-adv/routing.c-434-		icmph = (struct batadv_icmp_header *)skb->data;
+net/batman-adv/routing.c-435-		icmp_packet_rr = (struct batadv_icmp_packet_rr *)icmph;
+net/batman-adv/routing.c-436-		if (icmp_packet_rr->rr_cur >= BATADV_RR_LEN)
+--
+net/batman-adv/routing.c-452-	/* get routing information */
+net/batman-adv/routing.c-453-	orig_node = batadv_orig_hash_find(bat_priv, icmph->dst);
+net/batman-adv/routing.c-454-	if (!orig_node)
+net/batman-adv/routing.c-455-		goto free_skb;
+net/batman-adv/routing.c-456-
+net/batman-adv/routing.c-457-	/* create a copy of the skb, if needed, to modify it. */
+net/batman-adv/routing.c:458:	if (skb_cow(skb, ETH_HLEN) < 0)
+net/batman-adv/routing.c-459-		goto put_orig_node;
+net/batman-adv/routing.c-460-
+net/batman-adv/routing.c-461-	icmph = (struct batadv_icmp_header *)skb->data;
+net/batman-adv/routing.c-462-
+net/batman-adv/routing.c-463-	/* decrement ttl */
+net/batman-adv/routing.c-464-	icmph->ttl--;
+--
+net/batman-adv/routing.c-729-	orig_node = batadv_orig_hash_find(bat_priv, unicast_packet->dest);
+net/batman-adv/routing.c-730-
+net/batman-adv/routing.c-731-	if (!orig_node)
+net/batman-adv/routing.c-732-		goto free_skb;
+net/batman-adv/routing.c-733-
+net/batman-adv/routing.c-734-	/* create a copy of the skb, if needed, to modify it. */
+net/batman-adv/routing.c:735:	if (skb_cow(skb, ETH_HLEN) < 0)
+net/batman-adv/routing.c-736-		goto put_orig_node;
+net/batman-adv/routing.c-737-
+net/batman-adv/routing.c-738-	/* decrement ttl */
+net/batman-adv/routing.c-739-	unicast_packet = (struct batadv_unicast_packet *)skb->data;
+net/batman-adv/routing.c-740-	unicast_packet->ttl--;
+net/batman-adv/routing.c-741-
+--
+net/batman-adv/routing.c-849-
+net/batman-adv/routing.c-850-	/* check if there is enough data before accessing it */
+net/batman-adv/routing.c-851-	if (!pskb_may_pull(skb, hdr_len + ETH_HLEN))
+net/batman-adv/routing.c-852-		return false;
+net/batman-adv/routing.c-853-
+net/batman-adv/routing.c-854-	/* create a copy of the skb (in case of for re-routing) to modify it. */
+net/batman-adv/routing.c:855:	if (skb_cow(skb, sizeof(*unicast_packet)) < 0)
+net/batman-adv/routing.c-856-		return false;
+net/batman-adv/routing.c-857-
+net/batman-adv/routing.c-858-	vid = batadv_get_vid(skb, hdr_len);
+net/batman-adv/routing.c-859-	unicast_packet = (struct batadv_unicast_packet *)skb->data;
+net/batman-adv/routing.c-860-	ethhdr = (struct ethhdr *)(skb->data + hdr_len);
+net/batman-adv/routing.c-861-
+--
+net/batman-adv/routing.c-1102-	int ret = NET_RX_DROP;
+net/batman-adv/routing.c-1103-
+net/batman-adv/routing.c-1104-	if (batadv_check_unicast_packet(bat_priv, skb, hdr_size) < 0)
+net/batman-adv/routing.c-1105-		goto free_skb;
+net/batman-adv/routing.c-1106-
+net/batman-adv/routing.c-1107-	/* the header is likely to be modified while forwarding */
+net/batman-adv/routing.c:1108:	if (skb_cow(skb, hdr_size) < 0)
+net/batman-adv/routing.c-1109-		goto free_skb;
+net/batman-adv/routing.c-1110-
+net/batman-adv/routing.c-1111-	/* packet needs to be linearized to access the tvlv content */
+net/batman-adv/routing.c:1112:	if (skb_linearize(skb) < 0)
+net/batman-adv/routing.c-1113-		goto free_skb;
+net/batman-adv/routing.c-1114-
+net/batman-adv/routing.c-1115-	unicast_tvlv_packet = (struct batadv_unicast_tvlv_packet *)skb->data;
+net/batman-adv/routing.c-1116-
+net/batman-adv/routing.c-1117-	tvlv_buff = (unsigned char *)(skb->data + hdr_size);
+net/batman-adv/routing.c-1118-	tvlv_buff_len = ntohs(unicast_tvlv_packet->tvlv_len);
+--
+net/batman-adv/routing.c-1242-
+net/batman-adv/routing.c-1243-	/* ignore broadcasts originated by myself */
+net/batman-adv/routing.c-1244-	if (batadv_is_my_mac(bat_priv, bcast_packet->orig))
+net/batman-adv/routing.c-1245-		goto free_skb;
+net/batman-adv/routing.c-1246-
+net/batman-adv/routing.c-1247-	/* create a copy of the skb, if needed, to modify it. */
+net/batman-adv/routing.c:1248:	if (skb_cow(skb, ETH_HLEN) < 0)
+net/batman-adv/routing.c-1249-		goto free_skb;
+net/batman-adv/routing.c-1250-
+net/batman-adv/routing.c-1251-	bcast_packet = (struct batadv_bcast_packet *)skb->data;
+net/batman-adv/routing.c-1252-
+net/batman-adv/routing.c-1253-	if (!batadv_skb_decrement_ttl(skb))
+net/batman-adv/routing.c-1254-		goto free_skb;
+--
+net/batman-adv/routing.c-1346-	u16 tvlv_buff_len;
+net/batman-adv/routing.c-1347-
+net/batman-adv/routing.c-1348-	if (batadv_check_unicast_packet(bat_priv, skb, hdr_size) < 0)
+net/batman-adv/routing.c-1349-		goto free_skb;
+net/batman-adv/routing.c-1350-
+net/batman-adv/routing.c-1351-	/* create a copy of the skb, if needed, to modify it. */
+net/batman-adv/routing.c:1352:	if (skb_cow(skb, ETH_HLEN) < 0)
+net/batman-adv/routing.c-1353-		goto free_skb;
+net/batman-adv/routing.c-1354-
+net/batman-adv/routing.c-1355-	/* packet needs to be linearized to access the tvlv content */
+net/batman-adv/routing.c:1356:	if (skb_linearize(skb) < 0)
+net/batman-adv/routing.c-1357-		goto free_skb;
+net/batman-adv/routing.c-1358-
+net/batman-adv/routing.c-1359-	mcast_packet = (struct batadv_mcast_packet *)skb->data;
+net/batman-adv/routing.c-1360-	if (!batadv_skb_decrement_ttl(skb))
+net/batman-adv/routing.c-1361-		goto free_skb;
+net/batman-adv/routing.c-1362-
+--
+net/dsa/tag_ksz.c-138-}
+net/dsa/tag_ksz.c-139-
+net/dsa/tag_ksz.c-140-static struct sk_buff *ksz8795_rcv(struct sk_buff *skb, struct net_device *dev)
+net/dsa/tag_ksz.c-141-{
+net/dsa/tag_ksz.c-142-	u8 *tag;
+net/dsa/tag_ksz.c-143-
+net/dsa/tag_ksz.c:144:	if (skb_linearize(skb))
+net/dsa/tag_ksz.c-145-		return NULL;
+net/dsa/tag_ksz.c-146-
+net/dsa/tag_ksz.c-147-	tag = skb_tail_pointer(skb) - KSZ_EGRESS_TAG_LEN;
+net/dsa/tag_ksz.c-148-
+net/dsa/tag_ksz.c-149-	return ksz_common_rcv(skb, dev, tag[0] & KSZ8795_TAIL_TAG_EG_PORT_M,
+net/dsa/tag_ksz.c-150-			      KSZ_EGRESS_TAG_LEN);
+--
+net/dsa/tag_ksz.c-307-static struct sk_buff *ksz9477_rcv(struct sk_buff *skb, struct net_device *dev)
+net/dsa/tag_ksz.c-308-{
+net/dsa/tag_ksz.c-309-	unsigned int len = KSZ_EGRESS_TAG_LEN;
+net/dsa/tag_ksz.c-310-	unsigned int port;
+net/dsa/tag_ksz.c-311-	u8 *tag;
+net/dsa/tag_ksz.c-312-
+net/dsa/tag_ksz.c:313:	if (skb_linearize(skb))
+net/dsa/tag_ksz.c-314-		return NULL;
+net/dsa/tag_ksz.c-315-
+net/dsa/tag_ksz.c-316-	/* Tag decoding */
+net/dsa/tag_ksz.c-317-	tag = skb_tail_pointer(skb) - KSZ_EGRESS_TAG_LEN;
+net/dsa/tag_ksz.c-318-	port = tag[0] & KSZ9477_TAIL_TAG_EG_PORT_M;
+net/dsa/tag_ksz.c-319-
+--
+net/core/skbuff.c-1992-{
+net/core/skbuff.c-1993-	int num_frags = skb_shinfo(skb)->nr_frags;
+net/core/skbuff.c-1994-	struct page *page, *head = NULL;
+net/core/skbuff.c-1995-	int i, order, psize, new_frags;
+net/core/skbuff.c-1996-	u32 d_off;
+net/core/skbuff.c-1997-
+net/core/skbuff.c:1998:	if (skb_shared(skb) || skb_unclone(skb, gfp_mask))
+net/core/skbuff.c-1999-		return -EINVAL;
+net/core/skbuff.c-2000-
+net/core/skbuff.c-2001-	if (!skb_frags_readable(skb))
+net/core/skbuff.c-2002-		return -EFAULT;
+net/core/skbuff.c-2003-
+net/core/skbuff.c-2004-	if (!num_frags)
+--
+net/core/skbuff.c-2282- *
+net/core/skbuff.c-2283- *	Note: If you skb_push() the start of the buffer after reallocating the
+net/core/skbuff.c-2284- *	header, call skb_postpush_data_move() first to move the metadata out of
+net/core/skbuff.c-2285- *	the way before writing to &sk_buff->data.
+net/core/skbuff.c-2286- */
+net/core/skbuff.c-2287-
+net/core/skbuff.c:2288:int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
+net/core/skbuff.c-2289-		     gfp_t gfp_mask)
+net/core/skbuff.c-2290-{
+net/core/skbuff.c-2291-	unsigned int osize = skb_end_offset(skb);
+net/core/skbuff.c-2292-	unsigned int size = osize + nhead + ntail;
+net/core/skbuff.c-2293-	long off;
+net/core/skbuff.c-2294-	u8 *data;
+--
+net/core/skbuff.c-2378-	int delta = headroom - skb_headroom(skb);
+net/core/skbuff.c-2379-
+net/core/skbuff.c-2380-	if (delta <= 0)
+net/core/skbuff.c-2381-		skb2 = pskb_copy(skb, GFP_ATOMIC);
+net/core/skbuff.c-2382-	else {
+net/core/skbuff.c-2383-		skb2 = skb_clone(skb, GFP_ATOMIC);
+net/core/skbuff.c:2384:		if (skb2 && pskb_expand_head(skb2, SKB_DATA_ALIGN(delta), 0,
+net/core/skbuff.c-2385-					     GFP_ATOMIC)) {
+net/core/skbuff.c-2386-			kfree_skb(skb2);
+net/core/skbuff.c-2387-			skb2 = NULL;
+net/core/skbuff.c-2388-		}
+net/core/skbuff.c-2389-	}
+net/core/skbuff.c-2390-	return skb2;
+--
+net/core/skbuff.c-2398-	struct skb_shared_info *shinfo;
+net/core/skbuff.c-2399-	int res;
+net/core/skbuff.c-2400-
+net/core/skbuff.c-2401-	saved_end_offset = skb_end_offset(skb);
+net/core/skbuff.c-2402-	saved_truesize = skb->truesize;
+net/core/skbuff.c-2403-
+net/core/skbuff.c:2404:	res = pskb_expand_head(skb, 0, 0, pri);
+net/core/skbuff.c-2405-	if (res)
+net/core/skbuff.c-2406-		return res;
+net/core/skbuff.c-2407-
+net/core/skbuff.c-2408-	skb->truesize = saved_truesize;
+net/core/skbuff.c-2409-
+net/core/skbuff.c-2410-	if (likely(skb_end_offset(skb) == saved_end_offset))
+--
+net/core/skbuff.c-2444-
+net/core/skbuff.c-2445-	if (WARN_ONCE(delta <= 0,
+net/core/skbuff.c-2446-		      "%s is expecting an increase in the headroom", __func__))
+net/core/skbuff.c-2447-		return skb;
+net/core/skbuff.c-2448-
+net/core/skbuff.c-2449-	delta = SKB_DATA_ALIGN(delta);
+net/core/skbuff.c:2450:	/* pskb_expand_head() might crash, if skb is shared. */
+net/core/skbuff.c-2451-	if (skb_shared(skb) || !is_skb_wmem(skb)) {
+net/core/skbuff.c-2452-		struct sk_buff *nskb = skb_clone(skb, GFP_ATOMIC);
+net/core/skbuff.c-2453-
+net/core/skbuff.c-2454-		if (unlikely(!nskb))
+net/core/skbuff.c-2455-			goto fail;
+net/core/skbuff.c-2456-
+net/core/skbuff.c-2457-		if (sk)
+net/core/skbuff.c-2458-			skb_set_owner_w(nskb, sk);
+net/core/skbuff.c-2459-		consume_skb(skb);
+net/core/skbuff.c-2460-		skb = nskb;
+net/core/skbuff.c-2461-	}
+net/core/skbuff.c:2462:	if (pskb_expand_head(skb, delta, 0, GFP_ATOMIC))
+net/core/skbuff.c-2463-		goto fail;
+net/core/skbuff.c-2464-
+net/core/skbuff.c-2465-	if (sk && is_skb_wmem(skb)) {
+net/core/skbuff.c-2466-		delta = skb_end_offset(skb) - osize;
+net/core/skbuff.c-2467-		refcount_add(delta, &sk->sk_wmem_alloc);
+net/core/skbuff.c-2468-		skb->truesize += delta;
+--
+net/core/skbuff.c-2565-		memset(skb->data+skb->len, 0, pad);
+net/core/skbuff.c-2566-		return 0;
+net/core/skbuff.c-2567-	}
+net/core/skbuff.c-2568-
+net/core/skbuff.c-2569-	ntail = skb->data_len + pad - (skb->end - skb->tail);
+net/core/skbuff.c-2570-	if (likely(skb_cloned(skb) || ntail > 0)) {
+net/core/skbuff.c:2571:		err = pskb_expand_head(skb, 0, ntail, GFP_ATOMIC);
+net/core/skbuff.c-2572-		if (unlikely(err))
+net/core/skbuff.c-2573-			goto free_skb;
+net/core/skbuff.c-2574-	}
+net/core/skbuff.c-2575-
+net/core/skbuff.c-2576-	/* FIXME: The use of this function with non-linear skb's really needs
+net/core/skbuff.c-2577-	 * to be audited.
+net/core/skbuff.c-2578-	 */
+net/core/skbuff.c:2579:	err = skb_linearize(skb);
+net/core/skbuff.c-2580-	if (unlikely(err))
+net/core/skbuff.c-2581-		goto free_skb;
+net/core/skbuff.c-2582-
+net/core/skbuff.c-2583-	memset(skb->data + skb->len, 0, pad);
+net/core/skbuff.c-2584-	return 0;
+net/core/skbuff.c-2585-
+--
+net/core/skbuff.c-2719-	int offset = skb_headlen(skb);
+net/core/skbuff.c-2720-	int nfrags = skb_shinfo(skb)->nr_frags;
+net/core/skbuff.c-2721-	int i;
+net/core/skbuff.c-2722-	int err;
+net/core/skbuff.c-2723-
+net/core/skbuff.c-2724-	if (skb_cloned(skb) &&
+net/core/skbuff.c:2725:	    unlikely((err = pskb_expand_head(skb, 0, 0, GFP_ATOMIC))))
+net/core/skbuff.c-2726-		return err;
+net/core/skbuff.c-2727-
+net/core/skbuff.c-2728-	i = 0;
+net/core/skbuff.c-2729-	if (offset >= len)
+net/core/skbuff.c-2730-		goto drop_pages;
+net/core/skbuff.c-2731-
+--
+net/core/skbuff.c-2875-	int i, k, eat = (skb->tail + delta) - skb->end;
+net/core/skbuff.c-2876-
+net/core/skbuff.c-2877-	if (!skb_frags_readable(skb))
+net/core/skbuff.c-2878-		return NULL;
+net/core/skbuff.c-2879-
+net/core/skbuff.c-2880-	if (eat > 0 || skb_cloned(skb)) {
+net/core/skbuff.c:2881:		if (pskb_expand_head(skb, 0, eat > 0 ? eat + 128 : 0,
+net/core/skbuff.c-2882-				     GFP_ATOMIC))
+net/core/skbuff.c-2883-			return NULL;
+net/core/skbuff.c-2884-	}
+net/core/skbuff.c-2885-
+net/core/skbuff.c-2886-	BUG_ON(skb_copy_bits(skb, skb_headlen(skb),
+net/core/skbuff.c-2887-			     skb_tail_pointer(skb), delta));
+--
+net/core/skbuff.c-4679-	/* Only skb_gro_receive_list generated skbs arrive here */
+net/core/skbuff.c-4680-	DEBUG_NET_WARN_ON_ONCE(!(skb_shinfo(skb)->gso_type & SKB_GSO_FRAGLIST));
+net/core/skbuff.c-4681-
+net/core/skbuff.c-4682-	skb_push(skb, -skb_network_offset(skb) + offset);
+net/core/skbuff.c-4683-
+net/core/skbuff.c-4684-	/* Ensure the head is writeable before touching the shared info */
+net/core/skbuff.c:4685:	err = skb_unclone(skb, GFP_ATOMIC);
+net/core/skbuff.c-4686-	if (err)
+net/core/skbuff.c-4687-		goto err_linearize;
+net/core/skbuff.c-4688-
+net/core/skbuff.c-4689-	skb_shinfo(skb)->frag_list = NULL;
+net/core/skbuff.c-4690-
+net/core/skbuff.c-4691-	while (list_skb) {
+--
+net/core/skbuff.c-4697-		err = 0;
+net/core/skbuff.c-4698-		if (skb_shared(nskb)) {
+net/core/skbuff.c-4699-			tmp = skb_clone(nskb, GFP_ATOMIC);
+net/core/skbuff.c-4700-			if (tmp) {
+net/core/skbuff.c-4701-				consume_skb(nskb);
+net/core/skbuff.c-4702-				nskb = tmp;
+net/core/skbuff.c:4703:				err = skb_unclone(nskb, GFP_ATOMIC);
+net/core/skbuff.c-4704-			} else {
+net/core/skbuff.c-4705-				err = -ENOMEM;
+net/core/skbuff.c-4706-			}
+net/core/skbuff.c-4707-		}
+net/core/skbuff.c-4708-
+net/core/skbuff.c-4709-		if (!tail)
+--
+net/core/skbuff.c-5379-		/* A little of trouble, not enough of space for trailer.
+net/core/skbuff.c-5380-		 * This should not happen, when stack is tuned to generate
+net/core/skbuff.c-5381-		 * good frames. OK, on miss we reallocate and reserve even more
+net/core/skbuff.c-5382-		 * space, 128 bytes is fair. */
+net/core/skbuff.c-5383-
+net/core/skbuff.c-5384-		if (skb_tailroom(skb) < tailbits &&
+net/core/skbuff.c:5385:		    pskb_expand_head(skb, 0, tailbits-skb_tailroom(skb)+128, GFP_ATOMIC))
+net/core/skbuff.c-5386-			return -ENOMEM;
+net/core/skbuff.c-5387-
+net/core/skbuff.c-5388-		/* Voila! */
+net/core/skbuff.c-5389-		*trailer = skb;
+net/core/skbuff.c-5390-		return 1;
+net/core/skbuff.c-5391-	}
+--
+net/core/skbuff.c-6295-
+net/core/skbuff.c-6296-static struct sk_buff *skb_reorder_vlan_header(struct sk_buff *skb)
+net/core/skbuff.c-6297-{
+net/core/skbuff.c-6298-	int mac_len, meta_len;
+net/core/skbuff.c-6299-	void *meta;
+net/core/skbuff.c-6300-
+net/core/skbuff.c:6301:	if (skb_cow(skb, skb_headroom(skb)) < 0) {
+net/core/skbuff.c-6302-		kfree_skb(skb);
+net/core/skbuff.c-6303-		return NULL;
+net/core/skbuff.c-6304-	}
+net/core/skbuff.c-6305-
+net/core/skbuff.c-6306-	mac_len = skb->data - skb_mac_header(skb);
+net/core/skbuff.c-6307-	if (likely(mac_len > VLAN_HLEN + ETH_TLEN)) {
+--
+net/core/skbuff.c-6326-
+net/core/skbuff.c-6327-	if (unlikely(skb_vlan_tag_present(skb))) {
+net/core/skbuff.c-6328-		/* vlan_tci is already set-up so leave this for another time */
+net/core/skbuff.c-6329-		return skb;
+net/core/skbuff.c-6330-	}
+net/core/skbuff.c-6331-
+net/core/skbuff.c:6332:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/core/skbuff.c-6333-	if (unlikely(!skb))
+net/core/skbuff.c-6334-		goto err_free;
+net/core/skbuff.c-6335-	/* We may access the two bytes after vlan_hdr in vlan_set_encap_proto(). */
+net/core/skbuff.c-6336-	if (unlikely(!pskb_may_pull(skb, VLAN_HLEN + sizeof(unsigned short))))
+net/core/skbuff.c-6337-		goto err_free;
+net/core/skbuff.c-6338-
+--
+net/core/skbuff.c-6365-	if (!pskb_may_pull(skb, write_len))
+net/core/skbuff.c-6366-		return -ENOMEM;
+net/core/skbuff.c-6367-
+net/core/skbuff.c-6368-	if (!skb_cloned(skb) || skb_clone_writable(skb, write_len))
+net/core/skbuff.c-6369-		return 0;
+net/core/skbuff.c-6370-
+net/core/skbuff.c:6371:	return pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+net/core/skbuff.c-6372-}
+net/core/skbuff.c-6373-EXPORT_SYMBOL(skb_ensure_writable);
+net/core/skbuff.c-6374-
+net/core/skbuff.c-6375-int skb_ensure_writable_head_tail(struct sk_buff *skb, struct net_device *dev)
+net/core/skbuff.c-6376-{
+net/core/skbuff.c-6377-	int needed_headroom = dev->needed_headroom;
+--
+net/core/skbuff.c-6389-	needed_tailroom = max_t(int, needed_tailroom - skb_tailroom(skb), 0);
+net/core/skbuff.c-6390-
+net/core/skbuff.c-6391-	if (likely(!needed_headroom && !needed_tailroom && !skb_cloned(skb)))
+net/core/skbuff.c-6392-		/* No reallocation needed, yay! */
+net/core/skbuff.c-6393-		return 0;
+net/core/skbuff.c-6394-
+net/core/skbuff.c:6395:	return pskb_expand_head(skb, needed_headroom, needed_tailroom,
+net/core/skbuff.c-6396-				GFP_ATOMIC);
+net/core/skbuff.c-6397-}
+net/core/skbuff.c-6398-EXPORT_SYMBOL(skb_ensure_writable_head_tail);
+net/core/skbuff.c-6399-
+net/core/skbuff.c-6400-/* remove VLAN header from packet and update csum accordingly.
+net/core/skbuff.c-6401- * expects a non skb_vlan_tag_present skb with a vlan tag payload
+--
+net/batman-adv/main.c-433-	 * shut down otherwise the packet may trigger de-reference errors
+net/batman-adv/main.c-434-	 * further down in the receive path.
+net/batman-adv/main.c-435-	 */
+net/batman-adv/main.c-436-	if (!kref_get_unless_zero(&hard_iface->refcount))
+net/batman-adv/main.c-437-		goto err_out;
+net/batman-adv/main.c-438-
+net/batman-adv/main.c:439:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/batman-adv/main.c-440-
+net/batman-adv/main.c:441:	/* skb was released by skb_share_check() */
+net/batman-adv/main.c-442-	if (!skb)
+net/batman-adv/main.c-443-		goto err_put;
+net/batman-adv/main.c-444-
+net/batman-adv/main.c-445-	/* packet should hold at least type and version */
+net/batman-adv/main.c-446-	if (unlikely(!pskb_may_pull(skb, 2)))
+net/batman-adv/main.c-447-		goto err_free;
+--
+net/core/skb_fault_injection.c-32-
+net/core/skb_fault_injection.c-33-void skb_might_realloc(struct sk_buff *skb)
+net/core/skb_fault_injection.c-34-{
+net/core/skb_fault_injection.c-35-	if (!should_fail_net_realloc_skb(skb))
+net/core/skb_fault_injection.c-36-		return;
+net/core/skb_fault_injection.c-37-
+net/core/skb_fault_injection.c:38:	pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
+net/core/skb_fault_injection.c-39-}
+net/core/skb_fault_injection.c-40-EXPORT_SYMBOL(skb_might_realloc);
+net/core/skb_fault_injection.c-41-
+net/core/skb_fault_injection.c-42-static int __init fail_skb_realloc_setup(char *str)
+net/core/skb_fault_injection.c-43-{
+net/core/skb_fault_injection.c-44-	return setup_fault_attr(&skb_realloc.attr, str);
+--
+net/core/selftests.c-171-	struct iphdr *ihdr;
+net/core/selftests.c-172-
+net/core/selftests.c-173-	skb = skb_unshare(skb, GFP_ATOMIC);
+net/core/selftests.c-174-	if (!skb)
+net/core/selftests.c-175-		goto out;
+net/core/selftests.c-176-
+net/core/selftests.c:177:	if (skb_linearize(skb))
+net/core/selftests.c-178-		goto out;
+net/core/selftests.c-179-	if (skb_headlen(skb) < (NET_TEST_PKT_SIZE - ETH_HLEN))
+net/core/selftests.c-180-		goto out;
+net/core/selftests.c-181-
+net/core/selftests.c-182-	ehdr = (struct ethhdr *)skb_mac_header(skb);
+net/core/selftests.c-183-	if (dst) {
+--
+net/batman-adv/multicast_forw.c-1099-		 */
+net/batman-adv/multicast_forw.c-1100-		WARN_ON(1);
+net/batman-adv/multicast_forw.c-1101-		return -EINVAL;
+net/batman-adv/multicast_forw.c-1102-	}
+net/batman-adv/multicast_forw.c-1103-
+net/batman-adv/multicast_forw.c-1104-	if (skb_headroom(skb) < hdr_size &&
+net/batman-adv/multicast_forw.c:1105:	    pskb_expand_head(skb, hdr_size, 0, GFP_ATOMIC) < 0)
+net/batman-adv/multicast_forw.c-1106-		return -ENOMEM;
+net/batman-adv/multicast_forw.c-1107-
+net/batman-adv/multicast_forw.c-1108-	return 0;
+net/batman-adv/multicast_forw.c-1109-}
+net/batman-adv/multicast_forw.c-1110-
+net/batman-adv/multicast_forw.c-1111-/**
+--
+net/tipc/udp_media.c-238-	struct udp_media_addr *dst = (struct udp_media_addr *)&addr->value;
+net/tipc/udp_media.c-239-	struct udp_replicast *rcast;
+net/tipc/udp_media.c-240-	struct udp_bearer *ub;
+net/tipc/udp_media.c-241-	int err = 0;
+net/tipc/udp_media.c-242-
+net/tipc/udp_media.c-243-	if (skb_headroom(skb) < UDP_MIN_HEADROOM) {
+net/tipc/udp_media.c:244:		err = pskb_expand_head(skb, UDP_MIN_HEADROOM, 0, GFP_ATOMIC);
+net/tipc/udp_media.c-245-		if (err)
+net/tipc/udp_media.c-246-			goto out;
+net/tipc/udp_media.c-247-	}
+net/tipc/udp_media.c-248-
+net/tipc/udp_media.c-249-	skb_set_inner_protocol(skb, htons(ETH_P_TIPC));
+net/tipc/udp_media.c-250-	ub = rcu_dereference(b->media_ptr);
+--
+net/llc/llc_input.c-168-	 * receives, do not try to analyse it.
+net/llc/llc_input.c-169-	 */
+net/llc/llc_input.c-170-	if (unlikely(skb->pkt_type == PACKET_OTHERHOST)) {
+net/llc/llc_input.c-171-		dprintk("%s: PACKET_OTHERHOST\n", __func__);
+net/llc/llc_input.c-172-		goto drop;
+net/llc/llc_input.c-173-	}
+net/llc/llc_input.c:174:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/llc/llc_input.c-175-	if (unlikely(!skb))
+net/llc/llc_input.c-176-		goto out;
+net/llc/llc_input.c-177-	if (unlikely(!llc_fixup_skb(skb)))
+net/llc/llc_input.c-178-		goto drop;
+net/llc/llc_input.c-179-	pdu = llc_pdu_sn_hdr(skb);
+net/llc/llc_input.c-180-	if (unlikely(!pdu->dsap)) /* NULL DSAP, refer to station */
+--
+net/mac80211/tdls.c-2014-
+net/mac80211/tdls.c-2015-	/* make sure the driver supports it */
+net/mac80211/tdls.c-2016-	if (!(wiphy->features & NL80211_FEATURE_TDLS_CHANNEL_SWITCH))
+net/mac80211/tdls.c-2017-		return;
+net/mac80211/tdls.c-2018-
+net/mac80211/tdls.c-2019-	/* we want to access the entire packet */
+net/mac80211/tdls.c:2020:	if (skb_linearize(skb))
+net/mac80211/tdls.c-2021-		return;
+net/mac80211/tdls.c-2022-	/*
+net/mac80211/tdls.c-2023-	 * The packet/size was already validated by mac80211 Rx path, only look
+net/mac80211/tdls.c-2024-	 * at the action type.
+net/mac80211/tdls.c-2025-	 */
+net/mac80211/tdls.c-2026-	switch (tf->action_code) {
+--
+net/core/pktgen.c-2764-			struct ethhdr *eth;
+net/core/pktgen.c-2765-			struct iphdr *iph;
+net/core/pktgen.c-2766-			int ret;
+net/core/pktgen.c-2767-
+net/core/pktgen.c-2768-			nhead = x->props.header_len - skb_headroom(skb);
+net/core/pktgen.c-2769-			if (nhead > 0) {
+net/core/pktgen.c:2770:				ret = pskb_expand_head(skb, nhead, 0, GFP_ATOMIC);
+net/core/pktgen.c-2771-				if (ret < 0) {
+net/core/pktgen.c-2772-					pr_err("Error expanding ipsec packet %d\n",
+net/core/pktgen.c-2773-					       ret);
+net/core/pktgen.c-2774-					goto err;
+net/core/pktgen.c-2775-				}
+net/core/pktgen.c-2776-			}
+--
+net/bluetooth/hidp/core.c-1250-		    intr_sk->sk_state != BT_CONNECTED)
+net/bluetooth/hidp/core.c-1251-			break;
+net/bluetooth/hidp/core.c-1252-
+net/bluetooth/hidp/core.c-1253-		/* parse incoming intr-skbs */
+net/bluetooth/hidp/core.c-1254-		while ((skb = skb_dequeue(&intr_sk->sk_receive_queue))) {
+net/bluetooth/hidp/core.c-1255-			skb_orphan(skb);
+net/bluetooth/hidp/core.c:1256:			if (!skb_linearize(skb))
+net/bluetooth/hidp/core.c-1257-				hidp_recv_intr_frame(session, skb);
+net/bluetooth/hidp/core.c-1258-			else
+net/bluetooth/hidp/core.c-1259-				kfree_skb(skb);
+net/bluetooth/hidp/core.c-1260-		}
+net/bluetooth/hidp/core.c-1261-
+net/bluetooth/hidp/core.c-1262-		/* send pending intr-skbs */
+net/bluetooth/hidp/core.c-1263-		hidp_process_transmit(session, &session->intr_transmit,
+net/bluetooth/hidp/core.c-1264-				      session->intr_sock);
+net/bluetooth/hidp/core.c-1265-
+net/bluetooth/hidp/core.c-1266-		/* parse incoming ctrl-skbs */
+net/bluetooth/hidp/core.c-1267-		while ((skb = skb_dequeue(&ctrl_sk->sk_receive_queue))) {
+net/bluetooth/hidp/core.c-1268-			skb_orphan(skb);
+net/bluetooth/hidp/core.c:1269:			if (!skb_linearize(skb))
+net/bluetooth/hidp/core.c-1270-				hidp_recv_ctrl_frame(session, skb);
+net/bluetooth/hidp/core.c-1271-			else
+net/bluetooth/hidp/core.c-1272-				kfree_skb(skb);
+net/bluetooth/hidp/core.c-1273-		}
+net/bluetooth/hidp/core.c-1274-
+net/bluetooth/hidp/core.c-1275-		/* send pending ctrl-skbs */
+--
+net/bluetooth/bnep/core.c-511-	while (1) {
+net/bluetooth/bnep/core.c-512-		if (atomic_read(&s->terminate))
+net/bluetooth/bnep/core.c-513-			break;
+net/bluetooth/bnep/core.c-514-		/* RX */
+net/bluetooth/bnep/core.c-515-		while ((skb = skb_dequeue(&sk->sk_receive_queue))) {
+net/bluetooth/bnep/core.c-516-			skb_orphan(skb);
+net/bluetooth/bnep/core.c:517:			if (!skb_linearize(skb))
+net/bluetooth/bnep/core.c-518-				bnep_rx_frame(s, skb);
+net/bluetooth/bnep/core.c-519-			else
+net/bluetooth/bnep/core.c-520-				kfree_skb(skb);
+net/bluetooth/bnep/core.c-521-		}
+net/bluetooth/bnep/core.c-522-
+net/bluetooth/bnep/core.c-523-		if (sk->sk_state != BT_CONNECTED)
+--
+net/tipc/socket.c-1746-
+net/tipc/socket.c-1747-	hdr = buf_msg(skb);
+net/tipc/socket.c-1748-	dlen = msg_data_sz(hdr);
+net/tipc/socket.c-1749-
+net/tipc/socket.c-1750-	/* Capture errored message object, if any */
+net/tipc/socket.c-1751-	if (msg_errcode(hdr)) {
+net/tipc/socket.c:1752:		if (skb_linearize(skb))
+net/tipc/socket.c-1753-			return -ENOMEM;
+net/tipc/socket.c-1754-		hdr = buf_msg(skb);
+net/tipc/socket.c-1755-		data[0] = msg_errcode(hdr);
+net/tipc/socket.c-1756-		data[1] = dlen;
+net/tipc/socket.c-1757-		rc = put_cmsg(m, SOL_TIPC, TIPC_ERRINFO, 8, data);
+net/tipc/socket.c-1758-		if (rc || !dlen)
+--
+net/bluetooth/6lowpan.c-272-
+net/bluetooth/6lowpan.c-273-	if (dev->type != ARPHRD_6LOWPAN || !skb->len)
+net/bluetooth/6lowpan.c-274-		goto drop;
+net/bluetooth/6lowpan.c-275-
+net/bluetooth/6lowpan.c-276-	skb_reset_network_header(skb);
+net/bluetooth/6lowpan.c-277-
+net/bluetooth/6lowpan.c:278:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/bluetooth/6lowpan.c-279-	if (!skb)
+net/bluetooth/6lowpan.c-280-		goto drop;
+net/bluetooth/6lowpan.c-281-
+net/bluetooth/6lowpan.c-282-	/* check that it's our buffer */
+net/bluetooth/6lowpan.c-283-	if (lowpan_is_ipv6(*skb_network_header(skb))) {
+net/bluetooth/6lowpan.c-284-		/* Pull off the 1-byte of 6lowpan header. */
+--
+net/tipc/node.c-2137-	if (unlikely(!n))
+net/tipc/node.c-2138-		goto discard;
+net/tipc/node.c-2139-	le = &n->links[bearer_id];
+net/tipc/node.c-2140-
+net/tipc/node.c-2141-	/* Ensure broadcast reception is in synch with peer's send state */
+net/tipc/node.c-2142-	if (unlikely(usr == LINK_PROTOCOL)) {
+net/tipc/node.c:2143:		if (unlikely(skb_linearize(skb))) {
+net/tipc/node.c-2144-			tipc_node_put(n);
+net/tipc/node.c-2145-			goto discard;
+net/tipc/node.c-2146-		}
+net/tipc/node.c-2147-		hdr = buf_msg(skb);
+net/tipc/node.c-2148-		tipc_node_bc_sync_rcv(n, hdr, bearer_id, &xmitq);
+net/tipc/node.c-2149-	} else if (unlikely(tipc_link_acked(n->bc_entry.link) != bc_ack)) {
+--
+net/tipc/node.c-2161-		spin_unlock_bh(&le->lock);
+net/tipc/node.c-2162-	}
+net/tipc/node.c-2163-	tipc_node_read_unlock(n);
+net/tipc/node.c-2164-
+net/tipc/node.c-2165-	/* Check/update node state before receiving */
+net/tipc/node.c-2166-	if (unlikely(skb)) {
+net/tipc/node.c:2167:		if (unlikely(skb_linearize(skb)))
+net/tipc/node.c-2168-			goto out_node_put;
+net/tipc/node.c-2169-		tipc_node_write_lock(n);
+net/tipc/node.c-2170-		if (tipc_node_check_state(n, skb, bearer_id, &xmitq)) {
+net/tipc/node.c-2171-			if (le->link) {
+net/tipc/node.c-2172-				rc = tipc_link_rcv(le->link, skb, &xmitq);
+net/tipc/node.c-2173-				skb = NULL;
+--
+net/mac80211/rx.c-762-		 * RX header they pull before we get here, and that should
+net/mac80211/rx.c-763-		 * be big enough for our radiotap information. We should
+net/mac80211/rx.c-764-		 * probably export the length to drivers so that we can have
+net/mac80211/rx.c-765-		 * them allocate enough headroom to start with.
+net/mac80211/rx.c-766-		 */
+net/mac80211/rx.c-767-		if (skb_headroom(skb) < needed_headroom &&
+net/mac80211/rx.c:768:		    pskb_expand_head(skb, needed_headroom, 0, GFP_ATOMIC)) {
+net/mac80211/rx.c-769-			dev_kfree_skb(skb);
+net/mac80211/rx.c-770-			return NULL;
+net/mac80211/rx.c-771-		}
+net/mac80211/rx.c-772-	} else {
+net/mac80211/rx.c-773-		/*
+net/mac80211/rx.c-774-		 * Need to make a copy and possibly remove radiotap header
+--
+net/mac80211/rx.c-2393-
+net/mac80211/rx.c-2394-	if (is_multicast_ether_addr(hdr->addr1))
+net/mac80211/rx.c-2395-		return RX_DROP_U_MCAST_FRAGMENT;
+net/mac80211/rx.c-2396-
+net/mac80211/rx.c-2397-	I802_DEBUG_INC(rx->local->rx_handlers_fragments);
+net/mac80211/rx.c-2398-
+net/mac80211/rx.c:2399:	if (skb_linearize(rx->skb))
+net/mac80211/rx.c-2400-		return RX_DROP_U_OOM;
+net/mac80211/rx.c-2401-
+net/mac80211/rx.c-2402-	/*
+net/mac80211/rx.c:2403:	 *  skb_linearize() might change the skb->data and
+net/mac80211/rx.c-2404-	 *  previously cached variables (in this case, hdr) need to
+net/mac80211/rx.c-2405-	 *  be refreshed with the new data.
+net/mac80211/rx.c-2406-	 */
+net/mac80211/rx.c-2407-	hdr = (struct ieee80211_hdr *)rx->skb->data;
+net/mac80211/rx.c-2408-	seq = (sc & IEEE80211_SCTL_SEQ) >> 4;
+net/mac80211/rx.c-2409-
+--
+net/mac80211/rx.c-2502-		return RX_QUEUED;
+net/mac80211/rx.c-2503-	}
+net/mac80211/rx.c-2504-
+net/mac80211/rx.c-2505-	rx->skb = __skb_dequeue(&entry->skb_list);
+net/mac80211/rx.c-2506-	if (skb_tailroom(rx->skb) < entry->extra_len) {
+net/mac80211/rx.c-2507-		I802_DEBUG_INC(rx->local->rx_expand_skb_head_defrag);
+net/mac80211/rx.c:2508:		if (unlikely(pskb_expand_head(rx->skb, 0, entry->extra_len,
+net/mac80211/rx.c-2509-					      GFP_ATOMIC))) {
+net/mac80211/rx.c-2510-			I802_DEBUG_INC(rx->local->rx_handlers_drop_defrag);
+net/mac80211/rx.c-2511-			__skb_queue_purge(&entry->skb_list);
+net/mac80211/rx.c-2512-			return RX_DROP_U_OOM;
+net/mac80211/rx.c-2513-		}
+net/mac80211/rx.c-2514-	}
+--
+net/mac80211/rx.c-2915-		return false;
+net/mac80211/rx.c-2916-
+net/mac80211/rx.c-2917-	sta = rcu_dereference(entry->mpath->next_hop);
+net/mac80211/rx.c-2918-	if (!sta)
+net/mac80211/rx.c-2919-		return false;
+net/mac80211/rx.c-2920-
+net/mac80211/rx.c:2921:	if (skb_linearize(skb))
+net/mac80211/rx.c-2922-		return false;
+net/mac80211/rx.c-2923-
+net/mac80211/rx.c-2924-	tid = skb->priority & IEEE80211_QOS_CTL_TAG1D_MASK;
+net/mac80211/rx.c-2925-	tid_tx = rcu_dereference(sta->ampdu_mlme.tid_tx[tid]);
+net/mac80211/rx.c-2926-	if (tid_tx) {
+net/mac80211/rx.c-2927-		if (!test_bit(HT_AGG_STATE_OPERATIONAL, &tid_tx->state))
+--
+net/mac80211/rx.c-3075-		fwd_skb = skb;
+net/mac80211/rx.c-3076-		skb = NULL;
+net/mac80211/rx.c-3077-
+net/mac80211/rx.c-3078-		if (skb_cow_head(fwd_skb, hdrlen - sizeof(struct ethhdr)))
+net/mac80211/rx.c-3079-			return RX_DROP_U_OOM;
+net/mac80211/rx.c-3080-
+net/mac80211/rx.c:3081:		if (skb_linearize(fwd_skb))
+net/mac80211/rx.c-3082-			return RX_DROP_U_OOM;
+net/mac80211/rx.c-3083-	}
+net/mac80211/rx.c-3084-
+net/mac80211/rx.c-3085-	fwd_hdr = skb_push(fwd_skb, hdrlen - sizeof(struct ethhdr));
+net/mac80211/rx.c-3086-	memcpy(fwd_hdr, &hdr, hdrlen - 2);
+net/mac80211/rx.c-3087-	qos = ieee80211_get_qos_ctl(fwd_hdr);
+--
+net/mac80211/rx.c-5372-
+net/mac80211/rx.c-5373-	if (ieee80211_is_mgmt(fc)) {
+net/mac80211/rx.c-5374-		/* drop frame if too short for header */
+net/mac80211/rx.c-5375-		if (skb->len < ieee80211_hdrlen(fc))
+net/mac80211/rx.c-5376-			err = -ENOBUFS;
+net/mac80211/rx.c-5377-		else
+net/mac80211/rx.c:5378:			err = skb_linearize(skb);
+net/mac80211/rx.c-5379-	} else {
+net/mac80211/rx.c-5380-		err = !pskb_may_pull(skb, ieee80211_hdrlen(fc));
+net/mac80211/rx.c-5381-	}
+net/mac80211/rx.c-5382-
+net/mac80211/rx.c-5383-	if (err) {
+net/mac80211/rx.c-5384-		dev_kfree_skb(skb);
+--
+net/core/dev.c-5561-	err = skb_cow_data_for_xdp(this_cpu_read(system_page_pool.pool), pskb, prog);
+net/core/dev.c-5562-	local_unlock_nested_bh(&system_page_pool.bh_lock);
+net/core/dev.c-5563-	if (!err)
+net/core/dev.c-5564-		return 0;
+net/core/dev.c-5565-
+net/core/dev.c-5566-	/* In case we have to go down the path and also linearize,
+net/core/dev.c:5567:	 * then lets do the pskb_expand_head() work just once here.
+net/core/dev.c-5568-	 */
+net/core/dev.c-5569-	hroom = XDP_PACKET_HEADROOM - skb_headroom(skb);
+net/core/dev.c-5570-	troom = skb->tail + skb->data_len - skb->end;
+net/core/dev.c:5571:	err = pskb_expand_head(skb,
+net/core/dev.c-5572-			       hroom > 0 ? ALIGN(hroom, NET_SKB_PAD) : 0,
+net/core/dev.c-5573-			       troom > 0 ? troom + 128 : 0, GFP_ATOMIC);
+net/core/dev.c-5574-	if (err)
+net/core/dev.c-5575-		return err;
+net/core/dev.c-5576-
+net/core/dev.c:5577:	return skb_linearize(skb);
+net/core/dev.c-5578-}
+net/core/dev.c-5579-
+net/core/dev.c-5580-static u32 netif_receive_generic_xdp(struct sk_buff **pskb,
+net/core/dev.c-5581-				     struct xdp_buff *xdp,
+net/core/dev.c-5582-				     const struct bpf_prog *xdp_prog)
+net/core/dev.c-5583-{
+--
+net/core/filter.c-3329-	.ret_type       = RET_INTEGER,
+net/core/filter.c-3330-	.arg1_type      = ARG_PTR_TO_CTX,
+net/core/filter.c-3331-};
+net/core/filter.c-3332-
+net/core/filter.c-3333-static int bpf_skb_generic_push(struct sk_buff *skb, u32 off, u32 len)
+net/core/filter.c-3334-{
+net/core/filter.c:3335:	/* Caller already did skb_cow() with meta_len+len as headroom,
+net/core/filter.c-3336-	 * so no need to do it here.
+net/core/filter.c-3337-	 */
+net/core/filter.c-3338-	skb_push(skb, len);
+net/core/filter.c-3339-	skb_postpush_data_move(skb, len, off);
+net/core/filter.c-3340-	memset(skb->data + off, 0, len);
+net/core/filter.c-3341-
+--
+net/core/filter.c-3406-{
+net/core/filter.c-3407-	const u32 len_diff = sizeof(struct ipv6hdr) - sizeof(struct iphdr);
+net/core/filter.c-3408-	const u8 meta_len = skb_metadata_len(skb);
+net/core/filter.c-3409-	u32 off = skb_mac_header_len(skb);
+net/core/filter.c-3410-	int ret;
+net/core/filter.c-3411-
+net/core/filter.c:3412:	ret = skb_cow(skb, meta_len + len_diff);
+net/core/filter.c-3413-	if (unlikely(ret < 0))
+net/core/filter.c-3414-		return ret;
+net/core/filter.c-3415-
+net/core/filter.c-3416-	ret = bpf_skb_net_hdr_push(skb, off, len_diff);
+net/core/filter.c-3417-	if (unlikely(ret < 0))
+net/core/filter.c-3418-		return ret;
+--
+net/core/filter.c-3437-static int bpf_skb_proto_6_to_4(struct sk_buff *skb)
+net/core/filter.c-3438-{
+net/core/filter.c-3439-	const u32 len_diff = sizeof(struct ipv6hdr) - sizeof(struct iphdr);
+net/core/filter.c-3440-	u32 off = skb_mac_header_len(skb);
+net/core/filter.c-3441-	int ret;
+net/core/filter.c-3442-
+net/core/filter.c:3443:	ret = skb_unclone(skb, GFP_ATOMIC);
+net/core/filter.c-3444-	if (unlikely(ret < 0))
+net/core/filter.c-3445-		return ret;
+net/core/filter.c-3446-
+net/core/filter.c-3447-	ret = bpf_skb_net_hdr_pop(skb, off, len_diff);
+net/core/filter.c-3448-	if (unlikely(ret < 0))
+net/core/filter.c-3449-		return ret;
+--
+net/core/filter.c-3676-		 * head_frag true, so linearize the skb after downgrading
+net/core/filter.c-3677-		 * the MSS.
+net/core/filter.c-3678-		 */
+net/core/filter.c-3679-		if (!(flags & BPF_F_ADJ_ROOM_FIXED_GSO)) {
+net/core/filter.c-3680-			skb_decrease_gso_size(shinfo, len_diff);
+net/core/filter.c-3681-			if (shinfo->frag_list)
+net/core/filter.c:3682:				return skb_linearize(skb);
+net/core/filter.c-3683-		}
+net/core/filter.c-3684-	}
+net/core/filter.c-3685-
+net/core/filter.c-3686-	return 0;
+net/core/filter.c-3687-}
+net/core/filter.c-3688-
+--
+net/core/filter.c-3701-		/* udp gso_size delineates datagrams, only allow if fixed */
+net/core/filter.c-3702-		if (!(skb_shinfo(skb)->gso_type & SKB_GSO_UDP_L4) ||
+net/core/filter.c-3703-		    !(flags & BPF_F_ADJ_ROOM_FIXED_GSO))
+net/core/filter.c-3704-			return -ENOTSUPP;
+net/core/filter.c-3705-	}
+net/core/filter.c-3706-
+net/core/filter.c:3707:	ret = skb_unclone(skb, GFP_ATOMIC);
+net/core/filter.c-3708-	if (unlikely(ret < 0))
+net/core/filter.c-3709-		return ret;
+net/core/filter.c-3710-
+net/core/filter.c-3711-	ret = bpf_skb_net_hdr_pop(skb, off, len_diff);
+net/core/filter.c-3712-	if (unlikely(ret < 0))
+net/core/filter.c-3713-		return ret;
+--
+net/core/filter.c-3750-	if (unlikely(flags || mode))
+net/core/filter.c-3751-		return -EINVAL;
+net/core/filter.c-3752-	if (unlikely(len_diff_abs > 0xfffU))
+net/core/filter.c-3753-		return -EFAULT;
+net/core/filter.c-3754-
+net/core/filter.c-3755-	if (!shrink) {
+net/core/filter.c:3756:		ret = skb_cow(skb, len_diff);
+net/core/filter.c-3757-		if (unlikely(ret < 0))
+net/core/filter.c-3758-			return ret;
+net/core/filter.c-3759-		__skb_push(skb, len_diff_abs);
+net/core/filter.c-3760-		memset(skb->data, 0, len_diff_abs);
+net/core/filter.c-3761-	} else {
+net/core/filter.c-3762-		if (unlikely(!pskb_may_pull(skb, len_diff_abs)))
+--
+net/core/filter.c-3974-
+net/core/filter.c-3975-	if (unlikely(flags || (int)head_room < 0 ||
+net/core/filter.c-3976-		     (!skb_is_gso(skb) && new_len > max_len) ||
+net/core/filter.c-3977-		     new_len < skb->len))
+net/core/filter.c-3978-		return -EINVAL;
+net/core/filter.c-3979-
+net/core/filter.c:3980:	ret = skb_cow(skb, meta_len + head_room);
+net/core/filter.c-3981-	if (likely(!ret)) {
+net/core/filter.c-3982-		/* Idea for this helper is that we currently only
+net/core/filter.c-3983-		 * allow to expand on mac header. This means that
+net/core/filter.c-3984-		 * skb->protocol network header, etc, stay as is.
+net/core/filter.c-3985-		 * Compared to bpf_skb_change_tail(), we're more
+net/core/filter.c-3986-		 * flexible due to not needing to linearize or
+--
+net/core/lwt_bpf.c-169-
+net/core/lwt_bpf.c-170-static int xmit_check_hhlen(struct sk_buff *skb, int hh_len)
+net/core/lwt_bpf.c-171-{
+net/core/lwt_bpf.c-172-	if (skb_headroom(skb) < hh_len) {
+net/core/lwt_bpf.c-173-		int nhead = HH_DATA_ALIGN(hh_len - skb_headroom(skb));
+net/core/lwt_bpf.c-174-
+net/core/lwt_bpf.c:175:		if (pskb_expand_head(skb, nhead, 0, GFP_ATOMIC))
+net/core/lwt_bpf.c-176-			return -ENOMEM;
+net/core/lwt_bpf.c-177-	}
+net/core/lwt_bpf.c-178-
+net/core/lwt_bpf.c-179-	return 0;
+net/core/lwt_bpf.c-180-}
+net/core/lwt_bpf.c-181-
+--
+net/sctp/input.c-114-		goto discard_it;
+net/sctp/input.c-115-
+net/sctp/input.c-116-	/* If the packet is fragmented and we need to do crc checking,
+net/sctp/input.c-117-	 * it's better to just linearize it otherwise crc computing
+net/sctp/input.c-118-	 * takes longer.
+net/sctp/input.c-119-	 */
+net/sctp/input.c:120:	if (((!is_gso || skb_cloned(skb)) && skb_linearize(skb)) ||
+net/sctp/input.c-121-	    !pskb_may_pull(skb, sizeof(struct sctphdr)))
+net/sctp/input.c-122-		goto discard_it;
+net/sctp/input.c-123-
+net/sctp/input.c-124-	/* Pull up the IP header. */
+net/sctp/input.c-125-	__skb_pull(skb, skb_transport_offset(skb));
+net/sctp/input.c-126-
+--
+net/tipc/name_distr.c-325-	struct sk_buff *skb, *tmp;
+net/tipc/name_distr.c-326-	struct tipc_msg *hdr;
+net/tipc/name_distr.c-327-	u16 seqno;
+net/tipc/name_distr.c-328-
+net/tipc/name_distr.c-329-	spin_lock_bh(&namedq->lock);
+net/tipc/name_distr.c-330-	skb_queue_walk_safe(namedq, skb, tmp) {
+net/tipc/name_distr.c:331:		if (unlikely(skb_linearize(skb))) {
+net/tipc/name_distr.c-332-			__skb_unlink(skb, namedq);
+net/tipc/name_distr.c-333-			kfree_skb(skb);
+net/tipc/name_distr.c-334-			continue;
+net/tipc/name_distr.c-335-		}
+net/tipc/name_distr.c-336-		hdr = buf_msg(skb);
+net/tipc/name_distr.c-337-		seqno = msg_named_seqno(hdr);
+--
+net/tipc/msg.c-325-	int pktno, nof_fragms, dsz, dmax, eat;
+net/tipc/msg.c-326-	struct tipc_msg *_hdr;
+net/tipc/msg.c-327-	struct sk_buff *_skb;
+net/tipc/msg.c-328-	u8 *data;
+net/tipc/msg.c-329-
+net/tipc/msg.c-330-	/* Non-linear buffer? */
+net/tipc/msg.c:331:	if (skb_linearize(skb))
+net/tipc/msg.c-332-		return -ENOMEM;
+net/tipc/msg.c-333-
+net/tipc/msg.c-334-	data = (u8 *)skb->data;
+net/tipc/msg.c-335-	dsz = msg_size(buf_msg(skb));
+net/tipc/msg.c-336-	dmax = pktmax - INT_H_SIZE;
+net/tipc/msg.c-337-	if (dsz <= dmax || !dmax)
+--
+net/tipc/msg.c-557-	}
+net/tipc/msg.c-558-
+net/tipc/msg.c-559-	/* Make a new bundle of the two messages if possible */
+net/tipc/msg.c-560-	tsz = msg_size(buf_msg(tskb));
+net/tipc/msg.c-561-	if (unlikely(mss < BUF_ALIGN(INT_H_SIZE + tsz) + msg_size(msg)))
+net/tipc/msg.c-562-		return true;
+net/tipc/msg.c:563:	if (unlikely(pskb_expand_head(tskb, INT_H_SIZE, mss - tsz - INT_H_SIZE,
+net/tipc/msg.c-564-				      GFP_ATOMIC)))
+net/tipc/msg.c-565-		return true;
+net/tipc/msg.c-566-	inner = buf_msg(tskb);
+net/tipc/msg.c-567-	skb_push(tskb, INT_H_SIZE);
+net/tipc/msg.c-568-	outer = buf_msg(tskb);
+net/tipc/msg.c-569-	tipc_msg_init(msg_prevnode(inner), outer, MSG_BUNDLER, 0, INT_H_SIZE,
+--
+net/tipc/msg.c-593-bool tipc_msg_extract(struct sk_buff *skb, struct sk_buff **iskb, int *pos)
+net/tipc/msg.c-594-{
+net/tipc/msg.c-595-	struct tipc_msg *hdr, *ihdr;
+net/tipc/msg.c-596-	int imsz;
+net/tipc/msg.c-597-
+net/tipc/msg.c-598-	*iskb = NULL;
+net/tipc/msg.c:599:	if (unlikely(skb_linearize(skb)))
+net/tipc/msg.c-600-		goto none;
+net/tipc/msg.c-601-
+net/tipc/msg.c-602-	hdr = buf_msg(skb);
+net/tipc/msg.c-603-	if (unlikely(*pos > (msg_data_sz(hdr) - MIN_H_SIZE)))
+net/tipc/msg.c-604-		goto none;
+net/tipc/msg.c-605-
+--
+net/tipc/msg.c-637-bool tipc_msg_reverse(u32 own_node,  struct sk_buff **skb, int err)
+net/tipc/msg.c-638-{
+net/tipc/msg.c-639-	struct sk_buff *_skb = *skb;
+net/tipc/msg.c-640-	struct tipc_msg *_hdr, *hdr;
+net/tipc/msg.c-641-	int hlen, dlen;
+net/tipc/msg.c-642-
+net/tipc/msg.c:643:	if (skb_linearize(_skb))
+net/tipc/msg.c-644-		goto exit;
+net/tipc/msg.c-645-	_hdr = buf_msg(_skb);
+net/tipc/msg.c-646-	dlen = min_t(uint, msg_data_sz(_hdr), MAX_FORWARD_SIZE);
+net/tipc/msg.c-647-	hlen = msg_hdr_sz(_hdr);
+net/tipc/msg.c-648-
+net/tipc/msg.c-649-	if (msg_dest_droppable(_hdr))
+--
+net/tipc/msg.c-723-		return false;
+net/tipc/msg.c-724-	if (!msg_named(msg))
+net/tipc/msg.c-725-		return false;
+net/tipc/msg.c-726-	if (msg_errcode(msg))
+net/tipc/msg.c-727-		return false;
+net/tipc/msg.c-728-	*err = TIPC_ERR_NO_NAME;
+net/tipc/msg.c:729:	if (skb_linearize(skb))
+net/tipc/msg.c-730-		return false;
+net/tipc/msg.c-731-	msg = buf_msg(skb);
+net/tipc/msg.c-732-	if (msg_reroute_cnt(msg))
+net/tipc/msg.c-733-		return false;
+net/tipc/msg.c-734-	tipc_uaddr(&ua, TIPC_SERVICE_RANGE, scope,
+net/tipc/msg.c-735-		   msg_nametype(msg), inst, inst);
+--
+net/tipc/link.c-2198-	if (tipc_link_is_blocked(l) || !xmitq)
+net/tipc/link.c-2199-		goto exit;
+net/tipc/link.c-2200-
+net/tipc/link.c-2201-	if (tipc_own_addr(l->net) > msg_prevnode(hdr))
+net/tipc/link.c-2202-		l->net_plane = msg_net_plane(hdr);
+net/tipc/link.c-2203-
+net/tipc/link.c:2204:	if (skb_linearize(skb))
+net/tipc/link.c-2205-		goto exit;
+net/tipc/link.c-2206-
+net/tipc/link.c-2207-	hdr = buf_msg(skb);
+net/tipc/link.c-2208-	data = msg_data(hdr);
+net/tipc/link.c-2209-
+net/tipc/link.c-2210-	if (!tipc_link_validate_msg(l, hdr)) {
+--
+net/ipv4/inet_fragment.c-543-	}
+net/ipv4/inet_fragment.c-544-	WARN_ON(FRAG_CB(head)->ip_defrag_offset != 0);
+net/ipv4/inet_fragment.c-545-
+net/ipv4/inet_fragment.c-546-	delta = -head->truesize;
+net/ipv4/inet_fragment.c-547-
+net/ipv4/inet_fragment.c-548-	/* Head of list must not be cloned. */
+net/ipv4/inet_fragment.c:549:	if (skb_unclone(head, GFP_ATOMIC))
+net/ipv4/inet_fragment.c-550-		goto out_restore_sk;
+net/ipv4/inet_fragment.c-551-
+net/ipv4/inet_fragment.c-552-	delta += head->truesize;
+net/ipv4/inet_fragment.c-553-	if (delta)
+net/ipv4/inet_fragment.c-554-		add_frag_mem_limit(q->fqdir, delta);
+net/ipv4/inet_fragment.c-555-
+--
+net/mac80211/mesh.c-793-		if (!test_bit(HT_AGG_STATE_OPERATIONAL, &tid_tx->state))
+net/mac80211/mesh.c-794-			return false;
+net/mac80211/mesh.c-795-		if (tid_tx->timeout)
+net/mac80211/mesh.c-796-			tid_tx->last_tx = jiffies;
+net/mac80211/mesh.c-797-	}
+net/mac80211/mesh.c-798-
+net/mac80211/mesh.c:799:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/mac80211/mesh.c-800-	if (!skb)
+net/mac80211/mesh.c-801-		return true;
+net/mac80211/mesh.c-802-
+net/mac80211/mesh.c-803-	skb_set_queue_mapping(skb, ieee80211_select_queue(sdata, sta, skb));
+net/mac80211/mesh.c-804-
+net/mac80211/mesh.c-805-	meshhdr = (struct ieee80211s_hdr *)entry->hdr;
+--
+net/ipv4/cipso_ipv4.c-2192-	 * if we need to we can always revisit this choice later */
+net/ipv4/cipso_ipv4.c-2193-
+net/ipv4/cipso_ipv4.c-2194-	len_delta = opt_len - opt->optlen;
+net/ipv4/cipso_ipv4.c-2195-	/* if we don't ensure enough headroom we could panic on the skb_push()
+net/ipv4/cipso_ipv4.c-2196-	 * call below so make sure we have enough, we are also "mangling" the
+net/ipv4/cipso_ipv4.c-2197-	 * packet so we should probably do a copy-on-write call anyway */
+net/ipv4/cipso_ipv4.c:2198:	ret_val = skb_cow(skb,
+net/ipv4/cipso_ipv4.c-2199-			  skb_headroom(skb) + (len_delta > 0 ? len_delta : 0));
+net/ipv4/cipso_ipv4.c-2200-	if (ret_val < 0)
+net/ipv4/cipso_ipv4.c-2201-		return ret_val;
+net/ipv4/cipso_ipv4.c-2202-
+net/ipv4/cipso_ipv4.c-2203-	if (len_delta > 0) {
+net/ipv4/cipso_ipv4.c-2204-		/* we assume that the header + opt->optlen have already been
+--
+net/ipv4/cipso_ipv4.c-2255-	unsigned char *cipso_ptr;
+net/ipv4/cipso_ipv4.c-2256-
+net/ipv4/cipso_ipv4.c-2257-	if (opt->cipso == 0)
+net/ipv4/cipso_ipv4.c-2258-		return 0;
+net/ipv4/cipso_ipv4.c-2259-
+net/ipv4/cipso_ipv4.c-2260-	/* since we are changing the packet we should make a copy */
+net/ipv4/cipso_ipv4.c:2261:	ret_val = skb_cow(skb, skb_headroom(skb));
+net/ipv4/cipso_ipv4.c-2262-	if (ret_val < 0)
+net/ipv4/cipso_ipv4.c-2263-		return ret_val;
+net/ipv4/cipso_ipv4.c-2264-
+net/ipv4/cipso_ipv4.c-2265-	iph = ip_hdr(skb);
+net/ipv4/cipso_ipv4.c-2266-	cipso_ptr = (unsigned char *)iph + opt->cipso;
+net/ipv4/cipso_ipv4.c-2267-	cipso_len = cipso_ptr[1];
+--
+net/ipv6/xfrm6_input.c-118-
+net/ipv6/xfrm6_input.c-119-	/* At this point we are sure that this is an ESPinUDP packet,
+net/ipv6/xfrm6_input.c-120-	 * so we need to remove 'len' bytes from the packet (the UDP
+net/ipv6/xfrm6_input.c-121-	 * header and optional ESP marker bytes) and then modify the
+net/ipv6/xfrm6_input.c-122-	 * protocol to ESP, and then call into the transform receiver.
+net/ipv6/xfrm6_input.c-123-	 */
+net/ipv6/xfrm6_input.c:124:	if (skb_unclone(skb, GFP_ATOMIC))
+net/ipv6/xfrm6_input.c-125-		return -EINVAL;
+net/ipv6/xfrm6_input.c-126-
+net/ipv6/xfrm6_input.c-127-	/* Now we can update and verify the packet length... */
+net/ipv6/xfrm6_input.c-128-	ip6h = ipv6_hdr(skb);
+net/ipv6/xfrm6_input.c-129-	ip6h->payload_len = htons(ntohs(ip6h->payload_len) - len);
+net/ipv6/xfrm6_input.c-130-	if (skb->len < ip6hlen + len) {
+--
+net/ipv4/xfrm4_input.c-122-
+net/ipv4/xfrm4_input.c-123-	/* At this point we are sure that this is an ESPinUDP packet,
+net/ipv4/xfrm4_input.c-124-	 * so we need to remove 'len' bytes from the packet (the UDP
+net/ipv4/xfrm4_input.c-125-	 * header and optional ESP marker bytes) and then modify the
+net/ipv4/xfrm4_input.c-126-	 * protocol to ESP, and then call into the transform receiver.
+net/ipv4/xfrm4_input.c-127-	 */
+net/ipv4/xfrm4_input.c:128:	if (skb_unclone(skb, GFP_ATOMIC))
+net/ipv4/xfrm4_input.c-129-		return -EINVAL;
+net/ipv4/xfrm4_input.c-130-
+net/ipv4/xfrm4_input.c-131-	/* Now we can update and verify the packet length... */
+net/ipv4/xfrm4_input.c-132-	iph = ip_hdr(skb);
+net/ipv4/xfrm4_input.c-133-	iphlen = iph->ihl << 2;
+net/ipv4/xfrm4_input.c-134-	iph->tot_len = htons(ntohs(iph->tot_len) - len);
+--
+net/tipc/bearer.c-502-
+net/tipc/bearer.c-503-	dev = (struct net_device *)rcu_dereference(b->media_ptr);
+net/tipc/bearer.c-504-	if (!dev)
+net/tipc/bearer.c-505-		return 0;
+net/tipc/bearer.c-506-
+net/tipc/bearer.c-507-	delta = SKB_DATA_ALIGN(dev->hard_header_len - skb_headroom(skb));
+net/tipc/bearer.c:508:	if ((delta > 0) && pskb_expand_head(skb, delta, 0, GFP_ATOMIC)) {
+net/tipc/bearer.c-509-		kfree_skb(skb);
+net/tipc/bearer.c-510-		return 0;
+net/tipc/bearer.c-511-	}
+net/tipc/bearer.c-512-	skb_reset_network_header(skb);
+net/tipc/bearer.c-513-	skb->dev = dev;
+net/tipc/bearer.c-514-	skb->protocol = htons(ETH_P_TIPC);
+--
+net/tipc/bearer.c-770-	skb_queue_walk(pkts, _skb) {
+net/tipc/bearer.c-771-		skb = pskb_copy(_skb, GFP_ATOMIC);
+net/tipc/bearer.c-772-		if (!skb)
+net/tipc/bearer.c-773-			continue;
+net/tipc/bearer.c-774-
+net/tipc/bearer.c-775-		exp = SKB_DATA_ALIGN(dev->hard_header_len - skb_headroom(skb));
+net/tipc/bearer.c:776:		if (exp > 0 && pskb_expand_head(skb, exp, 0, GFP_ATOMIC)) {
+net/tipc/bearer.c-777-			kfree_skb(skb);
+net/tipc/bearer.c-778-			continue;
+net/tipc/bearer.c-779-		}
+net/tipc/bearer.c-780-
+net/tipc/bearer.c-781-		skb_reset_network_header(skb);
+net/tipc/bearer.c-782-		dev_hard_header(skb, dev, ETH_P_TIPC, dev->dev_addr,
+--
+net/ipv4/inet_diag.c-373-						   MAX_DUMP_ALLOC_SIZE);
+net/ipv4/inet_diag.c-374-
+net/ipv4/inet_diag.c-375-		if (!first_nlmsg)
+net/ipv4/inet_diag.c-376-			goto errout;
+net/ipv4/inet_diag.c-377-
+net/ipv4/inet_diag.c-378-		if (cb->min_dump_alloc > prev_min_dump_alloc)
+net/ipv4/inet_diag.c:379:			/* Retry with pskb_expand_head() with
+net/ipv4/inet_diag.c-380-			 * __GFP_DIRECT_RECLAIM
+net/ipv4/inet_diag.c-381-			 */
+net/ipv4/inet_diag.c-382-			goto errout;
+net/ipv4/inet_diag.c-383-
+net/ipv4/inet_diag.c-384-		WARN_ON_ONCE(total_nla_size <= prev_min_dump_alloc);
+net/ipv4/inet_diag.c-385-
+--
+net/ipv4/inet_diag.c-826-		err = -ENOENT;
+net/ipv4/inet_diag.c-827-	}
+net/ipv4/inet_diag.c-828-	/* The skb is not large enough to fit one sk info and
+net/ipv4/inet_diag.c-829-	 * inet_sk_diag_fill() has requested for a larger skb.
+net/ipv4/inet_diag.c-830-	 */
+net/ipv4/inet_diag.c-831-	if (!skb->len && cb->min_dump_alloc > prev_min_dump_alloc) {
+net/ipv4/inet_diag.c:832:		err = pskb_expand_head(skb, 0, cb->min_dump_alloc, GFP_KERNEL);
+net/ipv4/inet_diag.c-833-		if (!err)
+net/ipv4/inet_diag.c-834-			goto again;
+net/ipv4/inet_diag.c-835-	}
+net/ipv4/inet_diag.c-836-
+net/ipv4/inet_diag.c-837-	return err ? : skb->len;
+net/ipv4/inet_diag.c-838-}
+--
+net/tipc/discover.c-210-	u32 mtyp = msg_type(hdr);
+net/tipc/discover.c-211-	bool dupl_addr = false;
+net/tipc/discover.c-212-	bool respond = false;
+net/tipc/discover.c-213-	u32 self;
+net/tipc/discover.c-214-	int err;
+net/tipc/discover.c-215-
+net/tipc/discover.c:216:	if (skb_linearize(skb)) {
+net/tipc/discover.c-217-		kfree_skb(skb);
+net/tipc/discover.c-218-		return;
+net/tipc/discover.c-219-	}
+net/tipc/discover.c-220-	hdr = buf_msg(skb);
+net/tipc/discover.c-221-
+net/tipc/discover.c-222-	if (caps & TIPC_NODE_ID128)
+--
+net/ipv4/arp.c-973-	/* do not tweak dropwatch on an ARP we will ignore */
+net/ipv4/arp.c-974-	if (dev->flags & IFF_NOARP ||
+net/ipv4/arp.c-975-	    skb->pkt_type == PACKET_OTHERHOST ||
+net/ipv4/arp.c-976-	    skb->pkt_type == PACKET_LOOPBACK)
+net/ipv4/arp.c-977-		goto consumeskb;
+net/ipv4/arp.c-978-
+net/ipv4/arp.c:979:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/ipv4/arp.c-980-	if (!skb)
+net/ipv4/arp.c-981-		goto out_of_mem;
+net/ipv4/arp.c-982-
+net/ipv4/arp.c-983-	/* ARP header, plus 2 device addresses, plus 2 IP addresses.  */
+net/ipv4/arp.c-984-	drop_reason = pskb_may_pull_reason(skb, arp_hdr_len(dev));
+net/ipv4/arp.c-985-	if (drop_reason != SKB_NOT_DROPPED_YET)
+--
+net/sched/sch_netem.c-531-		skb = skb_unshare(skb, GFP_ATOMIC);
+net/sched/sch_netem.c-532-		if (unlikely(!skb)) {
+net/sched/sch_netem.c-533-			WRITE_ONCE(q->allocation_errors, q->allocation_errors + 1);
+net/sched/sch_netem.c-534-			qdisc_qstats_drop(sch);
+net/sched/sch_netem.c-535-			goto finish_segs;
+net/sched/sch_netem.c-536-		}
+net/sched/sch_netem.c:537:		if (skb_linearize(skb) ||
+net/sched/sch_netem.c-538-		    (skb->ip_summed == CHECKSUM_PARTIAL && skb_checksum_help(skb))) {
+net/sched/sch_netem.c-539-			WRITE_ONCE(q->allocation_errors, q->allocation_errors + 1);
+net/sched/sch_netem.c-540-			qdisc_drop(skb, sch, to_free);
+net/sched/sch_netem.c-541-			skb = NULL;
+net/sched/sch_netem.c-542-			goto finish_segs;
+net/sched/sch_netem.c-543-		}
+--
+net/ipv4/ah4.c-350-
+net/ipv4/ah4.c-351-	if (!pskb_may_pull(skb, ah_hlen))
+net/ipv4/ah4.c-352-		goto out;
+net/ipv4/ah4.c-353-
+net/ipv4/ah4.c-354-	/* We are going to _remove_ AH header to keep sockets happy,
+net/ipv4/ah4.c-355-	 * so... Later this can change. */
+net/ipv4/ah4.c:356:	if (skb_unclone(skb, GFP_ATOMIC))
+net/ipv4/ah4.c-357-		goto out;
+net/ipv4/ah4.c-358-
+net/ipv4/ah4.c-359-	skb->ip_summed = CHECKSUM_NONE;
+net/ipv4/ah4.c-360-
+net/ipv4/ah4.c-361-
+net/ipv4/ah4.c-362-	if ((err = skb_cow_data(skb, 0, &trailer)) < 0)
+--
+net/tipc/crypto.c-2163- */
+net/tipc/crypto.c-2164-void tipc_crypto_msg_rcv(struct net *net, struct sk_buff *skb)
+net/tipc/crypto.c-2165-{
+net/tipc/crypto.c-2166-	struct tipc_crypto *rx;
+net/tipc/crypto.c-2167-	struct tipc_msg *hdr;
+net/tipc/crypto.c-2168-
+net/tipc/crypto.c:2169:	if (unlikely(skb_linearize(skb)))
+net/tipc/crypto.c-2170-		goto exit;
+net/tipc/crypto.c-2171-
+net/tipc/crypto.c-2172-	hdr = buf_msg(skb);
+net/tipc/crypto.c-2173-	rx = tipc_node_crypto_rx_by_addr(net, msg_prevnode(hdr));
+net/tipc/crypto.c-2174-	if (unlikely(!rx))
+net/tipc/crypto.c-2175-		goto exit;
+--
+net/ipv4/icmp.c-761-		goto free_skb;
+net/ipv4/icmp.c-762-
+net/ipv4/icmp.c-763-	if (pskb_trim(skb, nhoff + ICMP_EXT_ORIG_DGRAM_MIN_LEN) ||
+net/ipv4/icmp.c-764-	    __skb_put_padto(skb, nhoff + ICMP_EXT_ORIG_DGRAM_MIN_LEN, false))
+net/ipv4/icmp.c-765-		goto free_skb;
+net/ipv4/icmp.c-766-
+net/ipv4/icmp.c:767:	if (pskb_expand_head(skb, 0, ext_max_len, GFP_ATOMIC))
+net/ipv4/icmp.c-768-		goto free_skb;
+net/ipv4/icmp.c-769-
+net/ipv4/icmp.c-770-	ext_hdr = skb_put_zero(skb, sizeof(*ext_hdr));
+net/ipv4/icmp.c-771-	ext_hdr->version = ICMP_EXT_VERSION_2;
+net/ipv4/icmp.c-772-
+net/ipv4/icmp.c-773-	icmp_ext_objs_append(net, skb, ext_objs, iif);
+--
+net/ipv6/seg6_iptunnel.c-441-		break;
+net/ipv6/seg6_iptunnel.c-442-	case SEG6_IPTUN_MODE_L2ENCAP:
+net/ipv6/seg6_iptunnel.c-443-	case SEG6_IPTUN_MODE_L2ENCAP_RED:
+net/ipv6/seg6_iptunnel.c-444-		if (!skb_mac_header_was_set(skb))
+net/ipv6/seg6_iptunnel.c-445-			return -EINVAL;
+net/ipv6/seg6_iptunnel.c-446-
+net/ipv6/seg6_iptunnel.c:447:		if (pskb_expand_head(skb, skb->mac_len, 0, GFP_ATOMIC) < 0)
+net/ipv6/seg6_iptunnel.c-448-			return -ENOMEM;
+net/ipv6/seg6_iptunnel.c-449-
+net/ipv6/seg6_iptunnel.c-450-		skb_mac_header_rebuild(skb);
+net/ipv6/seg6_iptunnel.c-451-		skb_push(skb, skb->mac_len);
+net/ipv6/seg6_iptunnel.c-452-
+net/ipv6/seg6_iptunnel.c-453-		if (tinfo->mode == SEG6_IPTUN_MODE_L2ENCAP)
+--
+net/ipv4/ip_tunnel_core.c-229-
+net/ipv4/ip_tunnel_core.c-230-	err = pskb_trim(skb, 576 - sizeof(*niph) - sizeof(*icmph));
+net/ipv4/ip_tunnel_core.c-231-	if (err)
+net/ipv4/ip_tunnel_core.c-232-		return err;
+net/ipv4/ip_tunnel_core.c-233-
+net/ipv4/ip_tunnel_core.c-234-	len = skb->len + sizeof(*icmph);
+net/ipv4/ip_tunnel_core.c:235:	err = skb_cow(skb, sizeof(*niph) + sizeof(*icmph) + ETH_HLEN);
+net/ipv4/ip_tunnel_core.c-236-	if (err)
+net/ipv4/ip_tunnel_core.c-237-		return err;
+net/ipv4/ip_tunnel_core.c-238-	iph = ip_hdr(skb);
+net/ipv4/ip_tunnel_core.c-239-	icmph = skb_push(skb, sizeof(*icmph));
+net/ipv4/ip_tunnel_core.c-240-	*icmph = (struct icmphdr) {
+net/ipv4/ip_tunnel_core.c-241-		.type			= ICMP_DEST_UNREACH,
+--
+net/ipv4/ip_tunnel_core.c-332-
+net/ipv4/ip_tunnel_core.c-333-	err = pskb_trim(skb, IPV6_MIN_MTU - sizeof(*nip6h) - sizeof(*icmp6h));
+net/ipv4/ip_tunnel_core.c-334-	if (err)
+net/ipv4/ip_tunnel_core.c-335-		return err;
+net/ipv4/ip_tunnel_core.c-336-
+net/ipv4/ip_tunnel_core.c-337-	len = skb->len + sizeof(*icmp6h);
+net/ipv4/ip_tunnel_core.c:338:	err = skb_cow(skb, sizeof(*nip6h) + sizeof(*icmp6h) + ETH_HLEN);
+net/ipv4/ip_tunnel_core.c-339-	if (err)
+net/ipv4/ip_tunnel_core.c-340-		return err;
+net/ipv4/ip_tunnel_core.c-341-
+net/ipv4/ip_tunnel_core.c-342-	ip6h = ipv6_hdr(skb);
+net/ipv4/ip_tunnel_core.c-343-	icmp6h = skb_push(skb, sizeof(*icmp6h));
+net/ipv4/ip_tunnel_core.c-344-	*icmp6h = (struct icmp6hdr) {
+--
+net/qrtr/smd.c-39-/* from qrtr to smd */
+net/qrtr/smd.c-40-static int qcom_smd_qrtr_send(struct qrtr_endpoint *ep, struct sk_buff *skb)
+net/qrtr/smd.c-41-{
+net/qrtr/smd.c-42-	struct qrtr_smd_dev *qdev = container_of(ep, struct qrtr_smd_dev, ep);
+net/qrtr/smd.c-43-	int rc;
+net/qrtr/smd.c-44-
+net/qrtr/smd.c:45:	rc = skb_linearize(skb);
+net/qrtr/smd.c-46-	if (rc)
+net/qrtr/smd.c-47-		goto out;
+net/qrtr/smd.c-48-
+net/qrtr/smd.c-49-	rc = rpmsg_send(qdev->channel, skb->data, skb->len);
+net/qrtr/smd.c-50-
+net/qrtr/smd.c-51-out:
+--
+net/sched/act_pedit.c-449-			pr_info_ratelimited("tc action pedit offset %d out of bounds\n",
+net/sched/act_pedit.c-450-					    write_offset);
+net/sched/act_pedit.c-451-			goto bad;
+net/sched/act_pedit.c-452-		}
+net/sched/act_pedit.c-453-
+net/sched/act_pedit.c-454-		if (write_offset < 0) {
+net/sched/act_pedit.c:455:			if (skb_cow(skb, -write_offset))
+net/sched/act_pedit.c-456-				goto bad;
+net/sched/act_pedit.c-457-			if (write_offset + (int)sizeof(*ptr) > 0) {
+net/sched/act_pedit.c-458-				if (skb_ensure_writable(skb,
+net/sched/act_pedit.c-459-							min_t(int, skb->len,
+net/sched/act_pedit.c-460-							      write_offset + (int)sizeof(*ptr))))
+net/sched/act_pedit.c-461-					goto bad;
+--
+net/ipv6/icmp.c-603-		goto free_skb;
+net/ipv6/icmp.c-604-
+net/ipv6/icmp.c-605-	if (pskb_trim(skb, nhoff + ICMP_EXT_ORIG_DGRAM_MIN_LEN) ||
+net/ipv6/icmp.c-606-	    __skb_put_padto(skb, nhoff + ICMP_EXT_ORIG_DGRAM_MIN_LEN, false))
+net/ipv6/icmp.c-607-		goto free_skb;
+net/ipv6/icmp.c-608-
+net/ipv6/icmp.c:609:	if (pskb_expand_head(skb, 0, ext_max_len, GFP_ATOMIC))
+net/ipv6/icmp.c-610-		goto free_skb;
+net/ipv6/icmp.c-611-
+net/ipv6/icmp.c-612-	ext_hdr = skb_put_zero(skb, sizeof(*ext_hdr));
+net/ipv6/icmp.c-613-	ext_hdr->version = ICMP_EXT_VERSION_2;
+net/ipv6/icmp.c-614-
+net/ipv6/icmp.c-615-	icmp6_ext_objs_append(net, skb, ext_objs, iif);
+--
+net/qrtr/mhi.c-62-	struct qrtr_mhi_dev *qdev = container_of(ep, struct qrtr_mhi_dev, ep);
+net/qrtr/mhi.c-63-	int rc;
+net/qrtr/mhi.c-64-
+net/qrtr/mhi.c-65-	if (skb->sk)
+net/qrtr/mhi.c-66-		sock_hold(skb->sk);
+net/qrtr/mhi.c-67-
+net/qrtr/mhi.c:68:	rc = skb_linearize(skb);
+net/qrtr/mhi.c-69-	if (rc)
+net/qrtr/mhi.c-70-		goto free_skb;
+net/qrtr/mhi.c-71-
+net/qrtr/mhi.c-72-	rc = mhi_queue_skb(qdev->mhi_dev, DMA_TO_DEVICE, skb, skb->len,
+net/qrtr/mhi.c-73-			   MHI_EOT);
+net/qrtr/mhi.c-74-	if (rc)
+--
+net/bridge/br_input.c-348-
+net/bridge/br_input.c-349-	if (!is_valid_ether_addr(eth_hdr(skb)->h_source)) {
+net/bridge/br_input.c-350-		reason = SKB_DROP_REASON_MAC_INVALID_SOURCE;
+net/bridge/br_input.c-351-		goto drop;
+net/bridge/br_input.c-352-	}
+net/bridge/br_input.c-353-
+net/bridge/br_input.c:354:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/bridge/br_input.c-355-	if (!skb)
+net/bridge/br_input.c-356-		return RX_HANDLER_CONSUMED;
+net/bridge/br_input.c-357-
+net/bridge/br_input.c-358-	memset(skb->cb, 0, sizeof(struct br_input_skb_cb));
+net/bridge/br_input.c-359-	br_tc_skb_miss_set(skb, false);
+net/bridge/br_input.c-360-
+--
+net/ipv4/ip_input.c-275-	   IP options require packet mangling.
+net/ipv4/ip_input.c-276-	   But it is the easiest for now, especially taking
+net/ipv4/ip_input.c-277-	   into account that combination of IP options
+net/ipv4/ip_input.c-278-	   and running sniffer is extremely rare condition.
+net/ipv4/ip_input.c-279-					      --ANK (980813)
+net/ipv4/ip_input.c-280-	*/
+net/ipv4/ip_input.c:281:	if (skb_cow(skb, skb_headroom(skb))) {
+net/ipv4/ip_input.c-282-		__IP_INC_STATS(dev_net(dev), IPSTATS_MIB_INDISCARDS);
+net/ipv4/ip_input.c-283-		return SKB_DROP_REASON_NOMEM;
+net/ipv4/ip_input.c-284-	}
+net/ipv4/ip_input.c-285-
+net/ipv4/ip_input.c-286-	iph = ip_hdr(skb);
+net/ipv4/ip_input.c-287-	opt = &(IPCB(skb)->opt);
+--
+net/ipv4/ip_input.c-510-		drop_reason = SKB_DROP_REASON_OTHERHOST;
+net/ipv4/ip_input.c-511-		goto drop;
+net/ipv4/ip_input.c-512-	}
+net/ipv4/ip_input.c-513-
+net/ipv4/ip_input.c-514-	__IP_UPD_PO_STATS(net, IPSTATS_MIB_IN, skb->len);
+net/ipv4/ip_input.c-515-
+net/ipv4/ip_input.c:516:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/ipv4/ip_input.c-517-	if (!skb) {
+net/ipv4/ip_input.c-518-		__IP_INC_STATS(net, IPSTATS_MIB_INDISCARDS);
+net/ipv4/ip_input.c-519-		goto out;
+net/ipv4/ip_input.c-520-	}
+net/ipv4/ip_input.c-521-
+net/ipv4/ip_input.c-522-	drop_reason = SKB_DROP_REASON_NOT_SPECIFIED;
+--
+net/ipv6/netfilter.c-75-	}
+net/ipv6/netfilter.c-76-#endif
+net/ipv6/netfilter.c-77-
+net/ipv6/netfilter.c-78-	/* Change in oif may mean change in hh_len. */
+net/ipv6/netfilter.c-79-	hh_len = skb_dst_dev(skb)->hard_header_len;
+net/ipv6/netfilter.c-80-	if (skb_headroom(skb) < hh_len &&
+net/ipv6/netfilter.c:81:	    pskb_expand_head(skb, HH_DATA_ALIGN(hh_len - skb_headroom(skb)),
+net/ipv6/netfilter.c-82-			     0, GFP_ATOMIC))
+net/ipv6/netfilter.c-83-		return -ENOMEM;
+net/ipv6/netfilter.c-84-
+net/ipv6/netfilter.c-85-	return 0;
+net/ipv6/netfilter.c-86-}
+net/ipv6/netfilter.c-87-EXPORT_SYMBOL(ip6_route_me_harder);
+--
+net/ipv6/exthdrs.c-265-	if (unlikely(ret < 0)) {
+net/ipv6/exthdrs.c-266-		SKB_DR_SET(reason, XFRM_POLICY);
+net/ipv6/exthdrs.c-267-		goto discard;
+net/ipv6/exthdrs.c-268-	}
+net/ipv6/exthdrs.c-269-
+net/ipv6/exthdrs.c-270-	if (skb_cloned(skb)) {
+net/ipv6/exthdrs.c:271:		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC))
+net/ipv6/exthdrs.c-272-			goto discard;
+net/ipv6/exthdrs.c-273-
+net/ipv6/exthdrs.c-274-		/* update all variable using below by copied skbuff */
+net/ipv6/exthdrs.c-275-		hao = (struct ipv6_destopt_hao *)(skb_network_header(skb) +
+net/ipv6/exthdrs.c-276-						  optoff);
+net/ipv6/exthdrs.c-277-		ipv6h = ipv6_hdr(skb);
+--
+net/ipv6/exthdrs.c-436-				  ((&hdr->segments_left) -
+net/ipv6/exthdrs.c-437-				   skb_network_header(skb)));
+net/ipv6/exthdrs.c-438-		return -1;
+net/ipv6/exthdrs.c-439-	}
+net/ipv6/exthdrs.c-440-
+net/ipv6/exthdrs.c-441-	if (skb_cloned(skb)) {
+net/ipv6/exthdrs.c:442:		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
+net/ipv6/exthdrs.c-443-			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+net/ipv6/exthdrs.c-444-					IPSTATS_MIB_OUTDISCARDS);
+net/ipv6/exthdrs.c-445-			kfree_skb(skb);
+net/ipv6/exthdrs.c-446-			return -1;
+net/ipv6/exthdrs.c-447-		}
+net/ipv6/exthdrs.c-448-
+--
+net/ipv6/exthdrs.c-594-	skb_pull(skb, ((hdr->hdrlen + 1) << 3));
+net/ipv6/exthdrs.c-595-	skb_postpull_rcsum(skb, oldhdr,
+net/ipv6/exthdrs.c-596-			   sizeof(struct ipv6hdr) + ((hdr->hdrlen + 1) << 3));
+net/ipv6/exthdrs.c-597-	chdr_len = sizeof(struct ipv6hdr) + ((chdr->hdrlen + 1) << 3);
+net/ipv6/exthdrs.c-598-	if (unlikely(!hdr->segments_left ||
+net/ipv6/exthdrs.c-599-		     skb_headroom(skb) < chdr_len + skb->mac_len)) {
+net/ipv6/exthdrs.c:600:		if (pskb_expand_head(skb, chdr_len + skb->mac_len, 0,
+net/ipv6/exthdrs.c-601-				     GFP_ATOMIC)) {
+net/ipv6/exthdrs.c-602-			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)), IPSTATS_MIB_OUTDISCARDS);
+net/ipv6/exthdrs.c-603-			kfree_skb(skb);
+net/ipv6/exthdrs.c-604-			kfree(buf);
+net/ipv6/exthdrs.c-605-			return -1;
+net/ipv6/exthdrs.c-606-		}
+--
+net/ipv6/exthdrs.c-759-
+net/ipv6/exthdrs.c-760-	/* We are about to mangle packet header. Be careful!
+net/ipv6/exthdrs.c-761-	   Do not damage packets queued somewhere.
+net/ipv6/exthdrs.c-762-	 */
+net/ipv6/exthdrs.c-763-	if (skb_cloned(skb)) {
+net/ipv6/exthdrs.c-764-		/* the copy is a forwarded packet */
+net/ipv6/exthdrs.c:765:		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
+net/ipv6/exthdrs.c-766-			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+net/ipv6/exthdrs.c-767-					IPSTATS_MIB_OUTDISCARDS);
+net/ipv6/exthdrs.c-768-			kfree_skb(skb);
+net/ipv6/exthdrs.c-769-			return -1;
+net/ipv6/exthdrs.c-770-		}
+net/ipv6/exthdrs.c-771-		hdr = (struct ipv6_rt_hdr *)skb_transport_header(skb);
+--
+net/ipv4/ip_gre.c-895-	struct gre_base_hdr *greh;
+net/ipv4/ip_gre.c-896-	struct iphdr *iph;
+net/ipv4/ip_gre.c-897-	int needed;
+net/ipv4/ip_gre.c-898-
+net/ipv4/ip_gre.c-899-	needed = t->hlen + sizeof(*iph);
+net/ipv4/ip_gre.c-900-	if (skb_headroom(skb) < needed &&
+net/ipv4/ip_gre.c:901:	    pskb_expand_head(skb, HH_DATA_ALIGN(needed - skb_headroom(skb)),
+net/ipv4/ip_gre.c-902-			     0, GFP_ATOMIC))
+net/ipv4/ip_gre.c-903-		return -needed;
+net/ipv4/ip_gre.c-904-
+net/ipv4/ip_gre.c-905-	iph = skb_push(skb, needed);
+net/ipv4/ip_gre.c-906-	greh = (struct gre_base_hdr *)(iph+1);
+net/ipv4/ip_gre.c-907-	greh->flags = gre_tnl_flags_to_gre_flags(t->parms.o_flags);
+--
+net/ipv6/ndisc.c-1805-	struct nd_msg *msg;
+net/ipv6/ndisc.c-1806-	SKB_DR(reason);
+net/ipv6/ndisc.c-1807-
+net/ipv6/ndisc.c-1808-	if (ndisc_suppress_frag_ndisc(skb))
+net/ipv6/ndisc.c-1809-		return SKB_DROP_REASON_IPV6_NDISC_FRAG;
+net/ipv6/ndisc.c-1810-
+net/ipv6/ndisc.c:1811:	if (skb_linearize(skb))
+net/ipv6/ndisc.c-1812-		return SKB_DROP_REASON_NOMEM;
+net/ipv6/ndisc.c-1813-
+net/ipv6/ndisc.c-1814-	msg = (struct nd_msg *)skb_transport_header(skb);
+net/ipv6/ndisc.c-1815-
+net/ipv6/ndisc.c-1816-	__skb_push(skb, skb->data - skb_transport_header(skb));
+net/ipv6/ndisc.c-1817-
+--
+net/ipv4/ip_fragment.c-519-
+net/ipv4/ip_fragment.c-520-	len = ntohs(iph.tot_len);
+net/ipv4/ip_fragment.c-521-	if (skb->len < netoff + len || len < (iph.ihl * 4))
+net/ipv4/ip_fragment.c-522-		return skb;
+net/ipv4/ip_fragment.c-523-
+net/ipv4/ip_fragment.c-524-	if (ip_is_fragment(&iph)) {
+net/ipv4/ip_fragment.c:525:		skb = skb_share_check(skb, GFP_ATOMIC);
+net/ipv4/ip_fragment.c-526-		if (skb) {
+net/ipv4/ip_fragment.c-527-			if (!pskb_may_pull(skb, netoff + iph.ihl * 4)) {
+net/ipv4/ip_fragment.c-528-				kfree_skb(skb);
+net/ipv4/ip_fragment.c-529-				return NULL;
+net/ipv4/ip_fragment.c-530-			}
+net/ipv4/ip_fragment.c-531-			if (pskb_trim_rcsum(skb, netoff + len)) {
+--
+net/bridge/br_arp_nd_proxy.c-264-	int ns_olen;
+net/bridge/br_arp_nd_proxy.c-265-	int i, len;
+net/bridge/br_arp_nd_proxy.c-266-	u8 *daddr;
+net/bridge/br_arp_nd_proxy.c-267-	bool dad;
+net/bridge/br_arp_nd_proxy.c-268-	u16 pvid;
+net/bridge/br_arp_nd_proxy.c-269-
+net/bridge/br_arp_nd_proxy.c:270:	if (!dev || skb_linearize(request))
+net/bridge/br_arp_nd_proxy.c-271-		return;
+net/bridge/br_arp_nd_proxy.c-272-
+net/bridge/br_arp_nd_proxy.c-273-	len = LL_RESERVED_SPACE(dev) + sizeof(struct ipv6hdr) +
+net/bridge/br_arp_nd_proxy.c-274-		sizeof(*na) + na_olen + dev->needed_tailroom;
+net/bridge/br_arp_nd_proxy.c-275-
+net/bridge/br_arp_nd_proxy.c-276-	reply = alloc_skb(len, GFP_ATOMIC);
+--
+net/ipv4/ip_forward.c-138-			  htonl(mtu));
+net/ipv4/ip_forward.c-139-		SKB_DR_SET(reason, PKT_TOO_BIG);
+net/ipv4/ip_forward.c-140-		goto drop;
+net/ipv4/ip_forward.c-141-	}
+net/ipv4/ip_forward.c-142-
+net/ipv4/ip_forward.c-143-	/* We are about to mangle packet. Copy it! */
+net/ipv4/ip_forward.c:144:	if (skb_cow(skb, LL_RESERVED_SPACE(rt->dst.dev)+rt->dst.header_len))
+net/ipv4/ip_forward.c-145-		goto drop;
+net/ipv4/ip_forward.c-146-	iph = ip_hdr(skb);
+net/ipv4/ip_forward.c-147-
+net/ipv4/ip_forward.c-148-	/* Decrease ttl after skb cow done */
+net/ipv4/ip_forward.c-149-	ip_decrease_ttl(iph);
+net/ipv4/ip_forward.c-150-
+--
+net/ipv6/ip6_output.c-672-		__IP6_INC_STATS(net, ip6_dst_idev(dst),
+net/ipv6/ip6_output.c-673-				IPSTATS_MIB_FRAGFAILS);
+net/ipv6/ip6_output.c-674-		kfree_skb_reason(skb, SKB_DROP_REASON_PKT_TOO_BIG);
+net/ipv6/ip6_output.c-675-		return -EMSGSIZE;
+net/ipv6/ip6_output.c-676-	}
+net/ipv6/ip6_output.c-677-
+net/ipv6/ip6_output.c:678:	if (skb_cow(skb, dev->hard_header_len)) {
+net/ipv6/ip6_output.c-679-		__IP6_INC_STATS(net, ip6_dst_idev(dst),
+net/ipv6/ip6_output.c-680-				IPSTATS_MIB_OUTDISCARDS);
+net/ipv6/ip6_output.c-681-		goto drop;
+net/ipv6/ip6_output.c-682-	}
+net/ipv6/ip6_output.c-683-
+net/ipv6/ip6_output.c-684-	hdr = ipv6_hdr(skb);
+--
+net/ipv6/calipso.c-1338-		return ret_val;
+net/ipv6/calipso.c-1339-
+net/ipv6/calipso.c-1340-	new_end = start + ret_val;
+net/ipv6/calipso.c-1341-	/* At this point new_end aligns to 4n, so (new_end & 4) pads to 8n */
+net/ipv6/calipso.c-1342-	pad = ((new_end & 4) + (end & 7)) & 7;
+net/ipv6/calipso.c-1343-	len_delta = new_end - (int)end + pad;
+net/ipv6/calipso.c:1344:	ret_val = skb_cow(skb,
+net/ipv6/calipso.c-1345-			  skb_headroom(skb) + (len_delta > 0 ? len_delta : 0));
+net/ipv6/calipso.c-1346-	if (ret_val < 0)
+net/ipv6/calipso.c-1347-		return ret_val;
+net/ipv6/calipso.c-1348-
+net/ipv6/calipso.c:1349:	ip6_hdr = ipv6_hdr(skb); /* Reset as skb_cow() may have moved it */
+net/ipv6/calipso.c-1350-
+net/ipv6/calipso.c-1351-	if (len_delta) {
+net/ipv6/calipso.c-1352-		if (len_delta > 0)
+net/ipv6/calipso.c-1353-			skb_push(skb, len_delta);
+net/ipv6/calipso.c-1354-		else
+net/ipv6/calipso.c-1355-			skb_pull(skb, -len_delta);
+--
+net/ipv6/calipso.c-1394-	u32 old_hop_len, start = 0, end = 0, delta, size, pad;
+net/ipv6/calipso.c-1395-
+net/ipv6/calipso.c-1396-	if (!calipso_skbuff_optptr(skb))
+net/ipv6/calipso.c-1397-		return 0;
+net/ipv6/calipso.c-1398-
+net/ipv6/calipso.c-1399-	/* since we are changing the packet we should make a copy */
+net/ipv6/calipso.c:1400:	ret_val = skb_cow(skb, skb_headroom(skb));
+net/ipv6/calipso.c-1401-	if (ret_val < 0)
+net/ipv6/calipso.c-1402-		return ret_val;
+net/ipv6/calipso.c-1403-
+net/ipv6/calipso.c-1404-	ip6_hdr = ipv6_hdr(skb);
+net/ipv6/calipso.c-1405-	old_hop = (struct ipv6_opt_hdr *)(ip6_hdr + 1);
+net/ipv6/calipso.c-1406-	old_hop_len = ipv6_optlen(old_hop);
+--
+net/ipv4/netfilter.c-77-	}
+net/ipv4/netfilter.c-78-#endif
+net/ipv4/netfilter.c-79-
+net/ipv4/netfilter.c-80-	/* Change in oif may mean change in hh_len. */
+net/ipv4/netfilter.c-81-	hh_len = skb_dst_dev(skb)->hard_header_len;
+net/ipv4/netfilter.c-82-	if (skb_headroom(skb) < hh_len &&
+net/ipv4/netfilter.c:83:	    pskb_expand_head(skb, HH_DATA_ALIGN(hh_len - skb_headroom(skb)),
+net/ipv4/netfilter.c-84-				0, GFP_ATOMIC))
+net/ipv4/netfilter.c-85-		return -ENOMEM;
+net/ipv4/netfilter.c-86-
+net/ipv4/netfilter.c-87-	return 0;
+net/ipv4/netfilter.c-88-}
+net/ipv4/netfilter.c-89-EXPORT_SYMBOL(ip_route_me_harder);
+--
+net/ipv4/ipconfig.c-504-	unsigned char *tha;		/* t for "target" */
+net/ipv4/ipconfig.c-505-	struct ic_device *d;
+net/ipv4/ipconfig.c-506-
+net/ipv4/ipconfig.c-507-	if (!net_eq(dev_net(dev), &init_net))
+net/ipv4/ipconfig.c-508-		goto drop;
+net/ipv4/ipconfig.c-509-
+net/ipv4/ipconfig.c:510:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/ipv4/ipconfig.c-511-	if (!skb)
+net/ipv4/ipconfig.c-512-		return NET_RX_DROP;
+net/ipv4/ipconfig.c-513-
+net/ipv4/ipconfig.c-514-	if (!pskb_may_pull(skb, sizeof(struct arphdr)))
+net/ipv4/ipconfig.c-515-		goto drop;
+net/ipv4/ipconfig.c-516-
+--
+net/ipv4/ipconfig.c-992-		goto drop;
+net/ipv4/ipconfig.c-993-
+net/ipv4/ipconfig.c-994-	/* Perform verifications before taking the lock.  */
+net/ipv4/ipconfig.c-995-	if (skb->pkt_type == PACKET_OTHERHOST)
+net/ipv4/ipconfig.c-996-		goto drop;
+net/ipv4/ipconfig.c-997-
+net/ipv4/ipconfig.c:998:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/ipv4/ipconfig.c-999-	if (!skb)
+net/ipv4/ipconfig.c-1000-		return NET_RX_DROP;
+net/ipv4/ipconfig.c-1001-
+net/ipv4/ipconfig.c-1002-	if (!pskb_may_pull(skb,
+net/ipv4/ipconfig.c-1003-			   sizeof(struct iphdr) +
+net/ipv4/ipconfig.c-1004-			   sizeof(struct udphdr)))
+--
+net/ipv6/ah6.c-548-
+net/ipv6/ah6.c-549-	if (!pskb_may_pull(skb, sizeof(struct ip_auth_hdr)))
+net/ipv6/ah6.c-550-		goto out;
+net/ipv6/ah6.c-551-
+net/ipv6/ah6.c-552-	/* We are going to _remove_ AH header to keep sockets happy,
+net/ipv6/ah6.c-553-	 * so... Later this can change. */
+net/ipv6/ah6.c:554:	if (skb_unclone(skb, GFP_ATOMIC))
+net/ipv6/ah6.c-555-		goto out;
+net/ipv6/ah6.c-556-
+net/ipv6/ah6.c-557-	skb->ip_summed = CHECKSUM_NONE;
+net/ipv6/ah6.c-558-
+net/ipv6/ah6.c-559-	hdr_len = skb_network_header_len(skb);
+net/ipv6/ah6.c-560-	ah = (struct ip_auth_hdr *)skb->data;
+--
+net/ipv6/ip6_input.c-203-
+net/ipv6/ip6_input.c-204-	idev = __in6_dev_get(skb->dev);
+net/ipv6/ip6_input.c-205-
+net/ipv6/ip6_input.c-206-	__IP6_UPD_PO_STATS(net, idev, IPSTATS_MIB_IN, skb->len);
+net/ipv6/ip6_input.c-207-
+net/ipv6/ip6_input.c-208-	SKB_DR_SET(reason, NOT_SPECIFIED);
+net/ipv6/ip6_input.c:209:	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL ||
+net/ipv6/ip6_input.c-210-	    !idev || unlikely(READ_ONCE(idev->cnf.disable_ipv6))) {
+net/ipv6/ip6_input.c-211-		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INDISCARDS);
+net/ipv6/ip6_input.c-212-		if (idev && unlikely(READ_ONCE(idev->cnf.disable_ipv6)))
+net/ipv6/ip6_input.c-213-			SKB_DR_SET(reason, IPV6DISABLED);
+net/ipv6/ip6_input.c-214-		goto drop;
+net/ipv6/ip6_input.c-215-	}
+--
+net/ipv4/ipmr.c-1949-		ip_rt_put(rt);
+net/ipv4/ipmr.c-1950-		return -1;
+net/ipv4/ipmr.c-1951-	}
+net/ipv4/ipmr.c-1952-
+net/ipv4/ipmr.c-1953-	encap += LL_RESERVED_SPACE(dst_dev_rcu(&rt->dst)) + rt->dst.header_len;
+net/ipv4/ipmr.c-1954-
+net/ipv4/ipmr.c:1955:	if (skb_cow(skb, encap)) {
+net/ipv4/ipmr.c-1956-		ip_rt_put(rt);
+net/ipv4/ipmr.c-1957-		return -1;
+net/ipv4/ipmr.c-1958-	}
+net/ipv4/ipmr.c-1959-
+net/ipv4/ipmr.c-1960-	WRITE_ONCE(vif->pkt_out, vif->pkt_out + 1);
+net/ipv4/ipmr.c-1961-	WRITE_ONCE(vif->bytes_out, vif->bytes_out + skb->len);
+--
+net/ipv6/ip6mr.c-2132-	skb->dev = vif_dev;
+net/ipv6/ip6mr.c-2133-	WRITE_ONCE(vif->pkt_out, vif->pkt_out + 1);
+net/ipv6/ip6mr.c-2134-	WRITE_ONCE(vif->bytes_out, vif->bytes_out + skb->len);
+net/ipv6/ip6mr.c-2135-
+net/ipv6/ip6mr.c-2136-	/* We are about to write */
+net/ipv6/ip6mr.c-2137-	/* XXX: extension headers? */
+net/ipv6/ip6mr.c:2138:	if (skb_cow(skb, sizeof(*ipv6h) + LL_RESERVED_SPACE(vif_dev)))
+net/ipv6/ip6mr.c-2139-		return -1;
+net/ipv6/ip6mr.c-2140-
+net/ipv6/ip6mr.c-2141-	ipv6h = ipv6_hdr(skb);
+net/ipv6/ip6mr.c-2142-	ipv6h->hop_limit--;
+net/ipv6/ip6mr.c-2143-	return 0;
+net/ipv6/ip6mr.c-2144-}
+--
+net/ipv6/ip6_gre.c-1371-	struct ipv6hdr *ipv6h;
+net/ipv6/ip6_gre.c-1372-	int needed;
+net/ipv6/ip6_gre.c-1373-	__be16 *p;
+net/ipv6/ip6_gre.c-1374-
+net/ipv6/ip6_gre.c-1375-	needed = t->hlen + sizeof(*ipv6h);
+net/ipv6/ip6_gre.c-1376-	if (skb_headroom(skb) < needed &&
+net/ipv6/ip6_gre.c:1377:	    pskb_expand_head(skb, HH_DATA_ALIGN(needed - skb_headroom(skb)),
+net/ipv6/ip6_gre.c-1378-			     0, GFP_ATOMIC))
+net/ipv6/ip6_gre.c-1379-		return -needed;
+net/ipv6/ip6_gre.c-1380-
+net/ipv6/ip6_gre.c-1381-	ipv6h = skb_push(skb, needed);
+net/ipv6/ip6_gre.c-1382-	ip6_flow_hdr(ipv6h, 0, ip6_make_flowlabel(dev_net(dev), skb,
+net/ipv6/ip6_gre.c-1383-						  t->fl.u.ip6.flowlabel,
+--
+net/phonet/af_phonet.c-363-{
+net/phonet/af_phonet.c-364-	struct net *net = dev_net(dev);
+net/phonet/af_phonet.c-365-	struct phonethdr *ph;
+net/phonet/af_phonet.c-366-	struct sockaddr_pn sa;
+net/phonet/af_phonet.c-367-	u16 len;
+net/phonet/af_phonet.c-368-
+net/phonet/af_phonet.c:369:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/phonet/af_phonet.c-370-	if (!skb)
+net/phonet/af_phonet.c-371-		return NET_RX_DROP;
+net/phonet/af_phonet.c-372-
+net/phonet/af_phonet.c-373-	/* check we have at least a full Phonet header */
+net/phonet/af_phonet.c-374-	if (!pskb_pull(skb, sizeof(struct phonethdr)))
+net/phonet/af_phonet.c-375-		goto out;
+--
+net/packet/af_packet.c-1881-	if (skb->pkt_type == PACKET_LOOPBACK)
+net/packet/af_packet.c-1882-		goto out;
+net/packet/af_packet.c-1883-
+net/packet/af_packet.c-1884-	if (!net_eq(dev_net(dev), sock_net(sk)))
+net/packet/af_packet.c-1885-		goto out;
+net/packet/af_packet.c-1886-
+net/packet/af_packet.c:1887:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/packet/af_packet.c-1888-	if (skb == NULL)
+net/packet/af_packet.c-1889-		goto oom;
+net/packet/af_packet.c-1890-
+net/packet/af_packet.c-1891-	/* drop any routing info */
+net/packet/af_packet.c-1892-	skb_dst_drop(skb);
+net/packet/af_packet.c-1893-
+--
+net/mpls/af_mpls.c-392-		goto drop;
+net/mpls/af_mpls.c-393-	}
+net/mpls/af_mpls.c-394-
+net/mpls/af_mpls.c-395-	if (skb->pkt_type != PACKET_HOST)
+net/mpls/af_mpls.c-396-		goto err;
+net/mpls/af_mpls.c-397-
+net/mpls/af_mpls.c:398:	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL)
+net/mpls/af_mpls.c-399-		goto err;
+net/mpls/af_mpls.c-400-
+net/mpls/af_mpls.c-401-	if (!pskb_may_pull(skb, sizeof(*hdr)))
+net/mpls/af_mpls.c-402-		goto err;
+net/mpls/af_mpls.c-403-
+net/mpls/af_mpls.c-404-	skb_dst_drop(skb);
+--
+net/mpls/af_mpls.c-445-
+net/mpls/af_mpls.c-446-	hh_len = LL_RESERVED_SPACE(out_dev);
+net/mpls/af_mpls.c-447-	if (!out_dev->header_ops)
+net/mpls/af_mpls.c-448-		hh_len = 0;
+net/mpls/af_mpls.c-449-
+net/mpls/af_mpls.c-450-	/* Ensure there is enough space for the headers in the skb */
+net/mpls/af_mpls.c:451:	if (skb_cow(skb, hh_len + new_header_size))
+net/mpls/af_mpls.c-452-		goto tx_err;
+net/mpls/af_mpls.c-453-
+net/mpls/af_mpls.c-454-	skb->dev = out_dev;
+net/mpls/af_mpls.c-455-	skb->protocol = htons(ETH_P_MPLS_UC);
+net/mpls/af_mpls.c-456-
+net/mpls/af_mpls.c-457-	dec.ttl -= 1;
+--
+net/mpls/af_mpls.c-2490-	skb->protocol = htons(ETH_P_MPLS_UC);
+net/mpls/af_mpls.c-2491-
+net/mpls/af_mpls.c-2492-	if (hdr_size) {
+net/mpls/af_mpls.c-2493-		bool bos;
+net/mpls/af_mpls.c-2494-		int i;
+net/mpls/af_mpls.c-2495-
+net/mpls/af_mpls.c:2496:		if (skb_cow(skb, hdr_size)) {
+net/mpls/af_mpls.c-2497-			err = -ENOBUFS;
+net/mpls/af_mpls.c-2498-			goto errout_free;
+net/mpls/af_mpls.c-2499-		}
+net/mpls/af_mpls.c-2500-
+net/mpls/af_mpls.c-2501-		skb_reserve(skb, hdr_size);
+net/mpls/af_mpls.c-2502-		skb_push(skb, hdr_size);
+--
+net/netlink/af_netlink.c-1294-		if (!nskb)
+net/netlink/af_netlink.c-1295-			return skb;
+net/netlink/af_netlink.c-1296-		consume_skb(skb);
+net/netlink/af_netlink.c-1297-		skb = nskb;
+net/netlink/af_netlink.c-1298-	}
+net/netlink/af_netlink.c-1299-
+net/netlink/af_netlink.c:1300:	pskb_expand_head(skb, 0, -delta,
+net/netlink/af_netlink.c-1301-			 (allocation & ~__GFP_DIRECT_RECLAIM) |
+net/netlink/af_netlink.c-1302-			 __GFP_NOWARN | __GFP_NORETRY);
+net/netlink/af_netlink.c-1303-	return skb;
+net/netlink/af_netlink.c-1304-}
+net/netlink/af_netlink.c-1305-
+net/netlink/af_netlink.c-1306-static int netlink_unicast_kernel(struct sock *sk, struct sk_buff *skb,
+--
+net/openvswitch/vport-netdev.c-37-	if (unlikely(skb_warn_if_lro(skb)))
+net/openvswitch/vport-netdev.c-38-		goto error;
+net/openvswitch/vport-netdev.c-39-
+net/openvswitch/vport-netdev.c-40-	/* Make our own copy of the packet.  Otherwise we will mangle the
+net/openvswitch/vport-netdev.c-41-	 * packet for anyone who came before us (e.g. tcpdump via AF_PACKET).
+net/openvswitch/vport-netdev.c-42-	 */
+net/openvswitch/vport-netdev.c:43:	skb = skb_share_check(skb, GFP_ATOMIC);
+net/openvswitch/vport-netdev.c-44-	if (unlikely(!skb))
+net/openvswitch/vport-netdev.c-45-		return;
+net/openvswitch/vport-netdev.c-46-
+net/openvswitch/vport-netdev.c-47-	if (skb->dev->type == ARPHRD_ETHER)
+net/openvswitch/vport-netdev.c-48-		skb_push_rcsum(skb, ETH_HLEN);
+net/openvswitch/vport-netdev.c-49-
+--
+net/openvswitch/flow.c-570-		/* In order to process neighbor discovery options, we need the
+net/openvswitch/flow.c-571-		 * entire packet.
+net/openvswitch/flow.c-572-		 */
+net/openvswitch/flow.c-573-		if (unlikely(icmp_len < sizeof(*nd)))
+net/openvswitch/flow.c-574-			return 0;
+net/openvswitch/flow.c-575-
+net/openvswitch/flow.c:576:		if (unlikely(skb_linearize(skb)))
+net/openvswitch/flow.c-577-			return -ENOMEM;
+net/openvswitch/flow.c-578-
+net/openvswitch/flow.c-579-		nd = (struct nd_msg *)skb_transport_header(skb);
+net/openvswitch/flow.c-580-		key->ipv6.nd.target = nd->target;
+net/openvswitch/flow.c-581-
+net/openvswitch/flow.c-582-		icmp_len -= sizeof(*nd);
+--
+net/netfilter/nf_conntrack_proto_icmpv6.c-166-	if (!nd_opt || nd_opt->nd_opt_len == 0) {
+net/netfilter/nf_conntrack_proto_icmpv6.c-167-		icmpv6_error_log(skb, state, "redirect without options");
+net/netfilter/nf_conntrack_proto_icmpv6.c-168-		return -NF_ACCEPT;
+net/netfilter/nf_conntrack_proto_icmpv6.c-169-	}
+net/netfilter/nf_conntrack_proto_icmpv6.c-170-
+net/netfilter/nf_conntrack_proto_icmpv6.c-171-	/* We could call ndisc_parse_options(), but it would need
+net/netfilter/nf_conntrack_proto_icmpv6.c:172:	 * skb_linearize() and a bit more work.
+net/netfilter/nf_conntrack_proto_icmpv6.c-173-	 */
+net/netfilter/nf_conntrack_proto_icmpv6.c-174-	if (nd_opt->nd_opt_type != ND_OPT_REDIRECT_HDR)
+net/netfilter/nf_conntrack_proto_icmpv6.c-175-		return NF_ACCEPT;
+net/netfilter/nf_conntrack_proto_icmpv6.c-176-
+net/netfilter/nf_conntrack_proto_icmpv6.c-177-	memcpy(&outer_daddr.ip6, &ipv6_hdr(skb)->daddr,
+net/netfilter/nf_conntrack_proto_icmpv6.c-178-	       sizeof(outer_daddr.ip6));
+--
+net/netfilter/ipvs/ip_vs_xmit.c-838-	}
+net/netfilter/ipvs/ip_vs_xmit.c-839-
+net/netfilter/ipvs/ip_vs_xmit.c-840-	/* copy-on-write the packet before mangling it */
+net/netfilter/ipvs/ip_vs_xmit.c-841-	if (skb_ensure_writable(skb, sizeof(struct iphdr)))
+net/netfilter/ipvs/ip_vs_xmit.c-842-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-843-
+net/netfilter/ipvs/ip_vs_xmit.c:844:	if (skb_cow(skb, rt->dst.dev->hard_header_len))
+net/netfilter/ipvs/ip_vs_xmit.c-845-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-846-
+net/netfilter/ipvs/ip_vs_xmit.c-847-	/* mangle the packet */
+net/netfilter/ipvs/ip_vs_xmit.c-848-	if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp, ipvsh))
+net/netfilter/ipvs/ip_vs_xmit.c-849-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-850-	ip_hdr(skb)->daddr = cp->daddr.ip;
+--
+net/netfilter/ipvs/ip_vs_xmit.c-923-	}
+net/netfilter/ipvs/ip_vs_xmit.c-924-
+net/netfilter/ipvs/ip_vs_xmit.c-925-	/* copy-on-write the packet before mangling it */
+net/netfilter/ipvs/ip_vs_xmit.c-926-	if (skb_ensure_writable(skb, sizeof(struct ipv6hdr)))
+net/netfilter/ipvs/ip_vs_xmit.c-927-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-928-
+net/netfilter/ipvs/ip_vs_xmit.c:929:	if (skb_cow(skb, rt->dst.dev->hard_header_len))
+net/netfilter/ipvs/ip_vs_xmit.c-930-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-931-
+net/netfilter/ipvs/ip_vs_xmit.c-932-	/* mangle the packet */
+net/netfilter/ipvs/ip_vs_xmit.c-933-	if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp, ipvsh))
+net/netfilter/ipvs/ip_vs_xmit.c-934-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-935-	ipv6_hdr(skb)->daddr = cp->daddr.in6;
+--
+net/netfilter/ipvs/ip_vs_xmit.c-1567-	}
+net/netfilter/ipvs/ip_vs_xmit.c-1568-
+net/netfilter/ipvs/ip_vs_xmit.c-1569-	/* copy-on-write the packet before mangling it */
+net/netfilter/ipvs/ip_vs_xmit.c-1570-	if (skb_ensure_writable(skb, offset))
+net/netfilter/ipvs/ip_vs_xmit.c-1571-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-1572-
+net/netfilter/ipvs/ip_vs_xmit.c:1573:	if (skb_cow(skb, rt->dst.dev->hard_header_len))
+net/netfilter/ipvs/ip_vs_xmit.c-1574-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-1575-
+net/netfilter/ipvs/ip_vs_xmit.c-1576-	ip_vs_nat_icmp(skb, pp, cp, 0);
+net/netfilter/ipvs/ip_vs_xmit.c-1577-
+net/netfilter/ipvs/ip_vs_xmit.c-1578-	/* Another hack: avoid icmp_send in ip_fragment */
+net/netfilter/ipvs/ip_vs_xmit.c-1579-	skb->ignore_df = 1;
+--
+net/netfilter/ipvs/ip_vs_xmit.c-1651-	}
+net/netfilter/ipvs/ip_vs_xmit.c-1652-
+net/netfilter/ipvs/ip_vs_xmit.c-1653-	/* copy-on-write the packet before mangling it */
+net/netfilter/ipvs/ip_vs_xmit.c-1654-	if (skb_ensure_writable(skb, offset))
+net/netfilter/ipvs/ip_vs_xmit.c-1655-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-1656-
+net/netfilter/ipvs/ip_vs_xmit.c:1657:	if (skb_cow(skb, rt->dst.dev->hard_header_len))
+net/netfilter/ipvs/ip_vs_xmit.c-1658-		goto tx_error;
+net/netfilter/ipvs/ip_vs_xmit.c-1659-
+net/netfilter/ipvs/ip_vs_xmit.c-1660-	ip_vs_nat_icmp_v6(skb, pp, cp, 0);
+net/netfilter/ipvs/ip_vs_xmit.c-1661-
+net/netfilter/ipvs/ip_vs_xmit.c-1662-	/* Another hack: avoid icmp_send in ip_fragment */
+net/netfilter/ipvs/ip_vs_xmit.c-1663-	skb->ignore_df = 1;
+--
+net/netfilter/nf_conntrack_ftp.c-391-	if (ctinfo != IP_CT_ESTABLISHED &&
+net/netfilter/nf_conntrack_ftp.c-392-	    ctinfo != IP_CT_ESTABLISHED_REPLY) {
+net/netfilter/nf_conntrack_ftp.c-393-		pr_debug("ftp: Conntrackinfo = %u\n", ctinfo);
+net/netfilter/nf_conntrack_ftp.c-394-		return NF_ACCEPT;
+net/netfilter/nf_conntrack_ftp.c-395-	}
+net/netfilter/nf_conntrack_ftp.c-396-
+net/netfilter/nf_conntrack_ftp.c:397:	if (unlikely(skb_linearize(skb)))
+net/netfilter/nf_conntrack_ftp.c-398-		return NF_DROP;
+net/netfilter/nf_conntrack_ftp.c-399-
+net/netfilter/nf_conntrack_ftp.c-400-	th = skb_header_pointer(skb, protoff, sizeof(_tcph), &_tcph);
+net/netfilter/nf_conntrack_ftp.c-401-	if (th == NULL)
+net/netfilter/nf_conntrack_ftp.c-402-		return NF_ACCEPT;
+net/netfilter/nf_conntrack_ftp.c-403-
+--
+net/netfilter/ipvs/ip_vs_pe_sip.c-79-	 *       I think this only should be done for the first fragment. /HS
+net/netfilter/ipvs/ip_vs_pe_sip.c-80-	 */
+net/netfilter/ipvs/ip_vs_pe_sip.c-81-	dataoff = iph.len + sizeof(struct udphdr);
+net/netfilter/ipvs/ip_vs_pe_sip.c-82-
+net/netfilter/ipvs/ip_vs_pe_sip.c-83-	if (dataoff >= skb->len)
+net/netfilter/ipvs/ip_vs_pe_sip.c-84-		return -EINVAL;
+net/netfilter/ipvs/ip_vs_pe_sip.c:85:	retc = skb_linearize(skb);
+net/netfilter/ipvs/ip_vs_pe_sip.c-86-	if (retc < 0)
+net/netfilter/ipvs/ip_vs_pe_sip.c-87-		return retc;
+net/netfilter/ipvs/ip_vs_pe_sip.c-88-	dptr = skb->data + dataoff;
+net/netfilter/ipvs/ip_vs_pe_sip.c-89-	datalen = skb->len - dataoff;
+net/netfilter/ipvs/ip_vs_pe_sip.c-90-
+net/netfilter/ipvs/ip_vs_pe_sip.c-91-	if (get_callid(dptr, 0, datalen, &matchoff, &matchlen))
+--
+net/netfilter/nf_nat_helper.c-66-/* Unusual, but possible case. */
+net/netfilter/nf_nat_helper.c-67-static bool enlarge_skb(struct sk_buff *skb, unsigned int extra)
+net/netfilter/nf_nat_helper.c-68-{
+net/netfilter/nf_nat_helper.c-69-	if (skb->len + extra > 65535)
+net/netfilter/nf_nat_helper.c-70-		return false;
+net/netfilter/nf_nat_helper.c-71-
+net/netfilter/nf_nat_helper.c:72:	if (pskb_expand_head(skb, 0, extra - skb_tailroom(skb), GFP_ATOMIC))
+net/netfilter/nf_nat_helper.c-73-		return false;
+net/netfilter/nf_nat_helper.c-74-
+net/netfilter/nf_nat_helper.c-75-	return true;
+net/netfilter/nf_nat_helper.c-76-}
+net/netfilter/nf_nat_helper.c-77-
+net/netfilter/nf_nat_helper.c-78-/* Generic function for mangling variable-length address changes inside
+--
+net/netfilter/nf_conntrack_sip.c-1676-	dataoff = protoff + th->doff * 4;
+net/netfilter/nf_conntrack_sip.c-1677-	if (dataoff >= skb->len)
+net/netfilter/nf_conntrack_sip.c-1678-		return NF_ACCEPT;
+net/netfilter/nf_conntrack_sip.c-1679-
+net/netfilter/nf_conntrack_sip.c-1680-	nf_ct_refresh(ct, sip_timeout * HZ);
+net/netfilter/nf_conntrack_sip.c-1681-
+net/netfilter/nf_conntrack_sip.c:1682:	if (unlikely(skb_linearize(skb)))
+net/netfilter/nf_conntrack_sip.c-1683-		return NF_DROP;
+net/netfilter/nf_conntrack_sip.c-1684-
+net/netfilter/nf_conntrack_sip.c-1685-	dptr = skb->data + dataoff;
+net/netfilter/nf_conntrack_sip.c-1686-	datalen = skb->len - dataoff;
+net/netfilter/nf_conntrack_sip.c-1687-	if (datalen < strlen("SIP/2.0 200"))
+net/netfilter/nf_conntrack_sip.c-1688-		return NF_ACCEPT;
+--
+net/netfilter/nf_conntrack_sip.c-1750-	dataoff = protoff + sizeof(struct udphdr);
+net/netfilter/nf_conntrack_sip.c-1751-	if (dataoff >= skb->len)
+net/netfilter/nf_conntrack_sip.c-1752-		return NF_ACCEPT;
+net/netfilter/nf_conntrack_sip.c-1753-
+net/netfilter/nf_conntrack_sip.c-1754-	nf_ct_refresh(ct, sip_timeout * HZ);
+net/netfilter/nf_conntrack_sip.c-1755-
+net/netfilter/nf_conntrack_sip.c:1756:	if (unlikely(skb_linearize(skb)))
+net/netfilter/nf_conntrack_sip.c-1757-		return NF_DROP;
+net/netfilter/nf_conntrack_sip.c-1758-
+net/netfilter/nf_conntrack_sip.c-1759-	dptr = skb->data + dataoff;
+net/netfilter/nf_conntrack_sip.c-1760-	datalen = skb->len - dataoff;
+net/netfilter/nf_conntrack_sip.c-1761-	if (datalen < strlen("SIP/2.0 200"))
+net/netfilter/nf_conntrack_sip.c-1762-		return NF_ACCEPT;
+--
+net/netfilter/nf_nat_proto.c-626-	skb_dst_drop(skb);
+net/netfilter/nf_nat_proto.c-627-	skb_dst_set(skb, dst);
+net/netfilter/nf_nat_proto.c-628-
+net/netfilter/nf_nat_proto.c-629-	/* Change in oif may mean change in hh_len. */
+net/netfilter/nf_nat_proto.c-630-	hh_len = skb_dst(skb)->dev->hard_header_len;
+net/netfilter/nf_nat_proto.c-631-	if (skb_headroom(skb) < hh_len &&
+net/netfilter/nf_nat_proto.c:632:	    pskb_expand_head(skb, hh_len - skb_headroom(skb), 0, GFP_ATOMIC))
+net/netfilter/nf_nat_proto.c-633-		return -ENOMEM;
+net/netfilter/nf_nat_proto.c-634-	return 0;
+net/netfilter/nf_nat_proto.c-635-}
+net/netfilter/nf_nat_proto.c-636-#endif
+net/netfilter/nf_nat_proto.c-637-
+net/netfilter/nf_nat_proto.c-638-static bool nf_nat_inet_port_was_mangled(const struct sk_buff *skb, __be16 sport)
+--
+net/netfilter/xt_TCPMSS.c-149-		return 0;
+net/netfilter/xt_TCPMSS.c-150-
+net/netfilter/xt_TCPMSS.c-151-	/*
+net/netfilter/xt_TCPMSS.c-152-	 * MSS Option not found ?! add it..
+net/netfilter/xt_TCPMSS.c-153-	 */
+net/netfilter/xt_TCPMSS.c-154-	if (skb_tailroom(skb) < TCPOLEN_MSS) {
+net/netfilter/xt_TCPMSS.c:155:		if (pskb_expand_head(skb, 0,
+net/netfilter/xt_TCPMSS.c-156-				     TCPOLEN_MSS - skb_tailroom(skb),
+net/netfilter/xt_TCPMSS.c-157-				     GFP_ATOMIC))
+net/netfilter/xt_TCPMSS.c-158-			return -1;
+net/netfilter/xt_TCPMSS.c-159-		tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
+net/netfilter/xt_TCPMSS.c-160-	}
+net/netfilter/xt_TCPMSS.c-161-

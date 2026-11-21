@@ -1,0 +1,45 @@
+1018:int usb_stor_probe1(struct us_data **pus,
+1090:	usb_stor_dbg(us, "storage_probe() failed\n");
+1095:EXPORT_SYMBOL_GPL(usb_stor_probe1);
+1098:int usb_stor_probe2(struct us_data *us)
+1175:	usb_stor_dbg(us, "storage_probe() failed\n");
+1179:EXPORT_SYMBOL_GPL(usb_stor_probe2);
+1194:static int storage_probe(struct usb_interface *intf,
+1233:	result = usb_stor_probe1(&us, intf, id, unusual_dev,
+1240:	result = usb_stor_probe2(us);
+     1				break;
+     2			schedule();
+     3		}
+     4		__set_current_state(TASK_RUNNING);
+     5		return 0;
+     6	}
+     7	
+     8	/***********************************************************************
+     9	 * Device probing and disconnecting
+    10	 ***********************************************************************/
+    11	
+    12	/* Associate our private data with the USB device */
+    13	static int associate_dev(struct us_data *us, struct usb_interface *intf)
+    14	{
+    15		/* Fill in the device-related fields */
+    16		us->pusb_dev = interface_to_usbdev(intf);
+    17		us->pusb_intf = intf;
+    18		us->ifnum = intf->cur_altsetting->desc.bInterfaceNumber;
+    19		usb_stor_dbg(us, "Vendor: 0x%04x, Product: 0x%04x, Revision: 0x%04x\n",
+    20			     le16_to_cpu(us->pusb_dev->descriptor.idVendor),
+    21			     le16_to_cpu(us->pusb_dev->descriptor.idProduct),
+    22			     le16_to_cpu(us->pusb_dev->descriptor.bcdDevice));
+    23		usb_stor_dbg(us, "Interface Subclass: 0x%02x, Protocol: 0x%02x\n",
+    24			     intf->cur_altsetting->desc.bInterfaceSubClass,
+    25			     intf->cur_altsetting->desc.bInterfaceProtocol);
+    26	
+    27		/* Store our private data in the interface */
+    28		usb_set_intfdata(intf, us);
+    29	
+    30		/* Allocate the control/setup and DMA-mapped buffers */
+    31		us->cr = kmalloc_obj(*us->cr);
+    32		if (!us->cr)
+    33			return -ENOMEM;
+    34	
+    35		us->iobuf = usb_alloc_coherent(us->pusb_dev, US_IOBUF_SIZE,
+    36				GFP_KERNEL, &us->iobuf_dma);

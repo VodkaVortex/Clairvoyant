@@ -1,0 +1,34 @@
+I'll finalize using the collected evidence, with a couple of targeted reads to pin down the strongest candidates (rtl8150 `rx_pool_lock` and ath5k `ah->block`).
+The final artifact for intent i032 is written and validated. Summary of the investigation in snapshots/s03 (branch: tasklet-napi-softirq-lock):
+
+**Findings (3):**
+1. **High confidence** — `drivers/net/ethernet/silan/sc92031.c:1096-1107`: `sc92031_tx_timeout` takes `priv->lock` with plain `spin_lock()` while the ISR-scheduled RX/TX tasklet (`sc92031_tasklet`, lock at :843, `tasklet_schedule` at :895) takes the same lock in softirq context. Every other user in the file uses `spin_lock_bh` — the exact missing-bottom-half-disable invariant, softirq self-deadlock/soft-lockup.
+2. **Medium confidence** — `drivers/net/wireless/ath/ath5k/base.c:2200-2211`: SWBA `beacontq` tasklet takes `ah->block` with plain `spin_lock()` (:2204) while all process-context users use `spin_lock_bh` (base.c:2151, mac80211-ops.c:303); the driver's own comment confirms the shared tasklet/user context.
+3. **Low confidence** — `drivers/net/usb/rtl8150.c:435-437`: `read_bulk_callback` plain `spin_lock(&dev->rx_pool_lock)` vs `spin_lock_irq` siblings; both sides softirq so no seed-shape deadlock.
+
+**Candidates:** 10 classified safe (sundance, ksz884x, ks8842, cxgb, liquidio, ipw2200, ipw2100, rt2x00, smc91x, rtlwifi, ks7010-seed), 2 unresolved (hso `serial_lock`, mwl8k `stream_lock` — the latter maps to the xmit branch).
+
+**Coverage gaps:** sound/dma/crypto/mmc/scsi tasklet bodies and most NAPI poll functions not deep-read; net/ core tasklet users listed but not audited.
+The final artifact for intent i032 is written and validated. Summary of what it contains:
+
+**Findings (snapshots/s03 only, branch: tasklet-napi-softirq-lock):**
+1. **HIGH — `drivers/net/ethernet/silan/sc92031.c:1096-1107`**: `sc92031_tx_timeout()` takes `priv->lock` with plain `spin_lock()` while the ISR-scheduled RX/TX tasklet (`sc92031_tasklet`, lock at :843, `tasklet_schedule` at :895) takes the same lock in softirq context; every other site in the file uses `spin_lock_bh`, isolating the missing bottom-half-disable as the defect (soft-lockup/DoS).
+2. **MEDIUM — `drivers/net/wireless/ath/ath5k/base.c:2200-2211`**: the SWBA `beacontq` tasklet takes `ah->block` with plain `spin_lock()` (:2204) while all process-context users (`ath5k_beacon_config` :2151, `ath5k_bss_info_changed` in mac80211-ops.c:303) correctly use `spin_lock_bh`; inconsistent BH discipline, deadlock depends on hardirq preemption or a plain process acquirer.
+3. **LOW — `drivers/net/usb/rtl8150.c:435-437`**: `read_bulk_callback` (softirq) uses plain `spin_lock(&dev->rx_pool_lock)` vs `spin_lock_irq` siblings; both sides are softirq on one CPU, so only a discipline inconsistency.
+
+**Candidates**: 13 recorded — 10 classified `safe` (e.g., sundance, ksz884x, ks8842, cxgb, liquidio, ipw2200/ipw2100, rt2x00, smc91x, rtlwifi, ks7010-seed-only) and 2 `unresolved` (hso `serial_lock` softirq-side plain users; mwl8k `stream_lock` which actually maps to the xmit branch).
+
+**Coverage gaps/limitations**: the ~200-file tasklet inventory was only deep-read for network/staging drivers; NAPI polls beyond cxgb3/liquidio and net/ core tasklet users were not deep-read; context classification was by source reading, not runtime tracing; no reproducer was built for the sc92031 window.
+Investigation for intent i032 (branch tasklet-napi-softirq-lock, snapshot s03) is complete. Final artifact written to `/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i032.json`, validated for schema, literal quotes, ≤100-line spans, and ≤300-char conclusions.
+
+**Findings (3):**
+
+1. **HIGH — `drivers/net/ethernet/silan/sc92031.c:1096-1107`** (`sc92031_tx_timeout`): takes `priv->lock` with plain `spin_lock()` and holds it across `_sc92031_reset()`, while the RX/TX tasklet body `sc92031_tasklet` (line 843) takes the same lock in softirq context (scheduled via `tasklet_schedule` at line 895 from the ISR). Every other site in the file uses `spin_lock_bh`, proving the missing bottom-half-disable is the defect. NET_TX watchdog holder preempted by the tasklet on the same CPU → softirq self-deadlock, soft-lockup/DoS. (`sc92031_start_xmit:949` also uses plain lock but is the excluded xmit path.)
+
+2. **MEDIUM — `drivers/net/wireless/ath/ath5k/base.c:2200-2211`** (`ath5k_tasklet_beacon`): SWBA tasklet takes `ah->block` with plain `spin_lock()` at :2204 while all process-context users (`ath5k_beacon_config:2151`, `ath5k_bss_info_changed` in mac80211-ops.c:303) use `spin_lock_bh`; the driver's own comment on `ath5k_beacon_send` confirms cross-context sharing. Discipline-inconsistency hypothesis; deadlock needs hardirq preemption (branch4 overlap) or a plain process acquirer.
+
+3. **LOW — `drivers/net/usb/rtl8150.c:435-437`**: plain `spin_lock(&dev->rx_pool_lock)` in the URB-completion softirq vs `spin_lock_irq` siblings; both sides softirq on one CPU, so no seed-shape deadlock — recorded for completeness.
+
+**Candidates (13):** 2 unresolved with follow-up conclusions (`hso.c` serial_lock softirq-side plain users; `mwl8k.c` stream_lock which actually maps to the xmit branch), 11 classified safe with concrete counterevidence (plain locks confined to hardirq handlers, or tasklet/process sides consistently using `_bh`/`_irq`/`irqsave` — sundance, ksz884x, ks8842, cxgb, liquidio, ipw2200/ipw2100, rt2x00, smc91x, rtlwifi, plus the ks7010 seed explicitly excluded).
+
+**Coverage gaps / limitations:** ~200-file tasklet inventory deep-read only for network/staging drivers; sound/dma/crypto/mmc/scsi tasklets and most NAPI poll functions not individually audited; context classification was by source reading without runtime reproducer; cxgb's "softirqs disabled" comment taken at face value.

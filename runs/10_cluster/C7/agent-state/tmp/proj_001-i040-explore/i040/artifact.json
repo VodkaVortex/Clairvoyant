@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "intent_id": "i040",
+  "branch": "tasklet-napi-softirq-lock",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s11"
+  ],
+  "findings": [
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/via/via-rhine.c",
+      "start": 851,
+      "end": 854,
+      "quote": "\tif (status & IntrStatsMax) {\n\t\tspin_lock(&rp->lock);\n\t\trhine_update_rx_crc_and_missed_errord(rp);\n\t\tspin_unlock(&rp->lock);\n\t}",
+      "confidence": "medium",
+      "reason": "Lock object rp->lock (spin_lock_init at via-rhine.c:956) is shared between the NET_RX softirq NAPI poll and a process-context power-management path, with the process side missing the bottom-half disable. SOFTIRQ SIDE: rhine_interrupt (def 1896, request_irq at 1694 with plain rhine_interrupt, i.e. hardirq) calls napi_schedule at 1911 -> net_rx_action -> rhine_napipoll (def 822, netif_napi_add at 972); inside the poll, both spin_lock(&rp->lock) at 852 (IntrStatsMax branch calling rhine_update_rx_crc_and_missed_errord) and, via rhine_rx (called at 835 from the same poll), spin_lock(&rp->lock) at 2085 (rx_frame_errors branch updating dev->stats.rx_crc_errors) run in softirq context with plain spin_lock. PROCESS SIDE: rhine_shutdown_pci (def 2473) takes spin_lock(&rp->lock) at 2488 with plain spin_lock (unlock 2511); it is called from rhine_suspend (2525 -> 2540, PM .suspend, process context with BH enabled) and from the pci_driver .shutdown callback at 2582 (rhine_shutdown_pci), also process context. UNTRUSTED SOURCE: attacker-influenced concurrency, not data - any received frame or IntrStatsMax/RCRxFCE counter event on the NIC raises the interrupt that schedules the NAPI poll on the CPU where suspend/shutdown runs. MISSING GUARANTEE: plain spin_lock only disables preemption, not bottom halves, so while rhine_suspend/rhine_shutdown_pci holds rp->lock on a CPU, a NET_RX softirq on that CPU executing rhine_napipoll (line 852) or rhine_rx (line 2085) spins forever on rp->lock while the preempted holder can never resume -> soft lockup, RCU stall, device RX stall DoS, the exact seed mechanism (ks7010 tx_dev_lock) in the NAPI/tasklet-softirq analogue. COUNTEREVIDENCE CHECKED: the driver itself proves the discipline is required - every other non-NAPI site on the same lock uses the stronger or BH variant (spin_lock_bh at 1543, 1554, 1742, 2225, 2559; spin_lock_irq at 2362, 2381, and rhine_get_wol/rhine_set_wol ethtool paths), and rhine_suspend (2525-2534) calls rhine_task_disable/rhine_irq_disable/napi_disable BEFORE rhine_shutdown_pci at 2540, which narrows but does not close the window: napi_disable waits for a poll already running to finish but the hardirq can still fire and __napi_schedule on another CPU or before napi_disable completes, and the .shutdown callback at 2582 (rhine_shutdown_pci) is invoked without any of the suspend-side quiescing, leaving the plain lock fully exposed there; no local_bh_disable/spin_lock_bh exists at 2488. Impact is a source-level hypothesis (no runtime reproducer; snapshot lacks .config), hence medium confidence.",
+      "conclusion": "via-rhine rp->lock is taken with plain spin_lock in process-context rhine_suspend/rhine_shutdown_pci (2488) while the same lock is taken plainly inside NAPI softirq rhine_napipoll/rhine_rx (852, 2085); missing spin_lock_bh lets NET_RX softirq spin forever against the PM holder -> soft-lockup/DoS."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/ti/cpmac.c",
+      "line": 720,
+      "status": "reported",
+      "reason": "cpmac_hw_error (workqueue worker, INIT_WORK at 968) takes spin_lock(&priv->rx_lock) at 720 with plain spin_lock, while cpmac_poll (netif_napi_add at 1108) takes the same lock plainly at 408 in NET_RX softirq; schedule_work(&priv->reset_work) is reachable from the poll loop error path (526-528) and from cpmac_check_status (759), and the worker only holds reset_pending, not a BH disable; same missing spin_lock_bh as the reported shape (sibling priv->lock is also mixed-discipline)."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/toshiba/tc35815.c",
+      "line": 1626,
+      "status": "safe",
+      "reason": "tc35815_poll takes plain spin_lock(&lp->rx_lock) at 1626 (softirq side) and tc35815_restart (workqueue, schedule_work at 1187) uses spin_lock_bh(&lp->rx_lock) at 1154 - the process-side worker correctly disables BH, so the invariant is satisfied for this lock pair."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/realtek/8139too.c",
+      "line": 2132,
+      "status": "safe",
+      "reason": "rtl8139_poll takes plain spin_lock(&tp->rx_lock) at 2132 (softirq side) but the only other rx_lock site, rtl8139_hw_reset/rtl8139_tx_timeout work path at 1686, uses spin_lock_bh; no BH-enabled plain holder of rx_lock exists."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/broadcom/b44.c",
+      "line": 914,
+      "status": "safe",
+      "reason": "b44_poll takes spin_lock_irqsave(&bp->lock) (867, 890) - the irqsave variant also excludes softirqs, and the only plain spin_lock(&bp->lock) is inside the hardirq handler b44_interrupt itself (914); no BH-enabled process-context plain holder was found."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/fjes/fjes_main.c",
+      "line": 1121,
+      "status": "unresolved",
+      "reason": "fjes_poll takes plain spin_lock(&hw->rx_status_lock) at 1121 and 1188 (softirq side), while all other sites (323, 403, 458, 837, 863, 934, 972, 1441, 1485, 1498) use spin_lock_irqsave in process/workqueue and hardirq contexts; irqsave at the process sites does exclude softirq preemption (local_irq_save also disables BH), so the pair appears safe, but the .ndo_stop/fjes_close quiescing path was only partially traced before finalize, so full reachability of fjes_poll against the 1121 site's unlock sequence was not concluded."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/freescale/ucc_geth.c",
+      "line": 3289,
+      "status": "safe",
+      "reason": "ucc_geth_poll takes plain spin_lock(&ugeth->lock) at 3289 as the softirq side; the other ugeth->lock sites (3090 xmit, 3380 open) use spin_lock_irqsave/irq, which also excludes softirq preemption, so no BH-enabled plain holder of ugeth->lock exists."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/wan/fsl_ucc_hdlc.c",
+      "line": 622,
+      "status": "safe",
+      "reason": "ucc_hdlc_poll takes plain spin_lock(&priv->lock) at 622 (softirq side); the only other site (395, start_xmit) uses spin_lock_irqsave, which excludes softirq preemption; invariant satisfied."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/broadcom/bcm63xx_enet.c",
+      "line": 568,
+      "status": "safe",
+      "reason": "bcm_enet_start_xmit takes plain spin_lock(&priv->tx_lock) at 568, but ndo_start_xmit is the xmit-callback path excluded from this branch (covered by xmit-softirq-lock); the rx_lock pairing with the timer callback was already classified in the timer branch; no additional tasklet/NAPI-specific plain holder was found here."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/natsemi/natsemi.c",
+      "line": 2272,
+      "status": "unresolved",
+      "reason": "natsemi_poll takes plain spin_lock(&np->lock) at 2253 and 2272 (softirq side, netif_napi_add at 870), and process-context sites exist with plain spin_lock: natsemi_change_mtu at 2403 (ndo_set_mtu, rtnl-locked process context, disable_irq(irq)+spin_lock) and netdev_error at 2403-region called from the poll itself; however change_mtu wraps the lock in disable_irq/enable_irq of the (shared) device IRQ, and whether a NET_RX softirq on the same CPU can still enter natsemi_poll during that window (NAPI already scheduled by another queue's IRQ before disable_irq) was not conclusively established before finalize; also natsemi_poll itself is the softirq side so the plain locks there are not a violation by themselves."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/net/ethernet/ibm/ibmvnic.c",
+      "line": 2149,
+      "status": "safe",
+      "reason": "All ibmvnic locks touched near NAPI (rwi_lock 2149/2292, scrq->lock 3459, queue->lock 4823) use spin_lock_irqsave; __napi_schedule at 3154 comes from the hardirq handler but no plain spin_lock site on these locks was found, so no missing-BH pair exists in this driver for the scanned locks."
+    },
+    {
+      "snapshot": "s11",
+      "path": "drivers/staging/ks7010/ks7010_sdio.c",
+      "line": 398,
+      "status": "safe",
+      "reason": "Seed demonstration site (spin_lock(&priv->tx_dev.tx_dev_lock) in ks_wlan_hw_tx); explicitly excluded from reporting per instructions."
+    }
+  ],
+  "coverage_gaps": [
+    "Tasklet-callback side was enumerated (34 callbacks containing plain spin_lock across 236 tasklet-using files) but lock-object pairing against process-context plain holders was completed only for the network-device subset; dma/, crypto/, mmc/, tty/, usb/ and media/ tasklet hits (e.g. pl330_tasklet, wbsd_tasklet_*, atmel tasklets, av7110 debiirq/gpioirq, snps_udc udc_tasklet_disconnect, i915 virtual_submission_tasklet) were not deeply paired before finalize.",
+    "The NAPI-poll scan (160 files with named poll functions, 11 with plain spin_lock) was limited to poll functions whose name was extractable from netif_napi_add by the 'poll' heuristic; drivers registering anonymous or differently named callbacks (e.g. hinic rx_poll, bnx2 poll, dpaa2_eth_poll) were only spot-checked via sibling-lock grep, not fully paired.",
+    "Non-netdev NET_RX/NET_TX softirq callbacks outside drivers/net (e.g. net/core gro_cells.c gro_cell_poll was scanned, protocol-level softirq callbacks, and tasklet-based tty/serial paths) were enumerated only partially; no full per-lock audit of those was done."
+  ],
+  "limitations": [
+    "Static source analysis only: no compilation, lockdep run, or runtime reproducer was performed (the snapshot tree lacks .config and generated headers for standalone driver builds), so the via-rhine and cpmac deadlocks are source-level hypotheses.",
+    "For the via-rhine finding, the suspend path calls rhine_task_disable, rhine_irq_disable, and napi_disable before rhine_shutdown_pci, which narrows the window; the unmitigated exposure is the pci_driver .shutdown callback (2582) and any interrupt/already-scheduled poll that lands between those calls; this residual window is stated, not measured.",
+    "For the cpmac candidate the shared lock rx_lock has exactly two plain sites (worker 720, poll 408) and no BH-disable anywhere in the file, but the frequency of the poll-error reset_work scheduling path (cpmac_poll confused-descriptor branch) was not quantified, keeping the reported status at candidate level with medium-pair confidence.",
+    "natsemi np->lock (change_mtu disable_irq window vs NAPI poll) and fjes rx_status_lock quiescing were not fully resolved; both are recorded as unresolved with the specific follow-up needed."
+  ]
+}

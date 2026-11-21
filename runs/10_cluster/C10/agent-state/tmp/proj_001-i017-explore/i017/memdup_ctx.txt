@@ -1,0 +1,2084 @@
+virt/kvm/kvm_main.c:4489:		kvm_regs = memdup_user(argp, sizeof(*kvm_regs));
+virt/kvm/kvm_main.c-4490-		if (IS_ERR(kvm_regs)) {
+virt/kvm/kvm_main.c-4491-			r = PTR_ERR(kvm_regs);
+virt/kvm/kvm_main.c-4492-			goto out;
+virt/kvm/kvm_main.c-4493-		}
+virt/kvm/kvm_main.c-4494-		r = kvm_arch_vcpu_ioctl_set_regs(vcpu, kvm_regs);
+virt/kvm/kvm_main.c-4495-		kfree(kvm_regs);
+virt/kvm/kvm_main.c-4496-		break;
+virt/kvm/kvm_main.c-4497-	}
+--
+virt/kvm/kvm_main.c:4514:		kvm_sregs = memdup_user(argp, sizeof(*kvm_sregs));
+virt/kvm/kvm_main.c-4515-		if (IS_ERR(kvm_sregs)) {
+virt/kvm/kvm_main.c-4516-			r = PTR_ERR(kvm_sregs);
+virt/kvm/kvm_main.c-4517-			kvm_sregs = NULL;
+virt/kvm/kvm_main.c-4518-			goto out;
+virt/kvm/kvm_main.c-4519-		}
+virt/kvm/kvm_main.c-4520-		r = kvm_arch_vcpu_ioctl_set_sregs(vcpu, kvm_sregs);
+virt/kvm/kvm_main.c-4521-		break;
+virt/kvm/kvm_main.c-4522-	}
+--
+virt/kvm/kvm_main.c:4606:		fpu = memdup_user(argp, sizeof(*fpu));
+virt/kvm/kvm_main.c-4607-		if (IS_ERR(fpu)) {
+virt/kvm/kvm_main.c-4608-			r = PTR_ERR(fpu);
+virt/kvm/kvm_main.c-4609-			fpu = NULL;
+virt/kvm/kvm_main.c-4610-			goto out;
+virt/kvm/kvm_main.c-4611-		}
+virt/kvm/kvm_main.c-4612-		r = kvm_arch_vcpu_ioctl_set_fpu(vcpu, fpu);
+virt/kvm/kvm_main.c-4613-		break;
+virt/kvm/kvm_main.c-4614-	}
+--
+kernel/kcov.c:726:		remote_arg = memdup_user((void __user *)arg, remote_arg_size);
+kernel/kcov.c-727-		if (IS_ERR(remote_arg))
+kernel/kcov.c-728-			return PTR_ERR(remote_arg);
+kernel/kcov.c-729-		if (remote_arg->num_handles != remote_num_handles) {
+kernel/kcov.c-730-			kfree(remote_arg);
+kernel/kcov.c-731-			return -EINVAL;
+kernel/kcov.c-732-		}
+kernel/kcov.c-733-		arg = (unsigned long)remote_arg;
+kernel/kcov.c-734-		fallthrough;
+--
+kernel/bpf/syscall.c:1501:		return vmemdup_user(ukey, key_size);
+kernel/bpf/syscall.c-1502-
+kernel/bpf/syscall.c-1503-	if (ukey)
+kernel/bpf/syscall.c-1504-		return ERR_PTR(-EINVAL);
+kernel/bpf/syscall.c-1505-
+kernel/bpf/syscall.c-1506-	return NULL;
+kernel/bpf/syscall.c-1507-}
+kernel/bpf/syscall.c-1508-
+kernel/bpf/syscall.c-1509-static void *___bpf_copy_key(bpfptr_t ukey, u64 key_size)
+--
+io_uring/register.c:182:	res = memdup_user(arg, size);
+io_uring/register.c-183-	if (IS_ERR(res))
+io_uring/register.c-184-		return PTR_ERR(res);
+io_uring/register.c-185-
+io_uring/register.c-186-	ret = 0;
+io_uring/register.c-187-
+io_uring/register.c-188-	for (i = 0; i < nr_args; i++) {
+io_uring/register.c-189-		switch (res[i].opcode) {
+io_uring/register.c-190-		case IORING_RESTRICTION_REGISTER_OP:
+--
+sound/usb/usx2y/usX2Yhwdep.c:188:	buf = memdup_user(dsp->image, dsp->length);
+sound/usb/usx2y/usX2Yhwdep.c-189-	if (IS_ERR(buf))
+sound/usb/usx2y/usX2Yhwdep.c-190-		return PTR_ERR(buf);
+sound/usb/usx2y/usX2Yhwdep.c-191-
+sound/usb/usx2y/usX2Yhwdep.c-192-	err = usb_set_interface(dev, 0, 1);
+sound/usb/usx2y/usX2Yhwdep.c-193-	if (err)
+sound/usb/usx2y/usX2Yhwdep.c-194-		snd_printk(KERN_ERR "usb_set_interface error\n");
+sound/usb/usx2y/usX2Yhwdep.c-195-	else
+sound/usb/usx2y/usX2Yhwdep.c-196-		err = usb_bulk_msg(dev, usb_sndbulkpipe(dev, 2), buf, dsp->length, &lret, 6000);
+--
+kernel/kexec_file.c:234:		image->cmdline_buf = memdup_user(cmdline_ptr, cmdline_len);
+kernel/kexec_file.c-235-		if (IS_ERR(image->cmdline_buf)) {
+kernel/kexec_file.c-236-			ret = PTR_ERR(image->cmdline_buf);
+kernel/kexec_file.c-237-			image->cmdline_buf = NULL;
+kernel/kexec_file.c-238-			goto out;
+kernel/kexec_file.c-239-		}
+kernel/kexec_file.c-240-
+kernel/kexec_file.c-241-		image->cmdline_buf_len = cmdline_len;
+kernel/kexec_file.c-242-
+--
+sound/usb/line6/driver.c:613:	data_copy = memdup_user(data, count);
+sound/usb/line6/driver.c-614-	if (IS_ERR(data_copy))
+sound/usb/line6/driver.c-615-		return PTR_ERR(data_copy);
+sound/usb/line6/driver.c-616-
+sound/usb/line6/driver.c-617-	rv = line6_send_raw_message(line6, data_copy, count);
+sound/usb/line6/driver.c-618-
+sound/usb/line6/driver.c-619-	kfree(data_copy);
+sound/usb/line6/driver.c-620-	return rv;
+sound/usb/line6/driver.c-621-}
+--
+net/ethtool/ioctl.c:2597:	data = memdup_user(useraddr, tuna.len);
+net/ethtool/ioctl.c-2598-	if (IS_ERR(data))
+net/ethtool/ioctl.c-2599-		return PTR_ERR(data);
+net/ethtool/ioctl.c-2600-	ret = ops->set_tunable(dev, &tuna, data);
+net/ethtool/ioctl.c-2601-
+net/ethtool/ioctl.c-2602-	kfree(data);
+net/ethtool/ioctl.c-2603-	return ret;
+net/ethtool/ioctl.c-2604-}
+net/ethtool/ioctl.c-2605-
+--
+net/ethtool/ioctl.c:2797:	data = memdup_user(useraddr, tuna.len);
+net/ethtool/ioctl.c-2798-	if (IS_ERR(data))
+net/ethtool/ioctl.c-2799-		return PTR_ERR(data);
+net/ethtool/ioctl.c-2800-	if (phy_drv_tunable) {
+net/ethtool/ioctl.c-2801-		mutex_lock(&phydev->lock);
+net/ethtool/ioctl.c-2802-		ret = phydev->drv->set_tunable(phydev, &tuna, data);
+net/ethtool/ioctl.c-2803-		mutex_unlock(&phydev->lock);
+net/ethtool/ioctl.c-2804-	} else {
+net/ethtool/ioctl.c-2805-		ret = dev->ethtool_ops->set_phy_tunable(dev, &tuna, data);
+--
+mm/util.c:210:void *memdup_user(const void __user *src, size_t len)
+mm/util.c-211-{
+mm/util.c-212-	void *p;
+mm/util.c-213-
+mm/util.c-214-	p = kmalloc_track_caller(len, GFP_USER | __GFP_NOWARN);
+mm/util.c-215-	if (!p)
+mm/util.c-216-		return ERR_PTR(-ENOMEM);
+mm/util.c-217-
+mm/util.c-218-	if (copy_from_user(p, src, len)) {
+--
+mm/util.c:236:void *vmemdup_user(const void __user *src, size_t len)
+mm/util.c-237-{
+mm/util.c-238-	void *p;
+mm/util.c-239-
+mm/util.c-240-	p = kvmalloc(len, GFP_USER);
+mm/util.c-241-	if (!p)
+mm/util.c-242-		return ERR_PTR(-ENOMEM);
+mm/util.c-243-
+mm/util.c-244-	if (copy_from_user(p, src, len)) {
+--
+mm/util.c:273:	p = memdup_user(s, length);
+mm/util.c-274-
+mm/util.c-275-	if (IS_ERR(p))
+mm/util.c-276-		return p;
+mm/util.c-277-
+mm/util.c-278-	p[length - 1] = '\0';
+mm/util.c-279-
+mm/util.c-280-	return p;
+mm/util.c-281-}
+--
+net/sctp/socket.c:1417:	kaddrs = memdup_user(param.addrs, param.addr_num);
+net/sctp/socket.c-1418-	if (IS_ERR(kaddrs))
+net/sctp/socket.c-1419-		return PTR_ERR(kaddrs);
+net/sctp/socket.c-1420-
+net/sctp/socket.c-1421-	err = __sctp_setsockopt_connectx(sk, kaddrs, param.addr_num, &assoc_id);
+net/sctp/socket.c-1422-	kfree(kaddrs);
+net/sctp/socket.c-1423-	if (err == 0 || err == -EINPROGRESS) {
+net/sctp/socket.c-1424-		if (copy_to_user(optval, &assoc_id, sizeof(assoc_id)))
+net/sctp/socket.c-1425-			return -EFAULT;
+--
+net/bpf/test_run.c:752:		info.ctx = memdup_user(ctx_in, ctx_size_in);
+net/bpf/test_run.c-753-		if (IS_ERR(info.ctx))
+net/bpf/test_run.c-754-			return PTR_ERR(info.ctx);
+net/bpf/test_run.c-755-	} else {
+net/bpf/test_run.c-756-		info.ctx = NULL;
+net/bpf/test_run.c-757-	}
+net/bpf/test_run.c-758-
+net/bpf/test_run.c-759-	info.prog = prog;
+net/bpf/test_run.c-760-
+--
+net/bpf/test_run.c:1503:		ctx = memdup_user(ctx_in, ctx_size_in);
+net/bpf/test_run.c-1504-		if (IS_ERR(ctx))
+net/bpf/test_run.c-1505-			return PTR_ERR(ctx);
+net/bpf/test_run.c-1506-	}
+net/bpf/test_run.c-1507-
+net/bpf/test_run.c-1508-	rcu_read_lock_trace();
+net/bpf/test_run.c-1509-	retval = bpf_prog_run_pin_on_cpu(prog, ctx);
+net/bpf/test_run.c-1510-	rcu_read_unlock_trace();
+net/bpf/test_run.c-1511-
+--
+sound/firewire/fireworks/fireworks_hwdep.c:169:	buf = memdup_user(data, count);
+sound/firewire/fireworks/fireworks_hwdep.c-170-	if (IS_ERR(buf))
+sound/firewire/fireworks/fireworks_hwdep.c-171-		return PTR_ERR(buf);
+sound/firewire/fireworks/fireworks_hwdep.c-172-
+sound/firewire/fireworks/fireworks_hwdep.c-173-	/* check seqnum is not for kernel-land */
+sound/firewire/fireworks/fireworks_hwdep.c-174-	seqnum = be32_to_cpu(((struct snd_efw_transaction *)buf)->seqnum);
+sound/firewire/fireworks/fireworks_hwdep.c-175-	if (seqnum > SND_EFW_TRANSACTION_USER_SEQNUM_MAX) {
+sound/firewire/fireworks/fireworks_hwdep.c-176-		count = -EINVAL;
+sound/firewire/fireworks/fireworks_hwdep.c-177-		goto end;
+--
+net/bluetooth/hidp/core.c:760:	session->rd_data = memdup_user(req->rd_data, req->rd_size);
+net/bluetooth/hidp/core.c-761-	if (IS_ERR(session->rd_data))
+net/bluetooth/hidp/core.c-762-		return PTR_ERR(session->rd_data);
+net/bluetooth/hidp/core.c-763-
+net/bluetooth/hidp/core.c-764-	session->rd_size = req->rd_size;
+net/bluetooth/hidp/core.c-765-
+net/bluetooth/hidp/core.c-766-	hid = hid_allocate_device();
+net/bluetooth/hidp/core.c-767-	if (IS_ERR(hid)) {
+net/bluetooth/hidp/core.c-768-		err = PTR_ERR(hid);
+--
+sound/core/timer.c:1596:	ginfo = memdup_user(_ginfo, sizeof(*ginfo));
+sound/core/timer.c-1597-	if (IS_ERR(ginfo))
+sound/core/timer.c-1598-		return PTR_ERR(no_free_ptr(ginfo));
+sound/core/timer.c-1599-
+sound/core/timer.c-1600-	tid = ginfo->tid;
+sound/core/timer.c-1601-	memset(ginfo, 0, sizeof(*ginfo));
+sound/core/timer.c-1602-	ginfo->tid = tid;
+sound/core/timer.c-1603-	guard(mutex)(&register_mutex);
+sound/core/timer.c-1604-	t = snd_timer_find(&tid);
+--
+security/smack/smackfs.c:2548:	data = memdup_user(buf, count);
+security/smack/smackfs.c-2549-	if (IS_ERR(data))
+security/smack/smackfs.c-2550-		return PTR_ERR(data);
+security/smack/smackfs.c-2551-
+security/smack/smackfs.c-2552-	cp = smk_parse_smack(data, count);
+security/smack/smackfs.c-2553-	if (IS_ERR(cp)) {
+security/smack/smackfs.c-2554-		rc = PTR_ERR(cp);
+security/smack/smackfs.c-2555-		goto out_data;
+security/smack/smackfs.c-2556-	}
+--
+sound/core/seq/seq_clientmgr.c:2211:		p = memdup_user(argp->info, size);
+sound/core/seq/seq_clientmgr.c-2212-		if (IS_ERR(p)) {
+sound/core/seq/seq_clientmgr.c-2213-			err = PTR_ERR(p);
+sound/core/seq/seq_clientmgr.c-2214-			goto error;
+sound/core/seq/seq_clientmgr.c-2215-		}
+sound/core/seq/seq_clientmgr.c-2216-		kfree(cptr->ump_info[type]);
+sound/core/seq/seq_clientmgr.c-2217-		terminate_ump_info_strings(p, type);
+sound/core/seq/seq_clientmgr.c-2218-		cptr->ump_info[type] = p;
+sound/core/seq/seq_clientmgr.c-2219-	}
+--
+sound/core/pcm_native.c:577:	params = memdup_user(_params, sizeof(*params));
+sound/core/pcm_native.c-578-	if (IS_ERR(params))
+sound/core/pcm_native.c-579-		return PTR_ERR(no_free_ptr(params));
+sound/core/pcm_native.c-580-
+sound/core/pcm_native.c-581-	err = snd_pcm_hw_refine(substream, params);
+sound/core/pcm_native.c-582-	if (err < 0)
+sound/core/pcm_native.c-583-		return err;
+sound/core/pcm_native.c-584-
+sound/core/pcm_native.c-585-	err = fixup_unreferenced_params(substream, params);
+--
+sound/core/pcm_native.c:867:	params = memdup_user(_params, sizeof(*params));
+sound/core/pcm_native.c-868-	if (IS_ERR(params))
+sound/core/pcm_native.c-869-		return PTR_ERR(no_free_ptr(params));
+sound/core/pcm_native.c-870-
+sound/core/pcm_native.c-871-	err = snd_pcm_hw_params(substream, params);
+sound/core/pcm_native.c-872-	if (err < 0)
+sound/core/pcm_native.c-873-		return err;
+sound/core/pcm_native.c-874-
+sound/core/pcm_native.c-875-	if (copy_to_user(_params, params, sizeof(*params)))
+--
+sound/core/pcm_native.c:3236:	bufs = memdup_user(xfern.bufs, sizeof(void *) * runtime->channels);
+sound/core/pcm_native.c-3237-	if (IS_ERR(bufs))
+sound/core/pcm_native.c-3238-		return PTR_ERR(no_free_ptr(bufs));
+sound/core/pcm_native.c-3239-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+sound/core/pcm_native.c-3240-		result = snd_pcm_lib_writev(substream, bufs, xfern.frames);
+sound/core/pcm_native.c-3241-	else
+sound/core/pcm_native.c-3242-		result = snd_pcm_lib_readv(substream, bufs, xfern.frames);
+sound/core/pcm_native.c-3243-	if (put_user(result, &_xfern->result))
+sound/core/pcm_native.c-3244-		return -EFAULT;
+--
+sound/core/pcm_native.c:4025:	oparams = memdup_user(_oparams, sizeof(*oparams));
+sound/core/pcm_native.c-4026-	if (IS_ERR(oparams))
+sound/core/pcm_native.c-4027-		return PTR_ERR(no_free_ptr(oparams));
+sound/core/pcm_native.c-4028-	snd_pcm_hw_convert_from_old_params(params, oparams);
+sound/core/pcm_native.c-4029-	err = snd_pcm_hw_refine(substream, params);
+sound/core/pcm_native.c-4030-	if (err < 0)
+sound/core/pcm_native.c-4031-		return err;
+sound/core/pcm_native.c-4032-
+sound/core/pcm_native.c-4033-	err = fixup_unreferenced_params(substream, params);
+--
+sound/core/pcm_native.c:4054:	oparams = memdup_user(_oparams, sizeof(*oparams));
+sound/core/pcm_native.c-4055-	if (IS_ERR(oparams))
+sound/core/pcm_native.c-4056-		return PTR_ERR(no_free_ptr(oparams));
+sound/core/pcm_native.c-4057-
+sound/core/pcm_native.c-4058-	snd_pcm_hw_convert_from_old_params(params, oparams);
+sound/core/pcm_native.c-4059-	err = snd_pcm_hw_params(substream, params);
+sound/core/pcm_native.c-4060-	if (err < 0)
+sound/core/pcm_native.c-4061-		return err;
+sound/core/pcm_native.c-4062-
+--
+security/security.c:4047:	lctx = memdup_user(uctx, size);
+security/security.c-4048-	if (IS_ERR(lctx))
+security/security.c-4049-		return PTR_ERR(lctx);
+security/security.c-4050-
+security/security.c-4051-	if (size < lctx->len ||
+security/security.c-4052-	    check_add_overflow(sizeof(*lctx), lctx->ctx_len, &required_len) ||
+security/security.c-4053-	    lctx->len < required_len) {
+security/security.c-4054-		rc = -EINVAL;
+security/security.c-4055-		goto free_out;
+--
+sound/core/control.c:1281:	control = memdup_user(_control, sizeof(*control));
+sound/core/control.c-1282-	if (IS_ERR(control))
+sound/core/control.c-1283-		return PTR_ERR(no_free_ptr(control));
+sound/core/control.c-1284-
+sound/core/control.c-1285-	result = snd_ctl_elem_read(card, control);
+sound/core/control.c-1286-	if (result < 0)
+sound/core/control.c-1287-		return result;
+sound/core/control.c-1288-
+sound/core/control.c-1289-	if (copy_to_user(_control, control, sizeof(*control)))
+--
+sound/core/control.c:1356:	control = memdup_user(_control, sizeof(*control));
+sound/core/control.c-1357-	if (IS_ERR(control))
+sound/core/control.c-1358-		return PTR_ERR(no_free_ptr(control));
+sound/core/control.c-1359-
+sound/core/control.c-1360-	card = file->card;
+sound/core/control.c-1361-	result = snd_ctl_elem_write(card, file, control);
+sound/core/control.c-1362-	if (result < 0)
+sound/core/control.c-1363-		return result;
+sound/core/control.c-1364-
+--
+sound/core/control.c:1514:	container = vmemdup_user(buf, size);
+sound/core/control.c-1515-	if (IS_ERR(container))
+sound/core/control.c-1516-		return PTR_ERR(container);
+sound/core/control.c-1517-
+sound/core/control.c-1518-	change = ue->tlv_data_size != size;
+sound/core/control.c-1519-	if (!change)
+sound/core/control.c-1520-		change = memcmp(ue->tlv_data, container, size) != 0;
+sound/core/control.c-1521-	if (!change) {
+sound/core/control.c-1522-		kvfree(container);
+--
+sound/core/control.c:1591:	names = vmemdup_user((const void __user *)user_ptrval, buf_len);
+sound/core/control.c-1592-	if (IS_ERR(names))
+sound/core/control.c-1593-		return PTR_ERR(names);
+sound/core/control.c-1594-
+sound/core/control.c-1595-	/* check that there are enough valid names */
+sound/core/control.c-1596-	p = names;
+sound/core/control.c-1597-	for (i = 0; i < ue->info.value.enumerated.items; ++i) {
+sound/core/control.c-1598-		name_len = strnlen(p, buf_len);
+sound/core/control.c-1599-		if (name_len == 0 || name_len >= 64 || name_len == buf_len) {
+--
+sound/core/compress_offload.c:582:		params = memdup_user((void __user *)arg, sizeof(*params));
+sound/core/compress_offload.c-583-		if (IS_ERR(params))
+sound/core/compress_offload.c-584-			return PTR_ERR(no_free_ptr(params));
+sound/core/compress_offload.c-585-
+sound/core/compress_offload.c-586-		retval = snd_compress_check_input(params);
+sound/core/compress_offload.c-587-		if (retval)
+sound/core/compress_offload.c-588-			return retval;
+sound/core/compress_offload.c-589-
+sound/core/compress_offload.c-590-		retval = snd_compr_allocate_buffer(stream, params);
+--
+security/keys/keyctl_pkey.c:244:	in = memdup_user(_in, params.in_len);
+security/keys/keyctl_pkey.c-245-	if (IS_ERR(in)) {
+security/keys/keyctl_pkey.c-246-		ret = PTR_ERR(in);
+security/keys/keyctl_pkey.c-247-		goto error_params;
+security/keys/keyctl_pkey.c-248-	}
+security/keys/keyctl_pkey.c-249-
+security/keys/keyctl_pkey.c-250-	ret = -ENOMEM;
+security/keys/keyctl_pkey.c-251-	out = kmalloc(params.out_len, GFP_KERNEL);
+security/keys/keyctl_pkey.c-252-	if (!out)
+--
+security/keys/keyctl_pkey.c:306:	in = memdup_user(_in, params.in_len);
+security/keys/keyctl_pkey.c-307-	if (IS_ERR(in)) {
+security/keys/keyctl_pkey.c-308-		ret = PTR_ERR(in);
+security/keys/keyctl_pkey.c-309-		goto error_params;
+security/keys/keyctl_pkey.c-310-	}
+security/keys/keyctl_pkey.c-311-
+security/keys/keyctl_pkey.c:312:	in2 = memdup_user(_in2, params.in2_len);
+security/keys/keyctl_pkey.c-313-	if (IS_ERR(in2)) {
+security/keys/keyctl_pkey.c-314-		ret = PTR_ERR(in2);
+security/keys/keyctl_pkey.c-315-		goto error_in;
+security/keys/keyctl_pkey.c-316-	}
+security/keys/keyctl_pkey.c-317-
+security/keys/keyctl_pkey.c-318-	params.op = kernel_pkey_verify;
+security/keys/keyctl_pkey.c-319-	ret = params.key->type->asym_verify_signature(&params, in, in2);
+security/keys/keyctl_pkey.c-320-
+--
+sound/pci/emu10k1/emufx.c:2509:		icode = memdup_user(argp, sizeof(*icode));
+sound/pci/emu10k1/emufx.c-2510-		if (IS_ERR(icode))
+sound/pci/emu10k1/emufx.c-2511-			return PTR_ERR(icode);
+sound/pci/emu10k1/emufx.c-2512-		res = snd_emu10k1_icode_poke(emu, icode, false);
+sound/pci/emu10k1/emufx.c-2513-		kfree(icode);
+sound/pci/emu10k1/emufx.c-2514-		return res;
+sound/pci/emu10k1/emufx.c-2515-	case SNDRV_EMU10K1_IOCTL_CODE_PEEK:
+sound/pci/emu10k1/emufx.c:2516:		icode = memdup_user(argp, sizeof(*icode));
+sound/pci/emu10k1/emufx.c-2517-		if (IS_ERR(icode))
+sound/pci/emu10k1/emufx.c-2518-			return PTR_ERR(icode);
+sound/pci/emu10k1/emufx.c-2519-		res = snd_emu10k1_icode_peek(emu, icode);
+sound/pci/emu10k1/emufx.c-2520-		if (res == 0 && copy_to_user(argp, icode, sizeof(*icode))) {
+sound/pci/emu10k1/emufx.c-2521-			kfree(icode);
+sound/pci/emu10k1/emufx.c-2522-			return -EFAULT;
+sound/pci/emu10k1/emufx.c-2523-		}
+sound/pci/emu10k1/emufx.c-2524-		kfree(icode);
+--
+sound/pci/emu10k1/emufx.c:2527:		ipcm = memdup_user(argp, sizeof(*ipcm));
+sound/pci/emu10k1/emufx.c-2528-		if (IS_ERR(ipcm))
+sound/pci/emu10k1/emufx.c-2529-			return PTR_ERR(ipcm);
+sound/pci/emu10k1/emufx.c-2530-		res = snd_emu10k1_ipcm_poke(emu, ipcm);
+sound/pci/emu10k1/emufx.c-2531-		kfree(ipcm);
+sound/pci/emu10k1/emufx.c-2532-		return res;
+sound/pci/emu10k1/emufx.c-2533-	case SNDRV_EMU10K1_IOCTL_PCM_PEEK:
+sound/pci/emu10k1/emufx.c:2534:		ipcm = memdup_user(argp, sizeof(*ipcm));
+sound/pci/emu10k1/emufx.c-2535-		if (IS_ERR(ipcm))
+sound/pci/emu10k1/emufx.c-2536-			return PTR_ERR(ipcm);
+sound/pci/emu10k1/emufx.c-2537-		res = snd_emu10k1_ipcm_peek(emu, ipcm);
+sound/pci/emu10k1/emufx.c-2538-		if (res == 0 && copy_to_user(argp, ipcm, sizeof(*ipcm))) {
+sound/pci/emu10k1/emufx.c-2539-			kfree(ipcm);
+sound/pci/emu10k1/emufx.c-2540-			return -EFAULT;
+sound/pci/emu10k1/emufx.c-2541-		}
+sound/pci/emu10k1/emufx.c-2542-		kfree(ipcm);
+--
+sound/isa/wavefront/wavefront_synth.c:1689:		wc = memdup_user(argp, sizeof(*wc));
+sound/isa/wavefront/wavefront_synth.c-1690-		if (IS_ERR(wc))
+sound/isa/wavefront/wavefront_synth.c-1691-			return PTR_ERR(wc);
+sound/isa/wavefront/wavefront_synth.c-1692-
+sound/isa/wavefront/wavefront_synth.c-1693-		if (wavefront_synth_control (acard, wc) < 0)
+sound/isa/wavefront/wavefront_synth.c-1694-			err = -EIO;
+sound/isa/wavefront/wavefront_synth.c-1695-		else if (copy_to_user (argp, wc, sizeof (*wc)))
+sound/isa/wavefront/wavefront_synth.c-1696-			err = -EFAULT;
+sound/isa/wavefront/wavefront_synth.c-1697-		else
+--
+sound/isa/sb/sb16_csp.c:680:	kbuf = memdup_user(buf, size);
+sound/isa/sb/sb16_csp.c-681-	if (IS_ERR(kbuf))
+sound/isa/sb/sb16_csp.c-682-		return PTR_ERR(kbuf);
+sound/isa/sb/sb16_csp.c-683-
+sound/isa/sb/sb16_csp.c-684-	err = snd_sb_csp_load(p, kbuf, size, load_flags);
+sound/isa/sb/sb16_csp.c-685-
+sound/isa/sb/sb16_csp.c-686-	kfree(kbuf);
+sound/isa/sb/sb16_csp.c-687-	return err;
+sound/isa/sb/sb16_csp.c-688-}
+--
+sound/soc/codecs/cros_ec_codec.c:760:	buf = memdup_user(bytes, size);
+sound/soc/codecs/cros_ec_codec.c-761-	if (IS_ERR(buf))
+sound/soc/codecs/cros_ec_codec.c-762-		return PTR_ERR(buf);
+sound/soc/codecs/cros_ec_codec.c-763-
+sound/soc/codecs/cros_ec_codec.c-764-	sha256(buf, size, digest);
+sound/soc/codecs/cros_ec_codec.c-765-	dev_dbg(priv->dev, "hash=%*phN\n", SHA256_DIGEST_SIZE, digest);
+sound/soc/codecs/cros_ec_codec.c-766-
+sound/soc/codecs/cros_ec_codec.c-767-	p.cmd = EC_CODEC_WOV_GET_LANG;
+sound/soc/codecs/cros_ec_codec.c-768-	ret = send_ec_host_command(priv->ec_device, EC_CMD_EC_CODEC_WOV,
+--
+drivers/cxl/core/mbox.c:350:		mbox->payload_in = vmemdup_user(u64_to_user_ptr(in_payload),
+drivers/cxl/core/mbox.c-351-						in_size);
+drivers/cxl/core/mbox.c-352-		if (IS_ERR(mbox->payload_in))
+drivers/cxl/core/mbox.c-353-			return PTR_ERR(mbox->payload_in);
+drivers/cxl/core/mbox.c-354-
+drivers/cxl/core/mbox.c-355-		if (!cxl_payload_from_user_allowed(opcode, mbox->payload_in)) {
+drivers/cxl/core/mbox.c-356-			dev_dbg(mds->cxlds.dev, "%s: input payload not allowed\n",
+drivers/cxl/core/mbox.c-357-				cxl_mem_opcode_to_name(opcode));
+drivers/cxl/core/mbox.c-358-			kvfree(mbox->payload_in);
+--
+fs/xfs/xfs_ioctl32.c:395:	ops = memdup_user(compat_ptr(am_hreq.ops), size);
+fs/xfs/xfs_ioctl32.c-396-	if (IS_ERR(ops)) {
+fs/xfs/xfs_ioctl32.c-397-		error = PTR_ERR(ops);
+fs/xfs/xfs_ioctl32.c-398-		goto out_dput;
+fs/xfs/xfs_ioctl32.c-399-	}
+fs/xfs/xfs_ioctl32.c-400-
+fs/xfs/xfs_ioctl32.c-401-	error = 0;
+fs/xfs/xfs_ioctl32.c-402-	for (i = 0; i < am_hreq.opcount; i++) {
+fs/xfs/xfs_ioctl32.c-403-		ops[i].am_error = xfs_ioc_attrmulti_one(parfilp,
+--
+fs/xfs/xfs_ioctl.c:523:		args.value = memdup_user(ubuf, len);
+fs/xfs/xfs_ioctl.c-524-		if (IS_ERR(args.value))
+fs/xfs/xfs_ioctl.c-525-			return PTR_ERR(args.value);
+fs/xfs/xfs_ioctl.c-526-		args.valuelen = len;
+fs/xfs/xfs_ioctl.c-527-	}
+fs/xfs/xfs_ioctl.c-528-
+fs/xfs/xfs_ioctl.c-529-	error = xfs_attr_change(&args);
+fs/xfs/xfs_ioctl.c-530-	if (!error && (flags & XFS_IOC_ATTR_ROOT))
+fs/xfs/xfs_ioctl.c-531-		xfs_forget_acl(inode, name);
+--
+fs/xfs/xfs_ioctl.c:609:	ops = memdup_user(am_hreq.ops, size);
+fs/xfs/xfs_ioctl.c-610-	if (IS_ERR(ops)) {
+fs/xfs/xfs_ioctl.c-611-		error = PTR_ERR(ops);
+fs/xfs/xfs_ioctl.c-612-		goto out_dput;
+fs/xfs/xfs_ioctl.c-613-	}
+fs/xfs/xfs_ioctl.c-614-
+fs/xfs/xfs_ioctl.c-615-	error = 0;
+fs/xfs/xfs_ioctl.c-616-	for (i = 0; i < am_hreq.opcount; i++) {
+fs/xfs/xfs_ioctl.c-617-		ops[i].am_error = xfs_ioc_attrmulti_one(parfilp,
+--
+include/linux/string.h:17:extern void *memdup_user(const void __user *, size_t);
+include/linux/string.h:18:extern void *vmemdup_user(const void __user *, size_t);
+include/linux/string.h-19-extern void *memdup_user_nul(const void __user *, size_t);
+include/linux/string.h-20-
+include/linux/string.h-21-/**
+include/linux/string.h-22- * memdup_array_user - duplicate array from user space
+include/linux/string.h-23- * @src: source address in user space
+include/linux/string.h-24- * @n: number of array members to copy
+include/linux/string.h-25- * @size: size of one array member
+include/linux/string.h-26- *
+--
+include/linux/string.h:37:	return memdup_user(src, nbytes);
+include/linux/string.h-38-}
+include/linux/string.h-39-
+include/linux/string.h-40-/**
+include/linux/string.h-41- * vmemdup_array_user - duplicate array from user space
+include/linux/string.h-42- * @src: source address in user space
+include/linux/string.h-43- * @n: number of array members to copy
+include/linux/string.h-44- * @size: size of one array member
+include/linux/string.h-45- *
+--
+include/linux/string.h:56:	return vmemdup_user(src, nbytes);
+include/linux/string.h-57-}
+include/linux/string.h-58-
+include/linux/string.h-59-/*
+include/linux/string.h-60- * Include machine specific inline routines
+include/linux/string.h-61- */
+include/linux/string.h-62-#include <asm/string.h>
+include/linux/string.h-63-
+include/linux/string.h-64-#ifndef __HAVE_ARCH_STRCPY
+--
+fs/xattr.c:612:		ctx->kvalue = vmemdup_user(ctx->cvalue, ctx->size);
+fs/xattr.c-613-		if (IS_ERR(ctx->kvalue)) {
+fs/xattr.c-614-			error = PTR_ERR(ctx->kvalue);
+fs/xattr.c-615-			ctx->kvalue = NULL;
+fs/xattr.c-616-		}
+fs/xattr.c-617-	}
+fs/xattr.c-618-
+fs/xattr.c-619-	return error;
+fs/xattr.c-620-}
+--
+include/rdma/ib_verbs.h:2964:	buf = memdup_user(p, len);
+include/rdma/ib_verbs.h-2965-	if (IS_ERR(buf))
+include/rdma/ib_verbs.h-2966-		return false;
+include/rdma/ib_verbs.h-2967-
+include/rdma/ib_verbs.h-2968-	ret = !memchr_inv(buf, 0, len);
+include/rdma/ib_verbs.h-2969-	kfree(buf);
+include/rdma/ib_verbs.h-2970-	return ret;
+include/rdma/ib_verbs.h-2971-}
+include/rdma/ib_verbs.h-2972-
+--
+drivers/virt/acrn/hsm.c:134:		vm_param = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-135-				       sizeof(struct acrn_vm_creation));
+drivers/virt/acrn/hsm.c-136-		if (IS_ERR(vm_param))
+drivers/virt/acrn/hsm.c-137-			return PTR_ERR(vm_param);
+drivers/virt/acrn/hsm.c-138-
+drivers/virt/acrn/hsm.c-139-		if ((vm_param->reserved0 | vm_param->reserved1) != 0) {
+drivers/virt/acrn/hsm.c-140-			kfree(vm_param);
+drivers/virt/acrn/hsm.c-141-			return -EINVAL;
+drivers/virt/acrn/hsm.c-142-		}
+--
+drivers/virt/acrn/hsm.c:181:		cpu_regs = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-182-				       sizeof(struct acrn_vcpu_regs));
+drivers/virt/acrn/hsm.c-183-		if (IS_ERR(cpu_regs))
+drivers/virt/acrn/hsm.c-184-			return PTR_ERR(cpu_regs);
+drivers/virt/acrn/hsm.c-185-
+drivers/virt/acrn/hsm.c-186-		for (i = 0; i < ARRAY_SIZE(cpu_regs->reserved); i++)
+drivers/virt/acrn/hsm.c-187-			if (cpu_regs->reserved[i]) {
+drivers/virt/acrn/hsm.c-188-				kfree(cpu_regs);
+drivers/virt/acrn/hsm.c-189-				return -EINVAL;
+--
+drivers/virt/acrn/hsm.c:233:		mmiodev = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-234-				      sizeof(struct acrn_mmiodev));
+drivers/virt/acrn/hsm.c-235-		if (IS_ERR(mmiodev))
+drivers/virt/acrn/hsm.c-236-			return PTR_ERR(mmiodev);
+drivers/virt/acrn/hsm.c-237-
+drivers/virt/acrn/hsm.c-238-		ret = hcall_assign_mmiodev(vm->vmid, virt_to_phys(mmiodev));
+drivers/virt/acrn/hsm.c-239-		if (ret < 0)
+drivers/virt/acrn/hsm.c-240-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-241-				"Failed to assign MMIO device!\n");
+--
+drivers/virt/acrn/hsm.c:245:		mmiodev = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-246-				      sizeof(struct acrn_mmiodev));
+drivers/virt/acrn/hsm.c-247-		if (IS_ERR(mmiodev))
+drivers/virt/acrn/hsm.c-248-			return PTR_ERR(mmiodev);
+drivers/virt/acrn/hsm.c-249-
+drivers/virt/acrn/hsm.c-250-		ret = hcall_deassign_mmiodev(vm->vmid, virt_to_phys(mmiodev));
+drivers/virt/acrn/hsm.c-251-		if (ret < 0)
+drivers/virt/acrn/hsm.c-252-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-253-				"Failed to deassign MMIO device!\n");
+--
+drivers/virt/acrn/hsm.c:257:		pcidev = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-258-				     sizeof(struct acrn_pcidev));
+drivers/virt/acrn/hsm.c-259-		if (IS_ERR(pcidev))
+drivers/virt/acrn/hsm.c-260-			return PTR_ERR(pcidev);
+drivers/virt/acrn/hsm.c-261-
+drivers/virt/acrn/hsm.c-262-		ret = hcall_assign_pcidev(vm->vmid, virt_to_phys(pcidev));
+drivers/virt/acrn/hsm.c-263-		if (ret < 0)
+drivers/virt/acrn/hsm.c-264-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-265-				"Failed to assign pci device!\n");
+--
+drivers/virt/acrn/hsm.c:269:		pcidev = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-270-				     sizeof(struct acrn_pcidev));
+drivers/virt/acrn/hsm.c-271-		if (IS_ERR(pcidev))
+drivers/virt/acrn/hsm.c-272-			return PTR_ERR(pcidev);
+drivers/virt/acrn/hsm.c-273-
+drivers/virt/acrn/hsm.c-274-		ret = hcall_deassign_pcidev(vm->vmid, virt_to_phys(pcidev));
+drivers/virt/acrn/hsm.c-275-		if (ret < 0)
+drivers/virt/acrn/hsm.c-276-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-277-				"Failed to deassign pci device!\n");
+--
+drivers/virt/acrn/hsm.c:281:		vdev = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-282-				   sizeof(struct acrn_vdev));
+drivers/virt/acrn/hsm.c-283-		if (IS_ERR(vdev))
+drivers/virt/acrn/hsm.c-284-			return PTR_ERR(vdev);
+drivers/virt/acrn/hsm.c-285-
+drivers/virt/acrn/hsm.c-286-		ret = hcall_create_vdev(vm->vmid, virt_to_phys(vdev));
+drivers/virt/acrn/hsm.c-287-		if (ret < 0)
+drivers/virt/acrn/hsm.c-288-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-289-				"Failed to create virtual device!\n");
+--
+drivers/virt/acrn/hsm.c:293:		vdev = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-294-				   sizeof(struct acrn_vdev));
+drivers/virt/acrn/hsm.c-295-		if (IS_ERR(vdev))
+drivers/virt/acrn/hsm.c-296-			return PTR_ERR(vdev);
+drivers/virt/acrn/hsm.c-297-		ret = hcall_destroy_vdev(vm->vmid, virt_to_phys(vdev));
+drivers/virt/acrn/hsm.c-298-		if (ret < 0)
+drivers/virt/acrn/hsm.c-299-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-300-				"Failed to destroy virtual device!\n");
+drivers/virt/acrn/hsm.c-301-		kfree(vdev);
+--
+drivers/virt/acrn/hsm.c:304:		irq_info = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-305-				       sizeof(struct acrn_ptdev_irq));
+drivers/virt/acrn/hsm.c-306-		if (IS_ERR(irq_info))
+drivers/virt/acrn/hsm.c-307-			return PTR_ERR(irq_info);
+drivers/virt/acrn/hsm.c-308-
+drivers/virt/acrn/hsm.c-309-		ret = hcall_set_ptdev_intr(vm->vmid, virt_to_phys(irq_info));
+drivers/virt/acrn/hsm.c-310-		if (ret < 0)
+drivers/virt/acrn/hsm.c-311-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-312-				"Failed to configure intr for ptdev!\n");
+--
+drivers/virt/acrn/hsm.c:316:		irq_info = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-317-				       sizeof(struct acrn_ptdev_irq));
+drivers/virt/acrn/hsm.c-318-		if (IS_ERR(irq_info))
+drivers/virt/acrn/hsm.c-319-			return PTR_ERR(irq_info);
+drivers/virt/acrn/hsm.c-320-
+drivers/virt/acrn/hsm.c-321-		ret = hcall_reset_ptdev_intr(vm->vmid, virt_to_phys(irq_info));
+drivers/virt/acrn/hsm.c-322-		if (ret < 0)
+drivers/virt/acrn/hsm.c-323-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-324-				"Failed to reset intr for ptdev!\n");
+--
+drivers/virt/acrn/hsm.c:334:		msi = memdup_user((void __user *)ioctl_param,
+drivers/virt/acrn/hsm.c-335-				  sizeof(struct acrn_msi_entry));
+drivers/virt/acrn/hsm.c-336-		if (IS_ERR(msi))
+drivers/virt/acrn/hsm.c-337-			return PTR_ERR(msi);
+drivers/virt/acrn/hsm.c-338-
+drivers/virt/acrn/hsm.c-339-		ret = hcall_inject_msi(vm->vmid, virt_to_phys(msi));
+drivers/virt/acrn/hsm.c-340-		if (ret < 0)
+drivers/virt/acrn/hsm.c-341-			dev_dbg(acrn_dev.this_device,
+drivers/virt/acrn/hsm.c-342-				"Failed to inject MSI!\n");
+--
+drivers/crypto/ccp/sev-dev.c:1516:	return memdup_user((void __user *)uaddr, len);
+drivers/crypto/ccp/sev-dev.c-1517-}
+drivers/crypto/ccp/sev-dev.c-1518-EXPORT_SYMBOL_GPL(psp_copy_user_blob);
+drivers/crypto/ccp/sev-dev.c-1519-
+drivers/crypto/ccp/sev-dev.c-1520-static int sev_get_api_version(void)
+drivers/crypto/ccp/sev-dev.c-1521-{
+drivers/crypto/ccp/sev-dev.c-1522-	struct sev_device *sev = psp_master->sev_data;
+drivers/crypto/ccp/sev-dev.c-1523-	struct sev_user_data_status status;
+drivers/crypto/ccp/sev-dev.c-1524-	int error = 0, ret;
+--
+drivers/block/mtip32xx/mtip32xx.c:1722:		outbuf = memdup_user(buf + outtotal, taskout);
+drivers/block/mtip32xx/mtip32xx.c-1723-		if (IS_ERR(outbuf))
+drivers/block/mtip32xx/mtip32xx.c-1724-			return PTR_ERR(outbuf);
+drivers/block/mtip32xx/mtip32xx.c-1725-
+drivers/block/mtip32xx/mtip32xx.c-1726-		outbuf_dma = dma_map_single(&dd->pdev->dev, outbuf,
+drivers/block/mtip32xx/mtip32xx.c-1727-					    taskout, DMA_TO_DEVICE);
+drivers/block/mtip32xx/mtip32xx.c-1728-		if (dma_mapping_error(&dd->pdev->dev, outbuf_dma)) {
+drivers/block/mtip32xx/mtip32xx.c-1729-			err = -ENOMEM;
+drivers/block/mtip32xx/mtip32xx.c-1730-			goto abort;
+--
+drivers/block/mtip32xx/mtip32xx.c:1736:		inbuf = memdup_user(buf + intotal, taskin);
+drivers/block/mtip32xx/mtip32xx.c-1737-		if (IS_ERR(inbuf)) {
+drivers/block/mtip32xx/mtip32xx.c-1738-			err = PTR_ERR(inbuf);
+drivers/block/mtip32xx/mtip32xx.c-1739-			inbuf = NULL;
+drivers/block/mtip32xx/mtip32xx.c-1740-			goto abort;
+drivers/block/mtip32xx/mtip32xx.c-1741-		}
+drivers/block/mtip32xx/mtip32xx.c-1742-		inbuf_dma = dma_map_single(&dd->pdev->dev, inbuf,
+drivers/block/mtip32xx/mtip32xx.c-1743-					   taskin, DMA_FROM_DEVICE);
+drivers/block/mtip32xx/mtip32xx.c-1744-		if (dma_mapping_error(&dd->pdev->dev, inbuf_dma)) {
+--
+fs/smb/client/smb2ops.c:1558:		buffer = memdup_user(arg + sizeof(struct smb_query_info), qi.output_buffer_length);
+fs/smb/client/smb2ops.c-1559-		if (IS_ERR(buffer)) {
+fs/smb/client/smb2ops.c-1560-			rc = PTR_ERR(buffer);
+fs/smb/client/smb2ops.c-1561-			goto free_vars;
+fs/smb/client/smb2ops.c-1562-		}
+fs/smb/client/smb2ops.c-1563-	}
+fs/smb/client/smb2ops.c-1564-
+fs/smb/client/smb2ops.c-1565-	/* Open */
+fs/smb/client/smb2ops.c-1566-	rqst[0].rq_iov = &vars->open_iov[0];
+--
+block/sed-opal.c:3220:		p = memdup_user(arg, _IOC_SIZE(cmd));
+block/sed-opal.c-3221-		if (IS_ERR(p))
+block/sed-opal.c-3222-			return PTR_ERR(p);
+block/sed-opal.c-3223-	}
+block/sed-opal.c-3224-
+block/sed-opal.c-3225-	switch (cmd) {
+block/sed-opal.c-3226-	case IOC_OPAL_SAVE:
+block/sed-opal.c-3227-		ret = opal_save(dev, p);
+block/sed-opal.c-3228-		break;
+--
+block/bsg-lib.c:57:	job->request = memdup_user(uptr64(hdr->request), hdr->request_len);
+block/bsg-lib.c-58-	if (IS_ERR(job->request)) {
+block/bsg-lib.c-59-		ret = PTR_ERR(job->request);
+block/bsg-lib.c-60-		goto out_free_rq;
+block/bsg-lib.c-61-	}
+block/bsg-lib.c-62-
+block/bsg-lib.c-63-	if (hdr->dout_xfer_len && hdr->din_xfer_len) {
+block/bsg-lib.c-64-		job->bidi_rq = blk_mq_alloc_request(rq->q, REQ_OP_DRV_IN, 0);
+block/bsg-lib.c-65-		if (IS_ERR(job->bidi_rq)) {
+--
+fs/pstore/platform.c:443:	record->buf = vmemdup_user(buf, record->size);
+fs/pstore/platform.c-444-	if (IS_ERR(record->buf)) {
+fs/pstore/platform.c-445-		ret = PTR_ERR(record->buf);
+fs/pstore/platform.c-446-		goto out;
+fs/pstore/platform.c-447-	}
+fs/pstore/platform.c-448-
+fs/pstore/platform.c-449-	ret = record->psi->write(record);
+fs/pstore/platform.c-450-
+fs/pstore/platform.c-451-	kvfree(record->buf);
+--
+fs/proc/base.c:2775:	page = memdup_user(buf, count);
+fs/proc/base.c-2776-	if (IS_ERR(page)) {
+fs/proc/base.c-2777-		rv = PTR_ERR(page);
+fs/proc/base.c-2778-		goto out;
+fs/proc/base.c-2779-	}
+fs/proc/base.c-2780-
+fs/proc/base.c-2781-	/* Guard against adverse ptrace interaction */
+fs/proc/base.c-2782-	rv = mutex_lock_interruptible(&current->signal->cred_guard_mutex);
+fs/proc/base.c-2783-	if (rv < 0)
+--
+drivers/char/nvram.c:271:	tmp = memdup_user(buf, count);
+drivers/char/nvram.c-272-	if (IS_ERR(tmp))
+drivers/char/nvram.c-273-		return PTR_ERR(tmp);
+drivers/char/nvram.c-274-
+drivers/char/nvram.c-275-	ret = nvram_write(tmp, count, ppos);
+drivers/char/nvram.c-276-	kfree(tmp);
+drivers/char/nvram.c-277-	return ret;
+drivers/char/nvram.c-278-}
+drivers/char/nvram.c-279-
+--
+drivers/vhost/vdpa.c:397:	buf = vmemdup_user(c->buf, config.len);
+drivers/vhost/vdpa.c-398-	if (IS_ERR(buf))
+drivers/vhost/vdpa.c-399-		return PTR_ERR(buf);
+drivers/vhost/vdpa.c-400-
+drivers/vhost/vdpa.c-401-	vdpa_set_config(vdpa, config.off, buf, config.len);
+drivers/vhost/vdpa.c-402-
+drivers/vhost/vdpa.c-403-	kvfree(buf);
+drivers/vhost/vdpa.c-404-	return 0;
+drivers/vhost/vdpa.c-405-}
+--
+drivers/vfio/platform/vfio_platform_common.c:362:			data = memdup_user((void __user *)(arg + minsz),
+drivers/vfio/platform/vfio_platform_common.c-363-					    data_size);
+drivers/vfio/platform/vfio_platform_common.c-364-			if (IS_ERR(data))
+drivers/vfio/platform/vfio_platform_common.c-365-				return PTR_ERR(data);
+drivers/vfio/platform/vfio_platform_common.c-366-		}
+drivers/vfio/platform/vfio_platform_common.c-367-
+drivers/vfio/platform/vfio_platform_common.c-368-		mutex_lock(&vdev->igate);
+drivers/vfio/platform/vfio_platform_common.c-369-
+drivers/vfio/platform/vfio_platform_common.c-370-		ret = vfio_platform_set_irqs_ioctl(vdev, hdr.flags, hdr.index,
+--
+drivers/vfio/pci/vfio_pci_core.c:1212:		data = memdup_user(&arg->data, data_size);
+drivers/vfio/pci/vfio_pci_core.c-1213-		if (IS_ERR(data))
+drivers/vfio/pci/vfio_pci_core.c-1214-			return PTR_ERR(data);
+drivers/vfio/pci/vfio_pci_core.c-1215-	}
+drivers/vfio/pci/vfio_pci_core.c-1216-
+drivers/vfio/pci/vfio_pci_core.c-1217-	mutex_lock(&vdev->igate);
+drivers/vfio/pci/vfio_pci_core.c-1218-
+drivers/vfio/pci/vfio_pci_core.c-1219-	ret = vfio_pci_set_irqs_ioctl(vdev, hdr.flags, hdr.index, hdr.start,
+drivers/vfio/pci/vfio_pci_core.c-1220-				      hdr.count, data);
+--
+drivers/input/misc/uinput.c:529:	user_dev = memdup_user(buffer, sizeof(struct uinput_user_dev));
+drivers/input/misc/uinput.c-530-	if (IS_ERR(user_dev))
+drivers/input/misc/uinput.c-531-		return PTR_ERR(user_dev);
+drivers/input/misc/uinput.c-532-
+drivers/input/misc/uinput.c-533-	udev->ff_effects_max = user_dev->ff_effects_max;
+drivers/input/misc/uinput.c-534-
+drivers/input/misc/uinput.c-535-	/* Ensure name is filled in */
+drivers/input/misc/uinput.c-536-	if (!user_dev->name[0]) {
+drivers/input/misc/uinput.c-537-		retval = -EINVAL;
+--
+drivers/char/applicom.c:713:	adgl = memdup_user(argp, sizeof(struct st_ram_io));
+drivers/char/applicom.c-714-	if (IS_ERR(adgl))
+drivers/char/applicom.c-715-		return PTR_ERR(adgl);
+drivers/char/applicom.c-716-
+drivers/char/applicom.c-717-	mutex_lock(&ac_mutex);	
+drivers/char/applicom.c-718-	IndexCard = adgl->num_card-1;
+drivers/char/applicom.c-719-	 
+drivers/char/applicom.c-720-	if (cmd != 6 && IndexCard >= MAX_BOARD)
+drivers/char/applicom.c-721-		goto err;
+--
+drivers/vfio/fsl-mc/vfio_fsl_mc.c:215:			data = memdup_user((void __user *)(arg + minsz),
+drivers/vfio/fsl-mc/vfio_fsl_mc.c-216-				   data_size);
+drivers/vfio/fsl-mc/vfio_fsl_mc.c-217-			if (IS_ERR(data))
+drivers/vfio/fsl-mc/vfio_fsl_mc.c-218-				return PTR_ERR(data);
+drivers/vfio/fsl-mc/vfio_fsl_mc.c-219-		}
+drivers/vfio/fsl-mc/vfio_fsl_mc.c-220-
+drivers/vfio/fsl-mc/vfio_fsl_mc.c-221-		mutex_lock(&vdev->igate);
+drivers/vfio/fsl-mc/vfio_fsl_mc.c-222-		ret = vfio_fsl_mc_set_irqs_ioctl(vdev, hdr.flags,
+drivers/vfio/fsl-mc/vfio_fsl_mc.c-223-						 hdr.index, hdr.start,
+--
+drivers/vdpa/vdpa_user/vduse_dev.c:1918:		buf = vmemdup_user(argp + size, config.config_size);
+drivers/vdpa/vdpa_user/vduse_dev.c-1919-		if (IS_ERR(buf)) {
+drivers/vdpa/vdpa_user/vduse_dev.c-1920-			ret = PTR_ERR(buf);
+drivers/vdpa/vdpa_user/vduse_dev.c-1921-			break;
+drivers/vdpa/vdpa_user/vduse_dev.c-1922-		}
+drivers/vdpa/vdpa_user/vduse_dev.c-1923-		config.name[VDUSE_NAME_MAX - 1] = '\0';
+drivers/vdpa/vdpa_user/vduse_dev.c-1924-		ret = vduse_create_dev(&config, buf, control->api_version);
+drivers/vdpa/vdpa_user/vduse_dev.c-1925-		if (ret)
+drivers/vdpa/vdpa_user/vduse_dev.c-1926-			kvfree(buf);
+--
+drivers/gpu/drm/virtio/virtgpu_submit.c:416:	submit->buf = vmemdup_user(u64_to_user_ptr(exbuf->command), exbuf->size);
+drivers/gpu/drm/virtio/virtgpu_submit.c-417-	if (IS_ERR(submit->buf))
+drivers/gpu/drm/virtio/virtgpu_submit.c-418-		return PTR_ERR(submit->buf);
+drivers/gpu/drm/virtio/virtgpu_submit.c-419-
+drivers/gpu/drm/virtio/virtgpu_submit.c-420-	if (exbuf->flags & VIRTGPU_EXECBUF_FENCE_FD_OUT) {
+drivers/gpu/drm/virtio/virtgpu_submit.c-421-		err = get_unused_fd_flags(O_CLOEXEC);
+drivers/gpu/drm/virtio/virtgpu_submit.c-422-		if (err < 0)
+drivers/gpu/drm/virtio/virtgpu_submit.c-423-			return err;
+drivers/gpu/drm/virtio/virtgpu_submit.c-424-
+--
+drivers/gpu/drm/virtio/virtgpu_ioctl.c:520:		buf = memdup_user(u64_to_user_ptr(rc_blob->cmd),
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-521-				  rc_blob->cmd_size);
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-522-
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-523-		if (IS_ERR(buf))
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-524-			return PTR_ERR(buf);
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-525-
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-526-		virtio_gpu_cmd_submit(vgdev, buf, rc_blob->cmd_size,
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-527-				      vfpriv->ctx_id, NULL, NULL);
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-528-	}
+--
+drivers/gpu/drm/virtio/virtgpu_ioctl.c:596:	ctx_set_params = memdup_user(u64_to_user_ptr(args->ctx_set_params),
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-597-				     len);
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-598-
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-599-	if (IS_ERR(ctx_set_params))
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-600-		return PTR_ERR(ctx_set_params);
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-601-
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-602-	mutex_lock(&vfpriv->context_lock);
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-603-	if (vfpriv->context_created) {
+drivers/gpu/drm/virtio/virtgpu_ioctl.c-604-		ret = -EEXIST;
+--
+drivers/cdrom/cdrom.c:3211:	s = memdup_user(arg, size);
+drivers/cdrom/cdrom.c-3212-	if (IS_ERR(s))
+drivers/cdrom/cdrom.c-3213-		return PTR_ERR(s);
+drivers/cdrom/cdrom.c-3214-
+drivers/cdrom/cdrom.c-3215-	cd_dbg(CD_DO_IOCTL, "entering DVD_READ_STRUCT\n");
+drivers/cdrom/cdrom.c-3216-
+drivers/cdrom/cdrom.c-3217-	ret = dvd_read_struct(cdi, s, cgc);
+drivers/cdrom/cdrom.c-3218-	if (ret)
+drivers/cdrom/cdrom.c-3219-		goto out;
+--
+arch/x86/kvm/xen.c:1305:		page = memdup_user((u8 __user *)blob_addr, PAGE_SIZE);
+arch/x86/kvm/xen.c-1306-		if (IS_ERR(page))
+arch/x86/kvm/xen.c-1307-			return PTR_ERR(page);
+arch/x86/kvm/xen.c-1308-
+arch/x86/kvm/xen.c-1309-		ret = kvm_vcpu_write_guest(vcpu, page_addr, page, PAGE_SIZE);
+arch/x86/kvm/xen.c-1310-		kfree(page);
+arch/x86/kvm/xen.c-1311-		if (ret)
+arch/x86/kvm/xen.c-1312-			return 1;
+arch/x86/kvm/xen.c-1313-	}
+--
+arch/x86/kvm/x86.c:4584:	entries = memdup_user(user_msrs->entries, size);
+arch/x86/kvm/x86.c-4585-	if (IS_ERR(entries)) {
+arch/x86/kvm/x86.c-4586-		r = PTR_ERR(entries);
+arch/x86/kvm/x86.c-4587-		goto out;
+arch/x86/kvm/x86.c-4588-	}
+arch/x86/kvm/x86.c-4589-
+arch/x86/kvm/x86.c-4590-	r = __msr_io(vcpu, &msrs, entries, do_msr);
+arch/x86/kvm/x86.c-4591-
+arch/x86/kvm/x86.c-4592-	if (writeback && copy_to_user(user_msrs->entries, entries, size))
+--
+arch/x86/kvm/x86.c:5903:		u.lapic = memdup_user(argp, sizeof(*u.lapic));
+arch/x86/kvm/x86.c-5904-		if (IS_ERR(u.lapic)) {
+arch/x86/kvm/x86.c-5905-			r = PTR_ERR(u.lapic);
+arch/x86/kvm/x86.c-5906-			goto out_nofree;
+arch/x86/kvm/x86.c-5907-		}
+arch/x86/kvm/x86.c-5908-
+arch/x86/kvm/x86.c-5909-		r = kvm_vcpu_ioctl_set_lapic(vcpu, u.lapic);
+arch/x86/kvm/x86.c-5910-		break;
+arch/x86/kvm/x86.c-5911-	}
+--
+arch/x86/kvm/x86.c:6092:		u.xsave = memdup_user(argp, size);
+arch/x86/kvm/x86.c-6093-		if (IS_ERR(u.xsave)) {
+arch/x86/kvm/x86.c-6094-			r = PTR_ERR(u.xsave);
+arch/x86/kvm/x86.c-6095-			goto out_nofree;
+arch/x86/kvm/x86.c-6096-		}
+arch/x86/kvm/x86.c-6097-
+arch/x86/kvm/x86.c-6098-		r = kvm_vcpu_ioctl_x86_set_xsave(vcpu, u.xsave);
+arch/x86/kvm/x86.c-6099-		break;
+arch/x86/kvm/x86.c-6100-	}
+--
+arch/x86/kvm/x86.c:6136:		u.xcrs = memdup_user(argp, sizeof(*u.xcrs));
+arch/x86/kvm/x86.c-6137-		if (IS_ERR(u.xcrs)) {
+arch/x86/kvm/x86.c-6138-			r = PTR_ERR(u.xcrs);
+arch/x86/kvm/x86.c-6139-			goto out_nofree;
+arch/x86/kvm/x86.c-6140-		}
+arch/x86/kvm/x86.c-6141-
+arch/x86/kvm/x86.c-6142-		r = kvm_vcpu_ioctl_x86_set_xcrs(vcpu, u.xcrs);
+arch/x86/kvm/x86.c-6143-		break;
+arch/x86/kvm/x86.c-6144-	}
+--
+arch/x86/kvm/x86.c:6282:		u.sregs2 = memdup_user(argp, sizeof(struct kvm_sregs2));
+arch/x86/kvm/x86.c-6283-		if (IS_ERR(u.sregs2)) {
+arch/x86/kvm/x86.c-6284-			r = PTR_ERR(u.sregs2);
+arch/x86/kvm/x86.c-6285-			u.sregs2 = NULL;
+arch/x86/kvm/x86.c-6286-			goto out;
+arch/x86/kvm/x86.c-6287-		}
+arch/x86/kvm/x86.c-6288-		r = __set_sregs2(vcpu, u.sregs2);
+arch/x86/kvm/x86.c-6289-		break;
+arch/x86/kvm/x86.c-6290-	}
+--
+arch/x86/kvm/x86.c:6783:	bitmap = memdup_user((__user u8*)user_range->bitmap, bitmap_size);
+arch/x86/kvm/x86.c-6784-	if (IS_ERR(bitmap))
+arch/x86/kvm/x86.c-6785-		return PTR_ERR(bitmap);
+arch/x86/kvm/x86.c-6786-
+arch/x86/kvm/x86.c-6787-	msr_filter->ranges[msr_filter->count] = (struct msr_bitmap_range) {
+arch/x86/kvm/x86.c-6788-		.flags = user_range->flags,
+arch/x86/kvm/x86.c-6789-		.base = user_range->base,
+arch/x86/kvm/x86.c-6790-		.nmsrs = user_range->nmsrs,
+arch/x86/kvm/x86.c-6791-		.bitmap = bitmap,
+--
+arch/x86/kvm/x86.c:7091:		chip = memdup_user(argp, sizeof(*chip));
+arch/x86/kvm/x86.c-7092-		if (IS_ERR(chip)) {
+arch/x86/kvm/x86.c-7093-			r = PTR_ERR(chip);
+arch/x86/kvm/x86.c-7094-			goto out;
+arch/x86/kvm/x86.c-7095-		}
+arch/x86/kvm/x86.c-7096-
+arch/x86/kvm/x86.c-7097-		r = -ENXIO;
+arch/x86/kvm/x86.c-7098-		if (!irqchip_kernel(kvm))
+arch/x86/kvm/x86.c-7099-			goto get_irqchip_out;
+--
+arch/x86/kvm/x86.c:7115:		chip = memdup_user(argp, sizeof(*chip));
+arch/x86/kvm/x86.c-7116-		if (IS_ERR(chip)) {
+arch/x86/kvm/x86.c-7117-			r = PTR_ERR(chip);
+arch/x86/kvm/x86.c-7118-			goto out;
+arch/x86/kvm/x86.c-7119-		}
+arch/x86/kvm/x86.c-7120-
+arch/x86/kvm/x86.c-7121-		r = -ENXIO;
+arch/x86/kvm/x86.c-7122-		if (!irqchip_kernel(kvm))
+arch/x86/kvm/x86.c-7123-			goto set_irqchip_out;
+--
+fs/nfsd/nfs4recover.c:812:			name.data = memdup_user(&ci->cc_name.cn_id, namelen);
+fs/nfsd/nfs4recover.c-813-			if (IS_ERR(name.data))
+fs/nfsd/nfs4recover.c-814-				return PTR_ERR(name.data);
+fs/nfsd/nfs4recover.c-815-			name.len = namelen;
+fs/nfsd/nfs4recover.c-816-			get_user(princhashlen, &ci->cc_princhash.cp_len);
+fs/nfsd/nfs4recover.c-817-			if (princhashlen > 0) {
+fs/nfsd/nfs4recover.c:818:				princhash.data = memdup_user(
+fs/nfsd/nfs4recover.c-819-						&ci->cc_princhash.cp_data,
+fs/nfsd/nfs4recover.c-820-						princhashlen);
+fs/nfsd/nfs4recover.c-821-				if (IS_ERR(princhash.data)) {
+fs/nfsd/nfs4recover.c-822-					kfree(name.data);
+fs/nfsd/nfs4recover.c-823-					return PTR_ERR(princhash.data);
+fs/nfsd/nfs4recover.c-824-				}
+fs/nfsd/nfs4recover.c-825-				princhash.len = princhashlen;
+fs/nfsd/nfs4recover.c-826-			} else
+--
+fs/nfsd/nfs4recover.c:834:			name.data = memdup_user(&cnm->cn_id, namelen);
+fs/nfsd/nfs4recover.c-835-			if (IS_ERR(name.data))
+fs/nfsd/nfs4recover.c-836-				return PTR_ERR(name.data);
+fs/nfsd/nfs4recover.c-837-			name.len = namelen;
+fs/nfsd/nfs4recover.c-838-		}
+fs/nfsd/nfs4recover.c-839-#ifdef CONFIG_NFSD_LEGACY_CLIENT_TRACKING
+fs/nfsd/nfs4recover.c-840-		if (name.len > 5 && memcmp(name.data, "hash:", 5) == 0) {
+fs/nfsd/nfs4recover.c-841-			struct cld_net *cn = nn->cld_net;
+fs/nfsd/nfs4recover.c-842-
+--
+drivers/input/joydev.c:454:	abspam = memdup_user(argp, len);
+drivers/input/joydev.c-455-	if (IS_ERR(abspam))
+drivers/input/joydev.c-456-		return PTR_ERR(abspam);
+drivers/input/joydev.c-457-
+drivers/input/joydev.c-458-	for (i = 0; i < len && i < joydev->nabs; i++) {
+drivers/input/joydev.c-459-		if (abspam[i] > ABS_MAX) {
+drivers/input/joydev.c-460-			retval = -EINVAL;
+drivers/input/joydev.c-461-			goto out;
+drivers/input/joydev.c-462-		}
+--
+drivers/input/joydev.c:488:	keypam = memdup_user(argp, len);
+drivers/input/joydev.c-489-	if (IS_ERR(keypam))
+drivers/input/joydev.c-490-		return PTR_ERR(keypam);
+drivers/input/joydev.c-491-
+drivers/input/joydev.c-492-	for (i = 0; i < (len / 2) && i < joydev->nkey; i++) {
+drivers/input/joydev.c-493-		if (keypam[i] > KEY_MAX || keypam[i] < BTN_MISC) {
+drivers/input/joydev.c-494-			retval = -EINVAL;
+drivers/input/joydev.c-495-			goto out;
+drivers/input/joydev.c-496-		}
+--
+drivers/gpu/drm/drm_debugfs.c:455:	buf = memdup_user(ubuf, len);
+drivers/gpu/drm/drm_debugfs.c-456-	if (IS_ERR(buf))
+drivers/gpu/drm/drm_debugfs.c-457-		return PTR_ERR(buf);
+drivers/gpu/drm/drm_debugfs.c-458-
+drivers/gpu/drm/drm_debugfs.c-459-	if (len == 5 && !strncmp(buf, "reset", 5))
+drivers/gpu/drm/drm_debugfs.c-460-		ret = drm_edid_override_reset(connector);
+drivers/gpu/drm/drm_debugfs.c-461-	else
+drivers/gpu/drm/drm_debugfs.c-462-		ret = drm_edid_override_set(connector, buf, len);
+drivers/gpu/drm/drm_debugfs.c-463-
+--
+drivers/gpu/drm/tegra/submit.c:172:	data = vmemdup_user(from, copy_len);
+drivers/gpu/drm/tegra/submit.c-173-	if (IS_ERR(data))
+drivers/gpu/drm/tegra/submit.c-174-		return ERR_CAST(data);
+drivers/gpu/drm/tegra/submit.c-175-
+drivers/gpu/drm/tegra/submit.c-176-	return data;
+drivers/gpu/drm/tegra/submit.c-177-}
+drivers/gpu/drm/tegra/submit.c-178-
+drivers/gpu/drm/tegra/submit.c-179-static int submit_copy_gather_data(struct gather_bo **pbo, struct device *dev,
+drivers/gpu/drm/tegra/submit.c-180-				   struct tegra_drm_context *context,
+--
+drivers/infiniband/hw/qib/qib_fs.c:333:	tmp = memdup_user(buf, count);
+drivers/infiniband/hw/qib/qib_fs.c-334-	if (IS_ERR(tmp))
+drivers/infiniband/hw/qib/qib_fs.c-335-		return PTR_ERR(tmp);
+drivers/infiniband/hw/qib/qib_fs.c-336-
+drivers/infiniband/hw/qib/qib_fs.c-337-	dd = private2dd(file);
+drivers/infiniband/hw/qib/qib_fs.c-338-	if (qib_eeprom_write(dd, pos, tmp, count)) {
+drivers/infiniband/hw/qib/qib_fs.c-339-		ret = -ENXIO;
+drivers/infiniband/hw/qib/qib_fs.c-340-		qib_dev_err(dd, "failed to write to flash\n");
+drivers/infiniband/hw/qib/qib_fs.c-341-		goto bail_tmp;
+--
+fs/ioctl.c:436:	same = memdup_user(argp, size);
+fs/ioctl.c-437-	if (IS_ERR(same)) {
+fs/ioctl.c-438-		ret = PTR_ERR(same);
+fs/ioctl.c-439-		same = NULL;
+fs/ioctl.c-440-		goto out;
+fs/ioctl.c-441-	}
+fs/ioctl.c-442-
+fs/ioctl.c-443-	same->dest_count = count;
+fs/ioctl.c-444-	ret = vfs_dedupe_file_range(file, same);
+--
+drivers/dma-buf/udmabuf.c:324:	list = memdup_user((void __user *)(arg + sizeof(head)), lsize);
+drivers/dma-buf/udmabuf.c-325-	if (IS_ERR(list))
+drivers/dma-buf/udmabuf.c-326-		return PTR_ERR(list);
+drivers/dma-buf/udmabuf.c-327-
+drivers/dma-buf/udmabuf.c-328-	ret = udmabuf_create(filp->private_data, &head, list);
+drivers/dma-buf/udmabuf.c-329-	kfree(list);
+drivers/dma-buf/udmabuf.c-330-	return ret;
+drivers/dma-buf/udmabuf.c-331-}
+drivers/dma-buf/udmabuf.c-332-
+--
+drivers/usb/misc/iowarrior.c:375:		buf = memdup_user(user_buffer, count);
+drivers/usb/misc/iowarrior.c-376-		if (IS_ERR(buf)) {
+drivers/usb/misc/iowarrior.c-377-			retval = PTR_ERR(buf);
+drivers/usb/misc/iowarrior.c-378-			goto exit;
+drivers/usb/misc/iowarrior.c-379-		}
+drivers/usb/misc/iowarrior.c-380-		retval = usb_set_report(dev->interface, 2, 0, buf, count);
+drivers/usb/misc/iowarrior.c-381-		kfree(buf);
+drivers/usb/misc/iowarrior.c-382-		goto exit;
+drivers/usb/misc/iowarrior.c-383-	case USB_DEVICE_ID_CODEMERCS_IOW56:
+--
+drivers/infiniband/hw/hfi1/debugfs.c:745:	buff = memdup_user(buf, count);
+drivers/infiniband/hw/hfi1/debugfs.c-746-	if (IS_ERR(buff))
+drivers/infiniband/hw/hfi1/debugfs.c-747-		return PTR_ERR(buff);
+drivers/infiniband/hw/hfi1/debugfs.c-748-
+drivers/infiniband/hw/hfi1/debugfs.c-749-	total_written = i2c_write(ppd, target, i2c_addr, offset, buff, count);
+drivers/infiniband/hw/hfi1/debugfs.c-750-	if (total_written < 0) {
+drivers/infiniband/hw/hfi1/debugfs.c-751-		ret = total_written;
+drivers/infiniband/hw/hfi1/debugfs.c-752-		goto _free;
+drivers/infiniband/hw/hfi1/debugfs.c-753-	}
+--
+drivers/infiniband/hw/hfi1/debugfs.c:852:	buff = memdup_user(buf, count);
+drivers/infiniband/hw/hfi1/debugfs.c-853-	if (IS_ERR(buff))
+drivers/infiniband/hw/hfi1/debugfs.c-854-		return PTR_ERR(buff);
+drivers/infiniband/hw/hfi1/debugfs.c-855-
+drivers/infiniband/hw/hfi1/debugfs.c-856-	total_written = qsfp_write(ppd, target, *ppos, buff, count);
+drivers/infiniband/hw/hfi1/debugfs.c-857-	if (total_written < 0) {
+drivers/infiniband/hw/hfi1/debugfs.c-858-		ret = total_written;
+drivers/infiniband/hw/hfi1/debugfs.c-859-		goto _free;
+drivers/infiniband/hw/hfi1/debugfs.c-860-	}
+--
+drivers/infiniband/core/ucma.c:1396:	optval = memdup_user(u64_to_user_ptr(cmd.optval),
+drivers/infiniband/core/ucma.c-1397-			     cmd.optlen);
+drivers/infiniband/core/ucma.c-1398-	if (IS_ERR(optval)) {
+drivers/infiniband/core/ucma.c-1399-		ret = PTR_ERR(optval);
+drivers/infiniband/core/ucma.c-1400-		goto out;
+drivers/infiniband/core/ucma.c-1401-	}
+drivers/infiniband/core/ucma.c-1402-
+drivers/infiniband/core/ucma.c-1403-	ret = ucma_set_option_level(ctx, cmd.level, cmd.optname, optval,
+drivers/infiniband/core/ucma.c-1404-				    cmd.optlen);
+--
+drivers/gpu/drm/i915/gvt/kvmgt.c:1366:				data = memdup_user((void __user *)(arg + minsz),
+drivers/gpu/drm/i915/gvt/kvmgt.c-1367-						   data_size);
+drivers/gpu/drm/i915/gvt/kvmgt.c-1368-				if (IS_ERR(data))
+drivers/gpu/drm/i915/gvt/kvmgt.c-1369-					return PTR_ERR(data);
+drivers/gpu/drm/i915/gvt/kvmgt.c-1370-			}
+drivers/gpu/drm/i915/gvt/kvmgt.c-1371-		}
+drivers/gpu/drm/i915/gvt/kvmgt.c-1372-
+drivers/gpu/drm/i915/gvt/kvmgt.c-1373-		ret = intel_vgpu_set_irqs(vgpu, hdr.flags, hdr.index,
+drivers/gpu/drm/i915/gvt/kvmgt.c-1374-					hdr.start, hdr.count, data);
+--
+drivers/gpu/drm/nouveau/nouveau_drv.h:197:	return vmemdup_user(userptr, bytes);
+drivers/gpu/drm/nouveau/nouveau_drv.h-198-}
+drivers/gpu/drm/nouveau/nouveau_drv.h-199-
+drivers/gpu/drm/nouveau/nouveau_drv.h-200-#include <nvif/object.h>
+drivers/gpu/drm/nouveau/nouveau_drv.h-201-#include <nvif/parent.h>
+drivers/gpu/drm/nouveau/nouveau_drv.h-202-
+drivers/gpu/drm/nouveau/nouveau_drv.h-203-struct nouveau_drm {
+drivers/gpu/drm/nouveau/nouveau_drv.h-204-	struct nvif_parent parent;
+drivers/gpu/drm/nouveau/nouveau_drv.h-205-	struct nouveau_cli master;
+--
+fs/efivarfs/file.c:35:	data = memdup_user(userbuf + sizeof(attributes), datasize);
+fs/efivarfs/file.c-36-	if (IS_ERR(data))
+fs/efivarfs/file.c-37-		return PTR_ERR(data);
+fs/efivarfs/file.c-38-
+fs/efivarfs/file.c-39-	bytes = efivar_entry_set_get_size(var, attributes, &datasize,
+fs/efivarfs/file.c-40-					  data, &set);
+fs/efivarfs/file.c-41-	if (!set && bytes) {
+fs/efivarfs/file.c-42-		if (bytes == -ENOENT)
+fs/efivarfs/file.c-43-			bytes = -EIO;
+--
+fs/ecryptfs/miscdev.c:398:	data = memdup_user(buf, count);
+fs/ecryptfs/miscdev.c-399-	if (IS_ERR(data)) {
+fs/ecryptfs/miscdev.c-400-		printk(KERN_ERR "%s: memdup_user returned error [%ld]\n",
+fs/ecryptfs/miscdev.c-401-		       __func__, PTR_ERR(data));
+fs/ecryptfs/miscdev.c-402-		return PTR_ERR(data);
+fs/ecryptfs/miscdev.c-403-	}
+fs/ecryptfs/miscdev.c-404-	switch (data[PKT_TYPE_OFFSET]) {
+fs/ecryptfs/miscdev.c-405-	case ECRYPTFS_MSG_RESPONSE:
+fs/ecryptfs/miscdev.c-406-		if (count < (MIN_MSG_PKT_SIZE
+--
+drivers/usb/gadget/legacy/raw_gadget.c:673:		data = memdup_user(ptr + sizeof(*io), io->length);
+drivers/usb/gadget/legacy/raw_gadget.c-674-	else {
+drivers/usb/gadget/legacy/raw_gadget.c-675-		data = kmalloc(io->length, GFP_KERNEL);
+drivers/usb/gadget/legacy/raw_gadget.c-676-		if (!data)
+drivers/usb/gadget/legacy/raw_gadget.c-677-			data = ERR_PTR(-ENOMEM);
+drivers/usb/gadget/legacy/raw_gadget.c-678-	}
+drivers/usb/gadget/legacy/raw_gadget.c-679-	return data;
+drivers/usb/gadget/legacy/raw_gadget.c-680-}
+drivers/usb/gadget/legacy/raw_gadget.c-681-
+--
+drivers/usb/gadget/legacy/raw_gadget.c:847:	desc = memdup_user((void __user *)value, sizeof(*desc));
+drivers/usb/gadget/legacy/raw_gadget.c-848-	if (IS_ERR(desc))
+drivers/usb/gadget/legacy/raw_gadget.c-849-		return PTR_ERR(desc);
+drivers/usb/gadget/legacy/raw_gadget.c-850-
+drivers/usb/gadget/legacy/raw_gadget.c-851-	/*
+drivers/usb/gadget/legacy/raw_gadget.c-852-	 * Endpoints with a maxpacket length of 0 can cause crashes in UDC
+drivers/usb/gadget/legacy/raw_gadget.c-853-	 * drivers.
+drivers/usb/gadget/legacy/raw_gadget.c-854-	 */
+drivers/usb/gadget/legacy/raw_gadget.c-855-	if (usb_endpoint_maxp(desc) == 0) {
+--
+drivers/usb/gadget/legacy/inode.c:1839:	kbuf = memdup_user(buf, length);
+drivers/usb/gadget/legacy/inode.c-1840-	if (IS_ERR(kbuf))
+drivers/usb/gadget/legacy/inode.c-1841-		return PTR_ERR(kbuf);
+drivers/usb/gadget/legacy/inode.c-1842-
+drivers/usb/gadget/legacy/inode.c-1843-	spin_lock_irq (&dev->lock);
+drivers/usb/gadget/legacy/inode.c-1844-	value = -EINVAL;
+drivers/usb/gadget/legacy/inode.c-1845-	if (dev->buf) {
+drivers/usb/gadget/legacy/inode.c-1846-		spin_unlock_irq(&dev->lock);
+drivers/usb/gadget/legacy/inode.c-1847-		kfree(kbuf);
+--
+fs/coda/psdev.c:126:		dcbuf = vmemdup_user(buf, nbytes);
+fs/coda/psdev.c-127-		if (IS_ERR(dcbuf)) {
+fs/coda/psdev.c-128-			retval = PTR_ERR(dcbuf);
+fs/coda/psdev.c-129-			goto out;
+fs/coda/psdev.c-130-		}
+fs/coda/psdev.c-131-
+fs/coda/psdev.c-132-		/* what downcall errors does Venus handle ? */
+fs/coda/psdev.c-133-		error = coda_downcall(vcp, hdr.opcode, dcbuf, nbytes);
+fs/coda/psdev.c-134-
+--
+drivers/usb/gadget/function/f_fs.c:4282:	data = memdup_user(buf, len);
+drivers/usb/gadget/function/f_fs.c-4283-	if (IS_ERR(data))
+drivers/usb/gadget/function/f_fs.c-4284-		return data;
+drivers/usb/gadget/function/f_fs.c-4285-
+drivers/usb/gadget/function/f_fs.c-4286-	pr_vdebug("Buffer from user space:\n");
+drivers/usb/gadget/function/f_fs.c-4287-	ffs_dump_mem("", data, len);
+drivers/usb/gadget/function/f_fs.c-4288-
+drivers/usb/gadget/function/f_fs.c-4289-	return data;
+drivers/usb/gadget/function/f_fs.c-4290-}
+--
+drivers/mtd/mtdchar.c:365:	ops.oobbuf = memdup_user(ptr, length);
+drivers/mtd/mtdchar.c-366-	if (IS_ERR(ops.oobbuf))
+drivers/mtd/mtdchar.c-367-		return PTR_ERR(ops.oobbuf);
+drivers/mtd/mtdchar.c-368-
+drivers/mtd/mtdchar.c-369-	start &= ~((uint64_t)mtd->writesize - 1);
+drivers/mtd/mtdchar.c-370-	ret = mtd_write_oob(mtd, start, &ops);
+drivers/mtd/mtdchar.c-371-
+drivers/mtd/mtdchar.c-372-	if (ops.oobretlen > 0xFFFFFFFFU)
+drivers/mtd/mtdchar.c-373-		ret = -EOVERFLOW;
+--
+fs/btrfs/super.c:2201:	vol = memdup_user((void __user *)arg, sizeof(*vol));
+fs/btrfs/super.c-2202-	if (IS_ERR(vol))
+fs/btrfs/super.c-2203-		return PTR_ERR(vol);
+fs/btrfs/super.c-2204-	ret = btrfs_check_ioctl_vol_args_path(vol);
+fs/btrfs/super.c-2205-	if (ret < 0)
+fs/btrfs/super.c-2206-		goto out;
+fs/btrfs/super.c-2207-
+fs/btrfs/super.c-2208-	switch (cmd) {
+fs/btrfs/super.c-2209-	case BTRFS_IOC_SCAN_DEV:
+--
+fs/btrfs/ioctl.c:1138:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c-1139-	if (IS_ERR(vol_args)) {
+fs/btrfs/ioctl.c-1140-		ret = PTR_ERR(vol_args);
+fs/btrfs/ioctl.c-1141-		goto out_drop;
+fs/btrfs/ioctl.c-1142-	}
+fs/btrfs/ioctl.c-1143-	ret = btrfs_check_ioctl_vol_args_path(vol_args);
+fs/btrfs/ioctl.c-1144-	if (ret < 0)
+fs/btrfs/ioctl.c-1145-		goto out_free;
+fs/btrfs/ioctl.c-1146-
+--
+fs/btrfs/ioctl.c:1343:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c-1344-	if (IS_ERR(vol_args))
+fs/btrfs/ioctl.c-1345-		return PTR_ERR(vol_args);
+fs/btrfs/ioctl.c-1346-	ret = btrfs_check_ioctl_vol_args_path(vol_args);
+fs/btrfs/ioctl.c-1347-	if (ret < 0)
+fs/btrfs/ioctl.c-1348-		goto out;
+fs/btrfs/ioctl.c-1349-
+fs/btrfs/ioctl.c-1350-	ret = __btrfs_ioctl_snap_create(file, file_mnt_idmap(file),
+fs/btrfs/ioctl.c-1351-					vol_args->name, vol_args->fd, subvol,
+--
+fs/btrfs/ioctl.c:1370:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c-1371-	if (IS_ERR(vol_args))
+fs/btrfs/ioctl.c-1372-		return PTR_ERR(vol_args);
+fs/btrfs/ioctl.c-1373-	ret = btrfs_check_ioctl_vol_args2_subvol_name(vol_args);
+fs/btrfs/ioctl.c-1374-	if (ret < 0)
+fs/btrfs/ioctl.c-1375-		goto free_args;
+fs/btrfs/ioctl.c-1376-
+fs/btrfs/ioctl.c-1377-	if (vol_args->flags & ~BTRFS_SUBVOL_CREATE_ARGS_MASK) {
+fs/btrfs/ioctl.c-1378-		ret = -EOPNOTSUPP;
+--
+fs/btrfs/ioctl.c:1392:		inherit = memdup_user(vol_args->qgroup_inherit, vol_args->size);
+fs/btrfs/ioctl.c-1393-		if (IS_ERR(inherit)) {
+fs/btrfs/ioctl.c-1394-			ret = PTR_ERR(inherit);
+fs/btrfs/ioctl.c-1395-			goto free_args;
+fs/btrfs/ioctl.c-1396-		}
+fs/btrfs/ioctl.c-1397-
+fs/btrfs/ioctl.c-1398-		ret = btrfs_qgroup_check_inherit(fs_info, inherit, vol_args->size);
+fs/btrfs/ioctl.c-1399-		if (ret < 0)
+fs/btrfs/ioctl.c-1400-			goto free_inherit;
+--
+fs/btrfs/ioctl.c:2066:	args = memdup_user(argp, sizeof(*args));
+fs/btrfs/ioctl.c-2067-	if (IS_ERR(args))
+fs/btrfs/ioctl.c-2068-		return PTR_ERR(args);
+fs/btrfs/ioctl.c-2069-
+fs/btrfs/ioctl.c-2070-	/*
+fs/btrfs/ioctl.c-2071-	 * Unprivileged query to obtain the containing subvolume root id. The
+fs/btrfs/ioctl.c-2072-	 * path is reset so it's consistent with btrfs_search_path_in_tree.
+fs/btrfs/ioctl.c-2073-	 */
+fs/btrfs/ioctl.c-2074-	if (args->treeid == 0)
+--
+fs/btrfs/ioctl.c:2117:	args = memdup_user(argp, sizeof(*args));
+fs/btrfs/ioctl.c-2118-	if (IS_ERR(args))
+fs/btrfs/ioctl.c-2119-		return PTR_ERR(args);
+fs/btrfs/ioctl.c-2120-
+fs/btrfs/ioctl.c-2121-	inode = file_inode(file);
+fs/btrfs/ioctl.c-2122-
+fs/btrfs/ioctl.c-2123-	if (args->dirid == BTRFS_FIRST_FREE_OBJECTID &&
+fs/btrfs/ioctl.c-2124-	    BTRFS_I(inode)->location.objectid != BTRFS_FIRST_FREE_OBJECTID) {
+fs/btrfs/ioctl.c-2125-		/*
+--
+fs/btrfs/ioctl.c:2280:	rootrefs = memdup_user(argp, sizeof(*rootrefs));
+fs/btrfs/ioctl.c-2281-	if (IS_ERR(rootrefs)) {
+fs/btrfs/ioctl.c-2282-		btrfs_free_path(path);
+fs/btrfs/ioctl.c-2283-		return PTR_ERR(rootrefs);
+fs/btrfs/ioctl.c-2284-	}
+fs/btrfs/ioctl.c-2285-
+fs/btrfs/ioctl.c-2286-	objectid = root->root_key.objectid;
+fs/btrfs/ioctl.c-2287-	key.objectid = objectid;
+fs/btrfs/ioctl.c-2288-	key.type = BTRFS_ROOT_REF_KEY;
+--
+fs/btrfs/ioctl.c:2381:		vol_args2 = memdup_user(arg, sizeof(*vol_args2));
+fs/btrfs/ioctl.c-2382-		if (IS_ERR(vol_args2))
+fs/btrfs/ioctl.c-2383-			return PTR_ERR(vol_args2);
+fs/btrfs/ioctl.c-2384-
+fs/btrfs/ioctl.c-2385-		if (vol_args2->flags & ~BTRFS_SUBVOL_DELETE_ARGS_MASK) {
+fs/btrfs/ioctl.c-2386-			err = -EOPNOTSUPP;
+fs/btrfs/ioctl.c-2387-			goto out;
+fs/btrfs/ioctl.c-2388-		}
+fs/btrfs/ioctl.c-2389-
+--
+fs/btrfs/ioctl.c:2477:		vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c-2478-		if (IS_ERR(vol_args))
+fs/btrfs/ioctl.c-2479-			return PTR_ERR(vol_args);
+fs/btrfs/ioctl.c-2480-
+fs/btrfs/ioctl.c-2481-		err = btrfs_check_ioctl_vol_args_path(vol_args);
+fs/btrfs/ioctl.c-2482-		if (err < 0)
+fs/btrfs/ioctl.c-2483-			goto out;
+fs/btrfs/ioctl.c-2484-
+fs/btrfs/ioctl.c-2485-		subvol_name = vol_args->name;
+--
+fs/btrfs/ioctl.c:2689:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c-2690-	if (IS_ERR(vol_args)) {
+fs/btrfs/ioctl.c-2691-		ret = PTR_ERR(vol_args);
+fs/btrfs/ioctl.c-2692-		goto out;
+fs/btrfs/ioctl.c-2693-	}
+fs/btrfs/ioctl.c-2694-
+fs/btrfs/ioctl.c-2695-	ret = btrfs_check_ioctl_vol_args_path(vol_args);
+fs/btrfs/ioctl.c-2696-	if (ret < 0)
+fs/btrfs/ioctl.c-2697-		goto out_free;
+--
+fs/btrfs/ioctl.c:2727:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c-2728-	if (IS_ERR(vol_args))
+fs/btrfs/ioctl.c-2729-		return PTR_ERR(vol_args);
+fs/btrfs/ioctl.c-2730-
+fs/btrfs/ioctl.c-2731-	if (vol_args->flags & ~BTRFS_DEVICE_REMOVE_ARGS_MASK) {
+fs/btrfs/ioctl.c-2732-		ret = -EOPNOTSUPP;
+fs/btrfs/ioctl.c-2733-		goto out;
+fs/btrfs/ioctl.c-2734-	}
+fs/btrfs/ioctl.c-2735-
+--
+fs/btrfs/ioctl.c:2795:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c-2796-	if (IS_ERR(vol_args))
+fs/btrfs/ioctl.c-2797-		return PTR_ERR(vol_args);
+fs/btrfs/ioctl.c-2798-
+fs/btrfs/ioctl.c-2799-	ret = btrfs_check_ioctl_vol_args_path(vol_args);
+fs/btrfs/ioctl.c-2800-	if (ret < 0)
+fs/btrfs/ioctl.c-2801-		goto out_free;
+fs/btrfs/ioctl.c-2802-
+fs/btrfs/ioctl.c-2803-	if (!strcmp("cancel", vol_args->name)) {
+--
+fs/btrfs/ioctl.c:2843:	fi_args = memdup_user(arg, sizeof(*fi_args));
+fs/btrfs/ioctl.c-2844-	if (IS_ERR(fi_args))
+fs/btrfs/ioctl.c-2845-		return PTR_ERR(fi_args);
+fs/btrfs/ioctl.c-2846-
+fs/btrfs/ioctl.c-2847-	flags_in = fi_args->flags;
+fs/btrfs/ioctl.c-2848-	memset(fi_args, 0, sizeof(*fi_args));
+fs/btrfs/ioctl.c-2849-
+fs/btrfs/ioctl.c-2850-	rcu_read_lock();
+fs/btrfs/ioctl.c-2851-	fi_args->num_devices = fs_devices->num_devices;
+--
+fs/btrfs/ioctl.c:2896:	di_args = memdup_user(arg, sizeof(*di_args));
+fs/btrfs/ioctl.c-2897-	if (IS_ERR(di_args))
+fs/btrfs/ioctl.c-2898-		return PTR_ERR(di_args);
+fs/btrfs/ioctl.c-2899-
+fs/btrfs/ioctl.c-2900-	args.devid = di_args->devid;
+fs/btrfs/ioctl.c-2901-	if (!btrfs_is_empty_uuid(di_args->uuid))
+fs/btrfs/ioctl.c-2902-		args.uuid = di_args->uuid;
+fs/btrfs/ioctl.c-2903-
+fs/btrfs/ioctl.c-2904-	rcu_read_lock();
+--
+fs/btrfs/ioctl.c:3219:	sa = memdup_user(arg, sizeof(*sa));
+fs/btrfs/ioctl.c-3220-	if (IS_ERR(sa))
+fs/btrfs/ioctl.c-3221-		return PTR_ERR(sa);
+fs/btrfs/ioctl.c-3222-
+fs/btrfs/ioctl.c-3223-	if (sa->flags & ~BTRFS_SCRUB_SUPPORTED_FLAGS) {
+fs/btrfs/ioctl.c-3224-		ret = -EOPNOTSUPP;
+fs/btrfs/ioctl.c-3225-		goto out;
+fs/btrfs/ioctl.c-3226-	}
+fs/btrfs/ioctl.c-3227-
+--
+fs/btrfs/ioctl.c:3277:	sa = memdup_user(arg, sizeof(*sa));
+fs/btrfs/ioctl.c-3278-	if (IS_ERR(sa))
+fs/btrfs/ioctl.c-3279-		return PTR_ERR(sa);
+fs/btrfs/ioctl.c-3280-
+fs/btrfs/ioctl.c-3281-	ret = btrfs_scrub_progress(fs_info, sa->devid, &sa->progress);
+fs/btrfs/ioctl.c-3282-
+fs/btrfs/ioctl.c-3283-	if (ret == 0 && copy_to_user(arg, sa, sizeof(*sa)))
+fs/btrfs/ioctl.c-3284-		ret = -EFAULT;
+fs/btrfs/ioctl.c-3285-
+--
+fs/btrfs/ioctl.c:3296:	sa = memdup_user(arg, sizeof(*sa));
+fs/btrfs/ioctl.c-3297-	if (IS_ERR(sa))
+fs/btrfs/ioctl.c-3298-		return PTR_ERR(sa);
+fs/btrfs/ioctl.c-3299-
+fs/btrfs/ioctl.c-3300-	if ((sa->flags & BTRFS_DEV_STATS_RESET) && !capable(CAP_SYS_ADMIN)) {
+fs/btrfs/ioctl.c-3301-		kfree(sa);
+fs/btrfs/ioctl.c-3302-		return -EPERM;
+fs/btrfs/ioctl.c-3303-	}
+fs/btrfs/ioctl.c-3304-
+--
+fs/btrfs/ioctl.c:3328:	p = memdup_user(arg, sizeof(*p));
+fs/btrfs/ioctl.c-3329-	if (IS_ERR(p))
+fs/btrfs/ioctl.c-3330-		return PTR_ERR(p);
+fs/btrfs/ioctl.c-3331-
+fs/btrfs/ioctl.c-3332-	switch (p->cmd) {
+fs/btrfs/ioctl.c-3333-	case BTRFS_IOCTL_DEV_REPLACE_CMD_START:
+fs/btrfs/ioctl.c-3334-		if (sb_rdonly(fs_info->sb)) {
+fs/btrfs/ioctl.c-3335-			ret = -EROFS;
+fs/btrfs/ioctl.c-3336-			goto out;
+--
+fs/btrfs/ioctl.c:3384:	ipa = memdup_user(arg, sizeof(*ipa));
+fs/btrfs/ioctl.c-3385-	if (IS_ERR(ipa)) {
+fs/btrfs/ioctl.c-3386-		ret = PTR_ERR(ipa);
+fs/btrfs/ioctl.c-3387-		ipa = NULL;
+fs/btrfs/ioctl.c-3388-		goto out;
+fs/btrfs/ioctl.c-3389-	}
+fs/btrfs/ioctl.c-3390-
+fs/btrfs/ioctl.c-3391-	size = min_t(u32, ipa->size, 4096);
+fs/btrfs/ioctl.c-3392-	ipath = init_ipath(size, root, path);
+--
+fs/btrfs/ioctl.c:3439:	loi = memdup_user(arg, sizeof(*loi));
+fs/btrfs/ioctl.c-3440-	if (IS_ERR(loi))
+fs/btrfs/ioctl.c-3441-		return PTR_ERR(loi);
+fs/btrfs/ioctl.c-3442-
+fs/btrfs/ioctl.c-3443-	if (version == 1) {
+fs/btrfs/ioctl.c-3444-		ignore_offset = false;
+fs/btrfs/ioctl.c-3445-		size = min_t(u32, loi->size, SZ_64K);
+fs/btrfs/ioctl.c-3446-	} else {
+fs/btrfs/ioctl.c-3447-		/* All reserved bits must be 0 for now */
+--
+fs/btrfs/ioctl.c:3598:	bargs = memdup_user(arg, sizeof(*bargs));
+fs/btrfs/ioctl.c-3599-	if (IS_ERR(bargs)) {
+fs/btrfs/ioctl.c-3600-		ret = PTR_ERR(bargs);
+fs/btrfs/ioctl.c-3601-		bargs = NULL;
+fs/btrfs/ioctl.c-3602-		goto out;
+fs/btrfs/ioctl.c-3603-	}
+fs/btrfs/ioctl.c-3604-
+fs/btrfs/ioctl.c-3605-	ret = btrfs_try_lock_balance(fs_info, &need_unlock);
+fs/btrfs/ioctl.c-3606-	if (ret)
+--
+fs/btrfs/ioctl.c:3736:	sa = memdup_user(arg, sizeof(*sa));
+fs/btrfs/ioctl.c-3737-	if (IS_ERR(sa)) {
+fs/btrfs/ioctl.c-3738-		ret = PTR_ERR(sa);
+fs/btrfs/ioctl.c-3739-		goto drop_write;
+fs/btrfs/ioctl.c-3740-	}
+fs/btrfs/ioctl.c-3741-
+fs/btrfs/ioctl.c-3742-	down_write(&fs_info->subvol_sem);
+fs/btrfs/ioctl.c-3743-
+fs/btrfs/ioctl.c-3744-	switch (sa->cmd) {
+--
+fs/btrfs/ioctl.c:3781:	sa = memdup_user(arg, sizeof(*sa));
+fs/btrfs/ioctl.c-3782-	if (IS_ERR(sa)) {
+fs/btrfs/ioctl.c-3783-		ret = PTR_ERR(sa);
+fs/btrfs/ioctl.c-3784-		goto drop_write;
+fs/btrfs/ioctl.c-3785-	}
+fs/btrfs/ioctl.c-3786-
+fs/btrfs/ioctl.c-3787-	trans = btrfs_join_transaction(root);
+fs/btrfs/ioctl.c-3788-	if (IS_ERR(trans)) {
+fs/btrfs/ioctl.c-3789-		ret = PTR_ERR(trans);
+--
+fs/btrfs/ioctl.c:3833:	sa = memdup_user(arg, sizeof(*sa));
+fs/btrfs/ioctl.c-3834-	if (IS_ERR(sa)) {
+fs/btrfs/ioctl.c-3835-		ret = PTR_ERR(sa);
+fs/btrfs/ioctl.c-3836-		goto drop_write;
+fs/btrfs/ioctl.c-3837-	}
+fs/btrfs/ioctl.c-3838-
+fs/btrfs/ioctl.c-3839-	if (!sa->qgroupid) {
+fs/btrfs/ioctl.c-3840-		ret = -EINVAL;
+fs/btrfs/ioctl.c-3841-		goto out;
+--
+fs/btrfs/ioctl.c:3889:	sa = memdup_user(arg, sizeof(*sa));
+fs/btrfs/ioctl.c-3890-	if (IS_ERR(sa)) {
+fs/btrfs/ioctl.c-3891-		ret = PTR_ERR(sa);
+fs/btrfs/ioctl.c-3892-		goto drop_write;
+fs/btrfs/ioctl.c-3893-	}
+fs/btrfs/ioctl.c-3894-
+fs/btrfs/ioctl.c-3895-	trans = btrfs_join_transaction(root);
+fs/btrfs/ioctl.c-3896-	if (IS_ERR(trans)) {
+fs/btrfs/ioctl.c-3897-		ret = PTR_ERR(trans);
+--
+fs/btrfs/ioctl.c:3934:	qsa = memdup_user(arg, sizeof(*qsa));
+fs/btrfs/ioctl.c-3935-	if (IS_ERR(qsa)) {
+fs/btrfs/ioctl.c-3936-		ret = PTR_ERR(qsa);
+fs/btrfs/ioctl.c-3937-		goto drop_write;
+fs/btrfs/ioctl.c-3938-	}
+fs/btrfs/ioctl.c-3939-
+fs/btrfs/ioctl.c-3940-	if (qsa->flags) {
+fs/btrfs/ioctl.c-3941-		ret = -EINVAL;
+fs/btrfs/ioctl.c-3942-		goto out;
+--
+fs/btrfs/ioctl.c:4081:	args32 = memdup_user(arg, sizeof(*args32));
+fs/btrfs/ioctl.c-4082-	if (IS_ERR(args32))
+fs/btrfs/ioctl.c-4083-		return PTR_ERR(args32);
+fs/btrfs/ioctl.c-4084-
+fs/btrfs/ioctl.c-4085-	args64 = kmalloc(sizeof(*args64), GFP_KERNEL);
+fs/btrfs/ioctl.c-4086-	if (!args64) {
+fs/btrfs/ioctl.c-4087-		ret = -ENOMEM;
+fs/btrfs/ioctl.c-4088-		goto out;
+fs/btrfs/ioctl.c-4089-	}
+--
+fs/btrfs/ioctl.c:4130:	sa = memdup_user(arg, sizeof(*sa));
+fs/btrfs/ioctl.c-4131-	if (IS_ERR(sa))
+fs/btrfs/ioctl.c-4132-		return PTR_ERR(sa);
+fs/btrfs/ioctl.c-4133-
+fs/btrfs/ioctl.c-4134-	ret = _btrfs_ioctl_set_received_subvol(file, file_mnt_idmap(file), sa);
+fs/btrfs/ioctl.c-4135-
+fs/btrfs/ioctl.c-4136-	if (ret)
+fs/btrfs/ioctl.c-4137-		goto out;
+fs/btrfs/ioctl.c-4138-
+--
+fs/btrfs/ioctl.c:4413:		arg = memdup_user(argp, sizeof(*arg));
+fs/btrfs/ioctl.c-4414-		if (IS_ERR(arg))
+fs/btrfs/ioctl.c-4415-			return PTR_ERR(arg);
+fs/btrfs/ioctl.c-4416-	}
+fs/btrfs/ioctl.c-4417-	ret = btrfs_ioctl_send(inode, arg);
+fs/btrfs/ioctl.c-4418-	kfree(arg);
+fs/btrfs/ioctl.c-4419-	return ret;
+fs/btrfs/ioctl.c-4420-}
+fs/btrfs/ioctl.c-4421-
+--
+drivers/usb/core/devio.c:1747:		isopkt = memdup_user(iso_frame_desc, isofrmlen);
+drivers/usb/core/devio.c-1748-		if (IS_ERR(isopkt)) {
+drivers/usb/core/devio.c-1749-			ret = PTR_ERR(isopkt);
+drivers/usb/core/devio.c-1750-			isopkt = NULL;
+drivers/usb/core/devio.c-1751-			goto error;
+drivers/usb/core/devio.c-1752-		}
+drivers/usb/core/devio.c-1753-		for (totlen = u = 0; u < number_of_packets; u++) {
+drivers/usb/core/devio.c-1754-			/*
+drivers/usb/core/devio.c-1755-			 * arbitrary limit need for USB 3.1 Gen2
+--
+drivers/usb/class/cdc-wdm.c:393:	buf = memdup_user(buffer, count);
+drivers/usb/class/cdc-wdm.c-394-	if (IS_ERR(buf))
+drivers/usb/class/cdc-wdm.c-395-		return PTR_ERR(buf);
+drivers/usb/class/cdc-wdm.c-396-
+drivers/usb/class/cdc-wdm.c-397-	/* concurrent writes and disconnect */
+drivers/usb/class/cdc-wdm.c-398-	r = mutex_lock_interruptible(&desc->wlock);
+drivers/usb/class/cdc-wdm.c-399-	rv = -ERESTARTSYS;
+drivers/usb/class/cdc-wdm.c-400-	if (r)
+drivers/usb/class/cdc-wdm.c-401-		goto out_free_mem;
+--
+drivers/gpu/drm/msm/msm_drv.c:562:	buf = memdup_user(metadata, metadata_size);
+drivers/gpu/drm/msm/msm_drv.c-563-	if (IS_ERR(buf))
+drivers/gpu/drm/msm/msm_drv.c-564-		return PTR_ERR(buf);
+drivers/gpu/drm/msm/msm_drv.c-565-
+drivers/gpu/drm/msm/msm_drv.c-566-	ret = msm_gem_lock_interruptible(obj);
+drivers/gpu/drm/msm/msm_drv.c-567-	if (ret)
+drivers/gpu/drm/msm/msm_drv.c-568-		goto out;
+drivers/gpu/drm/msm/msm_drv.c-569-
+drivers/gpu/drm/msm/msm_drv.c-570-	msm_obj->metadata =
+--
+arch/um/drivers/hostaudio_kern.c:108:	kbuf = memdup_user(buffer, count);
+arch/um/drivers/hostaudio_kern.c-109-	if (IS_ERR(kbuf))
+arch/um/drivers/hostaudio_kern.c-110-		return PTR_ERR(kbuf);
+arch/um/drivers/hostaudio_kern.c-111-
+arch/um/drivers/hostaudio_kern.c-112-	err = os_write_file(state->fd, kbuf, count);
+arch/um/drivers/hostaudio_kern.c-113-	if (err < 0)
+arch/um/drivers/hostaudio_kern.c-114-		goto out;
+arch/um/drivers/hostaudio_kern.c-115-	*ppos += err;
+arch/um/drivers/hostaudio_kern.c-116-
+--
+drivers/mmc/core/block.c:438:	idata->buf = memdup_user((void __user *)(unsigned long)
+drivers/mmc/core/block.c-439-				 idata->ic.data_ptr, idata->buf_bytes);
+drivers/mmc/core/block.c-440-	if (IS_ERR(idata->buf)) {
+drivers/mmc/core/block.c-441-		err = PTR_ERR(idata->buf);
+drivers/mmc/core/block.c-442-		goto idata_err;
+drivers/mmc/core/block.c-443-	}
+drivers/mmc/core/block.c-444-
+drivers/mmc/core/block.c-445-	return idata;
+drivers/mmc/core/block.c-446-
+--
+drivers/misc/xilinx_sdfec.c:660:	ldpc = memdup_user(arg, sizeof(*ldpc));
+drivers/misc/xilinx_sdfec.c-661-	if (IS_ERR(ldpc))
+drivers/misc/xilinx_sdfec.c-662-		return PTR_ERR(ldpc);
+drivers/misc/xilinx_sdfec.c-663-
+drivers/misc/xilinx_sdfec.c-664-	if (xsdfec->config.code == XSDFEC_TURBO_CODE) {
+drivers/misc/xilinx_sdfec.c-665-		ret = -EIO;
+drivers/misc/xilinx_sdfec.c-666-		goto err_out;
+drivers/misc/xilinx_sdfec.c-667-	}
+drivers/misc/xilinx_sdfec.c-668-
+--
+drivers/misc/vmw_vmci/vmci_host.c:389:	dg = memdup_user((void __user *)(uintptr_t)send_info.addr,
+drivers/misc/vmw_vmci/vmci_host.c-390-			 send_info.len);
+drivers/misc/vmw_vmci/vmci_host.c-391-	if (IS_ERR(dg)) {
+drivers/misc/vmw_vmci/vmci_host.c-392-		vmci_ioctl_err(
+drivers/misc/vmw_vmci/vmci_host.c-393-			"cannot allocate memory to dispatch datagram\n");
+drivers/misc/vmw_vmci/vmci_host.c-394-		return PTR_ERR(dg);
+drivers/misc/vmw_vmci/vmci_host.c-395-	}
+drivers/misc/vmw_vmci/vmci_host.c-396-
+drivers/misc/vmw_vmci/vmci_host.c-397-	if (VMCI_DG_SIZE(dg) != send_info.len) {
+--
+drivers/misc/vmw_vmci/vmci_host.c:758:	cpt_buf = memdup_user((void __user *)(uintptr_t)set_info.cpt_buf,
+drivers/misc/vmw_vmci/vmci_host.c-759-				set_info.buf_size);
+drivers/misc/vmw_vmci/vmci_host.c-760-	if (IS_ERR(cpt_buf))
+drivers/misc/vmw_vmci/vmci_host.c-761-		return PTR_ERR(cpt_buf);
+drivers/misc/vmw_vmci/vmci_host.c-762-
+drivers/misc/vmw_vmci/vmci_host.c-763-	cid = vmci_ctx_get_id(vmci_host_dev->context);
+drivers/misc/vmw_vmci/vmci_host.c-764-	set_info.result = vmci_ctx_set_chkpt_state(cid, set_info.cpt_type,
+drivers/misc/vmw_vmci/vmci_host.c-765-						   set_info.buf_size, cpt_buf);
+drivers/misc/vmw_vmci/vmci_host.c-766-
+--
+drivers/tty/vt/vt.c:4780:	font.data = memdup_user(op->data, size);
+drivers/tty/vt/vt.c-4781-	if (IS_ERR(font.data))
+drivers/tty/vt/vt.c-4782-		return PTR_ERR(font.data);
+drivers/tty/vt/vt.c-4783-
+drivers/tty/vt/vt.c-4784-	font.charcount = op->charcount;
+drivers/tty/vt/vt.c-4785-	font.width = op->width;
+drivers/tty/vt/vt.c-4786-	font.height = op->height;
+drivers/tty/vt/vt.c-4787-
+drivers/tty/vt/vt.c-4788-	console_lock();
+--
+drivers/i2c/i2c-dev.c:169:	tmp = memdup_user(buf, count);
+drivers/i2c/i2c-dev.c-170-	if (IS_ERR(tmp))
+drivers/i2c/i2c-dev.c-171-		return PTR_ERR(tmp);
+drivers/i2c/i2c-dev.c-172-
+drivers/i2c/i2c-dev.c-173-	pr_debug("i2c-%d writing %zu bytes.\n", iminor(file_inode(file)), count);
+drivers/i2c/i2c-dev.c-174-
+drivers/i2c/i2c-dev.c-175-	ret = i2c_master_send(client, tmp, count);
+drivers/i2c/i2c-dev.c-176-	kfree(tmp);
+drivers/i2c/i2c-dev.c-177-	return ret;
+--
+drivers/i2c/i2c-dev.c:256:		msgs[i].buf = memdup_user(data_ptrs[i], msgs[i].len);
+drivers/i2c/i2c-dev.c-257-		if (IS_ERR(msgs[i].buf)) {
+drivers/i2c/i2c-dev.c-258-			res = PTR_ERR(msgs[i].buf);
+drivers/i2c/i2c-dev.c-259-			break;
+drivers/i2c/i2c-dev.c-260-		}
+drivers/i2c/i2c-dev.c-261-		/* memdup_user allocates with GFP_KERNEL, so DMA is ok */
+drivers/i2c/i2c-dev.c-262-		msgs[i].flags |= I2C_M_DMA_SAFE;
+drivers/i2c/i2c-dev.c-263-
+drivers/i2c/i2c-dev.c-264-		/*
+--
+fs/autofs/dev-ioctl.c:95:	res = memdup_user(in, tmp.size);
+fs/autofs/dev-ioctl.c-96-	if (!IS_ERR(res))
+fs/autofs/dev-ioctl.c-97-		res->size = tmp.size;
+fs/autofs/dev-ioctl.c-98-
+fs/autofs/dev-ioctl.c-99-	return res;
+fs/autofs/dev-ioctl.c-100-}
+fs/autofs/dev-ioctl.c-101-
+fs/autofs/dev-ioctl.c-102-static inline void free_dev_ioctl(struct autofs_dev_ioctl *param)
+fs/autofs/dev-ioctl.c-103-{
+--
+drivers/net/wireless/ti/wlcore/debugfs.c:1141:	buf = memdup_user(user_buf, bytes);
+drivers/net/wireless/ti/wlcore/debugfs.c-1142-	if (IS_ERR(buf))
+drivers/net/wireless/ti/wlcore/debugfs.c-1143-		return PTR_ERR(buf);
+drivers/net/wireless/ti/wlcore/debugfs.c-1144-
+drivers/net/wireless/ti/wlcore/debugfs.c-1145-	mutex_lock(&wl->mutex);
+drivers/net/wireless/ti/wlcore/debugfs.c-1146-
+drivers/net/wireless/ti/wlcore/debugfs.c-1147-	if (unlikely(wl->state == WLCORE_STATE_OFF)) {
+drivers/net/wireless/ti/wlcore/debugfs.c-1148-		ret = -EFAULT;
+drivers/net/wireless/ti/wlcore/debugfs.c-1149-		goto skip_write;
+--
+drivers/hwtracing/stm/core.c:744:	 * which is also why memdup_user() is not useful here
+drivers/hwtracing/stm/core.c-745-	 */
+drivers/hwtracing/stm/core.c-746-	id = kzalloc(size + 1, GFP_KERNEL);
+drivers/hwtracing/stm/core.c-747-	if (!id)
+drivers/hwtracing/stm/core.c-748-		return -ENOMEM;
+drivers/hwtracing/stm/core.c-749-
+drivers/hwtracing/stm/core.c-750-	if (copy_from_user(id, arg, size)) {
+drivers/hwtracing/stm/core.c-751-		ret = -EFAULT;
+drivers/hwtracing/stm/core.c-752-		goto err_free;
+--
+drivers/message/fusion/mptctl.c:1251:	karg = memdup_user(uarg, data_size);
+drivers/message/fusion/mptctl.c-1252-	if (IS_ERR(karg)) {
+drivers/message/fusion/mptctl.c-1253-		printk(KERN_ERR MYNAM "%s@%d::mpt_ioctl_iocinfo() - memdup_user returned error [%ld]\n",
+drivers/message/fusion/mptctl.c-1254-				__FILE__, __LINE__, PTR_ERR(karg));
+drivers/message/fusion/mptctl.c-1255-		return PTR_ERR(karg);
+drivers/message/fusion/mptctl.c-1256-	}
+drivers/message/fusion/mptctl.c-1257-
+drivers/message/fusion/mptctl.c-1258-	/* Verify the data transfer size is correct. */
+drivers/message/fusion/mptctl.c-1259-	if (karg->hdr.maxDataSize != data_size) {
+--
+drivers/scsi/qedf/qedf_debugfs.c:173:	kern_buf = memdup_user(buffer, count);
+drivers/scsi/qedf/qedf_debugfs.c-174-	if (IS_ERR(kern_buf))
+drivers/scsi/qedf/qedf_debugfs.c-175-		return PTR_ERR(kern_buf);
+drivers/scsi/qedf/qedf_debugfs.c-176-
+drivers/scsi/qedf/qedf_debugfs.c-177-	rval = kstrtouint(kern_buf, 10, &val);
+drivers/scsi/qedf/qedf_debugfs.c-178-	kfree(kern_buf);
+drivers/scsi/qedf/qedf_debugfs.c-179-	if (rval)
+drivers/scsi/qedf/qedf_debugfs.c-180-		return rval;
+drivers/scsi/qedf/qedf_debugfs.c-181-
+--
+drivers/scsi/qedf/qedf_debugfs.c:225:	kern_buf = memdup_user(buffer, 6);
+drivers/scsi/qedf/qedf_debugfs.c-226-	if (IS_ERR(kern_buf))
+drivers/scsi/qedf/qedf_debugfs.c-227-		return PTR_ERR(kern_buf);
+drivers/scsi/qedf/qedf_debugfs.c-228-
+drivers/scsi/qedf/qedf_debugfs.c-229-	if (strncmp(kern_buf, "false", 5) == 0)
+drivers/scsi/qedf/qedf_debugfs.c-230-		qedf->stop_io_on_error = false;
+drivers/scsi/qedf/qedf_debugfs.c-231-	else if (strncmp(kern_buf, "true", 4) == 0)
+drivers/scsi/qedf/qedf_debugfs.c-232-		qedf->stop_io_on_error = true;
+drivers/scsi/qedf/qedf_debugfs.c-233-	else if (strncmp(kern_buf, "now", 3) == 0)
+--
+drivers/net/hippi/rrunner.c:1624:		image = memdup_user(data, EEPROM_BYTES);
+drivers/net/hippi/rrunner.c-1625-		if (IS_ERR(image))
+drivers/net/hippi/rrunner.c-1626-			return PTR_ERR(image);
+drivers/net/hippi/rrunner.c-1627-
+drivers/net/hippi/rrunner.c-1628-		oldimage = kmalloc(EEPROM_BYTES, GFP_KERNEL);
+drivers/net/hippi/rrunner.c-1629-		if (!oldimage) {
+drivers/net/hippi/rrunner.c-1630-			kfree(image);
+drivers/net/hippi/rrunner.c-1631-			return -ENOMEM;
+drivers/net/hippi/rrunner.c-1632-		}
+--
+drivers/net/wireless/silabs/wfx/debug.c:216:	buf = memdup_user(user_buf, count);
+drivers/net/wireless/silabs/wfx/debug.c-217-	if (IS_ERR(buf))
+drivers/net/wireless/silabs/wfx/debug.c-218-		return PTR_ERR(buf);
+drivers/net/wireless/silabs/wfx/debug.c-219-	*ppos = *ppos + count;
+drivers/net/wireless/silabs/wfx/debug.c-220-	ret = wfx_send_pds(wdev, buf, count);
+drivers/net/wireless/silabs/wfx/debug.c-221-	kfree(buf);
+drivers/net/wireless/silabs/wfx/debug.c-222-	if (ret < 0)
+drivers/net/wireless/silabs/wfx/debug.c-223-		return ret;
+drivers/net/wireless/silabs/wfx/debug.c-224-	return count;
+--
+drivers/net/wireless/silabs/wfx/debug.c:258:	request = memdup_user(user_buf, count);
+drivers/net/wireless/silabs/wfx/debug.c-259-	if (IS_ERR(request))
+drivers/net/wireless/silabs/wfx/debug.c-260-		return PTR_ERR(request);
+drivers/net/wireless/silabs/wfx/debug.c-261-	if (le16_to_cpu(request->len) != count) {
+drivers/net/wireless/silabs/wfx/debug.c-262-		kfree(request);
+drivers/net/wireless/silabs/wfx/debug.c-263-		return -EINVAL;
+drivers/net/wireless/silabs/wfx/debug.c-264-	}
+drivers/net/wireless/silabs/wfx/debug.c-265-	context->ret = wfx_cmd_send(wdev, request, context->reply, sizeof(context->reply), false);
+drivers/net/wireless/silabs/wfx/debug.c-266-
+--
+drivers/net/hamradio/yam.c:950:		ym = memdup_user(data, sizeof(struct yamdrv_ioctl_mcs));
+drivers/net/hamradio/yam.c-951-		if (IS_ERR(ym))
+drivers/net/hamradio/yam.c-952-			return PTR_ERR(ym);
+drivers/net/hamradio/yam.c-953-		if (ym->cmd != SIOCYAMSMCS || ym->bitrate > YAM_MAXBITRATE) {
+drivers/net/hamradio/yam.c-954-			kfree(ym);
+drivers/net/hamradio/yam.c-955-			return -EINVAL;
+drivers/net/hamradio/yam.c-956-		}
+drivers/net/hamradio/yam.c-957-		/* setting predef as 0 for loading userdefined mcs data */
+drivers/net/hamradio/yam.c-958-		add_mcs(ym->bits, ym->bitrate, 0);
+--
+drivers/net/wireless/ath/wil6210/debugfs.c:981:	frame = memdup_user(buf, len);
+drivers/net/wireless/ath/wil6210/debugfs.c-982-	if (IS_ERR(frame))
+drivers/net/wireless/ath/wil6210/debugfs.c-983-		return PTR_ERR(frame);
+drivers/net/wireless/ath/wil6210/debugfs.c-984-
+drivers/net/wireless/ath/wil6210/debugfs.c-985-	params.buf = frame;
+drivers/net/wireless/ath/wil6210/debugfs.c-986-	params.len = len;
+drivers/net/wireless/ath/wil6210/debugfs.c-987-
+drivers/net/wireless/ath/wil6210/debugfs.c-988-	rc = wil_cfg80211_mgmt_tx(wiphy, wdev, &params, NULL);
+drivers/net/wireless/ath/wil6210/debugfs.c-989-
+--
+drivers/net/wireless/ath/wil6210/debugfs.c:1018:	wmi = memdup_user(buf, len);
+drivers/net/wireless/ath/wil6210/debugfs.c-1019-	if (IS_ERR(wmi))
+drivers/net/wireless/ath/wil6210/debugfs.c-1020-		return PTR_ERR(wmi);
+drivers/net/wireless/ath/wil6210/debugfs.c-1021-
+drivers/net/wireless/ath/wil6210/debugfs.c-1022-	cmd = (cmdlen > 0) ? &wmi[1] : NULL;
+drivers/net/wireless/ath/wil6210/debugfs.c-1023-	cmdid = le16_to_cpu(wmi->command_id);
+drivers/net/wireless/ath/wil6210/debugfs.c-1024-
+drivers/net/wireless/ath/wil6210/debugfs.c-1025-	rc1 = wmi_send(wil, cmdid, vif->mid, cmd, cmdlen);
+drivers/net/wireless/ath/wil6210/debugfs.c-1026-	kfree(wmi);
+--
+drivers/hid/hidraw.c:135:	buf = memdup_user(buffer, count);
+drivers/hid/hidraw.c-136-	if (IS_ERR(buf)) {
+drivers/hid/hidraw.c-137-		ret = PTR_ERR(buf);
+drivers/hid/hidraw.c-138-		goto out;
+drivers/hid/hidraw.c-139-	}
+drivers/hid/hidraw.c-140-
+drivers/hid/hidraw.c-141-	if ((report_type == HID_OUTPUT_REPORT) &&
+drivers/hid/hidraw.c-142-	    !(dev->quirks & HID_QUIRK_NO_OUTPUT_REPORTS_ON_INTR_EP)) {
+drivers/hid/hidraw.c-143-		ret = hid_hw_output_report(dev, buf, count);
+--
+drivers/scsi/megaraid/megaraid_sas_base.c:8519:		ioc = memdup_user(user_ioc, sizeof(struct megasas_iocpacket));
+drivers/scsi/megaraid/megaraid_sas_base.c-8520-
+drivers/scsi/megaraid/megaraid_sas_base.c-8521-	if (IS_ERR(ioc))
+drivers/scsi/megaraid/megaraid_sas_base.c-8522-		return PTR_ERR(ioc);
+drivers/scsi/megaraid/megaraid_sas_base.c-8523-
+drivers/scsi/megaraid/megaraid_sas_base.c-8524-	instance = megasas_lookup_instance(ioc->host_no);
+drivers/scsi/megaraid/megaraid_sas_base.c-8525-	if (!instance) {
+drivers/scsi/megaraid/megaraid_sas_base.c-8526-		error = -ENODEV;
+drivers/scsi/megaraid/megaraid_sas_base.c-8527-		goto out_kfree_ioc;
+--
+drivers/net/wireless/realtek/rtw89/debug.c:3233:	buf = memdup_user(user_buf, count);
+drivers/net/wireless/realtek/rtw89/debug.c-3234-	if (IS_ERR(buf))
+drivers/net/wireless/realtek/rtw89/debug.c-3235-		return buf;
+drivers/net/wireless/realtek/rtw89/debug.c-3236-
+drivers/net/wireless/realtek/rtw89/debug.c-3237-	num = count / 2;
+drivers/net/wireless/realtek/rtw89/debug.c-3238-	bin = kmalloc(num, GFP_KERNEL);
+drivers/net/wireless/realtek/rtw89/debug.c-3239-	if (!bin) {
+drivers/net/wireless/realtek/rtw89/debug.c-3240-		err = -EFAULT;
+drivers/net/wireless/realtek/rtw89/debug.c-3241-		goto out;
+--
+drivers/staging/wlan-ng/p80211netdev.c:499:	msgbuf = memdup_user(data, req->len);
+drivers/staging/wlan-ng/p80211netdev.c-500-	if (IS_ERR(msgbuf)) {
+drivers/staging/wlan-ng/p80211netdev.c-501-		result = PTR_ERR(msgbuf);
+drivers/staging/wlan-ng/p80211netdev.c-502-		goto bail;
+drivers/staging/wlan-ng/p80211netdev.c-503-	}
+drivers/staging/wlan-ng/p80211netdev.c-504-
+drivers/staging/wlan-ng/p80211netdev.c-505-	result = p80211req_dorequest(wlandev, msgbuf);
+drivers/staging/wlan-ng/p80211netdev.c-506-
+drivers/staging/wlan-ng/p80211netdev.c-507-	if (result == 0) {
+--
+drivers/scsi/esas2r/esas2r_ioctl.c:1283:	ioctl = memdup_user(arg, sizeof(struct atto_express_ioctl));
+drivers/scsi/esas2r/esas2r_ioctl.c-1284-	if (IS_ERR(ioctl)) {
+drivers/scsi/esas2r/esas2r_ioctl.c-1285-		esas2r_log(ESAS2R_LOG_WARN,
+drivers/scsi/esas2r/esas2r_ioctl.c-1286-			   "ioctl_handler access_ok failed for cmd %u, address %p",
+drivers/scsi/esas2r/esas2r_ioctl.c-1287-			   cmd, arg);
+drivers/scsi/esas2r/esas2r_ioctl.c-1288-		return PTR_ERR(ioctl);
+drivers/scsi/esas2r/esas2r_ioctl.c-1289-	}
+drivers/scsi/esas2r/esas2r_ioctl.c-1290-
+drivers/scsi/esas2r/esas2r_ioctl.c-1291-	/* verify the signature */
+--
+drivers/hv/hv_utils_transport.c:83:	inmsg = memdup_user(buf, count);
+drivers/hv/hv_utils_transport.c-84-	if (IS_ERR(inmsg))
+drivers/hv/hv_utils_transport.c-85-		return PTR_ERR(inmsg);
+drivers/hv/hv_utils_transport.c-86-
+drivers/hv/hv_utils_transport.c-87-	if (hvt->mode == HVUTIL_TRANSPORT_DESTROY)
+drivers/hv/hv_utils_transport.c-88-		ret = -EBADF;
+drivers/hv/hv_utils_transport.c-89-	else
+drivers/hv/hv_utils_transport.c-90-		ret = hvt->on_msg(inmsg, count);
+drivers/hv/hv_utils_transport.c-91-
+--
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:315:	kern_buf = memdup_user(buf, nbytes);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-316-	if (IS_ERR(kern_buf))
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-317-		return PTR_ERR(kern_buf);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-318-
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-319-	rc = sscanf(kern_buf, "%x:%x", &addr, &len);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-320-	if (rc < 2 || len > UINT_MAX >> 2) {
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-321-		netdev_warn(bnad->netdev, "failed to read user buffer\n");
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-322-		kfree(kern_buf);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-323-		return -EINVAL;
+--
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:375:	kern_buf = memdup_user(buf, nbytes);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-376-	if (IS_ERR(kern_buf))
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-377-		return PTR_ERR(kern_buf);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-378-
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-379-	rc = sscanf(kern_buf, "%x:%x", &addr, &val);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-380-	if (rc < 2) {
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-381-		netdev_warn(bnad->netdev, "failed to read user buffer\n");
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-382-		kfree(kern_buf);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c-383-		return -EINVAL;
+--
+drivers/scsi/bfa/bfad_debugfs.c:253:	kern_buf = memdup_user(buf, nbytes);
+drivers/scsi/bfa/bfad_debugfs.c-254-	if (IS_ERR(kern_buf))
+drivers/scsi/bfa/bfad_debugfs.c-255-		return PTR_ERR(kern_buf);
+drivers/scsi/bfa/bfad_debugfs.c-256-
+drivers/scsi/bfa/bfad_debugfs.c-257-	rc = sscanf(kern_buf, "%x:%x", &addr, &len);
+drivers/scsi/bfa/bfad_debugfs.c-258-	if (rc < 2 || len > (UINT_MAX >> 2)) {
+drivers/scsi/bfa/bfad_debugfs.c-259-		printk(KERN_INFO
+drivers/scsi/bfa/bfad_debugfs.c-260-			"bfad[%d]: %s failed to read user buf\n",
+drivers/scsi/bfa/bfad_debugfs.c-261-			bfad->inst_no, __func__);
+--
+drivers/scsi/bfa/bfad_debugfs.c:320:	kern_buf = memdup_user(buf, nbytes);
+drivers/scsi/bfa/bfad_debugfs.c-321-	if (IS_ERR(kern_buf))
+drivers/scsi/bfa/bfad_debugfs.c-322-		return PTR_ERR(kern_buf);
+drivers/scsi/bfa/bfad_debugfs.c-323-
+drivers/scsi/bfa/bfad_debugfs.c-324-	rc = sscanf(kern_buf, "%x:%x", &addr, &val);
+drivers/scsi/bfa/bfad_debugfs.c-325-	if (rc < 2) {
+drivers/scsi/bfa/bfad_debugfs.c-326-		printk(KERN_INFO
+drivers/scsi/bfa/bfad_debugfs.c-327-			"bfad[%d]: %s failed to read user buf\n",
+drivers/scsi/bfa/bfad_debugfs.c-328-			bfad->inst_no, __func__);
+--
+drivers/net/wan/farsync.c:1959:		buf = memdup_user(data + sizeof(struct fstioc_write),
+drivers/net/wan/farsync.c-1960-				  wrthdr.size);
+drivers/net/wan/farsync.c-1961-		if (IS_ERR(buf))
+drivers/net/wan/farsync.c-1962-			return PTR_ERR(buf);
+drivers/net/wan/farsync.c-1963-
+drivers/net/wan/farsync.c-1964-		memcpy_toio(card->mem + wrthdr.offset, buf, wrthdr.size);
+drivers/net/wan/farsync.c-1965-		kfree(buf);
+drivers/net/wan/farsync.c-1966-
+drivers/net/wan/farsync.c-1967-		/* Writes to the memory of a card in the reset state constitute
+--
+drivers/media/rc/lirc_dev.c:312:		txbuf = memdup_user(buf, n);
+drivers/media/rc/lirc_dev.c-313-		if (IS_ERR(txbuf)) {
+drivers/media/rc/lirc_dev.c-314-			ret = PTR_ERR(txbuf);
+drivers/media/rc/lirc_dev.c-315-			goto out_unlock;
+drivers/media/rc/lirc_dev.c-316-		}
+drivers/media/rc/lirc_dev.c-317-	}
+drivers/media/rc/lirc_dev.c-318-
+drivers/media/rc/lirc_dev.c-319-	for (i = 0; i < count; i++) {
+drivers/media/rc/lirc_dev.c-320-		if (txbuf[i] > IR_MAX_DURATION - duration || !txbuf[i]) {
+--
+drivers/scsi/aacraid/commctrl.c:532:	user_srbcmd = memdup_user(user_srb, fibsize);
+drivers/scsi/aacraid/commctrl.c-533-	if (IS_ERR(user_srbcmd)) {
+drivers/scsi/aacraid/commctrl.c-534-		rcode = PTR_ERR(user_srbcmd);
+drivers/scsi/aacraid/commctrl.c-535-		user_srbcmd = NULL;
+drivers/scsi/aacraid/commctrl.c-536-		goto cleanup;
+drivers/scsi/aacraid/commctrl.c-537-	}
+drivers/scsi/aacraid/commctrl.c-538-
+drivers/scsi/aacraid/commctrl.c-539-	flags = user_srbcmd->flags; /* from user in cpu order */
+drivers/scsi/aacraid/commctrl.c-540-	switch (flags & (SRB_DataIn | SRB_DataOut)) {
+--
+drivers/net/tun.c:896:	addr = memdup_user(arg + sizeof(uf), alen);
+drivers/net/tun.c-897-	if (IS_ERR(addr))
+drivers/net/tun.c-898-		return PTR_ERR(addr);
+drivers/net/tun.c-899-
+drivers/net/tun.c-900-	/* The filter is updated without holding any locks. Which is
+drivers/net/tun.c-901-	 * perfectly safe. We disable it first and in the worst
+drivers/net/tun.c-902-	 * case we'll accept a few undesired packets. */
+drivers/net/tun.c-903-	filter->count = 0;
+drivers/net/tun.c-904-	wmb();
+--
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c:1824:	pparmbuf = memdup_user(p->pointer, len);
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-1825-	if (IS_ERR(pparmbuf))
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-1826-		return PTR_ERR(pparmbuf);
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-1827-
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-1828-	poidparam = (struct mp_ioctl_param *)pparmbuf;
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-1829-	if (poidparam->subcode >= MAX_MP_IOCTL_SUBCODE) {
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-1830-		ret = -EINVAL;
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-1831-		goto _r871x_mp_ioctl_hdl_exit;
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-1832-	}
+--
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c:2093:	param = memdup_user(p->pointer, p->length);
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-2094-	if (IS_ERR(param))
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-2095-		return PTR_ERR(param);
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-2096-	switch (param->cmd) {
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-2097-	case IEEE_CMD_SET_WPA_PARAM:
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-2098-		ret = wpa_set_param(dev, param->u.wpa_param.name,
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-2099-		      param->u.wpa_param.value);
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-2100-		break;
+drivers/staging/rtl8712/rtl871x_ioctl_linux.c-2101-	case IEEE_CMD_SET_WPA_IE:
+--
+drivers/s390/crypto/pkey_api.c:1336:	return memdup_user(ukey, keylen);
+drivers/s390/crypto/pkey_api.c-1337-}
+drivers/s390/crypto/pkey_api.c-1338-
+drivers/s390/crypto/pkey_api.c-1339-static void *_copy_apqns_from_user(void __user *uapqns, size_t nr_apqns)
+drivers/s390/crypto/pkey_api.c-1340-{
+drivers/s390/crypto/pkey_api.c-1341-	if (!uapqns || nr_apqns == 0)
+drivers/s390/crypto/pkey_api.c-1342-		return NULL;
+drivers/s390/crypto/pkey_api.c-1343-
+drivers/s390/crypto/pkey_api.c:1344:	return memdup_user(uapqns, nr_apqns * sizeof(struct pkey_apqn));
+drivers/s390/crypto/pkey_api.c-1345-}
+drivers/s390/crypto/pkey_api.c-1346-
+drivers/s390/crypto/pkey_api.c-1347-static long pkey_unlocked_ioctl(struct file *filp, unsigned int cmd,
+drivers/s390/crypto/pkey_api.c-1348-				unsigned long arg)
+drivers/s390/crypto/pkey_api.c-1349-{
+drivers/s390/crypto/pkey_api.c-1350-	int rc;
+drivers/s390/crypto/pkey_api.c-1351-
+drivers/s390/crypto/pkey_api.c-1352-	switch (cmd) {
+--
+drivers/s390/cio/cio_inject.c:98:	buffer = vmemdup_user(buf, lbuf);
+drivers/s390/cio/cio_inject.c-99-	if (IS_ERR(buffer))
+drivers/s390/cio/cio_inject.c-100-		return -ENOMEM;
+drivers/s390/cio/cio_inject.c-101-
+drivers/s390/cio/cio_inject.c-102-	rc = sscanf(buffer, "%x %x %x %x %x %x %x", &slct, &oflw, &chn, &rsc, &anc,
+drivers/s390/cio/cio_inject.c-103-		    &erc, &rsid);
+drivers/s390/cio/cio_inject.c-104-
+drivers/s390/cio/cio_inject.c-105-	kvfree(buffer);
+drivers/s390/cio/cio_inject.c-106-	if (rc != 7) {
+--
+drivers/net/netdevsim/dev.c:188:	buf = memdup_user(data, count);
+drivers/net/netdevsim/dev.c-189-	if (IS_ERR(buf))
+drivers/net/netdevsim/dev.c-190-		return PTR_ERR(buf);
+drivers/net/netdevsim/dev.c-191-
+drivers/net/netdevsim/dev.c-192-	fa_cookie = kmalloc(sizeof(*fa_cookie) + cookie_len,
+drivers/net/netdevsim/dev.c-193-			    GFP_KERNEL | __GFP_NOWARN);
+drivers/net/netdevsim/dev.c-194-	if (!fa_cookie) {
+drivers/net/netdevsim/dev.c-195-		ret = -ENOMEM;
+drivers/net/netdevsim/dev.c-196-		goto free_buf;
+--
+drivers/s390/char/tape_3590.c:316:	ext_kekls = memdup_user((char __user *)arg, sizeof(*ext_kekls));
+drivers/s390/char/tape_3590.c-317-	if (IS_ERR(ext_kekls))
+drivers/s390/char/tape_3590.c-318-		return PTR_ERR(ext_kekls);
+drivers/s390/char/tape_3590.c-319-	rc = tape_3592_kekl_set(device, ext_kekls);
+drivers/s390/char/tape_3590.c-320-	kfree(ext_kekls);
+drivers/s390/char/tape_3590.c-321-	return rc;
+drivers/s390/char/tape_3590.c-322-}
+drivers/s390/char/tape_3590.c-323-
+drivers/s390/char/tape_3590.c-324-/*
+--
+drivers/net/ethernet/intel/ice/ice_debugfs.c:174:	cmd_buf = memdup_user(buf, count);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-175-	if (IS_ERR(cmd_buf))
+drivers/net/ethernet/intel/ice/ice_debugfs.c-176-		return PTR_ERR(cmd_buf);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-177-
+drivers/net/ethernet/intel/ice/ice_debugfs.c-178-	module = ice_find_module_by_dentry(pf, dentry);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-179-	if (module < 0) {
+drivers/net/ethernet/intel/ice/ice_debugfs.c-180-		dev_info(dev, "unknown module\n");
+drivers/net/ethernet/intel/ice/ice_debugfs.c-181-		return -EINVAL;
+drivers/net/ethernet/intel/ice/ice_debugfs.c-182-	}
+--
+drivers/net/ethernet/intel/ice/ice_debugfs.c:260:	cmd_buf = memdup_user(buf, count);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-261-	if (IS_ERR(cmd_buf))
+drivers/net/ethernet/intel/ice/ice_debugfs.c-262-		return PTR_ERR(cmd_buf);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-263-
+drivers/net/ethernet/intel/ice/ice_debugfs.c-264-	ret = sscanf(cmd_buf, "%s", user_val);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-265-	if (ret != 1)
+drivers/net/ethernet/intel/ice/ice_debugfs.c-266-		return -EINVAL;
+drivers/net/ethernet/intel/ice/ice_debugfs.c-267-
+drivers/net/ethernet/intel/ice/ice_debugfs.c-268-	ret = kstrtos16(user_val, 0, &nr_messages);
+--
+drivers/net/ethernet/intel/ice/ice_debugfs.c:335:	cmd_buf = memdup_user(buf, count);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-336-	if (IS_ERR(cmd_buf))
+drivers/net/ethernet/intel/ice/ice_debugfs.c-337-		return PTR_ERR(cmd_buf);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-338-
+drivers/net/ethernet/intel/ice/ice_debugfs.c-339-	ret = sscanf(cmd_buf, "%s", user_val);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-340-	if (ret != 1)
+drivers/net/ethernet/intel/ice/ice_debugfs.c-341-		return -EINVAL;
+drivers/net/ethernet/intel/ice/ice_debugfs.c-342-
+drivers/net/ethernet/intel/ice/ice_debugfs.c-343-	ret = kstrtobool(user_val, &enable);
+--
+drivers/net/ethernet/intel/ice/ice_debugfs.c:431:	cmd_buf = memdup_user(buf, count);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-432-	if (IS_ERR(cmd_buf))
+drivers/net/ethernet/intel/ice/ice_debugfs.c-433-		return PTR_ERR(cmd_buf);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-434-
+drivers/net/ethernet/intel/ice/ice_debugfs.c-435-	ret = sscanf(cmd_buf, "%s", user_val);
+drivers/net/ethernet/intel/ice/ice_debugfs.c-436-	if (ret != 1)
+drivers/net/ethernet/intel/ice/ice_debugfs.c-437-		return -EINVAL;
+drivers/net/ethernet/intel/ice/ice_debugfs.c-438-
+drivers/net/ethernet/intel/ice/ice_debugfs.c-439-	index = sysfs_match_string(ice_fwlog_log_size, user_val);
+--
+drivers/spi/spidev.c:351:	return memdup_user(u_ioc, tmp);
+drivers/spi/spidev.c-352-}
+drivers/spi/spidev.c-353-
+drivers/spi/spidev.c-354-static long
+drivers/spi/spidev.c-355-spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+drivers/spi/spidev.c-356-{
+drivers/spi/spidev.c-357-	int			retval = 0;
+drivers/spi/spidev.c-358-	struct spidev_data	*spidev;
+drivers/spi/spidev.c-359-	struct spi_device	*spi;
+--
+drivers/rapidio/rio_cm.c:1846:	buf = memdup_user((void __user *)(uintptr_t)msg.msg, msg.size);
+drivers/rapidio/rio_cm.c-1847-	if (IS_ERR(buf))
+drivers/rapidio/rio_cm.c-1848-		return PTR_ERR(buf);
+drivers/rapidio/rio_cm.c-1849-
+drivers/rapidio/rio_cm.c-1850-	ret = riocm_ch_send(msg.ch_num, buf, msg.size);
+drivers/rapidio/rio_cm.c-1851-
+drivers/rapidio/rio_cm.c-1852-	kfree(buf);
+drivers/rapidio/rio_cm.c-1853-	return ret;
+drivers/rapidio/rio_cm.c-1854-}
+--
+drivers/ptp/ptp_chardev.c:355:		extoff = memdup_user((void __user *)arg, sizeof(*extoff));
+drivers/ptp/ptp_chardev.c-356-		if (IS_ERR(extoff)) {
+drivers/ptp/ptp_chardev.c-357-			err = PTR_ERR(extoff);
+drivers/ptp/ptp_chardev.c-358-			extoff = NULL;
+drivers/ptp/ptp_chardev.c-359-			break;
+drivers/ptp/ptp_chardev.c-360-		}
+drivers/ptp/ptp_chardev.c-361-		if (extoff->n_samples > PTP_MAX_SAMPLES
+drivers/ptp/ptp_chardev.c-362-		    || extoff->rsv[0] || extoff->rsv[1] || extoff->rsv[2]) {
+drivers/ptp/ptp_chardev.c-363-			err = -EINVAL;
+--
+drivers/ptp/ptp_chardev.c:383:		sysoff = memdup_user((void __user *)arg, sizeof(*sysoff));
+drivers/ptp/ptp_chardev.c-384-		if (IS_ERR(sysoff)) {
+drivers/ptp/ptp_chardev.c-385-			err = PTR_ERR(sysoff);
+drivers/ptp/ptp_chardev.c-386-			sysoff = NULL;
+drivers/ptp/ptp_chardev.c-387-			break;
+drivers/ptp/ptp_chardev.c-388-		}
+drivers/ptp/ptp_chardev.c-389-		if (sysoff->n_samples > PTP_MAX_SAMPLES) {
+drivers/ptp/ptp_chardev.c-390-			err = -EINVAL;
+drivers/ptp/ptp_chardev.c-391-			break;
+--
+drivers/staging/greybus/authentication.c:227:		ims_cert = memdup_user(buf, size);
+drivers/staging/greybus/authentication.c-228-		if (IS_ERR(ims_cert))
+drivers/staging/greybus/authentication.c-229-			return PTR_ERR(ims_cert);
+drivers/staging/greybus/authentication.c-230-
+drivers/staging/greybus/authentication.c-231-		ret = cap_get_ims_certificate(cap, ims_cert->certificate_class,
+drivers/staging/greybus/authentication.c-232-					      ims_cert->certificate_id,
+drivers/staging/greybus/authentication.c-233-					      ims_cert->certificate,
+drivers/staging/greybus/authentication.c-234-					      &ims_cert->cert_size,
+drivers/staging/greybus/authentication.c-235-					      &ims_cert->result_code);
+--
+drivers/staging/greybus/authentication.c:243:		authenticate = memdup_user(buf, size);
+drivers/staging/greybus/authentication.c-244-		if (IS_ERR(authenticate))
+drivers/staging/greybus/authentication.c-245-			return PTR_ERR(authenticate);
+drivers/staging/greybus/authentication.c-246-
+drivers/staging/greybus/authentication.c-247-		ret = cap_authenticate(cap, authenticate->auth_type,
+drivers/staging/greybus/authentication.c-248-				       authenticate->uid,
+drivers/staging/greybus/authentication.c-249-				       authenticate->challenge,
+drivers/staging/greybus/authentication.c-250-				       &authenticate->result_code,
+drivers/staging/greybus/authentication.c-251-				       authenticate->response,
+--
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c:1451:	ptr = memdup_user(buf, count);
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c-1452-	if (IS_ERR(ptr))
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c-1453-		return PTR_ERR(ptr);
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c-1454-	dbg->in_msg = ptr;
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c-1455-	dbg->inlen = count;
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c-1456-
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c-1457-	*pos = count;
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c-1458-
+drivers/net/ethernet/mellanox/mlx5/core/cmd.c-1459-	return count;
+--
+arch/powerpc/platforms/powernv/opal-prd.c:242:	msg = memdup_user(buf, size);
+arch/powerpc/platforms/powernv/opal-prd.c-243-	if (IS_ERR(msg))
+arch/powerpc/platforms/powernv/opal-prd.c-244-		return PTR_ERR(msg);
+arch/powerpc/platforms/powernv/opal-prd.c-245-
+arch/powerpc/platforms/powernv/opal-prd.c-246-	rc = opal_prd_msg(msg);
+arch/powerpc/platforms/powernv/opal-prd.c-247-	if (rc) {
+arch/powerpc/platforms/powernv/opal-prd.c-248-		pr_warn("write: opal_prd_msg returned %d\n", rc);
+arch/powerpc/platforms/powernv/opal-prd.c-249-		size = -EIO;
+arch/powerpc/platforms/powernv/opal-prd.c-250-	}
+--
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c:2849:	return memdup_user(usr_queue_id_array, array_size);
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c-2850-}
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c-2851-
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c-2852-int resume_queues(struct kfd_process *p,
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c-2853-		uint32_t num_queues,
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c-2854-		uint32_t *usr_queue_id_array)
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c-2855-{
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c-2856-	uint32_t *queue_ids = NULL;
+drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c-2857-	int total_resumed = 0;
+--
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c:2354:		fw_data = memdup_user(useraddr + sizeof(t), t.len);
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c-2355-		if (IS_ERR(fw_data))
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c-2356-			return PTR_ERR(fw_data);
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c-2357-
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c-2358-		ret = t3_load_fw(adapter, fw_data, t.len);
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c-2359-		kfree(fw_data);
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c-2360-		if (ret)
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c-2361-			return ret;
+drivers/net/ethernet/chelsio/cxgb3/cxgb3_main.c-2362-		break;
+--
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1002:	cmd_buf = memdup_user(buffer, count + 1);
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c-1003-	if (IS_ERR(cmd_buf))
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c-1004-		return -ENOMEM;
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c-1005-
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c-1006-	cmd_buf[count] = '\0';
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c-1007-
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c-1008-	cmd_buf_tmp = strchr(cmd_buf, '\n');
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c-1009-	if (cmd_buf_tmp) {
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c-1010-		*cmd_buf_tmp = '\0';
+--
+drivers/firmware/tegra/bpmp-debugfs.c:380:	databuf = memdup_user(buf, count);
+drivers/firmware/tegra/bpmp-debugfs.c-381-	if (IS_ERR(databuf))
+drivers/firmware/tegra/bpmp-debugfs.c-382-		return PTR_ERR(databuf);
+drivers/firmware/tegra/bpmp-debugfs.c-383-
+drivers/firmware/tegra/bpmp-debugfs.c-384-	err = mrq_debug_write(bpmp, filename, databuf, count);
+drivers/firmware/tegra/bpmp-debugfs.c-385-	kfree(databuf);
+drivers/firmware/tegra/bpmp-debugfs.c-386-
+drivers/firmware/tegra/bpmp-debugfs.c-387-	return err ?: count;
+drivers/firmware/tegra/bpmp-debugfs.c-388-}
+--
+drivers/firmware/efi/test/efi_test.c:73:	buf = memdup_user(src, len);
+drivers/firmware/efi/test/efi_test.c-74-	if (IS_ERR(buf)) {
+drivers/firmware/efi/test/efi_test.c-75-		*dst = NULL;
+drivers/firmware/efi/test/efi_test.c-76-		return PTR_ERR(buf);
+drivers/firmware/efi/test/efi_test.c-77-	}
+drivers/firmware/efi/test/efi_test.c-78-	*dst = buf;
+drivers/firmware/efi/test/efi_test.c-79-
+drivers/firmware/efi/test/efi_test.c-80-	return 0;
+drivers/firmware/efi/test/efi_test.c-81-}
+--
+drivers/firmware/efi/test/efi_test.c:253:	data = memdup_user(setvariable.data, setvariable.data_size);
+drivers/firmware/efi/test/efi_test.c-254-	if (IS_ERR(data)) {
+drivers/firmware/efi/test/efi_test.c-255-		kfree(name);
+drivers/firmware/efi/test/efi_test.c-256-		return PTR_ERR(data);
+drivers/firmware/efi/test/efi_test.c-257-	}
+drivers/firmware/efi/test/efi_test.c-258-
+drivers/firmware/efi/test/efi_test.c-259-	status = efi.set_variable(name, &vendor_guid,
+drivers/firmware/efi/test/efi_test.c-260-				setvariable.attributes,
+drivers/firmware/efi/test/efi_test.c-261-				setvariable.data_size, data);
+--
+drivers/firmware/efi/test/efi_test.c:546:		data = memdup_user((void *)resetsystem.data,
+drivers/firmware/efi/test/efi_test.c-547-						resetsystem.data_size);
+drivers/firmware/efi/test/efi_test.c-548-		if (IS_ERR(data))
+drivers/firmware/efi/test/efi_test.c-549-			return PTR_ERR(data);
+drivers/firmware/efi/test/efi_test.c-550-	}
+drivers/firmware/efi/test/efi_test.c-551-
+drivers/firmware/efi/test/efi_test.c-552-	efi.reset_system(resetsystem.reset_type, resetsystem.status,
+drivers/firmware/efi/test/efi_test.c-553-				resetsystem.data_size, (efi_char16_t *)data);
+drivers/firmware/efi/test/efi_test.c-554-
+--
+drivers/media/dvb-core/dvb_demux.c:1147:	p = memdup_user(buf, count);
+drivers/media/dvb-core/dvb_demux.c-1148-	if (IS_ERR(p))
+drivers/media/dvb-core/dvb_demux.c-1149-		return PTR_ERR(p);
+drivers/media/dvb-core/dvb_demux.c-1150-	if (mutex_lock_interruptible(&dvbdemux->mutex)) {
+drivers/media/dvb-core/dvb_demux.c-1151-		kfree(p);
+drivers/media/dvb-core/dvb_demux.c-1152-		return -ERESTARTSYS;
+drivers/media/dvb-core/dvb_demux.c-1153-	}
+drivers/media/dvb-core/dvb_demux.c-1154-	dvb_dmx_swfilter(dvbdemux, p, count);
+drivers/media/dvb-core/dvb_demux.c-1155-	kfree(p);

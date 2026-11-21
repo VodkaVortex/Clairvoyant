@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "intent_id": "i054",
+  "branch": "hardirq-shared-lock",
+  "status": "in_progress",
+  "snapshot": "s10",
+  "stage": "initial_checkpoint_before_search",
+  "plan": [
+    "1. Enumerate request_irq/request_threaded_irq/devm_request_irq registrations in snapshots/s10 with handler names",
+    "2. Resolve handler definitions in-file and extract spin_lock sites inside handler bodies",
+    "3. Cross-index each handler-acquired lock against plain spin_lock acquisitions in non-irq context functions (workers, ioctls, open/close, xmit/NAPI/timer/tasklet)",
+    "4. Prioritize mwl8k_interrupt, ath9k, hostap prism2 (txfidlock/baplock), qtnfmac bus handlers, iwlwifi pcie/rx.c per prior pass",
+    "5. Deep-read strongest candidates, classify reported/safe/unresolved, write final artifact"
+  ],
+  "candidates": []
+}

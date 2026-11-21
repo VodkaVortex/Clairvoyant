@@ -1,0 +1,49 @@
+import json
+q1='void br_multicast_disable_port(struct net_bridge_port *port)\n{\n\tstruct net_bridge *br = port->br;\n\tstruct net_bridge_port_group *pg;\n\tstruct hlist_node *n;\n\n\tspin_lock(&br->multicast_lock);'
+art={
+ "version":1,
+ "intent_id":"i021",
+ "branch":"timer-dwork-softirq-lock",
+ "execution_status":"complete",
+ "snapshots_checked":["s06"],
+ "findings":[
+  {
+   "snapshot":"s06",
+   "path":"net/bridge/br_multicast.c",
+   "start":1115,
+   "end":1121,
+   "quote":q1,
+   "confidence":"medium",
+   "reason":("UNTRUSTED SOURCE: attacker-influenced concurrency, not data - any IGMP/MLD membership report or query forwarded through the bridge re-arms the multicast timers "
+    "(br_ip4_multicast_query / br_multicast_host_join mod_timer(&mp->timer,...) under multicast_lock; router and own-query timers re-armed by report/query processing), so remote multicast control traffic controls when the TIMER_SOFTIRQ side fires, while local config activity aligns the holder side. "
+    "VIOLATED INVARIANT (timer-softirq analogue of the seed's missing spin_lock_bh): br->multicast_lock (spin_lock_init at net/bridge/br_multicast.c:1983) is shared between TIMER_SOFTIRQ callback bodies and process-context code, yet the process side uses plain spin_lock() with no bottom-half disable. "
+    "TIMER-SOFTIRQ SIDE (plain spin_lock, runs in call_timer_fn from TIMER_SOFTIRQ): br_multicast_group_expired (def 242, lock 248, unlock 266-region; timer_setup(&mp->timer,...) at 705), br_multicast_port_group_expired (def ~306, lock 311, timer_setup at 732), br_multicast_router_expired (def ~848, lock 854, timer_setup at 1049), br_multicast_local_router_expired (def ~878, lock 882), br_multicast_querier_expired-family (lock 896, timer_setup at 1986/1988/1991/1993), br_multicast_port_query_expired (def ~998, lock 1003, timer_setup at 1051/1054). "
+    "PROCESS SIDE (same lock object, plain spin_lock): br_multicast_enable_port (def 1106, lock at 1110, unlock 1113) called from net/bridge/br_stp.c:462 in br_make_forwarding (reached from br_port_state_selection / br_stp_enable_port via netlink setlink and carrier handling), and br_multicast_disable_port (def 1115, lock at 1121, unlock 1133) called from net/bridge/br_stp_if.c:121 in br_stp_disable_port (netlink dellink/setlink port-state change, bridge stop, carrier loss). "
+    "MISSING GUARANTEE: plain spin_lock() only disables preemption, not bottom halves, so a TIMER_SOFTIRQ firing on the same CPU while the process-context holder is between lock and unlock spins forever on br->multicast_lock; the holder was preempted by the softirq and can never resume -> soft lockup/RCU stall on that CPU, bridge multicast config stall, repeatable DoS by remote multicast traffic plus one port state change. "
+    "COUNTEREVIDENCE CHECKED: sibling process-context sites on the SAME lock already use spin_lock_bh (1073 br_multicast_del_port, 2036 br_multicast_dev_delete/stop path, 2055, 2070, 2177, 2227, 2240, 2274, 2318, 2337 br_mdb/mdb-config paths), proving mixed discipline on one lock object and that the fix pattern exists in the same file; the receive-side plain sites (1444, 1524, 1603, 1930, 2112 - IGMP/MLD report/query processing under NET_RX softirq) already run with BH disabled, so only the enable/disable_port process pair violates the invariant. "
+    "Reported as a hypothesis: static source analysis, no runtime reproducer or lockdep run; the deadlock window needs the port-state-change process path to be preempted by an expiring multicast timer softirq on the same CPU.")
+  }
+ ],
+ "candidates":[
+  {"snapshot":"s06","path":"net/bridge/br_multicast.c","line":248,"status":"reported","reason":"Timer-softirq side of the reported finding: br_multicast_group_expired (timer_setup at 705) takes plain spin_lock(&br->multicast_lock) at 248; same family: port_group_expired:311 (timer_setup 732), router_expired:854 (timer_setup 1049), local_router_expired:882, querier_expired:896 (timer_setup 1986/1988/1991/1993), port_query_expired:1003 (timer_setup 1051/1054)."},
+  {"snapshot":"s06","path":"net/bridge/br_multicast.c","line":1110,"status":"reported","reason":"br_multicast_enable_port takes plain spin_lock(&br->multicast_lock) at 1110 (unlock 1113) in process context (caller br_stp.c:462 br_make_forwarding); process-holder side of the reported finding."},
+  {"snapshot":"s06","path":"net/bridge/br_multicast.c","line":1121,"status":"reported","reason":"br_multicast_disable_port takes the same lock plainly at 1121 (unlock 1133) in process context (caller br_stp_if.c:121 br_stp_disable_port); process-holder side of the reported finding; sibling process sites 1073/2036/2055/2070/2177/2227/2240/2274/2318/2337 use spin_lock_bh."},
+  {"snapshot":"s06","path":"drivers/scsi/libiscsi.c","line":2088,"status":"unresolved","reason":"Sibling snapshot s05 (fact f016) confirmed the frwd_lock timer-branch shape (timer callbacks iscsi_check_transport_timeouts:2088 / iscsi_tmf_timedout:1791 plain vs process-context iscsi_eh_cmd_timed_out:1948 plain); the s06 copy was verified to exist but its per-site BH discipline and line numbers were not re-verified before the finalize directive, so it is recorded unresolved rather than reported."},
+  {"snapshot":"s06","path":"net/sched/sch_pie.c","line":433,"status":"unresolved","reason":"Qdisc root_lock perturbation/adaptation timers (sch_pie pie_timer, sch_sfq sfq_perturbation, sch_red red_adaptative_timer) were flagged in sibling timer-branch passes as plain spin_lock in timer callbacks; the s06 copies and their process-context tc change/reset/dump sites were not examined before the finalize directive."},
+  {"snapshot":"s06","path":"drivers/net/ethernet/chelsio/cxgb4/sge.c","line":3306,"status":"unresolved","reason":"sge_tx_timer_cb (timer callback) takes plain spin_lock(&adap->ptp_lock) per the sibling s07 timer pass; the full set of ptp_lock sites and the context of cxgb4_ptp_read_hwstamp in s06 were not traced before the finalize directive."},
+  {"snapshot":"s06","path":"drivers/net/wireless/intel/iwlwifi/pcie/tx.c","line":158,"status":"unresolved","reason":"iwl_pcie_txq_stuck_timer takes plain spin_lock(&txq->lock) inside a timer_list callback per sibling passes; whether every non-timer site of txq->lock in s06 uses spin_lock_irqsave (which would also exclude the timer softirq) was not enumerated before the finalize directive."}
+ ],
+ "limitations":[
+  "Finalize directive halted the search early: only the two highest-priority timer-branch shapes were deep-read in s06 (br_multicast br->multicast_lock, plus existence checks for libiscsi); the whole-tree enumeration of timer_list/hrtimer/delayed_work callbacks with plain spin_lock was not completed in this session.",
+  "drivers/scsi/libiscsi.c session->frwd_lock, qdisc root_lock (sch_pie/sch_sfq/sch_red), cxgb4 ptp_lock and iwlwifi pcie txq->lock stuck-timer remain unresolved in s06; their timer-side plain acquisitions are known from sibling snapshots but the s06 per-site pairing was not verified.",
+  "hrtimer handlers and delayed_work expiry callbacks were not separately enumerated in s06; delayed_work user callbacks run in worker (process) context (only the internal dwork timer is softirq), so only direct timer_list callbacks were treated as the timer-softirq side.",
+  "Static analysis only: no runtime reproducer, lockdep run, or compile was performed (the snapshot tree lacks .config and generated headers for standalone builds); the br_multicast deadlock is a source-level hypothesis - impact (timer softirq spinning forever against a preempted process-context holder on the same CPU) follows from the missing-BH-disable lock discipline violation, not an executed PoC.",
+  "Process-context attribution of br_multicast_enable_port/br_multicast_disable_port callers was established from source call sites (br_stp.c:462, br_stp_if.c:121) in this snapshot; whether every br_port_state_selection caller is process-context only (not softirq) was not exhaustively ruled out, reflected in medium confidence.",
+  "The staging ks7010 seed (tx_dev_lock, drivers/staging/ks7010/ks7010_sdio.c:342 in s06) was confirmed present unpatched by the prior s06 xmit-branch pass (fact f013) but is the seed demonstration itself and is excluded from findings per instructions; branch coverage for this intent was the timer-softirq analogue only."
+ ]
+}
+out="/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C7/agent-state/findings/i021.json"
+import os
+os.makedirs(os.path.dirname(out),exist_ok=True)
+json.dump(art,open(out,"w"),indent=1)
+print("wrote",out)

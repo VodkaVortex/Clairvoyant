@@ -47,9 +47,17 @@ branch; cross-snapshot knowledge is carried in the Intent created by Reason.
 - [`dataset/10_cluster`](dataset/10_cluster): 10 cluster definitions, 10 seed
   SHAs, 64 target SHAs, and source-download instructions;
 - [`runs/10_cluster`](runs/10_cluster): current databases, artifacts, findings,
-  evaluator reports, checkpoints, and dispatcher prompts;
+  evaluator reports, checkpoints, dispatcher prompts, raw worker streams,
+  Claude Code session histories, and worker-generated intermediate analysis;
 - `worker.py`, `done_tool.py`, `prompts/`: the Clairvoyant adapter and worker
   protocol.
+
+The run dataset intentionally omits only the materialized Linux snapshot trees
+(`public/snapshots`) and their local Git object stores (`private/snapshot-git`).
+Those sources can be reconstructed from [`dataset/10_cluster`](dataset/10_cluster).
+All non-source execution state is retained so that Intent creation, model tool
+use, timeout/retry behavior, Fact generation, and final evaluation can be
+analyzed after the run.
 
 ## Security and evaluation boundary
 
@@ -119,6 +127,8 @@ Important outputs:
 - `agent-state/clairvoyant.db`: durable fact graph;
 - `agent-state/timeline.txt`: intent/fact audit trail;
 - `agent-state/worker-logs/`: raw Claude Code stdout/stderr;
+- `agent-state/claude-config/`: per-worker Claude Code session histories;
+- `agent-state/tmp*/`: worker-generated intermediate scans and analysis files;
 - `agent-state/checkpoints/`: incremental per-intent recovery records;
 - `agent-state/findings/`: per-intent structured artifacts;
 - `findings.json`, `evaluation.json`, `evaluation.csv`: frozen benchmark result;

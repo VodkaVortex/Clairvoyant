@@ -1,0 +1,6 @@
+Candidates so far (i007, s02, unclamped-wire-count):
+- net/bluetooth/hci_event.c hci_num_comp_pkts_evt(3559)/hci_num_comp_blocks_evt(3647): wire num_hndl validated vs skb->len -> safe.
+- hci_cc_read_data_block_size (781): num_blocks->block_cnt, only counter arithmetic, clamped at 3674 -> safe.
+- mmc ioctl num_of_cmds: clamped to MMC_IOC_MAX_CMDS at block.c:697 -> safe.
+- hci_inquiry_result_with_rssi (3979): (skb->len-1)/num_rsp check covers length arithmetic but num_rsp=0 with skb->len>=1: (len-1)/0 div-by-zero? num_rsp==0 early-returns; check.
+- LE adv report loops (5344/5418/5621): no ptr bound vs skb->end -> OOB read candidates (mechanism near-match but this is OOB read of skb tail, local. virtual controller peer). Need check of process_adv_report consuming ev->data.

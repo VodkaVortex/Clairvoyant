@@ -1,0 +1,14 @@
+I'll finalize using the collected evidence. Two targeted verification calls, then write the artifacts.
+The final artifact is written. Summary of the completed investigation for intent i031 (branch net-epidx, snapshot s08):
+
+**Finding (medium confidence):** `drivers/net/usb/qmi_wwan.c:699` — `qmi_wwan_register_subdriver()` does `dev->status = &info->control->cur_altsetting->endpoint[0];` with no `bNumEndpoints >= 1` check on the control interface. Per `drivers/usb/core/config.c` `usb_parse_interface` (lines 612-627), a gadget declaring zero endpoints leaves `alt->endpoint` NULL, so `&endpoint[0]` is a null-based pointer immediately dereferenced at line 711 in `usb_cdc_wdm_register(info->control, &dev->status->desc, ...)` — a probe-time NULL deref on plug-in, reachable via class-based ID table entries (Huawei vendor-spec, QMI_MATCH_FF_FF_FF) since `qmi_wwan_probe` only rejects `bNumEndpoints == 2`.
+
+**Evidence-backed negatives (12 candidates classified):** cdc-phonet, cdc_ether, lan78xx, hso, ipheth, usbnet core, cdc_ncm, sierra_net, ath9k hif_usb, carl9170, and brcmfmac all bound their `endpoint[k]` accesses by `bNumEndpoints` or validate the count first (cdc_ether.c:305 shows the exact guard qmi_wwan lacks).
+Investigation finalized for intent i031 (branch net-epidx, snapshot s08). The final artifact is written to `agent-state/findings/i031.json` and the checkpoint updated to `finalized`.
+
+**Primary finding (medium confidence):**
+- `drivers/net/usb/qmi_wwan.c:686-712` — `qmi_wwan_register_subdriver()`, called from `qmi_wwan_bind()` during `usbnet_probe`, executes `dev->status = &info->control->cur_altsetting->endpoint[0];` (line 699) with no `bNumEndpoints >= 1` check for the control interface. Per `drivers/usb/core/config.c` `usb_parse_interface()` (lines 612-627), `alt->endpoint` is left NULL when a gadget declares zero endpoints, so `&endpoint[0]` yields a null-based pointer that is immediately dereferenced at line 711 (`usb_cdc_wdm_register(info->control, &dev->status->desc, ...)`), crashing at probe on device plug-in. Class-based ID entries (`USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, ...)`, `QMI_MATCH_FF_FF_FF`) match regardless of endpoint count, and `qmi_wwan_probe` only rejects `bNumEndpoints == 2`, leaving the path reachable.
+
+**Key negative results (12 candidates classified):** cdc-phonet, cdc_ether, lan78xx, hso, ipheth, usbnet, cdc_ncm, sierra_net, ath9k, carl9170, and brcmfmac all bound endpoint-array access with an explicit `bNumEndpoints` check or descriptor-count-bounded loop; drivers/net/wwan contains no USB descriptor-array access.
+
+**Limitations:** static analysis only (no runtime reproducer); reachability depends on usbcore matching order for class-based entries; remaining wireless-NIC loops were cleared by grep line evidence rather than full-function reads.

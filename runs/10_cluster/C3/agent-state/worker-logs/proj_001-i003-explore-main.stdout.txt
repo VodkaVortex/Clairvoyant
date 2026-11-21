@@ -1,0 +1,5 @@
+I'll start by writing the initial checkpoint and confirming the snapshot layout.
+Checkpoint written. Now let me verify the known live lead from the f005 limitation (nft_tunnel.c in s01) and start the direct-deref scan.
+Both prior-flagged candidates are confirmed in s01. Now let me set up the broader sweep for direct slot dereferences.
+I'll finalize now. First, one targeted evidence call to pin exact line numbers and check the remaining small-file guards (fou.c, tcmu, mac80211_hwsim RADIO_ID/CHANNELS sites, hwsim policy/ops).
+I have all the evidence needed. The `nfnetlink_rcv` capability check (net/netfilter/nfnetlink.c:555, `netlink_net_capable(skb, CAP_NET_ADMIN)`) confirms nft_tunnel is reachable under the same user-namespace trust model as the seed family, making the nft_tunnel.c:79-95 inverted guard a live unchecked-tb-deref finding for this branch. Writing the checkpoint update and final artifact now.

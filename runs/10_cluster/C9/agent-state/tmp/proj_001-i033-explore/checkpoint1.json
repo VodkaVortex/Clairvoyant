@@ -1,0 +1,17 @@
+{
+  "intent_id": "i033",
+  "branch": "hci-completed-length-trust",
+  "status": "in_progress",
+  "snapshot": "s03",
+  "primary_candidate": {
+    "path": "drivers/greybus/es2.c",
+    "line": 844,
+    "evidence_so_far": "cport_in_callback (bulk-in URB completion) checks only urb->actual_length < sizeof(*header) (line 834), then greybus_data_rcvd(hd, cport_id, urb->transfer_buffer, urb->actual_length) at 844-845. URB submitted with kmalloc(ES2_GBUF_MSG_SIZE_MAX=2048) buffer at line 1349/1357. Downstream gb_connection_recv: size = actual_length (HCI-set), msg_size = le16 header.size from device payload; passes if size >= msg_size. recv_request: request_size = msg_size - hdr, alloc message_size = request_size + hdr = msg_size <= 2048, memcpy(header, data, msg_size) - dst ok, src within 2048 buffer IF actual_length <= 2048. KEY QUESTION: can a malicious/compromised ES2 AP device make urb->actual_length exceed transfer_buffer_length(2048) so that memcpy reads OOB past the 2048 heap buffer? USB core normally clamps actual_length to buffer length, but HCD/interrupt path may set it. Checking urb.c/driver-side guarantee next. recv_response: message_size = hdr + local payload_size, errno=-EMSGSIZE if size > message_size, memcpy(message->buffer, data, size) with size <= message_size - bounded by local request state, good."
+  },
+  "progress": [
+    "read f002 artifact: es2.c:844 was flagged unresolved",
+    "deep-read es2.c cport_in_callback, arpc_in_callback, probe setup, check_urb_status",
+    "deep-read operation.c gb_connection_recv/recv_request/recv_response/gb_operation_create_incoming/gb_operation_message_alloc and connection.c greybus_data_rcvd",
+    "next: verify whether usb core guarantees actual_length <= transfer_buffer_length for host-controller-completed bulk URBs; then sweep other actual_length users"
+  ]
+}

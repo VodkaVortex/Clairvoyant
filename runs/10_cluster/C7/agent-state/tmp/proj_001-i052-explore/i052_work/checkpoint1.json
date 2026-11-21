@@ -1,0 +1,10 @@
+{
+  "intent_id": "i052",
+  "branch": "hardirq-shared-lock",
+  "snapshot": "s08",
+  "stage": "initial",
+  "note": "Semantic invariant: lock acquired in hardirq handler (request_irq/devm_request_irq primary handler) and also taken with plain spin_lock (no irqsave/irq) from process or softirq context on same CPU -> IRQ spins forever on held lock. Cross-snapshot known hits present in s08: mtk_star_emac (confirmed same shape as i044/i045). Starting cross-index build.",
+  "candidates": [
+    {"path": "drivers/net/ethernet/mediatek/mtk_star_emac.c", "line": 783, "status": "pending", "note": "hardirq mtk_star_handle_irq takes priv->lock plainly; NAPI polls (1186/1352) also take plainly; checking all contexts"}
+  ]
+}

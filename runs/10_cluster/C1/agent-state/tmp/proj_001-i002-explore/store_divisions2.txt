@@ -1,0 +1,60 @@
+=== drivers/hwmon/ad7414.c :: max_min_store (121-144)
+    temp = (temp + (temp < 0 ? -500 : 500)) / 1000;
+=== drivers/hwmon/adm1031.c :: fan_div_store (607-655)
+    new_min = data->fan_min[nr] * old_div / val;
+=== drivers/hwmon/adt7462.c :: volt_max_store (885-911)
+    temp = clamp_val(temp, 0, 255 * x / 1000);
+=== drivers/hwmon/adt7462.c :: volt_min_store (925-951)
+    temp = clamp_val(temp, 0, 255 * x / 1000);
+=== drivers/hwmon/adt7475.c :: temp_store (455-551)
+    out = data->temp[OFFSET][sattr->index] = val / 1000;
+    out = data->temp[OFFSET][sattr->index] = val / 500;
+    val = (temp - val) / 1000;
+=== drivers/hwmon/amc6821.c :: temp_auto_point_temp_store (569-630)
+    val = temps[1] / 4;
+=== drivers/hwmon/ds620.c :: temp_store (140-164)
+    val = (clamp_val(val, -128000, 128000) * 10 / 625) * 8;
+=== drivers/hwmon/emc2103.c :: fan1_div_store (298-358)
+    int new_range_bits, old_div = 8 / data->fan_multiplier;
+    data->fan_multiplier = 8 / new_div;
+    u16 new_target = (data->fan_target * old_div) / new_div;
+=== drivers/hwmon/emc2103.c :: fan1_target_store (373-402)
+    (FAN_RPM_FACTOR * data->fan_multiplier) / rpm_target,
+=== drivers/hwmon/emc6w201.c :: in_store (189-216)
+    val = clamp_val(val, 0, 255 * nominal_mv[nr] / 192);
+=== drivers/hwmon/fschmd.c :: temp_max_store (355-378)
+    v = clamp_val(v / 1000, -128, 127) + 128;
+=== drivers/hwmon/lm73.c :: temp_store (61-79)
+    value = clamp_val(temp / 250, LM73_TEMP_MIN, LM73_TEMP_MAX) << 5;
+=== drivers/hwmon/lm93.c :: temp_auto_boost_hyst_store (1411-1436)
+    data->boost_hyst[nr/2] = LM93_AUTO_BOOST_HYST_TO_REG(data, val, nr, 1);
+    data->boost_hyst[nr/2]);
+=== drivers/hwmon/lm93.c :: temp_auto_pwm_min_store (1533-1560)
+    data->auto_pwm_min_hyst[nr/2] = reg;
+=== drivers/hwmon/lm93.c :: temp_auto_offset_hyst_store (1576-1603)
+    reg = data->auto_pwm_min_hyst[nr/2];
+    data->auto_pwm_min_hyst[nr/2] = reg;
+=== drivers/hwmon/smsc47m1.c :: fan_min_store (265-295)
+    data->fan_preload[nr] = 192 - ((983040 + rpmdiv / 2) / rpmdiv);
+=== drivers/hwmon/smsc47m1.c :: fan_div_store (302-367)
+    + new_div / 2) / new_div;
+=== drivers/hwmon/thmc50.c :: temp_min_store (178-199)
+    data->temp_min[nr] = clamp_val(val / 1000, -128, 127);
+=== drivers/hwmon/thmc50.c :: temp_max_store (208-229)
+    data->temp_max[nr] = clamp_val(val / 1000, -128, 127);
+=== drivers/hwmon/vt8231.c :: in_min_store (276-295)
+    data->in_min[nr] = clamp_val(((val * 958) / 10000) + 3, 0, 255);
+=== drivers/hwmon/vt8231.c :: in_max_store (296-315)
+    data->in_max[nr] = clamp_val(((val * 958) / 10000) + 3, 0, 255);
+=== drivers/hwmon/vt8231.c :: in5_min_store (344-363)
+    data->in_min[5] = clamp_val(((val * 958 * 34) / (10000 * 54)) + 3,
+=== drivers/hwmon/vt8231.c :: in5_max_store (364-383)
+    data->in_max[5] = clamp_val(((val * 958 * 34) / (10000 * 54)) + 3,
+=== drivers/hwmon/vt8231.c :: temp1_max_store (426-444)
+    data->temp_max[0] = clamp_val((val + 500) / 1000, 0, 255);
+=== drivers/hwmon/vt8231.c :: temp1_max_hyst_store (444-462)
+    data->temp_min[0] = clamp_val((val + 500) / 1000, 0, 255);
+=== drivers/hwmon/w83627hf.c :: in0_min_store (835-864)
+    clamp_val(((val * 100) - 70000 + 244) / 488, 0, 255);
+=== drivers/hwmon/w83627hf.c :: in0_max_store (874-903)
+    clamp_val(((val * 100) - 70000 + 244) / 488, 0, 255);

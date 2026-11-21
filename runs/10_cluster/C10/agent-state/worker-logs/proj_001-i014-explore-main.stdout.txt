@@ -1,0 +1,4 @@
+Found strong candidates. Note `drivers/scsi/bfa/bfad_debugfs.c` is the seed itself (never reportable), but `bnad_debugfs.c` (sister driver bna), `ice_debugfs.c`, and `cio_inject.c` are genuine variants. Let me read them.
+Two strong leads found. Let me examine the remaining hits and broaden to other string consumers and kmalloc+copy_from_user patterns.
+The multiline search shows many `memdup_user_nul` (safe) sites. Strong candidates: **bna bnad_debugfs.c** (2 sites, no count cap) and **ice ice_debugfs.c** (4 sites, count-capped). Let me now do a systematic function-level scan for `kmalloc`+`copy_from_user`+string-consumer patterns in debugfs write handlers, which the initial grep may have missed.
+`vmemdup_user` is kvmalloc+copy — no NUL. `rvu_dbg_qsize_write` allocates `count + 1` and sets `cmd_buf[count] = '\0'` — properly terminated (safe). Now let me check the strongest remaining copy_from_user-based candidates.

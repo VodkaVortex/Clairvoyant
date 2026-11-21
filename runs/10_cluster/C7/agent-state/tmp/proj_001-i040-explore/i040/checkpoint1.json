@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "intent_id": "i040",
+  "branch": "tasklet-napi-softirq-lock",
+  "status": "in_progress",
+  "snapshot": "s11",
+  "note": "Found strong candidate C1: ks7010 multicast_spin taken with plain spin_lock in hostif_sme_multicast_set (ks_hostif.c:1901), which runs in tasklet context via hostif_sme_task, and calls hostif_mib_set_request -> send_request_to_device -> ks_wlan_hw_tx -> spin_lock(&priv->tx_dev.tx_dev_lock) at ks7010_sdio.c:398 while holding multicast_spin; workqueue path ks7010_rw_function -> ks_wlan_process_rx -> hostif_receive -> hostif_event_check -> hostif_sme_enqueue(SME_MULTICAST_REQUEST) schedules sme_task; verifying other tasklet users (wlan-ng, rtl8xxx) next.",
+  "candidates": [
+    {
+      "id": "C1",
+      "path": "drivers/staging/ks7010/ks_hostif.c",
+      "line": 1901,
+      "status": "reported",
+      "lock": "priv->multicast_spin",
+      "softirq_chain": "tasklet hostif_sme_task -> hostif_sme_execute(SME_MULTICAST_REQUEST) -> hostif_sme_multicast_set -> spin_lock(&priv->multicast_spin)",
+      "process_chain": "workqueue ks7010_rw_function -> ks_wlan_process_rx -> hostif_receive -> hostif_event_check -> LOCAL_MULTICAST_ADDRESS confirm -> hostif_sme_enqueue -> tasklet_schedule(&priv->sme_task)",
+      "reason": "Tasklet-side holder takes tx_dev_lock with plain spin_lock (ks7010_sdio.c:398) via hostif_mib_set_request->send_request_to_device->ks_wlan_hw_tx; a softirq (e.g. NET_TX via ks_wlan_start_xmit->hostif_data_request->ks_wlan_hw_tx) on same CPU spins forever on tx_dev_lock while the tasklet holder can never resume"
+    }
+  ]
+}

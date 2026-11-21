@@ -1,0 +1,17 @@
+{
+  "intent_id": "i022",
+  "branch": "callee-pull-caller-stale",
+  "snapshot": "s01",
+  "status": "in_progress",
+  "phase": "triage_complete",
+  "candidates": [
+    {"path": "net/ieee802154/6lowpan/rx.c", "status": "reported", "note": "lowpan_iphc_decompress -> lowpan_header_decompress (skb_cow at iphc.c:746) while rx.c holds iphc0=*skb_network_header(skb)? verify; RX_QUEUED gating"},
+    {"path": "net/core/skbuff.c:4372", "status": "likely_safe", "note": "skb_segment_list: skb_unclone before any per-frag header pointer use; list_skb iterated before unclone"},
+    {"path": "net/strparser/strparser.c:119", "status": "safe", "note": "pskb_pull on orig_skb operates on a fresh clone; no caller pointer into skb head involved (strp->skb_head manipulated by clone/queue ops only)"},
+    {"path": "drivers/net/ppp/ppp_generic.c:2669", "status": "safe", "note": "pskb_may_pull(skb,2) after ppp_mp_reconstruct returns a NEW merged skb; no pre-call pointer into it exists; ppp_receive_nonmp_frame re-reads skb->data after its own pulls"},
+    {"path": "drivers/net/xen-netfront.c:1231", "status": "safe", "note": "handle_incoming_queue: __pskb_pull_tail before eth_type_trans/checksum_setup capture any headers"},
+    {"path": "net/batman-adv/send.c:86,240", "status": "safe", "note": "batadv_skb_head_push callers capture ethhdr AFTER the cow/push (send.c:94 after line 86)"},
+    {"path": "net/bridge/br_multicast.c:3817", "status": "safe", "note": "ip_mc_check_igmp may realloc head but callers capture igmp_hdr(skb)/eth_hdr(skb)/ip_hdr(skb) via fresh accessor calls after return"}
+  ],
+  "notes": "Prioritized leads: 6lowpan RX handler uses dispatch byte fetched via *skb_network_header(skb) before callee skb_cow; but need to confirm whether caller refetches. In rx.c the dispatch checks happen in separate handlers (lowpan_rx_h_iphc reads *skb_network_header(skb) itself then calls lowpan_iphc_decompress). No stale pointer in caller scope. Candidate weak."
+}

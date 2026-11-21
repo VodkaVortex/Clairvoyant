@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "intent_id": "i012",
+  "branch": "xmit-softirq-lock",
+  "phase": "candidates triaged",
+  "snapshot": "s11",
+  "candidates": [
+    {"name": "mwl8k stream_lock", "path": "drivers/net/wireless/marvell/mwl8k.c", "status": "strong candidate being verified", "evidence": "plain spin_lock at 1987/2051/2074/2124 in mwl8k_txq_xmit (tx path); same lock in process-context mwl8k_watchdog_ba_events worker (3830) and mwl8k_ampdu_action (5453); spin_lock_bh used on tx_lock (2059/2120) proving BH-enabled expectation"},
+    {"name": "wil6210 net_queue_lock", "path": "drivers/net/wireless/ath/wil6210/txrx.c", "status": "candidate", "evidence": "wil_update_net_queues uses plain spin_lock (2305) vs _bh variant (2313); plain version called from wil_tx_complete (2551) which runs in NAPI TX poll softirq; need process-context caller to complete the pattern"},
+    {"name": "wil6210 txdata->lock", "path": "drivers/net/wireless/ath/wil6210/txrx.c", "status": "candidate", "evidence": "wil_tx_ring (2200) and __wil_tx_ring (76-104) use plain spin_lock; wil_is_tx_idle also plain (76); other sites use _bh"}
+  ]
+}

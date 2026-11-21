@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "worker": "linux-variant-explore",
+  "branch": "sysctl-unbounded-knob",
+  "snapshot": "s01",
+  "status": "in_progress",
+  "note": "Checked many named security knobs: fips_enabled(0444 RO), fsverity require_signatures (minmax 0..1), loadpin enforce (minmax), keys/* (minmax), yama ptrace_scope (minmax, locked), dmesg_restrict/kptr_restrict/unprivileged_bpf/protected_* /unprivileged_userfaultfd (all minmax), modules_disabled/kexec_load_disabled (minmax 1..1), apparmor unprivileged_userns_apparmor_policy (apparmor_dointvec wrapper of proc_dointvec, NO extra1/extra2, mode 0600 admin-only write), randomize_va_space (plain proc_dointvec, int, any value writable by root), perf_event_paranoid (plain proc_dointvec unbounded), tcp_challenge_ack_limit (plain proc_dointvec unbounded, consumed as u32). Strong leads to evaluate: net/ipv4/sysctl_net_ipv4.c tcp_challenge_ack_limit + kernel/sysctl.c randomize_va_space + perf_event_paranoid.",
+  "candidates": [
+    {"path": "net/ipv4/sysctl_net_ipv4.c", "line": 1266, "status": "unresolved", "reason": "tcp_challenge_ack_limit int proc_dointvec no extra1/extra2; consumed as u32 in tcp_input.c:3615 (prandom_u32_max(ack_limit))"},
+    {"path": "kernel/sysctl.c", "line": 2473, "status": "unresolved", "reason": "randomize_va_space int proc_dointvec no bounds"},
+    {"path": "kernel/sysctl.c", "line": 2601, "status": "unresolved", "reason": "perf_event_paranoid int proc_dointvec no bounds"},
+    {"path": "security/apparmor/lsm.c", "line": 1731, "status": "unresolved", "reason": "apparmor unprivileged_userns_apparmor_policy via apparmor_dointvec->proc_dointvec no minmax; gate is capability-only"}
+  ]
+}

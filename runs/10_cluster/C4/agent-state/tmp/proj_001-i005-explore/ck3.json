@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "worker": "linux-variant-explore",
+  "branch": "sysctl-unbounded-knob",
+  "snapshot": "s01",
+  "status": "in_progress",
+  "note": "Second pass. Verified safe/bounded: fips_enabled(RO), fsverity, loadpin, keys, yama, dmesg_restrict/kptr_restrict, protected_*, unprivileged_*, bpf_jit_*, modules_disabled/kexec_load_disabled, conntrack u8 minmax, tipc key_exchange, tcp_fastopen_key/blackhole (custom handlers with bounds), tagged_addr_disabled, secure_tcp (validated 0..3 in proc_do_defense_mode). Remaining strong candidates: (1) net/ipv4/sysctl_net_ipv4.c tcp_challenge_ack_limit: int proc_dointvec no bounds, consumed as u32; (2) kernel/sysctl.c randomize_va_space: int proc_dointvec no bounds, consumer branches on any nonzero (hardening semantics OK, only 0/2 meaningful); (3) kernel/sysctl.c perf_event_paranoid: int proc_dointvec no bounds, comparisons only (<= 1, > -1, > 1) so OOB has no unsafe effect; (4) net/ipv6/addrconf.c seg6_require_hmac: int proc_dointvec no bounds, consumed in seg6_hmac.c with explicit >0/==0/<0 branches (documented tri-state). (5) security/apparmor/lsm.c unprivileged_userns_apparmor_policy: wrapper of proc_dointvec with NO minmax; value used as boolean (!=0) at policy.c:655; mode 0600 + policy_admin_capable gate. (6) xfrm_larval_drop int proc_dointvec no bounds.",
+  "candidates": [
+    {"path": "net/ipv4/sysctl_net_ipv4.c", "line": 1266, "status": "unresolved", "reason": "tcp_challenge_ack_limit unbounded int; tcp_input.c:3615 uses as u32 in prandom_u32_max(ack_limit); ack_limit==0 => half=0, prandom_u32_max(0) undefined/0"},
+    {"path": "kernel/sysctl.c", "line": 2473, "status": "unresolved", "reason": "randomize_va_space unbounded int"},
+    {"path": "kernel/sysctl.c", "line": 2601, "status": "unresolved", "reason": "perf_event_paranoid unbounded int"},
+    {"path": "net/ipv6/addrconf.c", "line": 6917, "status": "unresolved", "reason": "seg6_require_hmac unbounded int; consumer handles tri-state"},
+    {"path": "security/apparmor/lsm.c", "line": 1731, "status": "unresolved", "reason": "apparmor knob via proc_dointvec wrapper, no minmax"},
+    {"path": "net/xfrm/xfrm_sysctl.c", "line": 26, "status": "unresolved", "reason": "xfrm_larval_drop unbounded int, boolean consumer"}
+  ]
+}

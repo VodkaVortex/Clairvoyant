@@ -1,0 +1,4 @@
+I'll start by setting up the workspace, writing the initial checkpoint, and then investigating the assigned snapshot s05 for the callee-pull-caller-stale branch.
+The l2tp helper `l2tp_v3_ensure_opt_in_linear` is the correctly-written fixup pattern (it updates caller's ptr/optr via pointer-to-pointer after the pull). Let me verify the other l2tp call sites and read the full `l2tp_recv_common`.
+The L2TP helper `l2tp_v3_ensure_opt_in_linear` explicitly refetches `optr`/`ptr` through pointer-to-pointer after its internal `pskb_may_pull` — the fixed pattern. Let me examine the remaining L2TP paths and then systematically enumerate other callee→caller pairs.
+I have the exact source evidence collected. The l2tp priority pass is complete and came out negative (the code correctly uses a pointer-to-pointer repair pattern). Let me write the final artifact now.

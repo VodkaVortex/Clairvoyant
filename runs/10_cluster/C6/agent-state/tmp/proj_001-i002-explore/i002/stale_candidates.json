@@ -1,0 +1,2371 @@
+[
+ {
+  "file": "net/caif/cfpkt_skbuff.c",
+  "func": "cfpkt_extr_trail",
+  "pull_line": 153,
+  "pull": "if (unlikely(skb_linearize(skb) != 0)) {",
+  "cap_line": 147,
+  "cap": "struct sk_buff *skb = pkt_to_skb(pkt);",
+  "var": "skb",
+  "uses": [
+   [
+    157,
+    "if (unlikely(skb->data + len > skb_tail_pointer(skb))) {"
+   ],
+   [
+    161,
+    "from = skb_tail_pointer(skb) - len;"
+   ],
+   [
+    162,
+    "skb_trim(skb, skb->len - len);"
+   ]
+  ]
+ },
+ {
+  "file": "net/core/skbuff.c",
+  "func": "__pskb_pull_tail",
+  "pull_line": 2715,
+  "pull": "if (!pskb_pull(list, eat)) {",
+  "cap_line": 2687,
+  "cap": "struct sk_buff *list = skb_shinfo(skb)->frag_list;",
+  "var": "list",
+  "uses": [
+   [
+    2725,
+    "skb_shinfo(skb)->frag_list = list->next;"
+   ],
+   [
+    2726,
+    "consume_skb(list);"
+   ]
+  ]
+ },
+ {
+  "file": "net/core/sock_reuseport.c",
+  "func": "?",
+  "pull_line": 513,
+  "pull": "if (!pskb_pull(skb, hdr_len)) {",
+  "cap_line": 502,
+  "cap": "struct sk_buff *nskb = NULL;",
+  "var": "nskb",
+  "uses": [
+   [
+    514,
+    "kfree_skb(nskb);"
+   ],
+   [
+    520,
+    "consume_skb(nskb);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/esp4_offload.c",
+  "func": "?",
+  "pull_line": 221,
+  "pull": "if (!pskb_may_pull(skb, sizeof(*esph) + crypto_aead_ivsize(aead)))",
+  "cap_line": 204,
+  "cap": "struct xfrm_offload *xo = xfrm_offload(skb);",
+  "var": "xo",
+  "uses": [
+   [
+    237,
+    "xo->flags |= XFRM_GSO_SEGMENT;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/esp4_offload.c",
+  "func": "esp_input_tail",
+  "pull_line": 247,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct ip_esp_hdr) + crypto_aead_ivsize(aead)))",
+  "cap_line": 245,
+  "cap": "struct xfrm_offload *xo = xfrm_offload(skb);",
+  "var": "xo",
+  "uses": [
+   [
+    250,
+    "if (!(xo->flags & CRYPTO_DONE))"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/icmp.c",
+  "func": "icmp_rcv",
+  "pull_line": 1196,
+  "pull": "if (!pskb_may_pull(skb, sizeof(*icmph) + sizeof(struct iphdr)))",
+  "cap_line": 1182,
+  "cap": "struct rtable *rt = skb_rtable(skb);",
+  "var": "rt",
+  "uses": [
+   [
+    1252,
+    "if (rt->rt_flags & (RTCF_BROADCAST | RTCF_MULTICAST)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/icmp.c",
+  "func": "icmp_rcv",
+  "pull_line": 1216,
+  "pull": "if (!pskb_pull(skb, sizeof(*icmph)))",
+  "cap_line": 1182,
+  "cap": "struct rtable *rt = skb_rtable(skb);",
+  "var": "rt",
+  "uses": [
+   [
+    1252,
+    "if (rt->rt_flags & (RTCF_BROADCAST | RTCF_MULTICAST)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/igmp.c",
+  "func": "?",
+  "pull_line": 1000,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct igmpv3_query)",
+  "cap_line": 948,
+  "cap": "struct igmpv3_query *ih3 = igmpv3_query_hdr(skb);",
+  "var": "ih3",
+  "uses": [
+   [
+    1001,
+    "+ ntohs(ih3->nsrcs)*sizeof(__be32)))"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/ip_tunnel_core.c",
+  "func": "iptunnel_pmtud_build_icmp",
+  "pull_line": 203,
+  "pull": "if (!pskb_may_pull(skb, ETH_HLEN + sizeof(struct iphdr)))",
+  "cap_line": 197,
+  "cap": "const struct iphdr *iph = ip_hdr(skb);",
+  "var": "iph",
+  "uses": [
+   [
+    238,
+    ".ttl\t\t\t= iph->ttl,"
+   ],
+   [
+    240,
+    ".saddr\t\t\t= iph->daddr,"
+   ],
+   [
+    241,
+    ".daddr\t\t\t= iph->saddr,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/ip_tunnel_core.c",
+  "func": "iptunnel_pmtud_build_icmp",
+  "pull_line": 207,
+  "pull": "pskb_pull(skb, ETH_HLEN);",
+  "cap_line": 197,
+  "cap": "const struct iphdr *iph = ip_hdr(skb);",
+  "var": "iph",
+  "uses": [
+   [
+    238,
+    ".ttl\t\t\t= iph->ttl,"
+   ],
+   [
+    240,
+    ".saddr\t\t\t= iph->daddr,"
+   ],
+   [
+    241,
+    ".daddr\t\t\t= iph->saddr,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/ip_tunnel_core.c",
+  "func": "iptunnel_pmtud_build_icmpv6",
+  "pull_line": 297,
+  "pull": "if (!pskb_may_pull(skb, ETH_HLEN + sizeof(struct ipv6hdr)))",
+  "cap_line": 290,
+  "cap": "const struct ipv6hdr *ip6h = ipv6_hdr(skb);",
+  "var": "ip6h",
+  "uses": [
+   [
+    329,
+    ".hop_limit\t\t= ip6h->hop_limit,"
+   ],
+   [
+    330,
+    ".saddr\t\t\t= ip6h->daddr,"
+   ],
+   [
+    331,
+    ".daddr\t\t\t= ip6h->saddr,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/ip_tunnel_core.c",
+  "func": "iptunnel_pmtud_build_icmpv6",
+  "pull_line": 301,
+  "pull": "pskb_pull(skb, ETH_HLEN);",
+  "cap_line": 290,
+  "cap": "const struct ipv6hdr *ip6h = ipv6_hdr(skb);",
+  "var": "ip6h",
+  "uses": [
+   [
+    329,
+    ".hop_limit\t\t= ip6h->hop_limit,"
+   ],
+   [
+    330,
+    ".saddr\t\t\t= ip6h->daddr,"
+   ],
+   [
+    331,
+    ".daddr\t\t\t= ip6h->saddr,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 1965,
+  "pull": "if (!pskb_may_pull(skb, skb_transport_offset(skb) + sizeof(struct tcphdr)))",
+  "cap_line": 1915,
+  "cap": "struct sock *nsk = tcp_v4_cookie_check(sk, skb);",
+  "var": "nsk",
+  "uses": [
+   [
+    2216,
+    "struct sock *nsk;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 1965,
+  "pull": "if (!pskb_may_pull(skb, skb_transport_offset(skb) + sizeof(struct tcphdr)))",
+  "cap_line": 1957,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    1974,
+    "sk = __inet_lookup_established(net, net->ipv4.tcp_death_row.hashinfo,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2008,
+  "pull": "/* In case all data was pulled from skb frags (in __pskb_pull_tail()),",
+  "cap_line": 1621,
+  "cap": "const struct iphdr *iph = ip_hdr(skb);",
+  "var": "iph",
+  "uses": [
+   [
+    2135,
+    "static void tcp_v4_fill_cb(struct sk_buff *skb, const struct iphdr *iph,"
+   ],
+   [
+    2151,
+    "TCP_SKB_CB(skb)->ip_dsfield = ipv4_get_dsfield(iph);"
+   ],
+   [
+    2167,
+    "const struct iphdr *iph;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2008,
+  "pull": "/* In case all data was pulled from skb frags (in __pskb_pull_tail()),",
+  "cap_line": 1915,
+  "cap": "struct sock *nsk = tcp_v4_cookie_check(sk, skb);",
+  "var": "nsk",
+  "uses": [
+   [
+    2216,
+    "struct sock *nsk;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2180,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct tcphdr)))",
+  "cap_line": 1915,
+  "cap": "struct sock *nsk = tcp_v4_cookie_check(sk, skb);",
+  "var": "nsk",
+  "uses": [
+   [
+    2216,
+    "struct sock *nsk;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2180,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct tcphdr)))",
+  "cap_line": 1957,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    2203,
+    "sk = __inet_lookup_skb(net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    2388,
+    "net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    3264,
+    "static int __net_init tcp4_proc_init_net(struct net *net)"
+   ],
+   [
+    3266,
+    "if (!proc_create_net_data(\"tcp\", 0444, net->proc_net, &tcp4_seq_ops,"
+   ],
+   [
+    3272,
+    "static void __net_exit tcp4_proc_exit_net(struct net *net)"
+   ],
+   [
+    3274,
+    "remove_proc_entry(\"tcp\", net->proc_net);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2180,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct tcphdr)))",
+  "cap_line": 2163,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    2203,
+    "sk = __inet_lookup_skb(net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    2388,
+    "net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    3264,
+    "static int __net_init tcp4_proc_init_net(struct net *net)"
+   ],
+   [
+    3266,
+    "if (!proc_create_net_data(\"tcp\", 0444, net->proc_net, &tcp4_seq_ops,"
+   ],
+   [
+    3272,
+    "static void __net_exit tcp4_proc_exit_net(struct net *net)"
+   ],
+   [
+    3274,
+    "remove_proc_entry(\"tcp\", net->proc_net);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2189,
+  "pull": "if (!pskb_may_pull(skb, th->doff * 4))",
+  "cap_line": 1613,
+  "cap": "const struct tcphdr *th = tcp_hdr(skb);",
+  "var": "th",
+  "uses": [
+   [
+    2194,
+    "* provided case of th->doff==0 is eliminated."
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2189,
+  "pull": "if (!pskb_may_pull(skb, th->doff * 4))",
+  "cap_line": 1852,
+  "cap": "const struct tcphdr *th = tcp_hdr(skb);",
+  "var": "th",
+  "uses": [
+   [
+    2194,
+    "* provided case of th->doff==0 is eliminated."
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2189,
+  "pull": "if (!pskb_may_pull(skb, th->doff * 4))",
+  "cap_line": 1915,
+  "cap": "struct sock *nsk = tcp_v4_cookie_check(sk, skb);",
+  "var": "nsk",
+  "uses": [
+   [
+    2216,
+    "struct sock *nsk;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2189,
+  "pull": "if (!pskb_may_pull(skb, th->doff * 4))",
+  "cap_line": 1957,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    2203,
+    "sk = __inet_lookup_skb(net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    2388,
+    "net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    3264,
+    "static int __net_init tcp4_proc_init_net(struct net *net)"
+   ],
+   [
+    3266,
+    "if (!proc_create_net_data(\"tcp\", 0444, net->proc_net, &tcp4_seq_ops,"
+   ],
+   [
+    3272,
+    "static void __net_exit tcp4_proc_exit_net(struct net *net)"
+   ],
+   [
+    3274,
+    "remove_proc_entry(\"tcp\", net->proc_net);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2189,
+  "pull": "if (!pskb_may_pull(skb, th->doff * 4))",
+  "cap_line": 2123,
+  "cap": "struct tcphdr *th = (struct tcphdr *)skb->data;",
+  "var": "th",
+  "uses": [
+   [
+    2194,
+    "* provided case of th->doff==0 is eliminated."
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_timewait_ack",
+  "pull_line": 2189,
+  "pull": "if (!pskb_may_pull(skb, th->doff * 4))",
+  "cap_line": 2163,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    2203,
+    "sk = __inet_lookup_skb(net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    2388,
+    "net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    3264,
+    "static int __net_init tcp4_proc_init_net(struct net *net)"
+   ],
+   [
+    3266,
+    "if (!proc_create_net_data(\"tcp\", 0444, net->proc_net, &tcp4_seq_ops,"
+   ],
+   [
+    3272,
+    "static void __net_exit tcp4_proc_exit_net(struct net *net)"
+   ],
+   [
+    3274,
+    "remove_proc_entry(\"tcp\", net->proc_net);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_offload.c",
+  "func": "?",
+  "pull_line": 76,
+  "pull": "if (!pskb_may_pull(skb, thlen))",
+  "cap_line": 66,
+  "cap": "struct sk_buff *gso_skb = skb;",
+  "var": "gso_skb",
+  "uses": [
+   [
+    95,
+    "copy_destructor = gso_skb->destructor == tcp_wfree;"
+   ],
+   [
+    96,
+    "ooo_okay = gso_skb->ooo_okay;"
+   ],
+   [
+    120,
+    "if (unlikely(skb_shinfo(gso_skb)->tx_flags & SKBTX_SW_TSTAMP))"
+   ],
+   [
+    121,
+    "tcp_gso_tstamp(segs, skb_shinfo(gso_skb)->tskey, seq, mss);"
+   ],
+   [
+    136,
+    "skb->destructor = gso_skb->destructor;"
+   ],
+   [
+    137,
+    "skb->sk = gso_skb->sk;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/udp.c",
+  "func": "?",
+  "pull_line": 2382,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct udphdr)))",
+  "cap_line": 2371,
+  "cap": "struct rtable *rt = skb_rtable(skb);",
+  "var": "rt",
+  "uses": [
+   [
+    2421,
+    "if (rt->rt_flags & (RTCF_BROADCAST|RTCF_MULTICAST))"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv4/udp_offload.c",
+  "func": "?",
+  "pull_line": 33,
+  "pull": "if (unlikely(!pskb_may_pull(skb, tnl_hlen)))",
+  "cap_line": 25,
+  "cap": "struct udphdr *uh = udp_hdr(skb);",
+  "var": "uh",
+  "uses": [
+   [
+    37,
+    "* We cannot rely on the value contained in uh->len as it is"
+   ],
+   [
+    43,
+    "partial = (__force __wsum)uh->len;"
+   ],
+   [
+    46,
+    "partial = csum_sub(csum_unfold(uh->check), partial);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/esp6_offload.c",
+  "func": "?",
+  "pull_line": 261,
+  "pull": "if (!pskb_may_pull(skb, sizeof(*esph) + crypto_aead_ivsize(aead)))",
+  "cap_line": 244,
+  "cap": "struct xfrm_offload *xo = xfrm_offload(skb);",
+  "var": "xo",
+  "uses": [
+   [
+    275,
+    "xo->flags |= XFRM_GSO_SEGMENT;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/esp6_offload.c",
+  "func": "esp6_input_tail",
+  "pull_line": 285,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct ip_esp_hdr) + crypto_aead_ivsize(aead)))",
+  "cap_line": 283,
+  "cap": "struct xfrm_offload *xo = xfrm_offload(skb);",
+  "var": "xo",
+  "uses": [
+   [
+    288,
+    "if (!(xo->flags & CRYPTO_DONE))"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_destopt_rcv",
+  "pull_line": 303,
+  "pull": "if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||",
+  "cap_line": 295,
+  "cap": "struct inet6_skb_parm *opt = IP6CB(skb);",
+  "var": "opt",
+  "uses": [
+   [
+    317,
+    "opt->lastopt = opt->dst1 = skb_network_header_len(skb);"
+   ],
+   [
+    319,
+    "dstbuf = opt->dst1;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_destopt_rcv",
+  "pull_line": 303,
+  "pull": "if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||",
+  "cap_line": 299,
+  "cap": "struct dst_entry *dst = skb_dst(skb);",
+  "var": "dst",
+  "uses": [
+   [
+    306,
+    "__IP6_INC_STATS(dev_net(dst->dev), idev,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_destopt_rcv",
+  "pull_line": 303,
+  "pull": "if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||",
+  "cap_line": 300,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    314,
+    "if (extlen > net->ipv6.sysctl.max_dst_opts_len)"
+   ],
+   [
+    322,
+    "if (ip6_parse_tlv(false, skb, net->ipv6.sysctl.max_dst_opts_cnt)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_destopt_rcv",
+  "pull_line": 304,
+  "pull": "!pskb_may_pull(skb, (skb_transport_offset(skb) +",
+  "cap_line": 295,
+  "cap": "struct inet6_skb_parm *opt = IP6CB(skb);",
+  "var": "opt",
+  "uses": [
+   [
+    317,
+    "opt->lastopt = opt->dst1 = skb_network_header_len(skb);"
+   ],
+   [
+    319,
+    "dstbuf = opt->dst1;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_destopt_rcv",
+  "pull_line": 304,
+  "pull": "!pskb_may_pull(skb, (skb_transport_offset(skb) +",
+  "cap_line": 299,
+  "cap": "struct dst_entry *dst = skb_dst(skb);",
+  "var": "dst",
+  "uses": [
+   [
+    306,
+    "__IP6_INC_STATS(dev_net(dst->dev), idev,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_destopt_rcv",
+  "pull_line": 304,
+  "pull": "!pskb_may_pull(skb, (skb_transport_offset(skb) +",
+  "cap_line": 300,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    314,
+    "if (extlen > net->ipv6.sysctl.max_dst_opts_len)"
+   ],
+   [
+    322,
+    "if (ip6_parse_tlv(false, skb, net->ipv6.sysctl.max_dst_opts_cnt)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_rthdr_rcv",
+  "pull_line": 660,
+  "pull": "if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||",
+  "cap_line": 649,
+  "cap": "struct inet6_skb_parm *opt = IP6CB(skb);",
+  "var": "opt",
+  "uses": [
+   [
+    708,
+    "opt->lastopt = opt->srcrt = skb_network_header_len(skb);"
+   ],
+   [
+    710,
+    "opt->dst0 = opt->dst1;"
+   ],
+   [
+    711,
+    "opt->dst1 = 0;"
+   ],
+   [
+    712,
+    "opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_rthdr_rcv",
+  "pull_line": 661,
+  "pull": "!pskb_may_pull(skb, (skb_transport_offset(skb) +",
+  "cap_line": 649,
+  "cap": "struct inet6_skb_parm *opt = IP6CB(skb);",
+  "var": "opt",
+  "uses": [
+   [
+    708,
+    "opt->lastopt = opt->srcrt = skb_network_header_len(skb);"
+   ],
+   [
+    710,
+    "opt->dst0 = opt->dst1;"
+   ],
+   [
+    711,
+    "opt->dst1 = 0;"
+   ],
+   [
+    712,
+    "opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_parse_hopopts",
+  "pull_line": 1037,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct ipv6hdr) + 8) ||",
+  "cap_line": 1027,
+  "cap": "struct inet6_skb_parm *opt = IP6CB(skb);",
+  "var": "opt",
+  "uses": [
+   [
+    1049,
+    "opt->flags |= IP6SKB_HOPBYHOP;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_parse_hopopts",
+  "pull_line": 1037,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct ipv6hdr) + 8) ||",
+  "cap_line": 1028,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    1046,
+    "if (extlen > net->ipv6.sysctl.max_hbh_opts_len)"
+   ],
+   [
+    1050,
+    "if (ip6_parse_tlv(true, skb, net->ipv6.sysctl.max_hbh_opts_cnt)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_parse_hopopts",
+  "pull_line": 1038,
+  "pull": "!pskb_may_pull(skb, (sizeof(struct ipv6hdr) +",
+  "cap_line": 1027,
+  "cap": "struct inet6_skb_parm *opt = IP6CB(skb);",
+  "var": "opt",
+  "uses": [
+   [
+    1049,
+    "opt->flags |= IP6SKB_HOPBYHOP;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_parse_hopopts",
+  "pull_line": 1038,
+  "pull": "!pskb_may_pull(skb, (sizeof(struct ipv6hdr) +",
+  "cap_line": 1028,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    1046,
+    "if (extlen > net->ipv6.sysctl.max_hbh_opts_len)"
+   ],
+   [
+    1050,
+    "if (ip6_parse_tlv(true, skb, net->ipv6.sysctl.max_hbh_opts_cnt)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/icmp.c",
+  "func": "icmpv6_rcv",
+  "pull_line": 901,
+  "pull": "if (!pskb_may_pull(skb, sizeof(*hdr) + sizeof(struct ipv6hdr)))",
+  "cap_line": 884,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    938,
+    "if (!net->ipv6.sysctl.icmpv6_echo_ignore_all)"
+   ],
+   [
+    942,
+    "if (!net->ipv6.sysctl.icmpv6_echo_ignore_all &&"
+   ],
+   [
+    943,
+    "READ_ONCE(net->ipv4.sysctl_icmp_echo_enable_probe))"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/icmp.c",
+  "func": "icmpv6_rcv",
+  "pull_line": 901,
+  "pull": "if (!pskb_may_pull(skb, sizeof(*hdr) + sizeof(struct ipv6hdr)))",
+  "cap_line": 885,
+  "cap": "struct net_device *dev = icmp6_dev(skb);",
+  "var": "dev",
+  "uses": [
+   [
+    916,
+    "__ICMP6_INC_STATS(dev_net(dev), idev, ICMP6_MIB_INMSGS);"
+   ],
+   [
+    934,
+    "ICMP6MSGIN_INC_STATS(dev_net(dev), idev, type);"
+   ],
+   [
+    1029,
+    "__ICMP6_INC_STATS(dev_net(dev), idev, ICMP6_MIB_CSUMERRORS);"
+   ],
+   [
+    1031,
+    "__ICMP6_INC_STATS(dev_net(dev), idev, ICMP6_MIB_INERRORS);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/icmp.c",
+  "func": "icmpv6_rcv",
+  "pull_line": 927,
+  "pull": "if (!pskb_pull(skb, sizeof(*hdr)))",
+  "cap_line": 884,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    938,
+    "if (!net->ipv6.sysctl.icmpv6_echo_ignore_all)"
+   ],
+   [
+    942,
+    "if (!net->ipv6.sysctl.icmpv6_echo_ignore_all &&"
+   ],
+   [
+    943,
+    "READ_ONCE(net->ipv4.sysctl_icmp_echo_enable_probe))"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/icmp.c",
+  "func": "icmpv6_rcv",
+  "pull_line": 927,
+  "pull": "if (!pskb_pull(skb, sizeof(*hdr)))",
+  "cap_line": 885,
+  "cap": "struct net_device *dev = icmp6_dev(skb);",
+  "var": "dev",
+  "uses": [
+   [
+    934,
+    "ICMP6MSGIN_INC_STATS(dev_net(dev), idev, type);"
+   ],
+   [
+    1029,
+    "__ICMP6_INC_STATS(dev_net(dev), idev, ICMP6_MIB_CSUMERRORS);"
+   ],
+   [
+    1031,
+    "__ICMP6_INC_STATS(dev_net(dev), idev, ICMP6_MIB_INERRORS);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/icmp.c",
+  "func": "icmpv6_rcv",
+  "pull_line": 961,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct ipv6hdr)))",
+  "cap_line": 885,
+  "cap": "struct net_device *dev = icmp6_dev(skb);",
+  "var": "dev",
+  "uses": [
+   [
+    1029,
+    "__ICMP6_INC_STATS(dev_net(dev), idev, ICMP6_MIB_CSUMERRORS);"
+   ],
+   [
+    1031,
+    "__ICMP6_INC_STATS(dev_net(dev), idev, ICMP6_MIB_INERRORS);"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/ip6_output.c",
+  "func": "ip6_forward_proxy_check",
+  "pull_line": 426,
+  "pull": "if (!pskb_may_pull(skb, (skb_network_header(skb) +",
+  "cap_line": 411,
+  "cap": "struct ipv6hdr *hdr = ipv6_hdr(skb);",
+  "var": "hdr",
+  "uses": [
+   [
+    453,
+    "if (ipv6_addr_type(&hdr->daddr) & IPV6_ADDR_LINKLOCAL) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/tcp_ipv6.c",
+  "func": "tcp_v6_timewait_ack",
+  "pull_line": 1768,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct tcphdr)))",
+  "cap_line": 1654,
+  "cap": "struct sock *nsk = tcp_v6_cookie_check(sk, skb);",
+  "var": "nsk",
+  "uses": [
+   [
+    1800,
+    "struct sock *nsk;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/tcp_ipv6.c",
+  "func": "tcp_v6_timewait_ack",
+  "pull_line": 1768,
+  "pull": "if (!pskb_may_pull(skb, sizeof(struct tcphdr)))",
+  "cap_line": 1757,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    1787,
+    "sk = __inet6_lookup_skb(net->ipv4.tcp_death_row.hashinfo, skb, __tcp_hdrlen(th),"
+   ],
+   [
+    1969,
+    "sk2 = inet6_lookup_listener(net, net->ipv4.tcp_death_row.hashinfo,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/tcp_ipv6.c",
+  "func": "tcp_v6_timewait_ack",
+  "pull_line": 1777,
+  "pull": "if (!pskb_may_pull(skb, th->doff*4))",
+  "cap_line": 1654,
+  "cap": "struct sock *nsk = tcp_v6_cookie_check(sk, skb);",
+  "var": "nsk",
+  "uses": [
+   [
+    1800,
+    "struct sock *nsk;"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/tcp_ipv6.c",
+  "func": "tcp_v6_timewait_ack",
+  "pull_line": 1777,
+  "pull": "if (!pskb_may_pull(skb, th->doff*4))",
+  "cap_line": 1757,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    1787,
+    "sk = __inet6_lookup_skb(net->ipv4.tcp_death_row.hashinfo, skb, __tcp_hdrlen(th),"
+   ],
+   [
+    1969,
+    "sk2 = inet6_lookup_listener(net, net->ipv4.tcp_death_row.hashinfo,"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/tcp_ipv6.c",
+  "func": "tcp_v6_timewait_ack",
+  "pull_line": 2010,
+  "pull": "if (!pskb_may_pull(skb, skb_transport_offset(skb) + sizeof(struct tcphdr)))",
+  "cap_line": 1757,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    2020,
+    "sk = __inet6_lookup_established(net, net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    2301,
+    "int __net_init tcp6_proc_init(struct net *net)"
+   ],
+   [
+    2303,
+    "if (!proc_create_net_data(\"tcp6\", 0444, net->proc_net, &tcp6_seq_ops,"
+   ],
+   [
+    2309,
+    "void tcp6_proc_exit(struct net *net)"
+   ],
+   [
+    2311,
+    "remove_proc_entry(\"tcp6\", net->proc_net);"
+   ],
+   [
+    2383,
+    "static int __net_init tcpv6_net_init(struct net *net)"
+   ]
+  ]
+ },
+ {
+  "file": "net/ipv6/tcp_ipv6.c",
+  "func": "tcp_v6_timewait_ack",
+  "pull_line": 2010,
+  "pull": "if (!pskb_may_pull(skb, skb_transport_offset(skb) + sizeof(struct tcphdr)))",
+  "cap_line": 2002,
+  "cap": "struct net *net = dev_net(skb->dev);",
+  "var": "net",
+  "uses": [
+   [
+    2020,
+    "sk = __inet6_lookup_established(net, net->ipv4.tcp_death_row.hashinfo,"
+   ],
+   [
+    2301,
+    "int __net_init tcp6_proc_init(struct net *net)"
+   ],
+   [
+    2303,
+    "if (!proc_create_net_data(\"tcp6\", 0444, net->proc_net, &tcp6_seq_ops,"
+   ],
+   [
+    2309,
+    "void tcp6_proc_exit(struct net *net)"
+   ],
+   [
+    2311,
+    "remove_proc_entry(\"tcp6\", net->proc_net);"
+   ],
+   [
+    2383,
+    "static int __net_init tcpv6_net_init(struct net *net)"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "?",
+  "pull_line": 53,
+  "pull": "pskb_pull(skb, rtap_space);",
+  "cap_line": 46,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    58,
+    "status->flag &= ~(RX_FLAG_RADIOTAP_TLV_AT_END |"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "?",
+  "pull_line": 815,
+  "pull": "if (!pskb_may_pull(origskb, min_head_len)) {",
+  "cap_line": 759,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(origskb);",
+  "var": "status",
+  "uses": [
+   [
+    822,
+    "if (!local->monitors || (status->flag & RX_FLAG_SKIP_MONITOR)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "ieee80211_rx_h_defragment",
+  "pull_line": 2251,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 2229,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(rx->skb);",
+  "var": "status",
+  "uses": [
+   [
+    2288,
+    "(status->flag & RX_FLAG_DECRYPTED))) {"
+   ],
+   [
+    2335,
+    "!(status->flag & RX_FLAG_DECRYPTED)) ||"
+   ],
+   [
+    2344,
+    "(status->flag & RX_FLAG_DECRYPTED)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "ieee80211_rx_h_defragment",
+  "pull_line": 2255,
+  "pull": "*  skb_linearize() might change the skb->data and",
+  "cap_line": 2229,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(rx->skb);",
+  "var": "status",
+  "uses": [
+   [
+    2288,
+    "(status->flag & RX_FLAG_DECRYPTED))) {"
+   ],
+   [
+    2335,
+    "!(status->flag & RX_FLAG_DECRYPTED)) ||"
+   ],
+   [
+    2344,
+    "(status->flag & RX_FLAG_DECRYPTED)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "ieee80211_rx_h_data",
+  "pull_line": 3171,
+  "pull": "if (pskb_may_pull(rx->skb,",
+  "cap_line": 3169,
+  "cap": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;",
+  "var": "tf",
+  "uses": [
+   [
+    3173,
+    "tf->payload_type == WLAN_TDLS_SNAP_RFTYPE &&"
+   ],
+   [
+    3174,
+    "tf->category == WLAN_CATEGORY_TDLS &&"
+   ],
+   [
+    3175,
+    "(tf->action_code == WLAN_TDLS_CHANNEL_SWITCH_REQUEST ||"
+   ],
+   [
+    3176,
+    "tf->action_code == WLAN_TDLS_CHANNEL_SWITCH_RESPONSE)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "?",
+  "pull_line": 4869,
+  "pull": "if (!pskb_may_pull(skb, snap_offs + sizeof(*payload)))",
+  "cap_line": 4802,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    4872,
+    "payload = (void *)(skb->data + snap_offs);"
+   ],
+   [
+    4890,
+    "pskb_trim(skb, skb->len - fast_rx->icv_len))"
+   ],
+   [
+    4905,
+    "ether_addr_copy(addrs.da, skb->data + fast_rx->da_offs);"
+   ],
+   [
+    4906,
+    "ether_addr_copy(addrs.sa, skb->data + fast_rx->sa_offs);"
+   ],
+   [
+    4909,
+    "put_unaligned_be16(skb->len - 2, skb->data);"
+   ],
+   [
+    4911,
+    "skb_postpull_rcsum(skb, skb->data + snap_offs,"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "?",
+  "pull_line": 4869,
+  "pull": "if (!pskb_may_pull(skb, snap_offs + sizeof(*payload)))",
+  "cap_line": 4803,
+  "cap": "struct ieee80211_hdr *hdr = (void *)skb->data;",
+  "var": "hdr",
+  "uses": [
+   [
+    4893,
+    "if (rx->key && !ieee80211_has_protected(hdr->frame_control))"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "?",
+  "pull_line": 4869,
+  "pull": "if (!pskb_may_pull(skb, snap_offs + sizeof(*payload)))",
+  "cap_line": 4804,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    4889,
+    "if (rx->key && !(status->flag & RX_FLAG_MIC_STRIPPED) &&"
+   ],
+   [
+    4896,
+    "if (status->rx_flags & IEEE80211_RX_AMSDU) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "?",
+  "pull_line": 5144,
+  "pull": "err = skb_linearize(skb);",
+  "cap_line": 5120,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    5167,
+    "if (status->link_valid)"
+   ],
+   [
+    5168,
+    "link_id = status->link_id;"
+   ],
+   [
+    5180,
+    "* status."
+   ],
+   [
+    5183,
+    "if (!status->link_valid && pubsta->mlo) {"
+   ],
+   [
+    5212,
+    "if (!status->link_valid && prev_sta->sta.mlo)"
+   ],
+   [
+    5225,
+    "if (!status->link_valid && prev_sta->sta.mlo)"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "?",
+  "pull_line": 5146,
+  "pull": "err = !pskb_may_pull(skb, ieee80211_hdrlen(fc));",
+  "cap_line": 5120,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    5167,
+    "if (status->link_valid)"
+   ],
+   [
+    5168,
+    "link_id = status->link_id;"
+   ],
+   [
+    5180,
+    "* status."
+   ],
+   [
+    5183,
+    "if (!status->link_valid && pubsta->mlo) {"
+   ],
+   [
+    5212,
+    "if (!status->link_valid && prev_sta->sta.mlo)"
+   ],
+   [
+    5225,
+    "if (!status->link_valid && prev_sta->sta.mlo)"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/tdls.c",
+  "func": "?",
+  "pull_line": 2039,
+  "pull": "if (skb_linearize(skb))",
+  "cap_line": 2029,
+  "cap": "struct ieee80211_tdls_data *tf = (void *)skb->data;",
+  "var": "tf",
+  "uses": [
+   [
+    2045,
+    "switch (tf->action_code) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/tx.c",
+  "func": "?",
+  "pull_line": 3939,
+  "pull": "if (skb_linearize(skb)) {",
+  "cap_line": 3804,
+  "cap": "struct sk_buff *skb = NULL;",
+  "var": "skb",
+  "uses": [
+   [
+    3955,
+    "vif->hw_queue[skb_get_queue_mapping(skb)];"
+   ],
+   [
+    3973,
+    "IEEE80211_SKB_CB(skb)->control.vif = vif;"
+   ],
+   [
+    3981,
+    "skb->len, ampdu);"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wep.c",
+  "func": "ieee80211_crypto_wep_decrypt",
+  "pull_line": 253,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 244,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    264,
+    "pskb_trim(rx->skb, rx->skb->len - IEEE80211_WEP_ICV_LEN))"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wep.c",
+  "func": "ieee80211_crypto_wep_decrypt",
+  "pull_line": 253,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 245,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    257,
+    "} else if (!(status->flag & RX_FLAG_IV_STRIPPED)) {"
+   ],
+   [
+    263,
+    "if (!(status->flag & RX_FLAG_ICV_STRIPPED) &&"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wep.c",
+  "func": "ieee80211_crypto_wep_decrypt",
+  "pull_line": 258,
+  "pull": "if (!pskb_may_pull(rx->skb, ieee80211_hdrlen(fc) +",
+  "cap_line": 244,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    264,
+    "pskb_trim(rx->skb, rx->skb->len - IEEE80211_WEP_ICV_LEN))"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wep.c",
+  "func": "ieee80211_crypto_wep_decrypt",
+  "pull_line": 258,
+  "pull": "if (!pskb_may_pull(rx->skb, ieee80211_hdrlen(fc) +",
+  "cap_line": 245,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    263,
+    "if (!(status->flag & RX_FLAG_ICV_STRIPPED) &&"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "ieee80211_rx_h_michael_mic_verify",
+  "pull_line": 155,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 101,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    157,
+    "hdr = (void *)skb->data;"
+   ],
+   [
+    159,
+    "data = skb->data + hdrlen;"
+   ],
+   [
+    160,
+    "data_len = skb->len - hdrlen - MICHAEL_MIC_LEN;"
+   ],
+   [
+    167,
+    "skb_trim(skb, skb->len - MICHAEL_MIC_LEN);"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "ieee80211_crypto_tkip_decrypt",
+  "pull_line": 282,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 270,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    284,
+    "hdr = (void *)skb->data;"
+   ],
+   [
+    295,
+    "key, skb->data + hdrlen,"
+   ],
+   [
+    296,
+    "skb->len - hdrlen, rx->sta->sta.addr,"
+   ],
+   [
+    305,
+    "skb_trim(skb, skb->len - IEEE80211_TKIP_ICV_LEN);"
+   ],
+   [
+    308,
+    "memmove(skb->data + IEEE80211_TKIP_IV_LEN, skb->data, hdrlen);"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "ieee80211_crypto_tkip_decrypt",
+  "pull_line": 282,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 271,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    291,
+    "if (status->flag & RX_FLAG_DECRYPTED)"
+   ],
+   [
+    304,
+    "if (!(status->flag & RX_FLAG_ICV_STRIPPED))"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "?",
+  "pull_line": 525,
+  "pull": "if (!pskb_may_pull(rx->skb, hdrlen + IEEE80211_CCMP_HDR_LEN))",
+  "cap_line": 512,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    535,
+    "hdr = (void *)rx->skb->data;"
+   ],
+   [
+    537,
+    "data_len = skb->len - hdrlen - IEEE80211_CCMP_HDR_LEN - mic_len;"
+   ],
+   [
+    544,
+    "ccmp_hdr2pn(pn, skb->data + hdrlen);"
+   ],
+   [
+    564,
+    "skb->data + hdrlen + IEEE80211_CCMP_HDR_LEN,"
+   ],
+   [
+    566,
+    "skb->data + skb->len - mic_len))"
+   ],
+   [
+    576,
+    "if (pskb_trim(skb, skb->len - mic_len))"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "?",
+  "pull_line": 525,
+  "pull": "if (!pskb_may_pull(rx->skb, hdrlen + IEEE80211_CCMP_HDR_LEN))",
+  "cap_line": 513,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    527,
+    "if (status->flag & RX_FLAG_MIC_STRIPPED)"
+   ],
+   [
+    541,
+    "if (!(status->flag & RX_FLAG_PN_VALIDATED)) {"
+   ],
+   [
+    551,
+    "(!res && !(status->flag & RX_FLAG_ALLOW_SAME_PN))) {"
+   ],
+   [
+    556,
+    "if (!(status->flag & RX_FLAG_DECRYPTED)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "?",
+  "pull_line": 530,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 512,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    535,
+    "hdr = (void *)rx->skb->data;"
+   ],
+   [
+    537,
+    "data_len = skb->len - hdrlen - IEEE80211_CCMP_HDR_LEN - mic_len;"
+   ],
+   [
+    544,
+    "ccmp_hdr2pn(pn, skb->data + hdrlen);"
+   ],
+   [
+    564,
+    "skb->data + hdrlen + IEEE80211_CCMP_HDR_LEN,"
+   ],
+   [
+    566,
+    "skb->data + skb->len - mic_len))"
+   ],
+   [
+    576,
+    "if (pskb_trim(skb, skb->len - mic_len))"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "?",
+  "pull_line": 530,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 513,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    541,
+    "if (!(status->flag & RX_FLAG_PN_VALIDATED)) {"
+   ],
+   [
+    551,
+    "(!res && !(status->flag & RX_FLAG_ALLOW_SAME_PN))) {"
+   ],
+   [
+    556,
+    "if (!(status->flag & RX_FLAG_DECRYPTED)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "ieee80211_crypto_gcmp_decrypt",
+  "pull_line": 721,
+  "pull": "if (!pskb_may_pull(rx->skb, hdrlen + IEEE80211_GCMP_HDR_LEN))",
+  "cap_line": 709,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    731,
+    "hdr = (void *)rx->skb->data;"
+   ],
+   [
+    733,
+    "data_len = skb->len - hdrlen - IEEE80211_GCMP_HDR_LEN - mic_len;"
+   ],
+   [
+    740,
+    "gcmp_hdr2pn(pn, skb->data + hdrlen);"
+   ],
+   [
+    760,
+    "skb->data + hdrlen + IEEE80211_GCMP_HDR_LEN,"
+   ],
+   [
+    762,
+    "skb->data + skb->len -"
+   ],
+   [
+    773,
+    "if (pskb_trim(skb, skb->len - mic_len))"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "ieee80211_crypto_gcmp_decrypt",
+  "pull_line": 721,
+  "pull": "if (!pskb_may_pull(rx->skb, hdrlen + IEEE80211_GCMP_HDR_LEN))",
+  "cap_line": 710,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    723,
+    "if (status->flag & RX_FLAG_MIC_STRIPPED)"
+   ],
+   [
+    737,
+    "if (!(status->flag & RX_FLAG_PN_VALIDATED)) {"
+   ],
+   [
+    747,
+    "(!res && !(status->flag & RX_FLAG_ALLOW_SAME_PN))) {"
+   ],
+   [
+    752,
+    "if (!(status->flag & RX_FLAG_DECRYPTED)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "ieee80211_crypto_gcmp_decrypt",
+  "pull_line": 726,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 709,
+  "cap": "struct sk_buff *skb = rx->skb;",
+  "var": "skb",
+  "uses": [
+   [
+    731,
+    "hdr = (void *)rx->skb->data;"
+   ],
+   [
+    733,
+    "data_len = skb->len - hdrlen - IEEE80211_GCMP_HDR_LEN - mic_len;"
+   ],
+   [
+    740,
+    "gcmp_hdr2pn(pn, skb->data + hdrlen);"
+   ],
+   [
+    760,
+    "skb->data + hdrlen + IEEE80211_GCMP_HDR_LEN,"
+   ],
+   [
+    762,
+    "skb->data + skb->len -"
+   ],
+   [
+    773,
+    "if (pskb_trim(skb, skb->len - mic_len))"
+   ]
+  ]
+ },
+ {
+  "file": "net/mac80211/wpa.c",
+  "func": "ieee80211_crypto_gcmp_decrypt",
+  "pull_line": 726,
+  "pull": "if (skb_linearize(rx->skb))",
+  "cap_line": 710,
+  "cap": "struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);",
+  "var": "status",
+  "uses": [
+   [
+    737,
+    "if (!(status->flag & RX_FLAG_PN_VALIDATED)) {"
+   ],
+   [
+    747,
+    "(!res && !(status->flag & RX_FLAG_ALLOW_SAME_PN))) {"
+   ],
+   [
+    752,
+    "if (!(status->flag & RX_FLAG_DECRYPTED)) {"
+   ]
+  ]
+ },
+ {
+  "file": "net/netfilter/nf_conntrack_proto_icmpv6.c",
+  "func": "?",
+  "pull_line": 170,
+  "pull": "* skb_linearize() and a bit more work.",
+  "cap_line": 163,
+  "cap": "nd_opt = skb_header_pointer(skb, dataoff, sizeof(*nd_opt), &tmp.nd_opt);",
+  "var": "nd_opt",
+  "uses": [
+   [
+    172,
+    "if (nd_opt->nd_opt_type != ND_OPT_REDIRECT_HDR)"
+   ]
+  ]
+ },
+ {
+  "file": "net/netfilter/ipvs/ip_vs_core.c",
+  "func": "?",
+  "pull_line": 1741,
+  "pull": "if (pskb_pull(skb, ihl + sizeof(_icmph)) == NULL)",
+  "cap_line": 1626,
+  "cap": "cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph);",
+  "var": "cih",
+  "uses": [
+   [
+    1785,
+    "if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||"
+   ],
+   [
+    1786,
+    "IPPROTO_SCTP == cih->protocol)"
+   ]
+  ]
+ },
+ {
+  "file": "net/netfilter/ipvs/ip_vs_core.c",
+  "func": "?",
+  "pull_line": 1741,
+  "pull": "if (pskb_pull(skb, ihl + sizeof(_icmph)) == NULL)",
+  "cap_line": 1646,
+  "cap": "cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph);",
+  "var": "cih",
+  "uses": [
+   [
+    1785,
+    "if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||"
+   ],
+   [
+    1786,
+    "IPPROTO_SCTP == cih->protocol)"
+   ]
+  ]
+ },
+ {
+  "file": "net/netfilter/ipvs/ip_vs_core.c",
+  "func": "?",
+  "pull_line": 1741,
+  "pull": "if (pskb_pull(skb, ihl + sizeof(_icmph)) == NULL)",
+  "cap_line": 1674,
+  "cap": "cih = skb_header_pointer(skb, offset, sizeof(_ciph),",
+  "var": "cih",
+  "uses": [
+   [
+    1785,
+    "if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||"
+   ],
+   [
+    1786,
+    "IPPROTO_SCTP == cih->protocol)"
+   ]
+  ]
+ },
+ {
+  "file": "net/netfilter/ipvs/ip_vs_core.c",
+  "func": "?",
+  "pull_line": 1767,
+  "pull": "if (pskb_pull(skb, offset2) == NULL)",
+  "cap_line": 1626,
+  "cap": "cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph);",
+  "var": "cih",
+  "uses": [
+   [
+    1785,
+    "if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||"
+   ],
+   [
+    1786,
+    "IPPROTO_SCTP == cih->protocol)"
+   ]
+  ]
+ },
+ {
+  "file": "net/netfilter/ipvs/ip_vs_core.c",
+  "func": "?",
+  "pull_line": 1767,
+  "pull": "if (pskb_pull(skb, offset2) == NULL)",
+  "cap_line": 1646,
+  "cap": "cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph);",
+  "var": "cih",
+  "uses": [
+   [
+    1785,
+    "if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||"
+   ],
+   [
+    1786,
+    "IPPROTO_SCTP == cih->protocol)"
+   ]
+  ]
+ },
+ {
+  "file": "net/netfilter/ipvs/ip_vs_core.c",
+  "func": "?",
+  "pull_line": 1767,
+  "pull": "if (pskb_pull(skb, offset2) == NULL)",
+  "cap_line": 1674,
+  "cap": "cih = skb_header_pointer(skb, offset, sizeof(_ciph),",
+  "var": "cih",
+  "uses": [
+   [
+    1785,
+    "if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||"
+   ],
+   [
+    1786,
+    "IPPROTO_SCTP == cih->protocol)"
+   ]
+  ]
+ },
+ {
+  "file": "net/phonet/pep.c",
+  "func": "?",
+  "pull_line": 56,
+  "pull": "if (ph == NULL || ph->sb_len < 2 || !pskb_may_pull(skb, ph->sb_len))",
+  "cap_line": 55,
+  "cap": "ph = skb_header_pointer(skb, 0, 2, &h);",
+  "var": "ph",
+  "uses": [
+   [
+    58,
+    "ph->sb_len -= 2;"
+   ],
+   [
+    59,
+    "*ptype = ph->sb_type;"
+   ],
+   [
+    60,
+    "*plen = ph->sb_len;"
+   ],
+   [
+    62,
+    "if (buflen > ph->sb_len)"
+   ],
+   [
+    63,
+    "buflen = ph->sb_len;"
+   ],
+   [
+    65,
+    "__skb_pull(skb, 2 + ph->sb_len);"
+   ]
+  ]
+ },
+ {
+  "file": "net/sched/act_skbedit.c",
+  "func": "?",
+  "pull_line": 62,
+  "pull": "if (!pskb_may_pull(skb, wlen))",
+  "cap_line": 44,
+  "cap": "struct tcf_skbedit *d = to_skbedit(a);",
+  "var": "d",
+  "uses": [
+   [
+    91,
+    "qstats_drop_inc(this_cpu_ptr(d->common.cpu_qstats));"
+   ]
+  ]
+ },
+ {
+  "file": "net/sched/act_skbedit.c",
+  "func": "?",
+  "pull_line": 69,
+  "pull": "if (!pskb_may_pull(skb, wlen))",
+  "cap_line": 44,
+  "cap": "struct tcf_skbedit *d = to_skbedit(a);",
+  "var": "d",
+  "uses": [
+   [
+    91,
+    "qstats_drop_inc(this_cpu_ptr(d->common.cpu_qstats));"
+   ]
+  ]
+ },
+ {
+  "file": "net/tipc/msg.c",
+  "func": "tipc_msg_validate",
+  "pull_line": 270,
+  "pull": "if (unlikely(!pskb_may_pull(skb, MIN_H_SIZE)))",
+  "cap_line": 254,
+  "cap": "struct sk_buff *skb = *_skb;",
+  "var": "skb",
+  "uses": [
+   [
+    273,
+    "hsz = msg_hdr_sz(buf_msg(skb));"
+   ],
+   [
+    279,
+    "hdr = buf_msg(skb);"
+   ],
+   [
+    288,
+    "if (unlikely(skb->len < msz))"
+   ],
+   [
+    291,
+    "TIPC_SKB_CB(skb)->validated = 1;"
+   ]
+  ]
+ },
+ {
+  "file": "net/tipc/msg.c",
+  "func": "tipc_msg_validate",
+  "pull_line": 276,
+  "pull": "if (unlikely(!pskb_may_pull(skb, hsz)))",
+  "cap_line": 254,
+  "cap": "struct sk_buff *skb = *_skb;",
+  "var": "skb",
+  "uses": [
+   [
+    279,
+    "hdr = buf_msg(skb);"
+   ],
+   [
+    288,
+    "if (unlikely(skb->len < msz))"
+   ],
+   [
+    291,
+    "TIPC_SKB_CB(skb)->validated = 1;"
+   ]
+  ]
+ },
+ {
+  "file": "net/tipc/msg.c",
+  "func": "tipc_msg_reverse",
+  "pull_line": 627,
+  "pull": "if (skb_linearize(_skb))",
+  "cap_line": 623,
+  "cap": "struct sk_buff *_skb = *skb;",
+  "var": "_skb",
+  "uses": [
+   [
+    629,
+    "_hdr = buf_msg(_skb);"
+   ],
+   [
+    650,
+    "memcpy((*skb)->data, _skb->data, msg_hdr_sz(_hdr));"
+   ],
+   [
+    664,
+    "skb_orphan(_skb);"
+   ],
+   [
+    665,
+    "kfree_skb(_skb);"
+   ],
+   [
+    668,
+    "kfree_skb(_skb);"
+   ]
+  ]
+ },
+ {
+  "file": "net/xfrm/espintcp.c",
+  "func": "espintcp_rcv",
+  "pull_line": 95,
+  "pull": "if (!pskb_pull(skb, rxm->offset + 2)) {",
+  "cap_line": 57,
+  "cap": "struct strp_msg *rxm = strp_msg(skb);",
+  "var": "rxm",
+  "uses": [
+   [
+    101,
+    "if (pskb_trim(skb, rxm->full_len - 2) != 0) {"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/hsi/clients/ssi_protocol.c",
+  "func": "ssip_pn_rx",
+  "pull_line": 617,
+  "pull": "if (unlikely(!pskb_may_pull(skb, SSIP_MIN_PN_HDR))) {",
+  "cap_line": 609,
+  "cap": "struct net_device *dev = skb->dev;",
+  "var": "dev",
+  "uses": [
+   [
+    618,
+    "dev_dbg(&dev->dev, \"Error drop RX packet\\n\");"
+   ],
+   [
+    619,
+    "dev->stats.rx_errors++;"
+   ],
+   [
+    620,
+    "dev->stats.rx_length_errors++;"
+   ],
+   [
+    624,
+    "dev->stats.rx_packets++;"
+   ],
+   [
+    625,
+    "dev->stats.rx_bytes += skb->len;"
+   ],
+   [
+    629,
+    "dev_dbg(&dev->dev, \"RX length fixed (%04x -> %u)\\n\","
+   ]
+  ]
+ },
+ {
+  "file": "drivers/infiniband/sw/rxe/rxe_net.c",
+  "func": "rxe_udp_encap_recv",
+  "pull_line": 150,
+  "pull": "if (skb_linearize(skb)) {",
+  "cap_line": 139,
+  "cap": "struct rxe_pkt_info *pkt = SKB_TO_PKT(skb);",
+  "var": "pkt",
+  "uses": [
+   [
+    156,
+    "pkt->rxe = rxe;"
+   ],
+   [
+    157,
+    "pkt->port_num = 1;"
+   ],
+   [
+    158,
+    "pkt->hdr = (u8 *)(udph + 1);"
+   ],
+   [
+    159,
+    "pkt->mask = RXE_GRH_MASK;"
+   ],
+   [
+    160,
+    "pkt->paylen = be16_to_cpu(udph->len) - sizeof(*udph);"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/geneve.c",
+  "func": "?",
+  "pull_line": 965,
+  "pull": "if (!pskb_may_pull(skb, ETH_HLEN)) {",
+  "cap_line": 950,
+  "cap": "struct ip_tunnel_info *info = skb_tunnel_info(skb);",
+  "var": "info",
+  "uses": [
+   [
+    993,
+    "info->key.label, sport, geneve->cfg.info.key.tp_dst,"
+   ],
+   [
+    994,
+    "!(info->key.tun_flags & TUNNEL_CSUM));"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/macsec.c",
+  "func": "macsec_handle_frame",
+  "pull_line": 1115,
+  "pull": "pulled_sci = pskb_may_pull(skb, macsec_extra_len(true));",
+  "cap_line": 1086,
+  "cap": "struct sk_buff *skb = *pskb;",
+  "var": "skb",
+  "uses": [
+   [
+    1121,
+    "hdr = macsec_ethhdr(skb);"
+   ],
+   [
+    1140,
+    "macsec_skb_cb(skb)->has_sci = !!(hdr->tci_an & MACSEC_TCI_SC);"
+   ],
+   [
+    1141,
+    "macsec_skb_cb(skb)->assoc_num = hdr->tci_an & MACSEC_AN_MASK;"
+   ],
+   [
+    1142,
+    "sci = macsec_frame_sci(hdr, macsec_skb_cb(skb)->has_sci);"
+   ],
+   [
+    1145,
+    "rxd = macsec_data_rcu(skb->dev);"
+   ],
+   [
+    1175,
+    "rx_sa = macsec_rxsa_get(rx_sc->sa[macsec_skb_cb(skb)->assoc_num]);"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/macsec.c",
+  "func": "macsec_handle_frame",
+  "pull_line": 1117,
+  "pull": "if (!pskb_may_pull(skb, macsec_extra_len(false)))",
+  "cap_line": 1086,
+  "cap": "struct sk_buff *skb = *pskb;",
+  "var": "skb",
+  "uses": [
+   [
+    1121,
+    "hdr = macsec_ethhdr(skb);"
+   ],
+   [
+    1140,
+    "macsec_skb_cb(skb)->has_sci = !!(hdr->tci_an & MACSEC_TCI_SC);"
+   ],
+   [
+    1141,
+    "macsec_skb_cb(skb)->assoc_num = hdr->tci_an & MACSEC_AN_MASK;"
+   ],
+   [
+    1142,
+    "sci = macsec_frame_sci(hdr, macsec_skb_cb(skb)->has_sci);"
+   ],
+   [
+    1145,
+    "rxd = macsec_data_rcu(skb->dev);"
+   ],
+   [
+    1175,
+    "rx_sa = macsec_rxsa_get(rx_sc->sa[macsec_skb_cb(skb)->assoc_num]);"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/xen-netfront.c",
+  "func": "?",
+  "pull_line": 1174,
+  "pull": "__pskb_pull_tail(skb, pull_to - skb_headlen(skb));",
+  "cap_line": 1166,
+  "cap": "skb_frag_t *nfrag = &skb_shinfo(nskb)->frags[0];",
+  "var": "nfrag",
+  "uses": [
+   [
+    1184,
+    "skb_frag_page(nfrag),"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/ethernet/qualcomm/rmnet/rmnet_handlers.c",
+  "func": "rmnet_rx_handler",
+  "pull_line": 209,
+  "pull": "if (skb_linearize(skb)) {",
+  "cap_line": 202,
+  "cap": "struct sk_buff *skb = *pskb;",
+  "var": "skb",
+  "uses": [
+   [
+    210,
+    "kfree_skb(skb);"
+   ],
+   [
+    214,
+    "if (skb->pkt_type == PACKET_LOOPBACK)"
+   ],
+   [
+    217,
+    "dev = skb->dev;"
+   ],
+   [
+    220,
+    "dev_core_stats_rx_nohandler_inc(skb->dev);"
+   ],
+   [
+    221,
+    "kfree_skb(skb);"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/ethernet/sfc/ptp.c",
+  "func": "efx_ptp_rx",
+  "pull_line": 1747,
+  "pull": "if (!pskb_may_pull(skb, PTP_V1_MIN_LENGTH)) {",
+  "cap_line": 1739,
+  "cap": "struct efx_ptp_match *match = (struct efx_ptp_match *)skb->cb;",
+  "var": "match",
+  "uses": [
+   [
+    1768,
+    "match->state = PTP_PACKET_STATE_UNMATCHED;"
+   ],
+   [
+    1776,
+    "match->state = PTP_PACKET_STATE_MATCH_UNWANTED;"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/ethernet/sfc/ptp.c",
+  "func": "efx_ptp_rx",
+  "pull_line": 1756,
+  "pull": "if (!pskb_may_pull(skb, PTP_V2_MIN_LENGTH)) {",
+  "cap_line": 1739,
+  "cap": "struct efx_ptp_match *match = (struct efx_ptp_match *)skb->cb;",
+  "var": "match",
+  "uses": [
+   [
+    1768,
+    "match->state = PTP_PACKET_STATE_UNMATCHED;"
+   ],
+   [
+    1776,
+    "match->state = PTP_PACKET_STATE_MATCH_UNWANTED;"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/ethernet/sfc/siena/ptp.c",
+  "func": "efx_ptp_rx",
+  "pull_line": 1629,
+  "pull": "if (!pskb_may_pull(skb, PTP_V1_MIN_LENGTH)) {",
+  "cap_line": 1620,
+  "cap": "struct efx_ptp_match *match = (struct efx_ptp_match *)skb->cb;",
+  "var": "match",
+  "uses": [
+   [
+    1671,
+    "match->state = PTP_PACKET_STATE_UNMATCHED;"
+   ],
+   [
+    1680,
+    "match->words[0] = (match_data_012[0]         |"
+   ],
+   [
+    1684,
+    "match->words[1] = (match_data_345[1]         |"
+   ],
+   [
+    1690,
+    "match->state = PTP_PACKET_STATE_MATCH_UNWANTED;"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/ethernet/sfc/siena/ptp.c",
+  "func": "efx_ptp_rx",
+  "pull_line": 1644,
+  "pull": "if (!pskb_may_pull(skb, PTP_V2_MIN_LENGTH)) {",
+  "cap_line": 1620,
+  "cap": "struct efx_ptp_match *match = (struct efx_ptp_match *)skb->cb;",
+  "var": "match",
+  "uses": [
+   [
+    1671,
+    "match->state = PTP_PACKET_STATE_UNMATCHED;"
+   ],
+   [
+    1680,
+    "match->words[0] = (match_data_012[0]         |"
+   ],
+   [
+    1684,
+    "match->words[1] = (match_data_345[1]         |"
+   ],
+   [
+    1690,
+    "match->state = PTP_PACKET_STATE_MATCH_UNWANTED;"
+   ]
+  ]
+ },
+ {
+  "file": "drivers/net/wireless/mediatek/mt76/mt7925/mcu.c",
+  "func": "mt7925_mcu_rx_event",
+  "pull_line": 496,
+  "pull": "if (skb_linearize(skb))",
+  "cap_line": 494,
+  "cap": "struct mt7925_mcu_rxd *rxd = (struct mt7925_mcu_rxd *)skb->data;",
+  "var": "rxd",
+  "uses": [
+   [
+    499,
+    "if (rxd->option & MCU_UNI_CMD_UNSOLICITED_EVENT) {"
+   ]
+  ]
+ }
+]

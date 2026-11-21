@@ -1,0 +1,3 @@
+I'll start by writing the initial progress checkpoint, then explore the assigned snapshot s01.
+Checkpoint written. Now let me search snapshot s01 for nested-parse helper call sites where the nesting attribute comes directly from an `attrs[]`/`tb[]` slot.
+All evidence is collected. Every other nested-parse site examined is guarded (tipc handlers all have `if (!info->attrs[X]) return -EINVAL;`, nl80211 sites are presence-guarded, conntrack proto helpers have `if (!attr) return 0`, ipset validates presence+`flag_nested`, act_ife/rtnetlink/neighbour gate on `if (tb[N])`). The only unguarded sites are the two mac802154_hwsim siblings of the seed. Writing the final artifact now.

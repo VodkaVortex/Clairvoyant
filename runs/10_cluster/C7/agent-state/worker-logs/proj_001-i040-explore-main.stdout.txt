@@ -1,0 +1,18 @@
+The final artifact is written and validated. Here is the completion summary for intent i040:
+
+## Intent i040 — tasklet-napi-softirq-lock, snapshot s11 — NEGATIVE RESULT
+
+**Artifact:** `/mnt/raid/home/.../agent-state/findings/i040.json` (version 1, `snapshots_checked: ["s11"]`, `execution_status: complete`, 0 findings, 2 candidates both classified `safe`)
+
+### Investigation performed
+- **Scan scope:** Two-pass static analysis over all 496 files in s11 containing `tasklet_init`/`DECLARE_TASKLET`/`netif_napi_add`/`napi_schedule` registrations across `drivers/`, `net/`, `kernel/`, `mm/`, `fs/`, `block/`, `crypto/`, `lib/`, `security/`, `ipc/`, `sound/`, `virt/`. Function-level brace parsing, per-function lock-variant extraction, and cross-file lock matching within each driver directory and its parent (to handle multi-file drivers).
+- **Invariant hunted:** a lock shared between tasklet/NAPI-softirq-context code and process-context code (workers, ioctls, open/close, config/firmware handlers) where the process side uses plain `spin_lock()` instead of `spin_lock_bh()`/`local_bh_disable()` → same-CPU softirq deadlock. Xmit-callback and timer-callback paths excluded per branch rules.
+
+### Candidates triaged (both `safe` with verified source counterevidence)
+1. **`drivers/net/wireless/ath/ath5k/base.c:1125` — `ah->txbuflock`.** Tasklet side `ath5k_tasklet_tx → ath5k_tx_processq:1774` vs process side `ath5k_reset_work`/`ath5k_tx_complete_poll_work → ath5k_reset → ath5k_drain_tx_buffs:1125`. **Counterevidence:** the plain `spin_lock(&ah->txbuflock)` at 1125 is nested inside `spin_lock_bh(&txq->lock)` taken earlier in the same loop body, so bottom halves are already disabled locally for the whole hold — a same-CPU tasklet cannot preempt the holder (comment at line 1107 confirms this design). Reset path additionally masks IRQs, `synchronize_irq`, and `tasklet_kill`s before drain; xmit side uses irqsave; lock order consistent.
+2. **`drivers/atm/he.c:1770` — `he_dev->global_lock`.** **Counterevidence:** the plain lock at 1770 is in `he_service_rbrq`, whose only callers are `he_tasklet` itself (1949, 1988) — i.e. it is softirq-side code, not process context, and it runs under an outer `spin_lock_irqsave` from line 1936 whose saved IRQ-disabled state persists across the unlock/relock pair. All genuine process-context sites of `global_lock` (2177–2727) use `spin_lock_irqsave`.
+
+### Bounded negative evidence & limitations (recorded in artifact)
+Lock correlation was textual (base lock-expression names); indirect/pointer-table calls into the softirq side were resolved only one callee deep; `local_bh_disable()`-style manual nesting was verified only for the two flagged hits; xmit/timer branch shapes were intentionally out of scope.
+
+I was unable to invoke `mcp__clairvoyant__done` because it is not present in this session's available tool set (only Bash and Read are provided); the required final artifact and checkpoint are both written and structurally validated, and this message records the concrete negative evidence and limitations in full.

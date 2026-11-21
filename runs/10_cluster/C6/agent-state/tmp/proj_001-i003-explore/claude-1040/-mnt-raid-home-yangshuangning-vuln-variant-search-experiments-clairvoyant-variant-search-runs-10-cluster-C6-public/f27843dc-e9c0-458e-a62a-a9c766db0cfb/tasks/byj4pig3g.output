@@ -1,0 +1,2589 @@
+====================================================================================================
+drivers/net/ethernet/sun/sunvnet_common.c:1271
+   1246: 		hlen = 128; /* XXX */
+   1247: 	}
+   1248: 	datalen = port->tsolen - hlen;
+   1249: 
+   1250: 	gso_size = skb_shinfo(skb)->gso_size;
+   1251: 	gso_type = skb_shinfo(skb)->gso_type;
+   1252: 	gso_segs = skb_shinfo(skb)->gso_segs;
+   1253: 
+   1254: 	if (port->tso && gso_size < datalen)
+   1255: 		gso_segs = DIV_ROUND_UP(skb->len - hlen, datalen);
+   1256: 
+   1257: 	if (unlikely(vnet_tx_dring_avail(dr) < gso_segs)) {
+   1258: 		struct netdev_queue *txq;
+   1259: 
+   1260: 		txq  = netdev_get_tx_queue(dev, port->q_index);
+   1261: 		netif_tx_stop_queue(txq);
+   1262: 		if (vnet_tx_dring_avail(dr) < skb_shinfo(skb)->gso_segs)
+   1263: 			return NETDEV_TX_BUSY;
+   1264: 		netif_tx_wake_queue(txq);
+   1265: 	}
+   1266: 
+   1267: 	maclen = skb_network_header(skb) - skb_mac_header(skb);
+   1268: 	skb_pull(skb, maclen);
+   1269: 
+   1270: 	if (port->tso && gso_size < datalen) {
+>> 1271: 		if (skb_unclone(skb, GFP_ATOMIC))
+   1272: 			goto out_dropped;
+   1273: 
+   1274: 		/* segment to TSO size */
+   1275: 		skb_shinfo(skb)->gso_size = datalen;
+   1276: 		skb_shinfo(skb)->gso_segs = gso_segs;
+   1277: 	}
+   1278: 	segs = skb_gso_segment(skb, dev->features & ~NETIF_F_TSO);
+   1279: 	if (IS_ERR(segs))
+   1280: 		goto out_dropped;
+   1281: 
+   1282: 	skb_push(skb, maclen);
+   1283: 	skb_reset_mac_header(skb);
+   1284: 
+   1285: 	status = 0;
+   1286: 	skb_list_walk_safe(segs, curr, next) {
+   1287: 		skb_mark_not_on_list(curr);
+   1288: 		if (port->tso && curr->len > dev->mtu) {
+   1289: 			skb_shinfo(curr)->gso_size = gso_size;
+   1290: 			skb_shinfo(curr)->gso_type = gso_type;
+   1291: 			skb_shinfo(curr)->gso_segs =
+   1292: 				DIV_ROUND_UP(curr->len - hlen, gso_size);
+   1293: 		} else {
+   1294: 			skb_shinfo(curr)->gso_size = 0;
+   1295: 		}
+   1296: 
+   1297: 		skb_push(curr, maclen);
+   1298: 		skb_reset_mac_header(curr);
+   1299: 		memcpy(skb_mac_header(curr), skb_mac_header(skb),
+   1300: 		       maclen);
+   1301: 		curr->csum_start = skb_transport_header(curr) - curr->head;
+   1302: 		if (ip_hdr(curr)->protocol == IPPROTO_TCP)
+   1303: 			curr->csum_offset = offsetof(struct tcphdr, check);
+   1304: 		else if (ip_hdr(curr)->protocol == IPPROTO_UDP)
+   1305: 			curr->csum_offset = offsetof(struct udphdr, check);
+   1306: 
+   1307: 		if (!(status & NETDEV_TX_MASK))
+   1308: 			status = sunvnet_start_xmit_common(curr, dev,
+   1309: 							   vnet_tx_port);
+   1310: 		if (status & NETDEV_TX_MASK)
+====================================================================================================
+net/batman-adv/routing.c:198
+    173:  * @header_len: minimal header length of packet type
+    174:  *
+    175:  * Return: true when management preconditions are met, false otherwise
+    176:  */
+    177: bool batadv_check_management_packet(struct sk_buff *skb,
+    178: 				    struct batadv_hard_iface *hard_iface,
+    179: 				    int header_len)
+    180: {
+    181: 	struct ethhdr *ethhdr;
+    182: 
+    183: 	/* drop packet if it has not necessary minimum size */
+    184: 	if (unlikely(!pskb_may_pull(skb, header_len)))
+    185: 		return false;
+    186: 
+    187: 	ethhdr = eth_hdr(skb);
+    188: 
+    189: 	/* packet with broadcast indication but unicast recipient */
+    190: 	if (!is_broadcast_ether_addr(ethhdr->h_dest))
+    191: 		return false;
+    192: 
+    193: 	/* packet with invalid sender address */
+    194: 	if (!is_valid_ether_addr(ethhdr->h_source))
+    195: 		return false;
+    196: 
+    197: 	/* create a copy of the skb, if needed, to modify it. */
+>>  198: 	if (skb_cow(skb, 0) < 0)
+    199: 		return false;
+    200: 
+    201: 	/* keep skb linear */
+    202: 	if (skb_linearize(skb) < 0)
+    203: 		return false;
+    204: 
+    205: 	return true;
+    206: }
+    207: 
+    208: /**
+    209:  * batadv_recv_my_icmp_packet() - receive an icmp packet locally
+    210:  * @bat_priv: the bat priv with all the soft interface information
+    211:  * @skb: icmp packet to process
+    212:  *
+    213:  * Return: NET_RX_SUCCESS if the packet has been consumed or NET_RX_DROP
+    214:  * otherwise.
+    215:  */
+    216: static int batadv_recv_my_icmp_packet(struct batadv_priv *bat_priv,
+    217: 				      struct sk_buff *skb)
+    218: {
+    219: 	struct batadv_hard_iface *primary_if = NULL;
+    220: 	struct batadv_orig_node *orig_node = NULL;
+    221: 	struct batadv_icmp_header *icmph;
+    222: 	int res, ret = NET_RX_DROP;
+    223: 
+    224: 	icmph = (struct batadv_icmp_header *)skb->data;
+    225: 
+    226: 	switch (icmph->msg_type) {
+    227: 	case BATADV_ECHO_REQUEST:
+    228: 		/* answer echo request (ping) */
+    229: 		primary_if = batadv_primary_if_get_selected(bat_priv);
+    230: 		if (!primary_if)
+    231: 			goto out;
+    232: 
+    233: 		/* get routing information */
+    234: 		orig_node = batadv_orig_hash_find(bat_priv, icmph->orig);
+    235: 		if (!orig_node)
+    236: 			goto out;
+    237: 
+====================================================================================================
+net/batman-adv/routing.c:239
+    214:  * otherwise.
+    215:  */
+    216: static int batadv_recv_my_icmp_packet(struct batadv_priv *bat_priv,
+    217: 				      struct sk_buff *skb)
+    218: {
+    219: 	struct batadv_hard_iface *primary_if = NULL;
+    220: 	struct batadv_orig_node *orig_node = NULL;
+    221: 	struct batadv_icmp_header *icmph;
+    222: 	int res, ret = NET_RX_DROP;
+    223: 
+    224: 	icmph = (struct batadv_icmp_header *)skb->data;
+    225: 
+    226: 	switch (icmph->msg_type) {
+    227: 	case BATADV_ECHO_REQUEST:
+    228: 		/* answer echo request (ping) */
+    229: 		primary_if = batadv_primary_if_get_selected(bat_priv);
+    230: 		if (!primary_if)
+    231: 			goto out;
+    232: 
+    233: 		/* get routing information */
+    234: 		orig_node = batadv_orig_hash_find(bat_priv, icmph->orig);
+    235: 		if (!orig_node)
+    236: 			goto out;
+    237: 
+    238: 		/* create a copy of the skb, if needed, to modify it. */
+>>  239: 		if (skb_cow(skb, ETH_HLEN) < 0)
+    240: 			goto out;
+    241: 
+    242: 		icmph = (struct batadv_icmp_header *)skb->data;
+    243: 
+    244: 		ether_addr_copy(icmph->dst, icmph->orig);
+    245: 		ether_addr_copy(icmph->orig, primary_if->net_dev->dev_addr);
+    246: 		icmph->msg_type = BATADV_ECHO_REPLY;
+    247: 		icmph->ttl = BATADV_TTL;
+    248: 
+    249: 		res = batadv_send_skb_to_orig(skb, orig_node, NULL);
+    250: 		if (res == NET_XMIT_SUCCESS)
+    251: 			ret = NET_RX_SUCCESS;
+    252: 
+    253: 		/* skb was consumed */
+    254: 		skb = NULL;
+    255: 		break;
+    256: 	case BATADV_TP:
+    257: 		if (!pskb_may_pull(skb, sizeof(struct batadv_icmp_tp_packet)))
+    258: 			goto out;
+    259: 
+    260: 		batadv_tp_meter_recv(bat_priv, skb);
+    261: 		ret = NET_RX_SUCCESS;
+    262: 		/* skb was consumed */
+    263: 		skb = NULL;
+    264: 		goto out;
+    265: 	default:
+    266: 		/* drop unknown type */
+    267: 		goto out;
+    268: 	}
+    269: out:
+    270: 	batadv_hardif_put(primary_if);
+    271: 	batadv_orig_node_put(orig_node);
+    272: 
+    273: 	kfree_skb(skb);
+    274: 
+    275: 	return ret;
+    276: }
+    277: 
+    278: static int batadv_recv_icmp_ttl_exceeded(struct batadv_priv *bat_priv,
+====================================================================================================
+net/batman-adv/routing.c:305
+    280: {
+    281: 	struct batadv_hard_iface *primary_if = NULL;
+    282: 	struct batadv_orig_node *orig_node = NULL;
+    283: 	struct batadv_icmp_packet *icmp_packet;
+    284: 	int res, ret = NET_RX_DROP;
+    285: 
+    286: 	icmp_packet = (struct batadv_icmp_packet *)skb->data;
+    287: 
+    288: 	/* send TTL exceeded if packet is an echo request (traceroute) */
+    289: 	if (icmp_packet->msg_type != BATADV_ECHO_REQUEST) {
+    290: 		pr_debug("Warning - can't forward icmp packet from %pM to %pM: ttl exceeded\n",
+    291: 			 icmp_packet->orig, icmp_packet->dst);
+    292: 		goto out;
+    293: 	}
+    294: 
+    295: 	primary_if = batadv_primary_if_get_selected(bat_priv);
+    296: 	if (!primary_if)
+    297: 		goto out;
+    298: 
+    299: 	/* get routing information */
+    300: 	orig_node = batadv_orig_hash_find(bat_priv, icmp_packet->orig);
+    301: 	if (!orig_node)
+    302: 		goto out;
+    303: 
+    304: 	/* create a copy of the skb, if needed, to modify it. */
+>>  305: 	if (skb_cow(skb, ETH_HLEN) < 0)
+    306: 		goto out;
+    307: 
+    308: 	icmp_packet = (struct batadv_icmp_packet *)skb->data;
+    309: 
+    310: 	ether_addr_copy(icmp_packet->dst, icmp_packet->orig);
+    311: 	ether_addr_copy(icmp_packet->orig, primary_if->net_dev->dev_addr);
+    312: 	icmp_packet->msg_type = BATADV_TTL_EXCEEDED;
+    313: 	icmp_packet->ttl = BATADV_TTL;
+    314: 
+    315: 	res = batadv_send_skb_to_orig(skb, orig_node, NULL);
+    316: 	if (res == NET_RX_SUCCESS)
+    317: 		ret = NET_XMIT_SUCCESS;
+    318: 
+    319: 	/* skb was consumed */
+    320: 	skb = NULL;
+    321: 
+    322: out:
+    323: 	batadv_hardif_put(primary_if);
+    324: 	batadv_orig_node_put(orig_node);
+    325: 
+    326: 	kfree_skb(skb);
+    327: 
+    328: 	return ret;
+    329: }
+    330: 
+    331: /**
+    332:  * batadv_recv_icmp_packet() - Process incoming icmp packet
+    333:  * @skb: incoming packet buffer
+    334:  * @recv_if: incoming hard interface
+    335:  *
+    336:  * Return: NET_RX_SUCCESS on success or NET_RX_DROP in case of failure
+    337:  */
+    338: int batadv_recv_icmp_packet(struct sk_buff *skb,
+    339: 			    struct batadv_hard_iface *recv_if)
+    340: {
+    341: 	struct batadv_priv *bat_priv = netdev_priv(recv_if->soft_iface);
+    342: 	struct batadv_icmp_header *icmph;
+    343: 	struct batadv_icmp_packet_rr *icmp_packet_rr;
+    344: 	struct ethhdr *ethhdr;
+====================================================================================================
+net/batman-adv/routing.c:377
+    352: 
+    353: 	ethhdr = eth_hdr(skb);
+    354: 
+    355: 	/* packet with unicast indication but non-unicast recipient */
+    356: 	if (!is_valid_ether_addr(ethhdr->h_dest))
+    357: 		goto free_skb;
+    358: 
+    359: 	/* packet with broadcast/multicast sender address */
+    360: 	if (is_multicast_ether_addr(ethhdr->h_source))
+    361: 		goto free_skb;
+    362: 
+    363: 	/* not for me */
+    364: 	if (!batadv_is_my_mac(bat_priv, ethhdr->h_dest))
+    365: 		goto free_skb;
+    366: 
+    367: 	icmph = (struct batadv_icmp_header *)skb->data;
+    368: 
+    369: 	/* add record route information if not full */
+    370: 	if ((icmph->msg_type == BATADV_ECHO_REPLY ||
+    371: 	     icmph->msg_type == BATADV_ECHO_REQUEST) &&
+    372: 	    skb->len >= sizeof(struct batadv_icmp_packet_rr)) {
+    373: 		if (skb_linearize(skb) < 0)
+    374: 			goto free_skb;
+    375: 
+    376: 		/* create a copy of the skb, if needed, to modify it. */
+>>  377: 		if (skb_cow(skb, ETH_HLEN) < 0)
+    378: 			goto free_skb;
+    379: 
+    380: 		ethhdr = eth_hdr(skb);
+    381: 		icmph = (struct batadv_icmp_header *)skb->data;
+    382: 		icmp_packet_rr = (struct batadv_icmp_packet_rr *)icmph;
+    383: 		if (icmp_packet_rr->rr_cur >= BATADV_RR_LEN)
+    384: 			goto free_skb;
+    385: 
+    386: 		ether_addr_copy(icmp_packet_rr->rr[icmp_packet_rr->rr_cur],
+    387: 				ethhdr->h_dest);
+    388: 		icmp_packet_rr->rr_cur++;
+    389: 	}
+    390: 
+    391: 	/* packet for me */
+    392: 	if (batadv_is_my_mac(bat_priv, icmph->dst))
+    393: 		return batadv_recv_my_icmp_packet(bat_priv, skb);
+    394: 
+    395: 	/* TTL exceeded */
+    396: 	if (icmph->ttl < 2)
+    397: 		return batadv_recv_icmp_ttl_exceeded(bat_priv, skb);
+    398: 
+    399: 	/* get routing information */
+    400: 	orig_node = batadv_orig_hash_find(bat_priv, icmph->dst);
+    401: 	if (!orig_node)
+    402: 		goto free_skb;
+    403: 
+    404: 	/* create a copy of the skb, if needed, to modify it. */
+    405: 	if (skb_cow(skb, ETH_HLEN) < 0)
+    406: 		goto put_orig_node;
+    407: 
+    408: 	icmph = (struct batadv_icmp_header *)skb->data;
+    409: 
+    410: 	/* decrement ttl */
+    411: 	icmph->ttl--;
+    412: 
+    413: 	/* route it */
+    414: 	res = batadv_send_skb_to_orig(skb, orig_node, recv_if);
+    415: 	if (res == NET_XMIT_SUCCESS)
+    416: 		ret = NET_RX_SUCCESS;
+====================================================================================================
+net/batman-adv/routing.c:405
+    380: 		ethhdr = eth_hdr(skb);
+    381: 		icmph = (struct batadv_icmp_header *)skb->data;
+    382: 		icmp_packet_rr = (struct batadv_icmp_packet_rr *)icmph;
+    383: 		if (icmp_packet_rr->rr_cur >= BATADV_RR_LEN)
+    384: 			goto free_skb;
+    385: 
+    386: 		ether_addr_copy(icmp_packet_rr->rr[icmp_packet_rr->rr_cur],
+    387: 				ethhdr->h_dest);
+    388: 		icmp_packet_rr->rr_cur++;
+    389: 	}
+    390: 
+    391: 	/* packet for me */
+    392: 	if (batadv_is_my_mac(bat_priv, icmph->dst))
+    393: 		return batadv_recv_my_icmp_packet(bat_priv, skb);
+    394: 
+    395: 	/* TTL exceeded */
+    396: 	if (icmph->ttl < 2)
+    397: 		return batadv_recv_icmp_ttl_exceeded(bat_priv, skb);
+    398: 
+    399: 	/* get routing information */
+    400: 	orig_node = batadv_orig_hash_find(bat_priv, icmph->dst);
+    401: 	if (!orig_node)
+    402: 		goto free_skb;
+    403: 
+    404: 	/* create a copy of the skb, if needed, to modify it. */
+>>  405: 	if (skb_cow(skb, ETH_HLEN) < 0)
+    406: 		goto put_orig_node;
+    407: 
+    408: 	icmph = (struct batadv_icmp_header *)skb->data;
+    409: 
+    410: 	/* decrement ttl */
+    411: 	icmph->ttl--;
+    412: 
+    413: 	/* route it */
+    414: 	res = batadv_send_skb_to_orig(skb, orig_node, recv_if);
+    415: 	if (res == NET_XMIT_SUCCESS)
+    416: 		ret = NET_RX_SUCCESS;
+    417: 
+    418: 	/* skb was consumed */
+    419: 	skb = NULL;
+    420: 
+    421: put_orig_node:
+    422: 	batadv_orig_node_put(orig_node);
+    423: free_skb:
+    424: 	kfree_skb(skb);
+    425: 
+    426: 	return ret;
+    427: }
+    428: 
+    429: /**
+    430:  * batadv_check_unicast_packet() - Check for malformed unicast packets
+    431:  * @bat_priv: the bat priv with all the soft interface information
+    432:  * @skb: packet to check
+    433:  * @hdr_size: size of header to pull
+    434:  *
+    435:  * Checks for short header and bad addresses in the given packet.
+    436:  *
+    437:  * Return: negative value when check fails and 0 otherwise. The negative value
+    438:  * depends on the reason: -ENODATA for bad header, -EBADR for broadcast
+    439:  * destination or source, and -EREMOTE for non-local (other host) destination.
+    440:  */
+    441: static int batadv_check_unicast_packet(struct batadv_priv *bat_priv,
+    442: 				       struct sk_buff *skb, int hdr_size)
+    443: {
+    444: 	struct ethhdr *ethhdr;
+====================================================================================================
+net/batman-adv/routing.c:682
+    657: 				       struct batadv_hard_iface *recv_if)
+    658: {
+    659: 	struct batadv_priv *bat_priv = netdev_priv(recv_if->soft_iface);
+    660: 	struct batadv_orig_node *orig_node = NULL;
+    661: 	struct batadv_unicast_packet *unicast_packet;
+    662: 	struct ethhdr *ethhdr = eth_hdr(skb);
+    663: 	int res, hdr_len, ret = NET_RX_DROP;
+    664: 	unsigned int len;
+    665: 
+    666: 	unicast_packet = (struct batadv_unicast_packet *)skb->data;
+    667: 
+    668: 	/* TTL exceeded */
+    669: 	if (unicast_packet->ttl < 2) {
+    670: 		pr_debug("Warning - can't forward unicast packet from %pM to %pM: ttl exceeded\n",
+    671: 			 ethhdr->h_source, unicast_packet->dest);
+    672: 		goto free_skb;
+    673: 	}
+    674: 
+    675: 	/* get routing information */
+    676: 	orig_node = batadv_orig_hash_find(bat_priv, unicast_packet->dest);
+    677: 
+    678: 	if (!orig_node)
+    679: 		goto free_skb;
+    680: 
+    681: 	/* create a copy of the skb, if needed, to modify it. */
+>>  682: 	if (skb_cow(skb, ETH_HLEN) < 0)
+    683: 		goto put_orig_node;
+    684: 
+    685: 	/* decrement ttl */
+    686: 	unicast_packet = (struct batadv_unicast_packet *)skb->data;
+    687: 	unicast_packet->ttl--;
+    688: 
+    689: 	switch (unicast_packet->packet_type) {
+    690: 	case BATADV_UNICAST_4ADDR:
+    691: 		hdr_len = sizeof(struct batadv_unicast_4addr_packet);
+    692: 		break;
+    693: 	case BATADV_UNICAST:
+    694: 		hdr_len = sizeof(struct batadv_unicast_packet);
+    695: 		break;
+    696: 	default:
+    697: 		/* other packet types not supported - yet */
+    698: 		hdr_len = -1;
+    699: 		break;
+    700: 	}
+    701: 
+    702: 	if (hdr_len > 0)
+    703: 		batadv_skb_set_priority(skb, hdr_len);
+    704: 
+    705: 	len = skb->len;
+    706: 	res = batadv_send_skb_to_orig(skb, orig_node, recv_if);
+    707: 
+    708: 	/* translate transmit result into receive result */
+    709: 	if (res == NET_XMIT_SUCCESS) {
+    710: 		ret = NET_RX_SUCCESS;
+    711: 		/* skb was transmitted and consumed */
+    712: 		batadv_inc_counter(bat_priv, BATADV_CNT_FORWARD);
+    713: 		batadv_add_counter(bat_priv, BATADV_CNT_FORWARD_BYTES,
+    714: 				   len + ETH_HLEN);
+    715: 	}
+    716: 
+    717: 	/* skb was consumed */
+    718: 	skb = NULL;
+    719: 
+    720: put_orig_node:
+    721: 	batadv_orig_node_put(orig_node);
+====================================================================================================
+net/batman-adv/routing.c:802
+    777: 
+    778: 	ret = true;
+    779: out:
+    780: 	batadv_hardif_put(primary_if);
+    781: 	batadv_orig_node_put(orig_node);
+    782: 
+    783: 	return ret;
+    784: }
+    785: 
+    786: static bool batadv_check_unicast_ttvn(struct batadv_priv *bat_priv,
+    787: 				      struct sk_buff *skb, int hdr_len)
+    788: {
+    789: 	struct batadv_unicast_packet *unicast_packet;
+    790: 	struct batadv_hard_iface *primary_if;
+    791: 	struct batadv_orig_node *orig_node;
+    792: 	u8 curr_ttvn, old_ttvn;
+    793: 	struct ethhdr *ethhdr;
+    794: 	unsigned short vid;
+    795: 	int is_old_ttvn;
+    796: 
+    797: 	/* check if there is enough data before accessing it */
+    798: 	if (!pskb_may_pull(skb, hdr_len + ETH_HLEN))
+    799: 		return false;
+    800: 
+    801: 	/* create a copy of the skb (in case of for re-routing) to modify it. */
+>>  802: 	if (skb_cow(skb, sizeof(*unicast_packet)) < 0)
+    803: 		return false;
+    804: 
+    805: 	unicast_packet = (struct batadv_unicast_packet *)skb->data;
+    806: 	vid = batadv_get_vid(skb, hdr_len);
+    807: 	ethhdr = (struct ethhdr *)(skb->data + hdr_len);
+    808: 
+    809: 	/* do not reroute multicast frames in a unicast header */
+    810: 	if (is_multicast_ether_addr(ethhdr->h_dest))
+    811: 		return true;
+    812: 
+    813: 	/* check if the destination client was served by this node and it is now
+    814: 	 * roaming. In this case, it means that the node has got a ROAM_ADV
+    815: 	 * message and that it knows the new destination in the mesh to re-route
+    816: 	 * the packet to
+    817: 	 */
+    818: 	if (batadv_tt_local_client_is_roaming(bat_priv, ethhdr->h_dest, vid)) {
+    819: 		if (batadv_reroute_unicast_packet(bat_priv, skb, unicast_packet,
+    820: 						  ethhdr->h_dest, vid))
+    821: 			batadv_dbg_ratelimited(BATADV_DBG_TT,
+    822: 					       bat_priv,
+    823: 					       "Rerouting unicast packet to %pM (dst=%pM): Local Roaming\n",
+    824: 					       unicast_packet->dest,
+    825: 					       ethhdr->h_dest);
+    826: 		/* at this point the mesh destination should have been
+    827: 		 * substituted with the originator address found in the global
+    828: 		 * table. If not, let the packet go untouched anyway because
+    829: 		 * there is nothing the node can do
+    830: 		 */
+    831: 		return true;
+    832: 	}
+    833: 
+    834: 	/* retrieve the TTVN known by this node for the packet destination. This
+    835: 	 * value is used later to check if the node which sent (or re-routed
+    836: 	 * last time) the packet had an updated information or not
+    837: 	 */
+    838: 	curr_ttvn = (u8)atomic_read(&bat_priv->tt.vn);
+    839: 	if (!batadv_is_my_mac(bat_priv, unicast_packet->dest)) {
+    840: 		orig_node = batadv_orig_hash_find(bat_priv,
+    841: 						  unicast_packet->dest);
+====================================================================================================
+net/batman-adv/routing.c:1061
+   1036: 	return ret;
+   1037: }
+   1038: 
+   1039: /**
+   1040:  * batadv_recv_unicast_tvlv() - receive and process unicast tvlv packets
+   1041:  * @skb: unicast tvlv packet to process
+   1042:  * @recv_if: pointer to interface this packet was received on
+   1043:  *
+   1044:  * Return: NET_RX_SUCCESS if the packet has been consumed or NET_RX_DROP
+   1045:  * otherwise.
+   1046:  */
+   1047: int batadv_recv_unicast_tvlv(struct sk_buff *skb,
+   1048: 			     struct batadv_hard_iface *recv_if)
+   1049: {
+   1050: 	struct batadv_priv *bat_priv = netdev_priv(recv_if->soft_iface);
+   1051: 	struct batadv_unicast_tvlv_packet *unicast_tvlv_packet;
+   1052: 	unsigned char *tvlv_buff;
+   1053: 	u16 tvlv_buff_len;
+   1054: 	int hdr_size = sizeof(*unicast_tvlv_packet);
+   1055: 	int ret = NET_RX_DROP;
+   1056: 
+   1057: 	if (batadv_check_unicast_packet(bat_priv, skb, hdr_size) < 0)
+   1058: 		goto free_skb;
+   1059: 
+   1060: 	/* the header is likely to be modified while forwarding */
+>> 1061: 	if (skb_cow(skb, hdr_size) < 0)
+   1062: 		goto free_skb;
+   1063: 
+   1064: 	/* packet needs to be linearized to access the tvlv content */
+   1065: 	if (skb_linearize(skb) < 0)
+   1066: 		goto free_skb;
+   1067: 
+   1068: 	unicast_tvlv_packet = (struct batadv_unicast_tvlv_packet *)skb->data;
+   1069: 
+   1070: 	tvlv_buff = (unsigned char *)(skb->data + hdr_size);
+   1071: 	tvlv_buff_len = ntohs(unicast_tvlv_packet->tvlv_len);
+   1072: 
+   1073: 	if (tvlv_buff_len > skb->len - hdr_size)
+   1074: 		goto free_skb;
+   1075: 
+   1076: 	ret = batadv_tvlv_containers_process(bat_priv, BATADV_UNICAST_TVLV,
+   1077: 					     NULL, skb, tvlv_buff,
+   1078: 					     tvlv_buff_len);
+   1079: 
+   1080: 	if (ret != NET_RX_SUCCESS) {
+   1081: 		ret = batadv_route_unicast_packet(skb, recv_if);
+   1082: 		/* skb was consumed */
+   1083: 		skb = NULL;
+   1084: 	}
+   1085: 
+   1086: free_skb:
+   1087: 	kfree_skb(skb);
+   1088: 
+   1089: 	return ret;
+   1090: }
+   1091: 
+   1092: /**
+   1093:  * batadv_recv_frag_packet() - process received fragment
+   1094:  * @skb: the received fragment
+   1095:  * @recv_if: interface that the skb is received on
+   1096:  *
+   1097:  * This function does one of the three following things: 1) Forward fragment, if
+   1098:  * the assembled packet will exceed our MTU; 2) Buffer fragment, if we still
+   1099:  * lack further fragments; 3) Merge fragments, if we have all needed parts.
+   1100:  *
+====================================================================================================
+net/ipv6/calipso.c:1325
+   1300: 	struct ipv6_opt_hdr *hop;
+   1301: 	unsigned char buf[CALIPSO_MAX_BUFFER];
+   1302: 	int len_delta, new_end, pad, payload;
+   1303: 	unsigned int start, end;
+   1304: 
+   1305: 	ip6_hdr = ipv6_hdr(skb);
+   1306: 	if (ip6_hdr->nexthdr == NEXTHDR_HOP) {
+   1307: 		hop = (struct ipv6_opt_hdr *)(ip6_hdr + 1);
+   1308: 		ret_val = calipso_opt_find(hop, &start, &end);
+   1309: 		if (ret_val && ret_val != -ENOENT)
+   1310: 			return ret_val;
+   1311: 	} else {
+   1312: 		start = 0;
+   1313: 		end = 0;
+   1314: 	}
+   1315: 
+   1316: 	memset(buf, 0, sizeof(buf));
+   1317: 	ret_val = calipso_genopt(buf, start & 3, sizeof(buf), doi_def, secattr);
+   1318: 	if (ret_val < 0)
+   1319: 		return ret_val;
+   1320: 
+   1321: 	new_end = start + ret_val;
+   1322: 	/* At this point new_end aligns to 4n, so (new_end & 4) pads to 8n */
+   1323: 	pad = ((new_end & 4) + (end & 7)) & 7;
+   1324: 	len_delta = new_end - (int)end + pad;
+>> 1325: 	ret_val = skb_cow(skb, skb_headroom(skb) + len_delta);
+   1326: 	if (ret_val < 0)
+   1327: 		return ret_val;
+   1328: 
+   1329: 	ip6_hdr = ipv6_hdr(skb); /* Reset as skb_cow() may have moved it */
+   1330: 
+   1331: 	if (len_delta) {
+   1332: 		if (len_delta > 0)
+   1333: 			skb_push(skb, len_delta);
+   1334: 		else
+   1335: 			skb_pull(skb, -len_delta);
+   1336: 		memmove((char *)ip6_hdr - len_delta, ip6_hdr,
+   1337: 			sizeof(*ip6_hdr) + start);
+   1338: 		skb_reset_network_header(skb);
+   1339: 		ip6_hdr = ipv6_hdr(skb);
+   1340: 		payload = ntohs(ip6_hdr->payload_len);
+   1341: 		ip6_hdr->payload_len = htons(payload + len_delta);
+   1342: 	}
+   1343: 
+   1344: 	hop = (struct ipv6_opt_hdr *)(ip6_hdr + 1);
+   1345: 	if (start == 0) {
+   1346: 		struct ipv6_opt_hdr *new_hop = (struct ipv6_opt_hdr *)buf;
+   1347: 
+   1348: 		new_hop->nexthdr = ip6_hdr->nexthdr;
+   1349: 		new_hop->hdrlen = len_delta / 8 - 1;
+   1350: 		ip6_hdr->nexthdr = NEXTHDR_HOP;
+   1351: 	} else {
+   1352: 		hop->hdrlen += len_delta / 8;
+   1353: 	}
+   1354: 	memcpy((char *)hop + start, buf + (start & 3), new_end - start);
+   1355: 	calipso_pad_write((unsigned char *)hop, new_end, pad);
+   1356: 
+   1357: 	return 0;
+   1358: }
+   1359: 
+   1360: /**
+   1361:  * calipso_skbuff_delattr - Delete any CALIPSO options from a packet
+   1362:  * @skb: the packet
+   1363:  *
+   1364:  * Description:
+====================================================================================================
+net/ipv6/calipso.c:1329
+   1304: 
+   1305: 	ip6_hdr = ipv6_hdr(skb);
+   1306: 	if (ip6_hdr->nexthdr == NEXTHDR_HOP) {
+   1307: 		hop = (struct ipv6_opt_hdr *)(ip6_hdr + 1);
+   1308: 		ret_val = calipso_opt_find(hop, &start, &end);
+   1309: 		if (ret_val && ret_val != -ENOENT)
+   1310: 			return ret_val;
+   1311: 	} else {
+   1312: 		start = 0;
+   1313: 		end = 0;
+   1314: 	}
+   1315: 
+   1316: 	memset(buf, 0, sizeof(buf));
+   1317: 	ret_val = calipso_genopt(buf, start & 3, sizeof(buf), doi_def, secattr);
+   1318: 	if (ret_val < 0)
+   1319: 		return ret_val;
+   1320: 
+   1321: 	new_end = start + ret_val;
+   1322: 	/* At this point new_end aligns to 4n, so (new_end & 4) pads to 8n */
+   1323: 	pad = ((new_end & 4) + (end & 7)) & 7;
+   1324: 	len_delta = new_end - (int)end + pad;
+   1325: 	ret_val = skb_cow(skb, skb_headroom(skb) + len_delta);
+   1326: 	if (ret_val < 0)
+   1327: 		return ret_val;
+   1328: 
+>> 1329: 	ip6_hdr = ipv6_hdr(skb); /* Reset as skb_cow() may have moved it */
+   1330: 
+   1331: 	if (len_delta) {
+   1332: 		if (len_delta > 0)
+   1333: 			skb_push(skb, len_delta);
+   1334: 		else
+   1335: 			skb_pull(skb, -len_delta);
+   1336: 		memmove((char *)ip6_hdr - len_delta, ip6_hdr,
+   1337: 			sizeof(*ip6_hdr) + start);
+   1338: 		skb_reset_network_header(skb);
+   1339: 		ip6_hdr = ipv6_hdr(skb);
+   1340: 		payload = ntohs(ip6_hdr->payload_len);
+   1341: 		ip6_hdr->payload_len = htons(payload + len_delta);
+   1342: 	}
+   1343: 
+   1344: 	hop = (struct ipv6_opt_hdr *)(ip6_hdr + 1);
+   1345: 	if (start == 0) {
+   1346: 		struct ipv6_opt_hdr *new_hop = (struct ipv6_opt_hdr *)buf;
+   1347: 
+   1348: 		new_hop->nexthdr = ip6_hdr->nexthdr;
+   1349: 		new_hop->hdrlen = len_delta / 8 - 1;
+   1350: 		ip6_hdr->nexthdr = NEXTHDR_HOP;
+   1351: 	} else {
+   1352: 		hop->hdrlen += len_delta / 8;
+   1353: 	}
+   1354: 	memcpy((char *)hop + start, buf + (start & 3), new_end - start);
+   1355: 	calipso_pad_write((unsigned char *)hop, new_end, pad);
+   1356: 
+   1357: 	return 0;
+   1358: }
+   1359: 
+   1360: /**
+   1361:  * calipso_skbuff_delattr - Delete any CALIPSO options from a packet
+   1362:  * @skb: the packet
+   1363:  *
+   1364:  * Description:
+   1365:  * Removes any and all CALIPSO options from the given packet.  Returns zero on
+   1366:  * success, negative values on failure.
+   1367:  *
+   1368:  */
+====================================================================================================
+net/ipv6/calipso.c:1380
+   1355: 	calipso_pad_write((unsigned char *)hop, new_end, pad);
+   1356: 
+   1357: 	return 0;
+   1358: }
+   1359: 
+   1360: /**
+   1361:  * calipso_skbuff_delattr - Delete any CALIPSO options from a packet
+   1362:  * @skb: the packet
+   1363:  *
+   1364:  * Description:
+   1365:  * Removes any and all CALIPSO options from the given packet.  Returns zero on
+   1366:  * success, negative values on failure.
+   1367:  *
+   1368:  */
+   1369: static int calipso_skbuff_delattr(struct sk_buff *skb)
+   1370: {
+   1371: 	int ret_val;
+   1372: 	struct ipv6hdr *ip6_hdr;
+   1373: 	struct ipv6_opt_hdr *old_hop;
+   1374: 	u32 old_hop_len, start = 0, end = 0, delta, size, pad;
+   1375: 
+   1376: 	if (!calipso_skbuff_optptr(skb))
+   1377: 		return 0;
+   1378: 
+   1379: 	/* since we are changing the packet we should make a copy */
+>> 1380: 	ret_val = skb_cow(skb, skb_headroom(skb));
+   1381: 	if (ret_val < 0)
+   1382: 		return ret_val;
+   1383: 
+   1384: 	ip6_hdr = ipv6_hdr(skb);
+   1385: 	old_hop = (struct ipv6_opt_hdr *)(ip6_hdr + 1);
+   1386: 	old_hop_len = ipv6_optlen(old_hop);
+   1387: 
+   1388: 	ret_val = calipso_opt_find(old_hop, &start, &end);
+   1389: 	if (ret_val)
+   1390: 		return ret_val;
+   1391: 
+   1392: 	if (start == sizeof(*old_hop) && end == old_hop_len) {
+   1393: 		/* There's no other option in the header so we delete
+   1394: 		 * the whole thing. */
+   1395: 		delta = old_hop_len;
+   1396: 		size = sizeof(*ip6_hdr);
+   1397: 		ip6_hdr->nexthdr = old_hop->nexthdr;
+   1398: 	} else {
+   1399: 		delta = (end - start) & ~7;
+   1400: 		if (delta)
+   1401: 			old_hop->hdrlen -= delta / 8;
+   1402: 		pad = (end - start) & 7;
+   1403: 		size = sizeof(*ip6_hdr) + start + pad;
+   1404: 		calipso_pad_write((unsigned char *)old_hop, start, pad);
+   1405: 	}
+   1406: 
+   1407: 	if (delta) {
+   1408: 		skb_pull(skb, delta);
+   1409: 		memmove((char *)ip6_hdr + delta, ip6_hdr, size);
+   1410: 		skb_reset_network_header(skb);
+   1411: 	}
+   1412: 
+   1413: 	return 0;
+   1414: }
+   1415: 
+   1416: static const struct netlbl_calipso_ops ops = {
+   1417: 	.doi_add          = calipso_doi_add,
+   1418: 	.doi_free         = calipso_doi_free,
+   1419: 	.doi_remove       = calipso_doi_remove,
+====================================================================================================
+net/ipv6/ip6_output.c:648
+    623: 			goto error;
+    624: 		if (addrtype & IPV6_ADDR_LINKLOCAL) {
+    625: 			icmpv6_send(skb, ICMPV6_DEST_UNREACH,
+    626: 				    ICMPV6_NOT_NEIGHBOUR, 0);
+    627: 			goto error;
+    628: 		}
+    629: 	}
+    630: 
+    631: 	__IP6_INC_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTFORWDATAGRAMS);
+    632: 
+    633: 	mtu = ip6_dst_mtu_maybe_forward(dst, true);
+    634: 	if (mtu < IPV6_MIN_MTU)
+    635: 		mtu = IPV6_MIN_MTU;
+    636: 
+    637: 	if (ip6_pkt_too_big(skb, mtu)) {
+    638: 		/* Again, force OUTPUT device used as source address */
+    639: 		skb->dev = dst->dev;
+    640: 		icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, mtu);
+    641: 		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INTOOBIGERRORS);
+    642: 		__IP6_INC_STATS(net, ip6_dst_idev(dst),
+    643: 				IPSTATS_MIB_FRAGFAILS);
+    644: 		kfree_skb_reason(skb, SKB_DROP_REASON_PKT_TOO_BIG);
+    645: 		return -EMSGSIZE;
+    646: 	}
+    647: 
+>>  648: 	if (skb_cow(skb, dst->dev->hard_header_len)) {
+    649: 		__IP6_INC_STATS(net, ip6_dst_idev(dst),
+    650: 				IPSTATS_MIB_OUTDISCARDS);
+    651: 		goto drop;
+    652: 	}
+    653: 
+    654: 	hdr = ipv6_hdr(skb);
+    655: 
+    656: 	/* Mangling hops number delayed to point after skb COW */
+    657: 
+    658: 	hdr->hop_limit--;
+    659: 
+    660: 	return NF_HOOK(NFPROTO_IPV6, NF_INET_FORWARD,
+    661: 		       net, NULL, skb, skb->dev, dst->dev,
+    662: 		       ip6_forward_finish);
+    663: 
+    664: error:
+    665: 	__IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
+    666: 	SKB_DR_SET(reason, IP_INADDRERRORS);
+    667: drop:
+    668: 	kfree_skb_reason(skb, reason);
+    669: 	return -EINVAL;
+    670: }
+    671: 
+    672: static void ip6_copy_metadata(struct sk_buff *to, struct sk_buff *from)
+    673: {
+    674: 	to->pkt_type = from->pkt_type;
+    675: 	to->priority = from->priority;
+    676: 	to->protocol = from->protocol;
+    677: 	skb_dst_drop(to);
+    678: 	skb_dst_set(to, dst_clone(skb_dst(from)));
+    679: 	to->dev = from->dev;
+    680: 	to->mark = from->mark;
+    681: 
+    682: 	skb_copy_hash(to, from);
+    683: 
+    684: #ifdef CONFIG_NET_SCHED
+    685: 	to->tc_index = from->tc_index;
+    686: #endif
+    687: 	nf_copy(to, from);
+====================================================================================================
+net/ipv6/ip6mr.c:2077
+   2052: 	if (dst->error) {
+   2053: 		dst_release(dst);
+   2054: 		goto out_free;
+   2055: 	}
+   2056: 
+   2057: 	skb_dst_drop(skb);
+   2058: 	skb_dst_set(skb, dst);
+   2059: 
+   2060: 	/*
+   2061: 	 * RFC1584 teaches, that DVMRP/PIM router must deliver packets locally
+   2062: 	 * not only before forwarding, but after forwarding on all output
+   2063: 	 * interfaces. It is clear, if mrouter runs a multicasting
+   2064: 	 * program, it should receive packets not depending to what interface
+   2065: 	 * program is joined.
+   2066: 	 * If we will not make it, the program will have to join on all
+   2067: 	 * interfaces. On the other hand, multihoming host (or router, but
+   2068: 	 * not mrouter) cannot join to more than one interface - it will
+   2069: 	 * result in receiving multiple packets.
+   2070: 	 */
+   2071: 	skb->dev = vif_dev;
+   2072: 	WRITE_ONCE(vif->pkt_out, vif->pkt_out + 1);
+   2073: 	WRITE_ONCE(vif->bytes_out, vif->bytes_out + skb->len);
+   2074: 
+   2075: 	/* We are about to write */
+   2076: 	/* XXX: extension headers? */
+>> 2077: 	if (skb_cow(skb, sizeof(*ipv6h) + LL_RESERVED_SPACE(vif_dev)))
+   2078: 		goto out_free;
+   2079: 
+   2080: 	ipv6h = ipv6_hdr(skb);
+   2081: 	ipv6h->hop_limit--;
+   2082: 
+   2083: 	IP6CB(skb)->flags |= IP6SKB_FORWARDED;
+   2084: 
+   2085: 	return NF_HOOK(NFPROTO_IPV6, NF_INET_FORWARD,
+   2086: 		       net, NULL, skb, skb->dev, vif_dev,
+   2087: 		       ip6mr_forward2_finish);
+   2088: 
+   2089: out_free:
+   2090: 	kfree_skb(skb);
+   2091: 	return 0;
+   2092: }
+   2093: 
+   2094: /* Called with rcu_read_lock() */
+   2095: static int ip6mr_find_vif(struct mr_table *mrt, struct net_device *dev)
+   2096: {
+   2097: 	int ct;
+   2098: 
+   2099: 	/* Pairs with WRITE_ONCE() in mif6_delete()/mif6_add() */
+   2100: 	for (ct = READ_ONCE(mrt->maxvif) - 1; ct >= 0; ct--) {
+   2101: 		if (rcu_access_pointer(mrt->vif_table[ct].dev) == dev)
+   2102: 			break;
+   2103: 	}
+   2104: 	return ct;
+   2105: }
+   2106: 
+   2107: /* Called under rcu_read_lock() */
+   2108: static void ip6_mr_forward(struct net *net, struct mr_table *mrt,
+   2109: 			   struct net_device *dev, struct sk_buff *skb,
+   2110: 			   struct mfc6_cache *c)
+   2111: {
+   2112: 	int psend = -1;
+   2113: 	int vif, ct;
+   2114: 	int true_vifi = ip6mr_find_vif(mrt, dev);
+   2115: 
+   2116: 	vif = c->_c.mfc_parent;
+====================================================================================================
+net/mpls/mpls_iptunnel.c:111
+     86: 		rt = (struct rtable *)dst;
+     87: 	} else if (dst->ops->family == AF_INET6) {
+     88: 		if (tun_encap_info->ttl_propagate == MPLS_TTL_PROP_DISABLED)
+     89: 			ttl = tun_encap_info->default_ttl;
+     90: 		else if (tun_encap_info->ttl_propagate == MPLS_TTL_PROP_DEFAULT &&
+     91: 			 !net->mpls.ip_ttl_propagate)
+     92: 			ttl = net->mpls.default_ttl;
+     93: 		else
+     94: 			ttl = ipv6_hdr(skb)->hop_limit;
+     95: 		rt6 = (struct rt6_info *)dst;
+     96: 	} else {
+     97: 		goto drop;
+     98: 	}
+     99: 
+    100: 	/* Verify the destination can hold the packet */
+    101: 	new_header_size = mpls_encap_size(tun_encap_info);
+    102: 	mtu = mpls_dev_mtu(out_dev);
+    103: 	if (mpls_pkt_too_big(skb, mtu - new_header_size))
+    104: 		goto drop;
+    105: 
+    106: 	hh_len = LL_RESERVED_SPACE(out_dev);
+    107: 	if (!out_dev->header_ops)
+    108: 		hh_len = 0;
+    109: 
+    110: 	/* Ensure there is enough space for the headers in the skb */
+>>  111: 	if (skb_cow(skb, hh_len + new_header_size))
+    112: 		goto drop;
+    113: 
+    114: 	skb_set_inner_protocol(skb, skb->protocol);
+    115: 	skb_reset_inner_network_header(skb);
+    116: 
+    117: 	skb_push(skb, new_header_size);
+    118: 
+    119: 	skb_reset_network_header(skb);
+    120: 
+    121: 	skb->dev = out_dev;
+    122: 	skb->protocol = htons(ETH_P_MPLS_UC);
+    123: 
+    124: 	/* Push the new labels */
+    125: 	hdr = mpls_hdr(skb);
+    126: 	bos = true;
+    127: 	for (i = tun_encap_info->labels - 1; i >= 0; i--) {
+    128: 		hdr[i] = mpls_entry_encode(tun_encap_info->label[i],
+    129: 					   ttl, 0, bos);
+    130: 		bos = false;
+    131: 	}
+    132: 
+    133: 	mpls_stats_inc_outucastpkts(out_dev, skb);
+    134: 
+    135: 	if (rt) {
+    136: 		if (rt->rt_gw_family == AF_INET6)
+    137: 			err = neigh_xmit(NEIGH_ND_TABLE, out_dev, &rt->rt_gw6,
+    138: 					 skb);
+    139: 		else
+    140: 			err = neigh_xmit(NEIGH_ARP_TABLE, out_dev, &rt->rt_gw4,
+    141: 					 skb);
+    142: 	} else if (rt6) {
+    143: 		if (ipv6_addr_v4mapped(&rt6->rt6i_gateway)) {
+    144: 			/* 6PE (RFC 4798) */
+    145: 			err = neigh_xmit(NEIGH_ARP_TABLE, out_dev, &rt6->rt6i_gateway.s6_addr32[3],
+    146: 					 skb);
+    147: 		} else
+    148: 			err = neigh_xmit(NEIGH_ND_TABLE, out_dev, &rt6->rt6i_gateway,
+    149: 					 skb);
+    150: 	}
+====================================================================================================
+net/netfilter/ipvs/ip_vs_xmit.c:812
+    787: 	if (cp->flags & IP_VS_CONN_F_SYNC && local) {
+    788: 		enum ip_conntrack_info ctinfo;
+    789: 		struct nf_conn *ct = nf_ct_get(skb, &ctinfo);
+    790: 
+    791: 		if (ct) {
+    792: 			IP_VS_DBG_RL_PKT(10, AF_INET, pp, skb, ipvsh->off,
+    793: 					 "ip_vs_nat_xmit(): "
+    794: 					 "stopping DNAT to local address");
+    795: 			goto tx_error;
+    796: 		}
+    797: 	}
+    798: #endif
+    799: 
+    800: 	/* From world but DNAT to loopback address? */
+    801: 	if (local && ipv4_is_loopback(cp->daddr.ip) && was_input) {
+    802: 		IP_VS_DBG_RL_PKT(1, AF_INET, pp, skb, ipvsh->off,
+    803: 				 "ip_vs_nat_xmit(): stopping DNAT to loopback "
+    804: 				 "address");
+    805: 		goto tx_error;
+    806: 	}
+    807: 
+    808: 	/* copy-on-write the packet before mangling it */
+    809: 	if (skb_ensure_writable(skb, sizeof(struct iphdr)))
+    810: 		goto tx_error;
+    811: 
+>>  812: 	if (skb_cow(skb, rt->dst.dev->hard_header_len))
+    813: 		goto tx_error;
+    814: 
+    815: 	/* mangle the packet */
+    816: 	if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp, ipvsh))
+    817: 		goto tx_error;
+    818: 	ip_hdr(skb)->daddr = cp->daddr.ip;
+    819: 	ip_send_check(ip_hdr(skb));
+    820: 
+    821: 	IP_VS_DBG_PKT(10, AF_INET, pp, skb, ipvsh->off, "After DNAT");
+    822: 
+    823: 	/* FIXME: when application helper enlarges the packet and the length
+    824: 	   is larger than the MTU of outgoing device, there will be still
+    825: 	   MTU problem. */
+    826: 
+    827: 	/* Another hack: avoid icmp_send in ip_fragment */
+    828: 	skb->ignore_df = 1;
+    829: 
+    830: 	rc = ip_vs_nat_send_or_cont(NFPROTO_IPV4, skb, cp, local);
+    831: 
+    832: 	return rc;
+    833: 
+    834:   tx_error:
+    835: 	kfree_skb(skb);
+    836: 	return NF_STOLEN;
+    837: }
+    838: 
+    839: #ifdef CONFIG_IP_VS_IPV6
+    840: int
+    841: ip_vs_nat_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+    842: 		  struct ip_vs_protocol *pp, struct ip_vs_iphdr *ipvsh)
+    843: {
+    844: 	struct rt6_info *rt;		/* Route to the other host */
+    845: 	int local, rc;
+    846: 
+    847: 	/* check if it is a connection of no-client-port */
+    848: 	if (unlikely(cp->flags & IP_VS_CONN_F_NO_CPORT && !ipvsh->fragoffs)) {
+    849: 		__be16 _pt, *p;
+    850: 		p = skb_header_pointer(skb, ipvsh->len, sizeof(_pt), &_pt);
+    851: 		if (p == NULL)
+====================================================================================================
+net/netfilter/ipvs/ip_vs_xmit.c:897
+    872: 		enum ip_conntrack_info ctinfo;
+    873: 		struct nf_conn *ct = nf_ct_get(skb, &ctinfo);
+    874: 
+    875: 		if (ct) {
+    876: 			IP_VS_DBG_RL_PKT(10, AF_INET6, pp, skb, ipvsh->off,
+    877: 					 "ip_vs_nat_xmit_v6(): "
+    878: 					 "stopping DNAT to local address");
+    879: 			goto tx_error;
+    880: 		}
+    881: 	}
+    882: #endif
+    883: 
+    884: 	/* From world but DNAT to loopback address? */
+    885: 	if (local && skb->dev && !(skb->dev->flags & IFF_LOOPBACK) &&
+    886: 	    ipv6_addr_type(&cp->daddr.in6) & IPV6_ADDR_LOOPBACK) {
+    887: 		IP_VS_DBG_RL_PKT(1, AF_INET6, pp, skb, ipvsh->off,
+    888: 				 "ip_vs_nat_xmit_v6(): "
+    889: 				 "stopping DNAT to loopback address");
+    890: 		goto tx_error;
+    891: 	}
+    892: 
+    893: 	/* copy-on-write the packet before mangling it */
+    894: 	if (skb_ensure_writable(skb, sizeof(struct ipv6hdr)))
+    895: 		goto tx_error;
+    896: 
+>>  897: 	if (skb_cow(skb, rt->dst.dev->hard_header_len))
+    898: 		goto tx_error;
+    899: 
+    900: 	/* mangle the packet */
+    901: 	if (pp->dnat_handler && !pp->dnat_handler(skb, pp, cp, ipvsh))
+    902: 		goto tx_error;
+    903: 	ipv6_hdr(skb)->daddr = cp->daddr.in6;
+    904: 
+    905: 	IP_VS_DBG_PKT(10, AF_INET6, pp, skb, ipvsh->off, "After DNAT");
+    906: 
+    907: 	/* FIXME: when application helper enlarges the packet and the length
+    908: 	   is larger than the MTU of outgoing device, there will be still
+    909: 	   MTU problem. */
+    910: 
+    911: 	/* Another hack: avoid icmp_send in ip_fragment */
+    912: 	skb->ignore_df = 1;
+    913: 
+    914: 	rc = ip_vs_nat_send_or_cont(NFPROTO_IPV6, skb, cp, local);
+    915: 
+    916: 	return rc;
+    917: 
+    918: tx_error:
+    919: 	kfree_skb(skb);
+    920: 	return NF_STOLEN;
+    921: }
+    922: #endif
+    923: 
+    924: /* When forwarding a packet, we must ensure that we've got enough headroom
+    925:  * for the encapsulation packet in the skb.  This also gives us an
+    926:  * opportunity to figure out what the payload_len, dsfield, ttl, and df
+    927:  * values should be, so that we won't need to look at the old ip header
+    928:  * again
+    929:  */
+    930: static struct sk_buff *
+    931: ip_vs_prepare_tunneled_skb(struct sk_buff *skb, int skb_af,
+    932: 			   unsigned int max_headroom, __u8 *next_protocol,
+    933: 			   __u32 *payload_len, __u8 *dsfield, __u8 *ttl,
+    934: 			   __be16 *df)
+    935: {
+    936: 	struct sk_buff *new_skb = NULL;
+====================================================================================================
+net/netfilter/ipvs/ip_vs_xmit.c:1541
+   1516: 	if (cp->flags & IP_VS_CONN_F_SYNC && local) {
+   1517: 		enum ip_conntrack_info ctinfo;
+   1518: 		struct nf_conn *ct = nf_ct_get(skb, &ctinfo);
+   1519: 
+   1520: 		if (ct) {
+   1521: 			IP_VS_DBG(10, "%s(): "
+   1522: 				  "stopping DNAT to local address %pI4\n",
+   1523: 				  __func__, &cp->daddr.ip);
+   1524: 			goto tx_error;
+   1525: 		}
+   1526: 	}
+   1527: #endif
+   1528: 
+   1529: 	/* From world but DNAT to loopback address? */
+   1530: 	if (local && ipv4_is_loopback(cp->daddr.ip) && was_input) {
+   1531: 		IP_VS_DBG(1, "%s(): "
+   1532: 			  "stopping DNAT to loopback %pI4\n",
+   1533: 			  __func__, &cp->daddr.ip);
+   1534: 		goto tx_error;
+   1535: 	}
+   1536: 
+   1537: 	/* copy-on-write the packet before mangling it */
+   1538: 	if (skb_ensure_writable(skb, offset))
+   1539: 		goto tx_error;
+   1540: 
+>> 1541: 	if (skb_cow(skb, rt->dst.dev->hard_header_len))
+   1542: 		goto tx_error;
+   1543: 
+   1544: 	ip_vs_nat_icmp(skb, pp, cp, 0);
+   1545: 
+   1546: 	/* Another hack: avoid icmp_send in ip_fragment */
+   1547: 	skb->ignore_df = 1;
+   1548: 
+   1549: 	return ip_vs_nat_send_or_cont(NFPROTO_IPV4, skb, cp, local);
+   1550: 
+   1551:   tx_error:
+   1552: 	kfree_skb(skb);
+   1553: 	rc = NF_STOLEN;
+   1554: 	return rc;
+   1555: }
+   1556: 
+   1557: #ifdef CONFIG_IP_VS_IPV6
+   1558: int
+   1559: ip_vs_icmp_xmit_v6(struct sk_buff *skb, struct ip_vs_conn *cp,
+   1560: 		struct ip_vs_protocol *pp, int offset, unsigned int hooknum,
+   1561: 		struct ip_vs_iphdr *ipvsh)
+   1562: {
+   1563: 	struct rt6_info	*rt;	/* Route to the other host */
+   1564: 	int rc;
+   1565: 	int local;
+   1566: 	int rt_mode;
+   1567: 
+   1568: 	/* The ICMP packet for VS/TUN, VS/DR and LOCALNODE will be
+   1569: 	   forwarded directly here, because there is no need to
+   1570: 	   translate address/port back */
+   1571: 	if (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ) {
+   1572: 		if (cp->packet_xmit)
+   1573: 			rc = cp->packet_xmit(skb, cp, pp, ipvsh);
+   1574: 		else
+   1575: 			rc = NF_ACCEPT;
+   1576: 		/* do not touch skb anymore */
+   1577: 		atomic_inc(&cp->in_pkts);
+   1578: 		return rc;
+   1579: 	}
+   1580: 
+====================================================================================================
+net/netfilter/ipvs/ip_vs_xmit.c:1625
+   1600: 		enum ip_conntrack_info ctinfo;
+   1601: 		struct nf_conn *ct = nf_ct_get(skb, &ctinfo);
+   1602: 
+   1603: 		if (ct) {
+   1604: 			IP_VS_DBG(10, "%s(): "
+   1605: 				  "stopping DNAT to local address %pI6\n",
+   1606: 				  __func__, &cp->daddr.in6);
+   1607: 			goto tx_error;
+   1608: 		}
+   1609: 	}
+   1610: #endif
+   1611: 
+   1612: 	/* From world but DNAT to loopback address? */
+   1613: 	if (local && skb->dev && !(skb->dev->flags & IFF_LOOPBACK) &&
+   1614: 	    ipv6_addr_type(&cp->daddr.in6) & IPV6_ADDR_LOOPBACK) {
+   1615: 		IP_VS_DBG(1, "%s(): "
+   1616: 			  "stopping DNAT to loopback %pI6\n",
+   1617: 			  __func__, &cp->daddr.in6);
+   1618: 		goto tx_error;
+   1619: 	}
+   1620: 
+   1621: 	/* copy-on-write the packet before mangling it */
+   1622: 	if (skb_ensure_writable(skb, offset))
+   1623: 		goto tx_error;
+   1624: 
+>> 1625: 	if (skb_cow(skb, rt->dst.dev->hard_header_len))
+   1626: 		goto tx_error;
+   1627: 
+   1628: 	ip_vs_nat_icmp_v6(skb, pp, cp, 0);
+   1629: 
+   1630: 	/* Another hack: avoid icmp_send in ip_fragment */
+   1631: 	skb->ignore_df = 1;
+   1632: 
+   1633: 	return ip_vs_nat_send_or_cont(NFPROTO_IPV6, skb, cp, local);
+   1634: 
+   1635: tx_error:
+   1636: 	kfree_skb(skb);
+   1637: 	rc = NF_STOLEN;
+   1638: 	return rc;
+   1639: }
+   1640: #endif
+====================================================================================================
+net/ipv6/exthdrs.c:267
+    242: 
+    243: 	hao = (struct ipv6_destopt_hao *)(skb_network_header(skb) + optoff);
+    244: 
+    245: 	if (hao->length != 16) {
+    246: 		net_dbg_ratelimited("hao invalid option length = %d\n",
+    247: 				    hao->length);
+    248: 		SKB_DR_SET(reason, IP_INHDR);
+    249: 		goto discard;
+    250: 	}
+    251: 
+    252: 	if (!(ipv6_addr_type(&hao->addr) & IPV6_ADDR_UNICAST)) {
+    253: 		net_dbg_ratelimited("hao is not an unicast addr: %pI6\n",
+    254: 				    &hao->addr);
+    255: 		SKB_DR_SET(reason, INVALID_PROTO);
+    256: 		goto discard;
+    257: 	}
+    258: 
+    259: 	ret = xfrm6_input_addr(skb, (xfrm_address_t *)&ipv6h->daddr,
+    260: 			       (xfrm_address_t *)&hao->addr, IPPROTO_DSTOPTS);
+    261: 	if (unlikely(ret < 0)) {
+    262: 		SKB_DR_SET(reason, XFRM_POLICY);
+    263: 		goto discard;
+    264: 	}
+    265: 
+    266: 	if (skb_cloned(skb)) {
+>>  267: 		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC))
+    268: 			goto discard;
+    269: 
+    270: 		/* update all variable using below by copied skbuff */
+    271: 		hao = (struct ipv6_destopt_hao *)(skb_network_header(skb) +
+    272: 						  optoff);
+    273: 		ipv6h = ipv6_hdr(skb);
+    274: 	}
+    275: 
+    276: 	if (skb->ip_summed == CHECKSUM_COMPLETE)
+    277: 		skb->ip_summed = CHECKSUM_NONE;
+    278: 
+    279: 	swap(ipv6h->saddr, hao->addr);
+    280: 
+    281: 	if (skb->tstamp == 0)
+    282: 		__net_timestamp(skb);
+    283: 
+    284: 	return true;
+    285: 
+    286:  discard:
+    287: 	kfree_skb_reason(skb, reason);
+    288: 	return false;
+    289: }
+    290: #endif
+    291: 
+    292: static int ipv6_destopt_rcv(struct sk_buff *skb)
+    293: {
+    294: 	struct inet6_dev *idev = __in6_dev_get(skb->dev);
+    295: 	struct inet6_skb_parm *opt = IP6CB(skb);
+    296: #if IS_ENABLED(CONFIG_IPV6_MIP6)
+    297: 	__u16 dstbuf;
+    298: #endif
+    299: 	struct dst_entry *dst = skb_dst(skb);
+    300: 	struct net *net = dev_net(skb->dev);
+    301: 	int extlen;
+    302: 
+    303: 	if (!pskb_may_pull(skb, skb_transport_offset(skb) + 8) ||
+    304: 	    !pskb_may_pull(skb, (skb_transport_offset(skb) +
+    305: 				 ((skb_transport_header(skb)[1] + 1) << 3)))) {
+    306: 		__IP6_INC_STATS(dev_net(dst->dev), idev,
+====================================================================================================
+net/ipv6/exthdrs.c:434
+    409: 			if (hdr->nexthdr == NEXTHDR_IPV4)
+    410: 				skb->protocol = htons(ETH_P_IP);
+    411: 			__skb_tunnel_rx(skb, skb->dev, net);
+    412: 
+    413: 			netif_rx(skb);
+    414: 			return -1;
+    415: 		}
+    416: 
+    417: 		opt->srcrt = skb_network_header_len(skb);
+    418: 		opt->lastopt = opt->srcrt;
+    419: 		skb->transport_header += (hdr->hdrlen + 1) << 3;
+    420: 		opt->nhoff = (&hdr->nexthdr) - skb_network_header(skb);
+    421: 
+    422: 		return 1;
+    423: 	}
+    424: 
+    425: 	if (hdr->segments_left >= (hdr->hdrlen >> 1)) {
+    426: 		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
+    427: 		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD,
+    428: 				  ((&hdr->segments_left) -
+    429: 				   skb_network_header(skb)));
+    430: 		return -1;
+    431: 	}
+    432: 
+    433: 	if (skb_cloned(skb)) {
+>>  434: 		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
+    435: 			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+    436: 					IPSTATS_MIB_OUTDISCARDS);
+    437: 			kfree_skb(skb);
+    438: 			return -1;
+    439: 		}
+    440: 
+    441: 		hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);
+    442: 	}
+    443: 
+    444: 	hdr->segments_left--;
+    445: 	addr = hdr->segments + hdr->segments_left;
+    446: 
+    447: 	skb_push(skb, sizeof(struct ipv6hdr));
+    448: 
+    449: 	if (skb->ip_summed == CHECKSUM_COMPLETE)
+    450: 		seg6_update_csum(skb);
+    451: 
+    452: 	ipv6_hdr(skb)->daddr = *addr;
+    453: 
+    454: 	ip6_route_input(skb);
+    455: 
+    456: 	if (skb_dst(skb)->error) {
+    457: 		dst_input(skb);
+    458: 		return -1;
+    459: 	}
+    460: 
+    461: 	if (skb_dst(skb)->dev->flags & IFF_LOOPBACK) {
+    462: 		if (ipv6_hdr(skb)->hop_limit <= 1) {
+    463: 			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
+    464: 			icmpv6_send(skb, ICMPV6_TIME_EXCEED,
+    465: 				    ICMPV6_EXC_HOPLIMIT, 0);
+    466: 			kfree_skb(skb);
+    467: 			return -1;
+    468: 		}
+    469: 		ipv6_hdr(skb)->hop_limit--;
+    470: 
+    471: 		skb_pull(skb, sizeof(struct ipv6hdr));
+    472: 		goto looped_back;
+    473: 	}
+====================================================================================================
+net/ipv6/exthdrs.c:591
+    566: 
+    567: 	if (ipv6_addr_is_multicast(&ohdr->rpl_segaddr[i])) {
+    568: 		kfree_skb(skb);
+    569: 		kfree(buf);
+    570: 		return -1;
+    571: 	}
+    572: 
+    573: 	err = ipv6_chk_rpl_srh_loop(net, ohdr->rpl_segaddr, n + 1);
+    574: 	if (err) {
+    575: 		icmpv6_send(skb, ICMPV6_PARAMPROB, 0, 0);
+    576: 		kfree_skb(skb);
+    577: 		kfree(buf);
+    578: 		return -1;
+    579: 	}
+    580: 
+    581: 	swap(ipv6_hdr(skb)->daddr, ohdr->rpl_segaddr[i]);
+    582: 
+    583: 	ipv6_rpl_srh_compress(chdr, ohdr, &ipv6_hdr(skb)->daddr, n);
+    584: 
+    585: 	oldhdr = ipv6_hdr(skb);
+    586: 
+    587: 	skb_pull(skb, ((hdr->hdrlen + 1) << 3));
+    588: 	skb_postpull_rcsum(skb, oldhdr,
+    589: 			   sizeof(struct ipv6hdr) + ((hdr->hdrlen + 1) << 3));
+    590: 	if (unlikely(!hdr->segments_left)) {
+>>  591: 		if (pskb_expand_head(skb, sizeof(struct ipv6hdr) + ((chdr->hdrlen + 1) << 3), 0,
+    592: 				     GFP_ATOMIC)) {
+    593: 			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)), IPSTATS_MIB_OUTDISCARDS);
+    594: 			kfree_skb(skb);
+    595: 			kfree(buf);
+    596: 			return -1;
+    597: 		}
+    598: 
+    599: 		oldhdr = ipv6_hdr(skb);
+    600: 	}
+    601: 	skb_push(skb, ((chdr->hdrlen + 1) << 3) + sizeof(struct ipv6hdr));
+    602: 	skb_reset_network_header(skb);
+    603: 	skb_mac_header_rebuild(skb);
+    604: 	skb_set_transport_header(skb, sizeof(struct ipv6hdr));
+    605: 
+    606: 	memmove(ipv6_hdr(skb), oldhdr, sizeof(struct ipv6hdr));
+    607: 	memcpy(skb_transport_header(skb), chdr, (chdr->hdrlen + 1) << 3);
+    608: 
+    609: 	ipv6_hdr(skb)->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
+    610: 	skb_postpush_rcsum(skb, ipv6_hdr(skb),
+    611: 			   sizeof(struct ipv6hdr) + ((chdr->hdrlen + 1) << 3));
+    612: 
+    613: 	kfree(buf);
+    614: 
+    615: 	ip6_route_input(skb);
+    616: 
+    617: 	if (skb_dst(skb)->error) {
+    618: 		dst_input(skb);
+    619: 		return -1;
+    620: 	}
+    621: 
+    622: 	if (skb_dst(skb)->dev->flags & IFF_LOOPBACK) {
+    623: 		if (ipv6_hdr(skb)->hop_limit <= 1) {
+    624: 			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
+    625: 			icmpv6_send(skb, ICMPV6_TIME_EXCEED,
+    626: 				    ICMPV6_EXC_HOPLIMIT, 0);
+    627: 			kfree_skb(skb);
+    628: 			return -1;
+    629: 		}
+    630: 		ipv6_hdr(skb)->hop_limit--;
+====================================================================================================
+net/ipv6/exthdrs.c:753
+    728: #endif
+    729: 	default:
+    730: 		goto unknown_rh;
+    731: 	}
+    732: 
+    733: 	/*
+    734: 	 *	This is the routing header forwarding algorithm from
+    735: 	 *	RFC 2460, page 16.
+    736: 	 */
+    737: 
+    738: 	n = hdr->hdrlen >> 1;
+    739: 
+    740: 	if (hdr->segments_left > n) {
+    741: 		__IP6_INC_STATS(net, idev, IPSTATS_MIB_INHDRERRORS);
+    742: 		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD,
+    743: 				  ((&hdr->segments_left) -
+    744: 				   skb_network_header(skb)));
+    745: 		return -1;
+    746: 	}
+    747: 
+    748: 	/* We are about to mangle packet header. Be careful!
+    749: 	   Do not damage packets queued somewhere.
+    750: 	 */
+    751: 	if (skb_cloned(skb)) {
+    752: 		/* the copy is a forwarded packet */
+>>  753: 		if (pskb_expand_head(skb, 0, 0, GFP_ATOMIC)) {
+    754: 			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
+    755: 					IPSTATS_MIB_OUTDISCARDS);
+    756: 			kfree_skb(skb);
+    757: 			return -1;
+    758: 		}
+    759: 		hdr = (struct ipv6_rt_hdr *)skb_transport_header(skb);
+    760: 	}
+    761: 
+    762: 	if (skb->ip_summed == CHECKSUM_COMPLETE)
+    763: 		skb->ip_summed = CHECKSUM_NONE;
+    764: 
+    765: 	i = n - --hdr->segments_left;
+    766: 
+    767: 	rthdr = (struct rt0_hdr *) hdr;
+    768: 	addr = rthdr->addr;
+    769: 	addr += i - 1;
+    770: 
+    771: 	switch (hdr->type) {
+    772: #if IS_ENABLED(CONFIG_IPV6_MIP6)
+    773: 	case IPV6_SRCRT_TYPE_2:
+    774: 		if (xfrm6_input_addr(skb, (xfrm_address_t *)addr,
+    775: 				     (xfrm_address_t *)&ipv6_hdr(skb)->saddr,
+    776: 				     IPPROTO_ROUTING) < 0) {
+    777: 			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
+    778: 			kfree_skb(skb);
+    779: 			return -1;
+    780: 		}
+    781: 		if (!ipv6_chk_home_addr(dev_net(skb_dst(skb)->dev), addr)) {
+    782: 			__IP6_INC_STATS(net, idev, IPSTATS_MIB_INADDRERRORS);
+    783: 			kfree_skb(skb);
+    784: 			return -1;
+    785: 		}
+    786: 		break;
+    787: #endif
+    788: 	default:
+    789: 		break;
+    790: 	}
+    791: 
+    792: 	if (ipv6_addr_is_multicast(addr)) {
+====================================================================================================
+net/ipv6/rpl_iptunnel.c:156
+    131: 	const struct ipv6hdr *oldhdr;
+    132: 	struct ipv6hdr *hdr;
+    133: 	unsigned char *buf;
+    134: 	size_t hdrlen;
+    135: 	int err;
+    136: 
+    137: 	oldhdr = ipv6_hdr(skb);
+    138: 
+    139: 	buf = kcalloc(struct_size(srh, segments.addr, srh->segments_left), 2, GFP_ATOMIC);
+    140: 	if (!buf)
+    141: 		return -ENOMEM;
+    142: 
+    143: 	isrh = (struct ipv6_rpl_sr_hdr *)buf;
+    144: 	csrh = (struct ipv6_rpl_sr_hdr *)(buf + ((srh->hdrlen + 1) << 3));
+    145: 
+    146: 	memcpy(isrh, srh, sizeof(*isrh));
+    147: 	memcpy(isrh->rpl_segaddr, &srh->rpl_segaddr[1],
+    148: 	       (srh->segments_left - 1) * 16);
+    149: 	isrh->rpl_segaddr[srh->segments_left - 1] = oldhdr->daddr;
+    150: 
+    151: 	ipv6_rpl_srh_compress(csrh, isrh, &srh->rpl_segaddr[0],
+    152: 			      isrh->segments_left - 1);
+    153: 
+    154: 	hdrlen = ((csrh->hdrlen + 1) << 3);
+    155: 
+>>  156: 	err = skb_cow_head(skb, hdrlen + skb->mac_len);
+    157: 	if (unlikely(err)) {
+    158: 		kfree(buf);
+    159: 		return err;
+    160: 	}
+    161: 
+    162: 	skb_pull(skb, sizeof(struct ipv6hdr));
+    163: 	skb_postpull_rcsum(skb, skb_network_header(skb),
+    164: 			   sizeof(struct ipv6hdr));
+    165: 
+    166: 	skb_push(skb, sizeof(struct ipv6hdr) + hdrlen);
+    167: 	skb_reset_network_header(skb);
+    168: 	skb_mac_header_rebuild(skb);
+    169: 
+    170: 	hdr = ipv6_hdr(skb);
+    171: 	memmove(hdr, oldhdr, sizeof(*hdr));
+    172: 	isrh = (void *)hdr + sizeof(*hdr);
+    173: 	memcpy(isrh, csrh, hdrlen);
+    174: 
+    175: 	isrh->nexthdr = hdr->nexthdr;
+    176: 	hdr->nexthdr = NEXTHDR_ROUTING;
+    177: 	hdr->daddr = srh->rpl_segaddr[0];
+    178: 
+    179: 	ipv6_hdr(skb)->payload_len = htons(skb->len - sizeof(struct ipv6hdr));
+    180: 	skb_set_transport_header(skb, sizeof(struct ipv6hdr));
+    181: 
+    182: 	skb_postpush_rcsum(skb, hdr, sizeof(struct ipv6hdr) + hdrlen);
+    183: 
+    184: 	kfree(buf);
+    185: 
+    186: 	return 0;
+    187: }
+    188: 
+    189: static int rpl_do_srh(struct sk_buff *skb, const struct rpl_lwt *rlwt)
+    190: {
+    191: 	struct dst_entry *dst = skb_dst(skb);
+    192: 	struct rpl_iptunnel_encap *tinfo;
+    193: 
+    194: 	if (skb->protocol != htons(ETH_P_IPV6))
+    195: 		return -EINVAL;
+====================================================================================================
+net/ipv6/rpl_iptunnel.c:245
+    220: 		struct ipv6hdr *hdr = ipv6_hdr(skb);
+    221: 		struct flowi6 fl6;
+    222: 
+    223: 		memset(&fl6, 0, sizeof(fl6));
+    224: 		fl6.daddr = hdr->daddr;
+    225: 		fl6.saddr = hdr->saddr;
+    226: 		fl6.flowlabel = ip6_flowinfo(hdr);
+    227: 		fl6.flowi6_mark = skb->mark;
+    228: 		fl6.flowi6_proto = hdr->nexthdr;
+    229: 
+    230: 		dst = ip6_route_output(net, NULL, &fl6);
+    231: 		if (dst->error) {
+    232: 			err = dst->error;
+    233: 			dst_release(dst);
+    234: 			goto drop;
+    235: 		}
+    236: 
+    237: 		preempt_disable();
+    238: 		dst_cache_set_ip6(&rlwt->cache, dst, &fl6.saddr);
+    239: 		preempt_enable();
+    240: 	}
+    241: 
+    242: 	skb_dst_drop(skb);
+    243: 	skb_dst_set(skb, dst);
+    244: 
+>>  245: 	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst->dev));
+    246: 	if (unlikely(err))
+    247: 		goto drop;
+    248: 
+    249: 	return dst_output(net, sk, skb);
+    250: 
+    251: drop:
+    252: 	kfree_skb(skb);
+    253: 	return err;
+    254: }
+    255: 
+    256: static int rpl_input(struct sk_buff *skb)
+    257: {
+    258: 	struct dst_entry *orig_dst = skb_dst(skb);
+    259: 	struct dst_entry *dst = NULL;
+    260: 	struct rpl_lwt *rlwt;
+    261: 	int err;
+    262: 
+    263: 	rlwt = rpl_lwt_lwtunnel(orig_dst->lwtstate);
+    264: 
+    265: 	err = rpl_do_srh(skb, rlwt);
+    266: 	if (unlikely(err)) {
+    267: 		kfree_skb(skb);
+    268: 		return err;
+    269: 	}
+    270: 
+    271: 	preempt_disable();
+    272: 	dst = dst_cache_get(&rlwt->cache);
+    273: 	preempt_enable();
+    274: 
+    275: 	if (!dst) {
+    276: 		ip6_route_input(skb);
+    277: 		dst = skb_dst(skb);
+    278: 		if (!dst->error) {
+    279: 			preempt_disable();
+    280: 			dst_cache_set_ip6(&rlwt->cache, dst,
+    281: 					  &ipv6_hdr(skb)->saddr);
+    282: 			preempt_enable();
+    283: 		}
+    284: 	} else {
+====================================================================================================
+net/ipv6/rpl_iptunnel.c:289
+    264: 
+    265: 	err = rpl_do_srh(skb, rlwt);
+    266: 	if (unlikely(err)) {
+    267: 		kfree_skb(skb);
+    268: 		return err;
+    269: 	}
+    270: 
+    271: 	preempt_disable();
+    272: 	dst = dst_cache_get(&rlwt->cache);
+    273: 	preempt_enable();
+    274: 
+    275: 	if (!dst) {
+    276: 		ip6_route_input(skb);
+    277: 		dst = skb_dst(skb);
+    278: 		if (!dst->error) {
+    279: 			preempt_disable();
+    280: 			dst_cache_set_ip6(&rlwt->cache, dst,
+    281: 					  &ipv6_hdr(skb)->saddr);
+    282: 			preempt_enable();
+    283: 		}
+    284: 	} else {
+    285: 		skb_dst_drop(skb);
+    286: 		skb_dst_set(skb, dst);
+    287: 	}
+    288: 
+>>  289: 	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst->dev));
+    290: 	if (unlikely(err))
+    291: 		return err;
+    292: 
+    293: 	return dst_input(skb);
+    294: }
+    295: 
+    296: static int nla_put_rpl_srh(struct sk_buff *skb, int attrtype,
+    297: 			   struct rpl_iptunnel_encap *tuninfo)
+    298: {
+    299: 	struct rpl_iptunnel_encap *data;
+    300: 	struct nlattr *nla;
+    301: 	int len;
+    302: 
+    303: 	len = RPL_IPTUNNEL_SRH_SIZE(tuninfo->srh);
+    304: 
+    305: 	nla = nla_reserve(skb, attrtype, len);
+    306: 	if (!nla)
+    307: 		return -EMSGSIZE;
+    308: 
+    309: 	data = nla_data(nla);
+    310: 	memcpy(data, tuninfo->srh, len);
+    311: 
+    312: 	return 0;
+    313: }
+    314: 
+    315: static int rpl_fill_encap_info(struct sk_buff *skb,
+    316: 			       struct lwtunnel_state *lwtstate)
+    317: {
+    318: 	struct rpl_iptunnel_encap *tuninfo = rpl_encap_lwtunnel(lwtstate);
+    319: 
+    320: 	if (nla_put_rpl_srh(skb, RPL_IPTUNNEL_SRH, tuninfo))
+    321: 		return -EMSGSIZE;
+    322: 
+    323: 	return 0;
+    324: }
+    325: 
+    326: static int rpl_encap_nlsize(struct lwtunnel_state *lwtstate)
+    327: {
+    328: 	struct rpl_iptunnel_encap *tuninfo = rpl_encap_lwtunnel(lwtstate);
+====================================================================================================
+net/ipv4/ip_tunnel_core.c:215
+    190:  * @skb:	Original packet with L2 header
+    191:  * @mtu:	MTU value for ICMP error
+    192:  *
+    193:  * Return: length on success, negative error code if message couldn't be built.
+    194:  */
+    195: static int iptunnel_pmtud_build_icmp(struct sk_buff *skb, int mtu)
+    196: {
+    197: 	const struct iphdr *iph = ip_hdr(skb);
+    198: 	struct icmphdr *icmph;
+    199: 	struct iphdr *niph;
+    200: 	struct ethhdr eh;
+    201: 	int len, err;
+    202: 
+    203: 	if (!pskb_may_pull(skb, ETH_HLEN + sizeof(struct iphdr)))
+    204: 		return -EINVAL;
+    205: 
+    206: 	skb_copy_bits(skb, skb_mac_offset(skb), &eh, ETH_HLEN);
+    207: 	pskb_pull(skb, ETH_HLEN);
+    208: 	skb_reset_network_header(skb);
+    209: 
+    210: 	err = pskb_trim(skb, 576 - sizeof(*niph) - sizeof(*icmph));
+    211: 	if (err)
+    212: 		return err;
+    213: 
+    214: 	len = skb->len + sizeof(*icmph);
+>>  215: 	err = skb_cow(skb, sizeof(*niph) + sizeof(*icmph) + ETH_HLEN);
+    216: 	if (err)
+    217: 		return err;
+    218: 
+    219: 	icmph = skb_push(skb, sizeof(*icmph));
+    220: 	*icmph = (struct icmphdr) {
+    221: 		.type			= ICMP_DEST_UNREACH,
+    222: 		.code			= ICMP_FRAG_NEEDED,
+    223: 		.checksum		= 0,
+    224: 		.un.frag.__unused	= 0,
+    225: 		.un.frag.mtu		= htons(mtu),
+    226: 	};
+    227: 	icmph->checksum = csum_fold(skb_checksum(skb, 0, len, 0));
+    228: 	skb_reset_transport_header(skb);
+    229: 
+    230: 	niph = skb_push(skb, sizeof(*niph));
+    231: 	*niph = (struct iphdr) {
+    232: 		.ihl			= sizeof(*niph) / 4u,
+    233: 		.version 		= 4,
+    234: 		.tos 			= 0,
+    235: 		.tot_len		= htons(len + sizeof(*niph)),
+    236: 		.id			= 0,
+    237: 		.frag_off		= htons(IP_DF),
+    238: 		.ttl			= iph->ttl,
+    239: 		.protocol		= IPPROTO_ICMP,
+    240: 		.saddr			= iph->daddr,
+    241: 		.daddr			= iph->saddr,
+    242: 	};
+    243: 	ip_send_check(niph);
+    244: 	skb_reset_network_header(skb);
+    245: 
+    246: 	skb->ip_summed = CHECKSUM_NONE;
+    247: 
+    248: 	eth_header(skb, skb->dev, ntohs(eh.h_proto), eh.h_source, eh.h_dest, 0);
+    249: 	skb_reset_mac_header(skb);
+    250: 
+    251: 	return skb->len;
+    252: }
+    253: 
+    254: /**
+====================================================================================================
+net/ipv4/ip_tunnel_core.c:309
+    284:  * @mtu:	MTU value for ICMPv6 error
+    285:  *
+    286:  * Return: length on success, negative error code if message couldn't be built.
+    287:  */
+    288: static int iptunnel_pmtud_build_icmpv6(struct sk_buff *skb, int mtu)
+    289: {
+    290: 	const struct ipv6hdr *ip6h = ipv6_hdr(skb);
+    291: 	struct icmp6hdr *icmp6h;
+    292: 	struct ipv6hdr *nip6h;
+    293: 	struct ethhdr eh;
+    294: 	int len, err;
+    295: 	__wsum csum;
+    296: 
+    297: 	if (!pskb_may_pull(skb, ETH_HLEN + sizeof(struct ipv6hdr)))
+    298: 		return -EINVAL;
+    299: 
+    300: 	skb_copy_bits(skb, skb_mac_offset(skb), &eh, ETH_HLEN);
+    301: 	pskb_pull(skb, ETH_HLEN);
+    302: 	skb_reset_network_header(skb);
+    303: 
+    304: 	err = pskb_trim(skb, IPV6_MIN_MTU - sizeof(*nip6h) - sizeof(*icmp6h));
+    305: 	if (err)
+    306: 		return err;
+    307: 
+    308: 	len = skb->len + sizeof(*icmp6h);
+>>  309: 	err = skb_cow(skb, sizeof(*nip6h) + sizeof(*icmp6h) + ETH_HLEN);
+    310: 	if (err)
+    311: 		return err;
+    312: 
+    313: 	icmp6h = skb_push(skb, sizeof(*icmp6h));
+    314: 	*icmp6h = (struct icmp6hdr) {
+    315: 		.icmp6_type		= ICMPV6_PKT_TOOBIG,
+    316: 		.icmp6_code		= 0,
+    317: 		.icmp6_cksum		= 0,
+    318: 		.icmp6_mtu		= htonl(mtu),
+    319: 	};
+    320: 	skb_reset_transport_header(skb);
+    321: 
+    322: 	nip6h = skb_push(skb, sizeof(*nip6h));
+    323: 	*nip6h = (struct ipv6hdr) {
+    324: 		.priority		= 0,
+    325: 		.version		= 6,
+    326: 		.flow_lbl		= { 0 },
+    327: 		.payload_len		= htons(len),
+    328: 		.nexthdr		= IPPROTO_ICMPV6,
+    329: 		.hop_limit		= ip6h->hop_limit,
+    330: 		.saddr			= ip6h->daddr,
+    331: 		.daddr			= ip6h->saddr,
+    332: 	};
+    333: 	skb_reset_network_header(skb);
+    334: 
+    335: 	csum = csum_partial(icmp6h, len, 0);
+    336: 	icmp6h->icmp6_cksum = csum_ipv6_magic(&nip6h->saddr, &nip6h->daddr, len,
+    337: 					      IPPROTO_ICMPV6, csum);
+    338: 
+    339: 	skb->ip_summed = CHECKSUM_NONE;
+    340: 
+    341: 	eth_header(skb, skb->dev, ntohs(eh.h_proto), eh.h_source, eh.h_dest, 0);
+    342: 	skb_reset_mac_header(skb);
+    343: 
+    344: 	return skb->len;
+    345: }
+    346: 
+    347: /**
+    348:  * iptunnel_pmtud_check_icmpv6() - Trigger ICMPv6 reply if needed and allowed
+====================================================================================================
+net/ipv4/ah4.c:346
+    321: 	if (!pskb_may_pull(skb, sizeof(*ah)))
+    322: 		goto out;
+    323: 
+    324: 	ah = (struct ip_auth_hdr *)skb->data;
+    325: 	ahp = x->data;
+    326: 	ahash = ahp->ahash;
+    327: 
+    328: 	nexthdr = ah->nexthdr;
+    329: 	ah_hlen = (ah->hdrlen + 2) << 2;
+    330: 
+    331: 	if (x->props.flags & XFRM_STATE_ALIGN4) {
+    332: 		if (ah_hlen != XFRM_ALIGN4(sizeof(*ah) + ahp->icv_full_len) &&
+    333: 		    ah_hlen != XFRM_ALIGN4(sizeof(*ah) + ahp->icv_trunc_len))
+    334: 			goto out;
+    335: 	} else {
+    336: 		if (ah_hlen != XFRM_ALIGN8(sizeof(*ah) + ahp->icv_full_len) &&
+    337: 		    ah_hlen != XFRM_ALIGN8(sizeof(*ah) + ahp->icv_trunc_len))
+    338: 			goto out;
+    339: 	}
+    340: 
+    341: 	if (!pskb_may_pull(skb, ah_hlen))
+    342: 		goto out;
+    343: 
+    344: 	/* We are going to _remove_ AH header to keep sockets happy,
+    345: 	 * so... Later this can change. */
+>>  346: 	if (skb_unclone(skb, GFP_ATOMIC))
+    347: 		goto out;
+    348: 
+    349: 	skb->ip_summed = CHECKSUM_NONE;
+    350: 
+    351: 
+    352: 	if ((err = skb_cow_data(skb, 0, &trailer)) < 0)
+    353: 		goto out;
+    354: 	nfrags = err;
+    355: 
+    356: 	ah = (struct ip_auth_hdr *)skb->data;
+    357: 	iph = ip_hdr(skb);
+    358: 	ihl = ip_hdrlen(skb);
+    359: 
+    360: 	if (x->props.flags & XFRM_STATE_ESN) {
+    361: 		sglists = 1;
+    362: 		seqhi_len = sizeof(*seqhi);
+    363: 	}
+    364: 
+    365: 	work_iph = ah_alloc_tmp(ahash, nfrags + sglists, ihl +
+    366: 				ahp->icv_trunc_len + seqhi_len);
+    367: 	if (!work_iph) {
+    368: 		err = -ENOMEM;
+    369: 		goto out;
+    370: 	}
+    371: 
+    372: 	seqhi = (__be32 *)((char *)work_iph + ihl);
+    373: 	auth_data = ah_tmp_auth(seqhi, seqhi_len);
+    374: 	icv = ah_tmp_icv(auth_data, ahp->icv_trunc_len);
+    375: 	req = ah_tmp_req(ahash, icv);
+    376: 	sg = ah_req_sg(ahash, req);
+    377: 	seqhisg = sg + nfrags;
+    378: 
+    379: 	memcpy(work_iph, iph, ihl);
+    380: 	memcpy(auth_data, ah->auth_data, ahp->icv_trunc_len);
+    381: 	memset(ah->auth_data, 0, ahp->icv_trunc_len);
+    382: 
+    383: 	iph->ttl = 0;
+    384: 	iph->tos = 0;
+    385: 	iph->frag_off = 0;
+====================================================================================================
+net/mac80211/rx.c:2914
+   2889: 
+   2890: 		return RX_DROP_MONITOR;
+   2891: 	}
+   2892: 
+   2893: 	skb_set_queue_mapping(skb, ieee802_1d_to_ac[skb->priority]);
+   2894: 
+   2895: 	if (!multicast &&
+   2896: 	    ieee80211_rx_mesh_fast_forward(sdata, skb, mesh_hdrlen))
+   2897: 		return RX_QUEUED;
+   2898: 
+   2899: 	ieee80211_fill_mesh_addresses(&hdr, &hdr.frame_control,
+   2900: 				      eth->h_dest, eth->h_source);
+   2901: 	hdrlen = ieee80211_hdrlen(hdr.frame_control);
+   2902: 	if (multicast) {
+   2903: 		int extra_head = sizeof(struct ieee80211_hdr) - sizeof(*eth);
+   2904: 
+   2905: 		fwd_skb = skb_copy_expand(skb, local->tx_headroom + extra_head +
+   2906: 					       IEEE80211_ENCRYPT_HEADROOM,
+   2907: 					  tailroom, GFP_ATOMIC);
+   2908: 		if (!fwd_skb)
+   2909: 			goto rx_accept;
+   2910: 	} else {
+   2911: 		fwd_skb = skb;
+   2912: 		skb = NULL;
+   2913: 
+>> 2914: 		if (skb_cow_head(fwd_skb, hdrlen - sizeof(struct ethhdr)))
+   2915: 			return RX_DROP_U_OOM;
+   2916: 
+   2917: 		if (skb_linearize(fwd_skb))
+   2918: 			return RX_DROP_U_OOM;
+   2919: 	}
+   2920: 
+   2921: 	fwd_hdr = skb_push(fwd_skb, hdrlen - sizeof(struct ethhdr));
+   2922: 	memcpy(fwd_hdr, &hdr, hdrlen - 2);
+   2923: 	qos = ieee80211_get_qos_ctl(fwd_hdr);
+   2924: 	qos[0] = qos[1] = 0;
+   2925: 
+   2926: 	skb_reset_mac_header(fwd_skb);
+   2927: 	hdrlen += mesh_hdrlen;
+   2928: 	if (ieee80211_get_8023_tunnel_proto(fwd_skb->data + hdrlen,
+   2929: 					    &fwd_skb->protocol))
+   2930: 		hdrlen += ETH_ALEN;
+   2931: 	else
+   2932: 		fwd_skb->protocol = htons(fwd_skb->len - hdrlen);
+   2933: 	skb_set_network_header(fwd_skb, hdrlen + 2);
+   2934: 
+   2935: 	info = IEEE80211_SKB_CB(fwd_skb);
+   2936: 	memset(info, 0, sizeof(*info));
+   2937: 	info->control.flags |= IEEE80211_TX_INTCFL_NEED_TXPROCESSING;
+   2938: 	info->control.vif = &sdata->vif;
+   2939: 	info->control.jiffies = jiffies;
+   2940: 	fwd_skb->dev = sdata->dev;
+   2941: 	if (multicast) {
+   2942: 		IEEE80211_IFSTA_MESH_CTR_INC(ifmsh, fwded_mcast);
+   2943: 		memcpy(fwd_hdr->addr2, sdata->vif.addr, ETH_ALEN);
+   2944: 		/* update power mode indication when forwarding */
+   2945: 		ieee80211_mps_set_frame_flags(sdata, NULL, fwd_hdr);
+   2946: 	} else if (!mesh_nexthop_lookup(sdata, fwd_skb)) {
+   2947: 		/* mesh power mode flags updated in mesh_nexthop_lookup */
+   2948: 		IEEE80211_IFSTA_MESH_CTR_INC(ifmsh, fwded_unicast);
+   2949: 	} else {
+   2950: 		/* unable to resolve next hop */
+   2951: 		if (sta)
+   2952: 			mesh_path_error_tx(sdata, ifmsh->mshcfg.element_ttl,
+   2953: 					   hdr.addr3, 0,
+====================================================================================================
+net/ipv4/ip_gre.c:494
+    469: 	ip_tunnel_xmit(skb, dev, tnl_params, tnl_params->protocol);
+    470: }
+    471: 
+    472: static int gre_handle_offloads(struct sk_buff *skb, bool csum)
+    473: {
+    474: 	return iptunnel_handle_offloads(skb, csum ? SKB_GSO_GRE_CSUM : SKB_GSO_GRE);
+    475: }
+    476: 
+    477: static void gre_fb_xmit(struct sk_buff *skb, struct net_device *dev,
+    478: 			__be16 proto)
+    479: {
+    480: 	struct ip_tunnel *tunnel = netdev_priv(dev);
+    481: 	struct ip_tunnel_info *tun_info;
+    482: 	const struct ip_tunnel_key *key;
+    483: 	int tunnel_hlen;
+    484: 	__be16 flags;
+    485: 
+    486: 	tun_info = skb_tunnel_info(skb);
+    487: 	if (unlikely(!tun_info || !(tun_info->mode & IP_TUNNEL_INFO_TX) ||
+    488: 		     ip_tunnel_info_af(tun_info) != AF_INET))
+    489: 		goto err_free_skb;
+    490: 
+    491: 	key = &tun_info->key;
+    492: 	tunnel_hlen = gre_calc_hlen(key->tun_flags);
+    493: 
+>>  494: 	if (skb_cow_head(skb, dev->needed_headroom))
+    495: 		goto err_free_skb;
+    496: 
+    497: 	/* Push Tunnel header. */
+    498: 	if (gre_handle_offloads(skb, !!(tun_info->key.tun_flags & TUNNEL_CSUM)))
+    499: 		goto err_free_skb;
+    500: 
+    501: 	flags = tun_info->key.tun_flags &
+    502: 		(TUNNEL_CSUM | TUNNEL_KEY | TUNNEL_SEQ);
+    503: 	gre_build_header(skb, tunnel_hlen, flags, proto,
+    504: 			 tunnel_id_to_key32(tun_info->key.tun_id),
+    505: 			 (flags & TUNNEL_SEQ) ? htonl(atomic_fetch_inc(&tunnel->o_seqno)) : 0);
+    506: 
+    507: 	ip_md_tunnel_xmit(skb, dev, IPPROTO_GRE, tunnel_hlen);
+    508: 
+    509: 	return;
+    510: 
+    511: err_free_skb:
+    512: 	kfree_skb(skb);
+    513: 	DEV_STATS_INC(dev, tx_dropped);
+    514: }
+    515: 
+    516: static void erspan_fb_xmit(struct sk_buff *skb, struct net_device *dev)
+    517: {
+    518: 	struct ip_tunnel *tunnel = netdev_priv(dev);
+    519: 	struct ip_tunnel_info *tun_info;
+    520: 	const struct ip_tunnel_key *key;
+    521: 	struct erspan_metadata *md;
+    522: 	bool truncate = false;
+    523: 	__be16 proto;
+    524: 	int tunnel_hlen;
+    525: 	int version;
+    526: 	int nhoff;
+    527: 
+    528: 	tun_info = skb_tunnel_info(skb);
+    529: 	if (unlikely(!tun_info || !(tun_info->mode & IP_TUNNEL_INFO_TX) ||
+    530: 		     ip_tunnel_info_af(tun_info) != AF_INET))
+    531: 		goto err_free_skb;
+    532: 
+    533: 	key = &tun_info->key;
+====================================================================================================
+net/ipv4/ip_gre.c:544
+    519: 	struct ip_tunnel_info *tun_info;
+    520: 	const struct ip_tunnel_key *key;
+    521: 	struct erspan_metadata *md;
+    522: 	bool truncate = false;
+    523: 	__be16 proto;
+    524: 	int tunnel_hlen;
+    525: 	int version;
+    526: 	int nhoff;
+    527: 
+    528: 	tun_info = skb_tunnel_info(skb);
+    529: 	if (unlikely(!tun_info || !(tun_info->mode & IP_TUNNEL_INFO_TX) ||
+    530: 		     ip_tunnel_info_af(tun_info) != AF_INET))
+    531: 		goto err_free_skb;
+    532: 
+    533: 	key = &tun_info->key;
+    534: 	if (!(tun_info->key.tun_flags & TUNNEL_ERSPAN_OPT))
+    535: 		goto err_free_skb;
+    536: 	if (tun_info->options_len < sizeof(*md))
+    537: 		goto err_free_skb;
+    538: 	md = ip_tunnel_info_opts(tun_info);
+    539: 
+    540: 	/* ERSPAN has fixed 8 byte GRE header */
+    541: 	version = md->version;
+    542: 	tunnel_hlen = 8 + erspan_hdr_len(version);
+    543: 
+>>  544: 	if (skb_cow_head(skb, dev->needed_headroom))
+    545: 		goto err_free_skb;
+    546: 
+    547: 	if (gre_handle_offloads(skb, false))
+    548: 		goto err_free_skb;
+    549: 
+    550: 	if (skb->len > dev->mtu + dev->hard_header_len) {
+    551: 		if (pskb_trim(skb, dev->mtu + dev->hard_header_len))
+    552: 			goto err_free_skb;
+    553: 		truncate = true;
+    554: 	}
+    555: 
+    556: 	nhoff = skb_network_offset(skb);
+    557: 	if (skb->protocol == htons(ETH_P_IP) &&
+    558: 	    (ntohs(ip_hdr(skb)->tot_len) > skb->len - nhoff))
+    559: 		truncate = true;
+    560: 
+    561: 	if (skb->protocol == htons(ETH_P_IPV6)) {
+    562: 		int thoff;
+    563: 
+    564: 		if (skb_transport_header_was_set(skb))
+    565: 			thoff = skb_transport_offset(skb);
+    566: 		else
+    567: 			thoff = nhoff + sizeof(struct ipv6hdr);
+    568: 		if (ntohs(ipv6_hdr(skb)->payload_len) > skb->len - thoff)
+    569: 			truncate = true;
+    570: 	}
+    571: 
+    572: 	if (version == 1) {
+    573: 		erspan_build_header(skb, ntohl(tunnel_id_to_key32(key->tun_id)),
+    574: 				    ntohl(md->u.index), truncate, true);
+    575: 		proto = htons(ETH_P_ERSPAN);
+    576: 	} else if (version == 2) {
+    577: 		erspan_build_header_v2(skb,
+    578: 				       ntohl(tunnel_id_to_key32(key->tun_id)),
+    579: 				       md->u.md2.dir,
+    580: 				       get_hwid(&md->u.md2),
+    581: 				       truncate, true);
+    582: 		proto = htons(ETH_P_ERSPAN2);
+    583: 	} else {
+====================================================================================================
+net/ipv4/ip_gre.c:640
+    615: 	if (IS_ERR(rt))
+    616: 		return PTR_ERR(rt);
+    617: 
+    618: 	ip_rt_put(rt);
+    619: 	info->key.u.ipv4.src = fl4.saddr;
+    620: 	return 0;
+    621: }
+    622: 
+    623: static netdev_tx_t ipgre_xmit(struct sk_buff *skb,
+    624: 			      struct net_device *dev)
+    625: {
+    626: 	struct ip_tunnel *tunnel = netdev_priv(dev);
+    627: 	const struct iphdr *tnl_params;
+    628: 
+    629: 	if (!pskb_inet_may_pull(skb))
+    630: 		goto free_skb;
+    631: 
+    632: 	if (tunnel->collect_md) {
+    633: 		gre_fb_xmit(skb, dev, skb->protocol);
+    634: 		return NETDEV_TX_OK;
+    635: 	}
+    636: 
+    637: 	if (dev->header_ops) {
+    638: 		int pull_len = tunnel->hlen + sizeof(struct iphdr);
+    639: 
+>>  640: 		if (skb_cow_head(skb, 0))
+    641: 			goto free_skb;
+    642: 
+    643: 		tnl_params = (const struct iphdr *)skb->data;
+    644: 
+    645: 		if (!pskb_network_may_pull(skb, pull_len))
+    646: 			goto free_skb;
+    647: 
+    648: 		/* ip_tunnel_xmit() needs skb->data pointing to gre header. */
+    649: 		skb_pull(skb, pull_len);
+    650: 		skb_reset_mac_header(skb);
+    651: 
+    652: 		if (skb->ip_summed == CHECKSUM_PARTIAL &&
+    653: 		    skb_checksum_start(skb) < skb->data)
+    654: 			goto free_skb;
+    655: 	} else {
+    656: 		if (skb_cow_head(skb, dev->needed_headroom))
+    657: 			goto free_skb;
+    658: 
+    659: 		tnl_params = &tunnel->parms.iph;
+    660: 	}
+    661: 
+    662: 	if (gre_handle_offloads(skb, !!(tunnel->parms.o_flags & TUNNEL_CSUM)))
+    663: 		goto free_skb;
+    664: 
+    665: 	__gre_xmit(skb, dev, tnl_params, skb->protocol);
+    666: 	return NETDEV_TX_OK;
+    667: 
+    668: free_skb:
+    669: 	kfree_skb(skb);
+    670: 	DEV_STATS_INC(dev, tx_dropped);
+    671: 	return NETDEV_TX_OK;
+    672: }
+    673: 
+    674: static netdev_tx_t erspan_xmit(struct sk_buff *skb,
+    675: 			       struct net_device *dev)
+    676: {
+    677: 	struct ip_tunnel *tunnel = netdev_priv(dev);
+    678: 	bool truncate = false;
+    679: 	__be16 proto;
+====================================================================================================
+net/ipv4/ip_gre.c:656
+    631: 
+    632: 	if (tunnel->collect_md) {
+    633: 		gre_fb_xmit(skb, dev, skb->protocol);
+    634: 		return NETDEV_TX_OK;
+    635: 	}
+    636: 
+    637: 	if (dev->header_ops) {
+    638: 		int pull_len = tunnel->hlen + sizeof(struct iphdr);
+    639: 
+    640: 		if (skb_cow_head(skb, 0))
+    641: 			goto free_skb;
+    642: 
+    643: 		tnl_params = (const struct iphdr *)skb->data;
+    644: 
+    645: 		if (!pskb_network_may_pull(skb, pull_len))
+    646: 			goto free_skb;
+    647: 
+    648: 		/* ip_tunnel_xmit() needs skb->data pointing to gre header. */
+    649: 		skb_pull(skb, pull_len);
+    650: 		skb_reset_mac_header(skb);
+    651: 
+    652: 		if (skb->ip_summed == CHECKSUM_PARTIAL &&
+    653: 		    skb_checksum_start(skb) < skb->data)
+    654: 			goto free_skb;
+    655: 	} else {
+>>  656: 		if (skb_cow_head(skb, dev->needed_headroom))
+    657: 			goto free_skb;
+    658: 
+    659: 		tnl_params = &tunnel->parms.iph;
+    660: 	}
+    661: 
+    662: 	if (gre_handle_offloads(skb, !!(tunnel->parms.o_flags & TUNNEL_CSUM)))
+    663: 		goto free_skb;
+    664: 
+    665: 	__gre_xmit(skb, dev, tnl_params, skb->protocol);
+    666: 	return NETDEV_TX_OK;
+    667: 
+    668: free_skb:
+    669: 	kfree_skb(skb);
+    670: 	DEV_STATS_INC(dev, tx_dropped);
+    671: 	return NETDEV_TX_OK;
+    672: }
+    673: 
+    674: static netdev_tx_t erspan_xmit(struct sk_buff *skb,
+    675: 			       struct net_device *dev)
+    676: {
+    677: 	struct ip_tunnel *tunnel = netdev_priv(dev);
+    678: 	bool truncate = false;
+    679: 	__be16 proto;
+    680: 
+    681: 	if (!pskb_inet_may_pull(skb))
+    682: 		goto free_skb;
+    683: 
+    684: 	if (tunnel->collect_md) {
+    685: 		erspan_fb_xmit(skb, dev);
+    686: 		return NETDEV_TX_OK;
+    687: 	}
+    688: 
+    689: 	if (gre_handle_offloads(skb, false))
+    690: 		goto free_skb;
+    691: 
+    692: 	if (skb_cow_head(skb, dev->needed_headroom))
+    693: 		goto free_skb;
+    694: 
+    695: 	if (skb->len > dev->mtu + dev->hard_header_len) {
+====================================================================================================
+net/ipv4/ip_gre.c:692
+    667: 
+    668: free_skb:
+    669: 	kfree_skb(skb);
+    670: 	DEV_STATS_INC(dev, tx_dropped);
+    671: 	return NETDEV_TX_OK;
+    672: }
+    673: 
+    674: static netdev_tx_t erspan_xmit(struct sk_buff *skb,
+    675: 			       struct net_device *dev)
+    676: {
+    677: 	struct ip_tunnel *tunnel = netdev_priv(dev);
+    678: 	bool truncate = false;
+    679: 	__be16 proto;
+    680: 
+    681: 	if (!pskb_inet_may_pull(skb))
+    682: 		goto free_skb;
+    683: 
+    684: 	if (tunnel->collect_md) {
+    685: 		erspan_fb_xmit(skb, dev);
+    686: 		return NETDEV_TX_OK;
+    687: 	}
+    688: 
+    689: 	if (gre_handle_offloads(skb, false))
+    690: 		goto free_skb;
+    691: 
+>>  692: 	if (skb_cow_head(skb, dev->needed_headroom))
+    693: 		goto free_skb;
+    694: 
+    695: 	if (skb->len > dev->mtu + dev->hard_header_len) {
+    696: 		if (pskb_trim(skb, dev->mtu + dev->hard_header_len))
+    697: 			goto free_skb;
+    698: 		truncate = true;
+    699: 	}
+    700: 
+    701: 	/* Push ERSPAN header */
+    702: 	if (tunnel->erspan_ver == 0) {
+    703: 		proto = htons(ETH_P_ERSPAN);
+    704: 		tunnel->parms.o_flags &= ~TUNNEL_SEQ;
+    705: 	} else if (tunnel->erspan_ver == 1) {
+    706: 		erspan_build_header(skb, ntohl(tunnel->parms.o_key),
+    707: 				    tunnel->index,
+    708: 				    truncate, true);
+    709: 		proto = htons(ETH_P_ERSPAN);
+    710: 	} else if (tunnel->erspan_ver == 2) {
+    711: 		erspan_build_header_v2(skb, ntohl(tunnel->parms.o_key),
+    712: 				       tunnel->dir, tunnel->hwid,
+    713: 				       truncate, true);
+    714: 		proto = htons(ETH_P_ERSPAN2);
+    715: 	} else {
+    716: 		goto free_skb;
+    717: 	}
+    718: 
+    719: 	tunnel->parms.o_flags &= ~TUNNEL_KEY;
+    720: 	__gre_xmit(skb, dev, &tunnel->parms.iph, proto);
+    721: 	return NETDEV_TX_OK;
+    722: 
+    723: free_skb:
+    724: 	kfree_skb(skb);
+    725: 	DEV_STATS_INC(dev, tx_dropped);
+    726: 	return NETDEV_TX_OK;
+    727: }
+    728: 
+    729: static netdev_tx_t gre_tap_xmit(struct sk_buff *skb,
+    730: 				struct net_device *dev)
+    731: {
+====================================================================================================
+net/ipv4/ip_gre.c:745
+    720: 	__gre_xmit(skb, dev, &tunnel->parms.iph, proto);
+    721: 	return NETDEV_TX_OK;
+    722: 
+    723: free_skb:
+    724: 	kfree_skb(skb);
+    725: 	DEV_STATS_INC(dev, tx_dropped);
+    726: 	return NETDEV_TX_OK;
+    727: }
+    728: 
+    729: static netdev_tx_t gre_tap_xmit(struct sk_buff *skb,
+    730: 				struct net_device *dev)
+    731: {
+    732: 	struct ip_tunnel *tunnel = netdev_priv(dev);
+    733: 
+    734: 	if (!pskb_inet_may_pull(skb))
+    735: 		goto free_skb;
+    736: 
+    737: 	if (tunnel->collect_md) {
+    738: 		gre_fb_xmit(skb, dev, htons(ETH_P_TEB));
+    739: 		return NETDEV_TX_OK;
+    740: 	}
+    741: 
+    742: 	if (gre_handle_offloads(skb, !!(tunnel->parms.o_flags & TUNNEL_CSUM)))
+    743: 		goto free_skb;
+    744: 
+>>  745: 	if (skb_cow_head(skb, dev->needed_headroom))
+    746: 		goto free_skb;
+    747: 
+    748: 	__gre_xmit(skb, dev, &tunnel->parms.iph, htons(ETH_P_TEB));
+    749: 	return NETDEV_TX_OK;
+    750: 
+    751: free_skb:
+    752: 	kfree_skb(skb);
+    753: 	DEV_STATS_INC(dev, tx_dropped);
+    754: 	return NETDEV_TX_OK;
+    755: }
+    756: 
+    757: static void ipgre_link_update(struct net_device *dev, bool set_mtu)
+    758: {
+    759: 	struct ip_tunnel *tunnel = netdev_priv(dev);
+    760: 	__be16 flags;
+    761: 	int len;
+    762: 
+    763: 	len = tunnel->tun_hlen;
+    764: 	tunnel->tun_hlen = gre_calc_hlen(tunnel->parms.o_flags);
+    765: 	len = tunnel->tun_hlen - len;
+    766: 	tunnel->hlen = tunnel->hlen + len;
+    767: 
+    768: 	if (dev->header_ops)
+    769: 		dev->hard_header_len += len;
+    770: 	else
+    771: 		dev->needed_headroom += len;
+    772: 
+    773: 	if (set_mtu)
+    774: 		dev->mtu = max_t(int, dev->mtu - len, 68);
+    775: 
+    776: 	flags = tunnel->parms.o_flags;
+    777: 
+    778: 	if (flags & TUNNEL_SEQ ||
+    779: 	    (flags & TUNNEL_CSUM && tunnel->encap.type != TUNNEL_ENCAP_NONE)) {
+    780: 		dev->features &= ~NETIF_F_GSO_SOFTWARE;
+    781: 		dev->hw_features &= ~NETIF_F_GSO_SOFTWARE;
+    782: 	} else {
+    783: 		dev->features |= NETIF_F_GSO_SOFTWARE;
+    784: 		dev->hw_features |= NETIF_F_GSO_SOFTWARE;
+====================================================================================================
+net/ipv6/ioam6_iptunnel.c:230
+    205: 
+    206: static int ioam6_do_fill(struct net *net, struct sk_buff *skb)
+    207: {
+    208: 	struct ioam6_trace_hdr *trace;
+    209: 	struct ioam6_namespace *ns;
+    210: 
+    211: 	trace = (struct ioam6_trace_hdr *)(skb_transport_header(skb)
+    212: 					   + sizeof(struct ipv6_hopopt_hdr) + 2
+    213: 					   + sizeof(struct ioam6_hdr));
+    214: 
+    215: 	ns = ioam6_namespace(net, trace->namespace_id);
+    216: 	if (ns)
+    217: 		ioam6_fill_trace_data(skb, ns, trace, false);
+    218: 
+    219: 	return 0;
+    220: }
+    221: 
+    222: static int ioam6_do_inline(struct net *net, struct sk_buff *skb,
+    223: 			   struct ioam6_lwt_encap *tuninfo)
+    224: {
+    225: 	struct ipv6hdr *oldhdr, *hdr;
+    226: 	int hdrlen, err;
+    227: 
+    228: 	hdrlen = (tuninfo->eh.hdrlen + 1) << 3;
+    229: 
+>>  230: 	err = skb_cow_head(skb, hdrlen + skb->mac_len);
+    231: 	if (unlikely(err))
+    232: 		return err;
+    233: 
+    234: 	oldhdr = ipv6_hdr(skb);
+    235: 	skb_pull(skb, sizeof(*oldhdr));
+    236: 	skb_postpull_rcsum(skb, skb_network_header(skb), sizeof(*oldhdr));
+    237: 
+    238: 	skb_push(skb, sizeof(*oldhdr) + hdrlen);
+    239: 	skb_reset_network_header(skb);
+    240: 	skb_mac_header_rebuild(skb);
+    241: 
+    242: 	hdr = ipv6_hdr(skb);
+    243: 	memmove(hdr, oldhdr, sizeof(*oldhdr));
+    244: 	tuninfo->eh.nexthdr = hdr->nexthdr;
+    245: 
+    246: 	skb_set_transport_header(skb, sizeof(*hdr));
+    247: 	skb_postpush_rcsum(skb, hdr, sizeof(*hdr) + hdrlen);
+    248: 
+    249: 	memcpy(skb_transport_header(skb), (u8 *)tuninfo, hdrlen);
+    250: 
+    251: 	hdr->nexthdr = NEXTHDR_HOP;
+    252: 	hdr->payload_len = cpu_to_be16(skb->len - sizeof(*hdr));
+    253: 
+    254: 	return ioam6_do_fill(net, skb);
+    255: }
+    256: 
+    257: static int ioam6_do_encap(struct net *net, struct sk_buff *skb,
+    258: 			  struct ioam6_lwt_encap *tuninfo,
+    259: 			  struct in6_addr *tundst)
+    260: {
+    261: 	struct dst_entry *dst = skb_dst(skb);
+    262: 	struct ipv6hdr *hdr, *inner_hdr;
+    263: 	int hdrlen, len, err;
+    264: 
+    265: 	hdrlen = (tuninfo->eh.hdrlen + 1) << 3;
+    266: 	len = sizeof(*hdr) + hdrlen;
+    267: 
+    268: 	err = skb_cow_head(skb, len + skb->mac_len);
+    269: 	if (unlikely(err))
+====================================================================================================
+net/ipv6/ioam6_iptunnel.c:268
+    243: 	memmove(hdr, oldhdr, sizeof(*oldhdr));
+    244: 	tuninfo->eh.nexthdr = hdr->nexthdr;
+    245: 
+    246: 	skb_set_transport_header(skb, sizeof(*hdr));
+    247: 	skb_postpush_rcsum(skb, hdr, sizeof(*hdr) + hdrlen);
+    248: 
+    249: 	memcpy(skb_transport_header(skb), (u8 *)tuninfo, hdrlen);
+    250: 
+    251: 	hdr->nexthdr = NEXTHDR_HOP;
+    252: 	hdr->payload_len = cpu_to_be16(skb->len - sizeof(*hdr));
+    253: 
+    254: 	return ioam6_do_fill(net, skb);
+    255: }
+    256: 
+    257: static int ioam6_do_encap(struct net *net, struct sk_buff *skb,
+    258: 			  struct ioam6_lwt_encap *tuninfo,
+    259: 			  struct in6_addr *tundst)
+    260: {
+    261: 	struct dst_entry *dst = skb_dst(skb);
+    262: 	struct ipv6hdr *hdr, *inner_hdr;
+    263: 	int hdrlen, len, err;
+    264: 
+    265: 	hdrlen = (tuninfo->eh.hdrlen + 1) << 3;
+    266: 	len = sizeof(*hdr) + hdrlen;
+    267: 
+>>  268: 	err = skb_cow_head(skb, len + skb->mac_len);
+    269: 	if (unlikely(err))
+    270: 		return err;
+    271: 
+    272: 	inner_hdr = ipv6_hdr(skb);
+    273: 
+    274: 	skb_push(skb, len);
+    275: 	skb_reset_network_header(skb);
+    276: 	skb_mac_header_rebuild(skb);
+    277: 	skb_set_transport_header(skb, sizeof(*hdr));
+    278: 
+    279: 	tuninfo->eh.nexthdr = NEXTHDR_IPV6;
+    280: 	memcpy(skb_transport_header(skb), (u8 *)tuninfo, hdrlen);
+    281: 
+    282: 	hdr = ipv6_hdr(skb);
+    283: 	memcpy(hdr, inner_hdr, sizeof(*hdr));
+    284: 
+    285: 	hdr->nexthdr = NEXTHDR_HOP;
+    286: 	hdr->payload_len = cpu_to_be16(skb->len - sizeof(*hdr));
+    287: 	hdr->daddr = *tundst;
+    288: 	ipv6_dev_get_saddr(net, dst->dev, &hdr->daddr,
+    289: 			   IPV6_PREFER_SRC_PUBLIC, &hdr->saddr);
+    290: 
+    291: 	skb_postpush_rcsum(skb, hdr, len);
+    292: 
+    293: 	return ioam6_do_fill(net, skb);
+    294: }
+    295: 
+    296: static int ioam6_output(struct net *net, struct sock *sk, struct sk_buff *skb)
+    297: {
+    298: 	struct dst_entry *dst = skb_dst(skb);
+    299: 	struct in6_addr orig_daddr;
+    300: 	struct ioam6_lwt *ilwt;
+    301: 	int err = -EINVAL;
+    302: 	u32 pkt_cnt;
+    303: 
+    304: 	if (skb->protocol != htons(ETH_P_IPV6))
+    305: 		goto drop;
+    306: 
+    307: 	ilwt = ioam6_lwt_state(dst->lwtstate);
+====================================================================================================
+net/ipv6/ioam6_iptunnel.c:349
+    324: 		if (unlikely(err))
+    325: 			goto drop;
+    326: 
+    327: 		break;
+    328: 	case IOAM6_IPTUNNEL_MODE_ENCAP:
+    329: do_encap:
+    330: 		/* Encapsulation (ip6ip6) */
+    331: 		err = ioam6_do_encap(net, skb, &ilwt->tuninfo, &ilwt->tundst);
+    332: 		if (unlikely(err))
+    333: 			goto drop;
+    334: 
+    335: 		break;
+    336: 	case IOAM6_IPTUNNEL_MODE_AUTO:
+    337: 		/* Automatic (RFC8200 compliant):
+    338: 		 *  - local packets -> INLINE mode
+    339: 		 *  - in-transit packets -> ENCAP mode
+    340: 		 */
+    341: 		if (!skb->dev)
+    342: 			goto do_inline;
+    343: 
+    344: 		goto do_encap;
+    345: 	default:
+    346: 		goto drop;
+    347: 	}
+    348: 
+>>  349: 	err = skb_cow_head(skb, LL_RESERVED_SPACE(dst->dev));
+    350: 	if (unlikely(err))
+    351: 		goto drop;
+    352: 
+    353: 	if (!ipv6_addr_equal(&orig_daddr, &ipv6_hdr(skb)->daddr)) {
+    354: 		preempt_disable();
+    355: 		dst = dst_cache_get(&ilwt->cache);
+    356: 		preempt_enable();
+    357: 
+    358: 		if (unlikely(!dst)) {
+    359: 			struct ipv6hdr *hdr = ipv6_hdr(skb);
+    360: 			struct flowi6 fl6;
+    361: 
+    362: 			memset(&fl6, 0, sizeof(fl6));
+    363: 			fl6.daddr = hdr->daddr;
+    364: 			fl6.saddr = hdr->saddr;
+    365: 			fl6.flowlabel = ip6_flowinfo(hdr);
+    366: 			fl6.flowi6_mark = skb->mark;
+    367: 			fl6.flowi6_proto = hdr->nexthdr;
+    368: 
+    369: 			dst = ip6_route_output(net, NULL, &fl6);
+    370: 			if (dst->error) {
+    371: 				err = dst->error;
+    372: 				dst_release(dst);
+    373: 				goto drop;
+    374: 			}
+    375: 
+    376: 			preempt_disable();
+    377: 			dst_cache_set_ip6(&ilwt->cache, dst, &fl6.saddr);
+    378: 			preempt_enable();
+    379: 		}
+    380: 
+    381: 		skb_dst_drop(skb);
+    382: 		skb_dst_set(skb, dst);
+    383: 
+    384: 		return dst_output(net, sk, skb);
+    385: 	}
+    386: out:
+    387: 	return dst->lwtstate->orig_output(net, sk, skb);
+    388: drop:

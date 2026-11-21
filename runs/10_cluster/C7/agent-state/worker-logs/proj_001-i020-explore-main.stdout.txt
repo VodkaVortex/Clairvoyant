@@ -1,0 +1,4 @@
+I'll start by writing an initial progress checkpoint, then explore the assigned snapshot s05.
+Now let me build a tool that, for each timer-callback lock, finds all other acquisition sites and their enclosing functions.
+I'll now verify the enclosing functions and contexts of the plain lock sites for the strongest candidates (hostap `sta_table_lock`, libiscsi `frwd_lock`, cxgb4 `ptp_lock`).
+I have sufficient evidence. Let me finalize: the strongest candidate is libiscsi's `frwd_lock` (timer-softirq callbacks vs process-context kworker, plain spin_lock on both sides, with ~20 `spin_lock_bh` sites proving the lock is BH-shared), plus several resolved safe/unresolved candidates. Writing the checkpoint and final artifact now.

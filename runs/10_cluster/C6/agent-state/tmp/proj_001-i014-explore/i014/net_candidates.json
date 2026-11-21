@@ -1,0 +1,1766 @@
+[
+ {
+  "file": "net/batman-adv/bridge_loop_avoidance.c",
+  "func": "batadv_bla_process_claim",
+  "func_start_line": 1088,
+  "pull_line": 1134,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1104,
+  "var": "ethhdr",
+  "capture": "ethhdr = eth_hdr(",
+  "loop_before_pull": true,
+  "loop_near": true,
+  "uses": [
+   {
+    "line": 1180,
+    "text": "__func__, ethhdr->h_source, batadv_print_vid(vid),"
+   },
+   {
+    "line": 1193,
+    "text": "ethhdr->h_source, vid))"
+   },
+   {
+    "line": 1198,
+    "text": "ethhdr->h_source, hw_src, vid))"
+   },
+   {
+    "line": 1203,
+    "text": "if (batadv_handle_announce(bat_priv, hw_src, ethhdr->h_source,"
+   },
+   {
+    "line": 1216,
+    "text": "__func__, ethhdr->h_source, batadv_print_vid(vid), hw_src,"
+   }
+  ]
+ },
+ {
+  "file": "net/core/skbuff.c",
+  "func": "skb_segment",
+  "func_start_line": 4768,
+  "pull_line": 4922,
+  "pull_func": "skb_cow_head",
+  "capture_line": 4775,
+  "var": "doffset",
+  "capture": "doffset = head_skb->data",
+  "loop_before_pull": true,
+  "loop_near": true,
+  "uses": [
+   {
+    "line": 4975,
+    "text": "skb_headroom(nskb) + doffset;"
+   },
+   {
+    "line": 5071,
+    "text": "skb_headroom(nskb) + doffset;"
+   },
+   {
+    "line": 5097,
+    "text": "SKB_GSO_CB(iter)->data_offset = skb_headroom(iter) + doffset;"
+   }
+  ]
+ },
+ {
+  "file": "net/802/garp.c",
+  "func": "garp_pdu_parse_attr",
+  "func_start_line": 439,
+  "pull_line": 453,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 449,
+  "var": "ga",
+  "capture": "ga = (struct garp_attr_hdr *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 455,
+    "text": "skb_pull(skb, ga->len);"
+   },
+   {
+    "line": 456,
+    "text": "dlen = ga->len - sizeof(*ga);"
+   },
+   {
+    "line": 461,
+    "text": "switch (ga->event) {"
+   },
+   {
+    "line": 485,
+    "text": "attr = garp_attr_lookup(app, ga->data, dlen, attrtype);"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/mesh-interface.c",
+  "func": "batadv_interface_tx",
+  "func_start_line": 167,
+  "pull_line": 209,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 203,
+  "var": "ethhdr",
+  "capture": "ethhdr = eth_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 234,
+    "text": "if (!is_multicast_ether_addr(ethhdr->h_source) &&"
+   },
+   {
+    "line": 235,
+    "text": "!batadv_bla_is_loopdetect_mac(ethhdr->h_source)) {"
+   },
+   {
+    "line": 236,
+    "text": "client_added = batadv_tt_local_add(mesh_iface, ethhdr->h_source,"
+   },
+   {
+    "line": 252,
+    "text": "if (batadv_compare_eth(ethhdr->h_dest, stp_addr))"
+   },
+   {
+    "line": 255,
+    "text": "if (batadv_compare_eth(ethhdr->h_dest, ectp_addr))"
+   },
+   {
+    "line": 259,
+    "text": "if (is_multicast_ether_addr(ethhdr->h_dest)) {"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/mesh-interface.c",
+  "func": "batadv_interface_rx",
+  "func_start_line": 402,
+  "pull_line": 432,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 428,
+  "var": "ethhdr",
+  "capture": "ethhdr = eth_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 462,
+    "text": "ethhdr->h_source, vid);"
+   },
+   {
+    "line": 464,
+    "text": "if (is_multicast_ether_addr(ethhdr->h_dest)) {"
+   },
+   {
+    "line": 469,
+    "text": "batadv_tt_global_is_isolated(bat_priv, ethhdr->h_source,"
+   },
+   {
+    "line": 477,
+    "text": "} else if (batadv_is_ap_isolated(bat_priv, ethhdr->h_source,"
+   },
+   {
+    "line": 478,
+    "text": "ethhdr->h_dest, vid)) {"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_recv_my_icmp_packet",
+  "func_start_line": 215,
+  "pull_line": 238,
+  "pull_func": "skb_cow",
+  "capture_line": 223,
+  "var": "icmph",
+  "capture": "icmph = (struct batadv_icmp_header *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 243,
+    "text": "ether_addr_copy(icmph->dst, icmph->orig);"
+   },
+   {
+    "line": 244,
+    "text": "ether_addr_copy(icmph->orig, primary_if->net_dev->dev_addr);"
+   },
+   {
+    "line": 245,
+    "text": "icmph->msg_type = BATADV_ECHO_REPLY;"
+   },
+   {
+    "line": 246,
+    "text": "icmph->ttl = BATADV_TTL;"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_recv_icmp_ttl_exceeded",
+  "func_start_line": 277,
+  "pull_line": 304,
+  "pull_func": "skb_cow",
+  "capture_line": 285,
+  "var": "icmp_packet",
+  "capture": "icmp_packet = (struct batadv_icmp_packet *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 309,
+    "text": "ether_addr_copy(icmp_packet->dst, icmp_packet->orig);"
+   },
+   {
+    "line": 310,
+    "text": "ether_addr_copy(icmp_packet->orig, primary_if->net_dev->dev_addr);"
+   },
+   {
+    "line": 311,
+    "text": "icmp_packet->msg_type = BATADV_TTL_EXCEEDED;"
+   },
+   {
+    "line": 312,
+    "text": "icmp_packet->ttl = BATADV_TTL;"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_recv_icmp_packet",
+  "func_start_line": 337,
+  "pull_line": 372,
+  "pull_func": "skb_linearize",
+  "capture_line": 352,
+  "var": "ethhdr",
+  "capture": "ethhdr = eth_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 386,
+    "text": "ethhdr->h_dest);"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_recv_icmp_packet",
+  "func_start_line": 337,
+  "pull_line": 372,
+  "pull_func": "skb_linearize",
+  "capture_line": 366,
+  "var": "icmph",
+  "capture": "icmph = (struct batadv_icmp_header *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 381,
+    "text": "icmp_packet_rr = (struct batadv_icmp_packet_rr *)icmph;"
+   },
+   {
+    "line": 391,
+    "text": "if (batadv_is_my_mac(bat_priv, icmph->dst))"
+   },
+   {
+    "line": 395,
+    "text": "if (icmph->ttl < 2)"
+   },
+   {
+    "line": 399,
+    "text": "orig_node = batadv_orig_hash_find(bat_priv, icmph->dst);"
+   },
+   {
+    "line": 410,
+    "text": "icmph->ttl--;"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_recv_icmp_packet",
+  "func_start_line": 337,
+  "pull_line": 376,
+  "pull_func": "skb_cow",
+  "capture_line": 352,
+  "var": "ethhdr",
+  "capture": "ethhdr = eth_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 386,
+    "text": "ethhdr->h_dest);"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_recv_icmp_packet",
+  "func_start_line": 337,
+  "pull_line": 376,
+  "pull_func": "skb_cow",
+  "capture_line": 366,
+  "var": "icmph",
+  "capture": "icmph = (struct batadv_icmp_header *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 381,
+    "text": "icmp_packet_rr = (struct batadv_icmp_packet_rr *)icmph;"
+   },
+   {
+    "line": 391,
+    "text": "if (batadv_is_my_mac(bat_priv, icmph->dst))"
+   },
+   {
+    "line": 395,
+    "text": "if (icmph->ttl < 2)"
+   },
+   {
+    "line": 399,
+    "text": "orig_node = batadv_orig_hash_find(bat_priv, icmph->dst);"
+   },
+   {
+    "line": 410,
+    "text": "icmph->ttl--;"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_recv_icmp_packet",
+  "func_start_line": 337,
+  "pull_line": 404,
+  "pull_func": "skb_cow",
+  "capture_line": 366,
+  "var": "icmph",
+  "capture": "icmph = (struct batadv_icmp_header *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 410,
+    "text": "icmph->ttl--;"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_recv_icmp_packet",
+  "func_start_line": 337,
+  "pull_line": 404,
+  "pull_func": "skb_cow",
+  "capture_line": 380,
+  "var": "icmph",
+  "capture": "icmph = (struct batadv_icmp_header *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 410,
+    "text": "icmph->ttl--;"
+   }
+  ]
+ },
+ {
+  "file": "net/batman-adv/routing.c",
+  "func": "batadv_route_unicast_packet",
+  "func_start_line": 655,
+  "pull_line": 681,
+  "pull_func": "skb_cow",
+  "capture_line": 665,
+  "var": "unicast_packet",
+  "capture": "unicast_packet = (struct batadv_unicast_packet *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 686,
+    "text": "unicast_packet->ttl--;"
+   },
+   {
+    "line": 688,
+    "text": "switch (unicast_packet->packet_type) {"
+   }
+  ]
+ },
+ {
+  "file": "net/bridge/br_netfilter_hooks.c",
+  "func": "br_validate_ipv4",
+  "func_start_line": 206,
+  "pull_line": 220,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 214,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 224,
+    "text": "if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))"
+   },
+   {
+    "line": 231,
+    "text": "} else if (len < (iph->ihl*4))"
+   }
+  ]
+ },
+ {
+  "file": "net/bridge/br_stp_bpdu.c",
+  "func": "br_stp_rcv",
+  "func_start_line": 147,
+  "pull_line": 193,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 158,
+  "var": "buf",
+  "capture": "buf = skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 197,
+    "text": "bpdu.topology_change = (buf[1] & 0x01) ? 1 : 0;"
+   },
+   {
+    "line": 198,
+    "text": "bpdu.topology_change_ack = (buf[1] & 0x80) ? 1 : 0;"
+   },
+   {
+    "line": 200,
+    "text": "bpdu.root.prio[0] = buf[2];"
+   },
+   {
+    "line": 201,
+    "text": "bpdu.root.prio[1] = buf[3];"
+   },
+   {
+    "line": 202,
+    "text": "bpdu.root.addr[0] = buf[4];"
+   },
+   {
+    "line": 203,
+    "text": "bpdu.root.addr[1] = buf[5];"
+   }
+  ]
+ },
+ {
+  "file": "net/hsr/hsr_forward.c",
+  "func": "is_supervision_frame",
+  "func_start_line": 35,
+  "pull_line": 103,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 90,
+  "var": "hsr_sup_tlv",
+  "capture": "hsr_sup_tlv = (struct hsr_sup_tlv *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 113,
+    "text": "if (hsr_sup_tlv->HSR_TLV_type == HSR_TLV_EOT &&"
+   },
+   {
+    "line": 114,
+    "text": "hsr_sup_tlv->HSR_TLV_length != 0)"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/af_inet.c",
+  "func": "inet_gso_segment",
+  "func_start_line": 1367,
+  "pull_line": 1382,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1381,
+  "var": "nhoff",
+  "capture": "nhoff = skb_network_header(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1432,
+    "text": "tot_len = skb->len - nhoff;"
+   },
+   {
+    "line": 1444,
+    "text": "tot_len = skb->len - nhoff;"
+   },
+   {
+    "line": 1448,
+    "text": "tot_len = skb->len - nhoff;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/af_inet.c",
+  "func": "inet_gso_segment",
+  "func_start_line": 1367,
+  "pull_line": 1394,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1381,
+  "var": "nhoff",
+  "capture": "nhoff = skb_network_header(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1432,
+    "text": "tot_len = skb->len - nhoff;"
+   },
+   {
+    "line": 1444,
+    "text": "tot_len = skb->len - nhoff;"
+   },
+   {
+    "line": 1448,
+    "text": "tot_len = skb->len - nhoff;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/af_inet.c",
+  "func": "inet_gso_segment",
+  "func_start_line": 1367,
+  "pull_line": 1394,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1385,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1428,
+    "text": "iph->frag_off = htons(offset >> 3);"
+   },
+   {
+    "line": 1430,
+    "text": "iph->frag_off |= htons(IP_MF);"
+   },
+   {
+    "line": 1435,
+    "text": "iph->id = htons(id);"
+   },
+   {
+    "line": 1442,
+    "text": "skb->head - (unsigned char *)iph;"
+   },
+   {
+    "line": 1447,
+    "text": "iph->id = htons(id++);"
+   },
+   {
+    "line": 1450,
+    "text": "iph->tot_len = htons(tot_len);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/ah4.c",
+  "func": "ah_input",
+  "func_start_line": 310,
+  "pull_line": 351,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 334,
+  "var": "ah",
+  "capture": "ah = (struct ip_auth_hdr *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 390,
+    "text": "memcpy(auth_data, ah->auth_data, ahp->icv_trunc_len);"
+   },
+   {
+    "line": 391,
+    "text": "memset(ah->auth_data, 0, ahp->icv_trunc_len);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/ah4.c",
+  "func": "ah_input",
+  "func_start_line": 310,
+  "pull_line": 356,
+  "pull_func": "skb_unclone",
+  "capture_line": 334,
+  "var": "ah",
+  "capture": "ah = (struct ip_auth_hdr *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 390,
+    "text": "memcpy(auth_data, ah->auth_data, ahp->icv_trunc_len);"
+   },
+   {
+    "line": 391,
+    "text": "memset(ah->auth_data, 0, ahp->icv_trunc_len);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/igmp.c",
+  "func": "ip_mc_check_iphdr",
+  "func_start_line": 1597,
+  "pull_line": 1613,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1606,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1618,
+    "text": "if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))"
+   },
+   {
+    "line": 1621,
+    "text": "len = skb_network_offset(skb) + ntohs(iph->tot_len);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/ip_gre.c",
+  "func": "erspan_rcv",
+  "func_start_line": 267,
+  "pull_line": 291,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 284,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 300,
+    "text": "iph->saddr, iph->daddr, tpi->key);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/ip_input.c",
+  "func": "ip_rcv_core",
+  "func_start_line": 499,
+  "pull_line": 549,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 526,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 554,
+    "text": "if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))"
+   },
+   {
+    "line": 562,
+    "text": "} else if (len < (iph->ihl*4))"
+   },
+   {
+    "line": 575,
+    "text": "skb->transport_header = skb->network_header + iph->ihl*4;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/ipconfig.c",
+  "func": "ic_bootp_recv",
+  "func_start_line": 984,
+  "pull_line": 1040,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1007,
+  "var": "b",
+  "capture": "b = (struct bootp_pkt *)skb_network_header(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1044,
+    "text": "h = &b->iph;"
+   },
+   {
+    "line": 1061,
+    "text": "if (b->op != BOOTP_REPLY ||"
+   },
+   {
+    "line": 1062,
+    "text": "b->xid != d->xid) {"
+   },
+   {
+    "line": 1064,
+    "text": "d->dev->name, b->op, b->xid);"
+   },
+   {
+    "line": 1070,
+    "text": "!memcmp(b->exten, ic_bootp_cookie, 4)) {"
+   },
+   {
+    "line": 1071,
+    "text": "u8 *end = (u8 *) b + ntohs(b->iph.tot_len);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_ipv4.c",
+  "func": "tcp_v4_rcv",
+  "func_start_line": 2068,
+  "pull_line": 2098,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 2092,
+  "var": "th",
+  "capture": "th = (const struct tcphdr *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 2112,
+    "text": "sk = __inet_lookup_skb(skb, __tcp_hdrlen(th), th->source,"
+   },
+   {
+    "line": 2113,
+    "text": "th->dest, sdif, &refcounted);"
+   },
+   {
+    "line": 2309,
+    "text": "iph->saddr, th->source,"
+   },
+   {
+    "line": 2310,
+    "text": "iph->daddr, th->dest,"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/tcp_offload.c",
+  "func": "tcp_gso_segment",
+  "func_start_line": 133,
+  "pull_line": 157,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 149,
+  "var": "th",
+  "capture": "th = tcp_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 199,
+    "text": "seq = ntohl(th->seq);"
+   },
+   {
+    "line": 204,
+    "text": "newcheck = ~csum_fold(csum_add(csum_unfold(th->check), delta));"
+   },
+   {
+    "line": 209,
+    "text": "th->fin = th->psh = 0;"
+   },
+   {
+    "line": 210,
+    "text": "th->check = newcheck;"
+   },
+   {
+    "line": 213,
+    "text": "gso_reset_checksum(skb, ~th->check);"
+   },
+   {
+    "line": 215,
+    "text": "th->check = gso_make_checksum(skb, ~th->check);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv4/udp_offload.c",
+  "func": "udp_gro_receive_segment",
+  "func_start_line": 694,
+  "pull_line": 749,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 724,
+  "var": "uh2",
+  "capture": "uh2 = udp_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 768,
+    "text": "if (ret || ulen != ntohs(uh2->len) ||"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/ah6.c",
+  "func": "ah6_input",
+  "func_start_line": 512,
+  "pull_line": 571,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 560,
+  "var": "ah",
+  "capture": "ah = (struct ip_auth_hdr *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 604,
+    "text": "memcpy(auth_data, ah->auth_data, ahp->icv_trunc_len);"
+   },
+   {
+    "line": 605,
+    "text": "memset(ah->auth_data, 0, ahp->icv_trunc_len);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/calipso.c",
+  "func": "calipso_skbuff_setattr",
+  "func_start_line": 1313,
+  "pull_line": 1344,
+  "pull_func": "skb_cow",
+  "capture_line": 1324,
+  "var": "ip6_hdr",
+  "capture": "ip6_hdr = ipv6_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1360,
+    "text": "payload = ntohs(ip6_hdr->payload_len);"
+   },
+   {
+    "line": 1361,
+    "text": "ip6_hdr->payload_len = htons(payload + len_delta);"
+   },
+   {
+    "line": 1368,
+    "text": "new_hop->nexthdr = ip6_hdr->nexthdr;"
+   },
+   {
+    "line": 1370,
+    "text": "ip6_hdr->nexthdr = NEXTHDR_HOP;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_dest_hao",
+  "func_start_line": 235,
+  "pull_line": 274,
+  "pull_func": "pskb_expand_head",
+  "capture_line": 239,
+  "var": "ipv6h",
+  "capture": "ipv6h = ipv6_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 286,
+    "text": "swap(ipv6h->saddr, hao->addr);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_srh_rcv",
+  "func_start_line": 374,
+  "pull_line": 445,
+  "pull_func": "pskb_expand_head",
+  "capture_line": 383,
+  "var": "hdr",
+  "capture": "hdr = (struct ipv6_sr_hdr *)skb_transport_header(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 455,
+    "text": "hdr->segments_left--;"
+   },
+   {
+    "line": 456,
+    "text": "addr = hdr->segments + hdr->segments_left;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/exthdrs.c",
+  "func": "ipv6_rthdr_rcv",
+  "func_start_line": 658,
+  "pull_line": 768,
+  "pull_func": "pskb_expand_head",
+  "capture_line": 683,
+  "var": "hdr",
+  "capture": "hdr = (struct ipv6_rt_hdr *)skb_transport_header(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 780,
+    "text": "i = n - --hdr->segments_left;"
+   },
+   {
+    "line": 782,
+    "text": "rthdr = (struct rt0_hdr *) hdr;"
+   },
+   {
+    "line": 786,
+    "text": "switch (hdr->type) {"
+   },
+   {
+    "line": 841,
+    "text": "(&hdr->type) - skb_network_header(skb));"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/icmp.c",
+  "func": "icmpv6_rcv",
+  "func_start_line": 1101,
+  "pull_line": 1175,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1147,
+  "var": "hdr",
+  "capture": "hdr = icmp6_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1184,
+    "text": "reason = icmpv6_notify(skb, type, hdr->icmp6_code,"
+   },
+   {
+    "line": 1185,
+    "text": "hdr->icmp6_mtu);"
+   },
+   {
+    "line": 1228,
+    "text": "reason = icmpv6_notify(skb, type, hdr->icmp6_code,"
+   },
+   {
+    "line": 1229,
+    "text": "hdr->icmp6_mtu);"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/ip6_offload.c",
+  "func": "ipv6_gso_pull_exthdrs",
+  "func_start_line": 58,
+  "pull_line": 80,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 77,
+  "var": "opth",
+  "capture": "opth = (void *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 84,
+    "text": "proto = opth->nexthdr;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/ip6_output.c",
+  "func": "ip6_forward_proxy_check",
+  "func_start_line": 434,
+  "pull_line": 451,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 436,
+  "var": "hdr",
+  "capture": "hdr = ipv6_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 479,
+    "text": "if (ipv6_addr_type(&hdr->daddr) & IPV6_ADDR_LINKLOCAL) {"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/ip6_output.c",
+  "func": "ip6_forward",
+  "func_start_line": 519,
+  "pull_line": 678,
+  "pull_func": "skb_cow",
+  "capture_line": 522,
+  "var": "hdr",
+  "capture": "hdr = ipv6_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 688,
+    "text": "hdr->hop_limit--;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/ip6_output.c",
+  "func": "ip6_forward",
+  "func_start_line": 519,
+  "pull_line": 678,
+  "pull_func": "skb_cow",
+  "capture_line": 587,
+  "var": "hdr",
+  "capture": "hdr = ipv6_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 688,
+    "text": "hdr->hop_limit--;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/ip6mr.c",
+  "func": "ip6mr_prepare_xmit",
+  "func_start_line": 2038,
+  "pull_line": 2095,
+  "pull_func": "skb_cow",
+  "capture_line": 2062,
+  "var": "ipv6h",
+  "capture": "ipv6h = ipv6_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 2099,
+    "text": "ipv6h->hop_limit--;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/mcast.c",
+  "func": "__mld_query_work",
+  "func_start_line": 1424,
+  "pull_line": 1495,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1482,
+  "var": "mlh2",
+  "capture": "mlh2 = (struct mld2_query *)skb_transport_header(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1496,
+    "text": "ntohs(mlh2->mld2q_nsrcs) * sizeof(struct in6_addr)))"
+   },
+   {
+    "line": 1526,
+    "text": "mld_marksources(ma, ntohs(mlh2->mld2q_nsrcs), mlh2->mld2q_srcs))"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/reassembly.c",
+  "func": "ipv6_frag_rcv",
+  "func_start_line": 331,
+  "pull_line": 349,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 333,
+  "var": "hdr",
+  "capture": "hdr = ipv6_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 364,
+    "text": "IP6CB(skb)->frag_max_size = ntohs(hdr->payload_len) +"
+   },
+   {
+    "line": 375,
+    "text": "nexthdr = hdr->nexthdr;"
+   }
+  ]
+ },
+ {
+  "file": "net/ipv6/tcp_ipv6.c",
+  "func": "tcp_v6_rcv",
+  "func_start_line": 1713,
+  "pull_line": 1745,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 1739,
+  "var": "th",
+  "capture": "th = (const struct tcphdr *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1756,
+    "text": "th->source, th->dest, inet6_iif(skb), sdif,"
+   },
+   {
+    "line": 1950,
+    "text": "&ipv6_hdr(skb)->saddr, th->source,"
+   },
+   {
+    "line": 1952,
+    "text": "ntohs(th->dest),"
+   }
+  ]
+ },
+ {
+  "file": "net/lapb/lapb_subr.c",
+  "func": "lapb_decode",
+  "func_start_line": 106,
+  "pull_line": 162,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 157,
+  "var": "pf",
+  "capture": "pf         = skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 169,
+    "text": "frame->pf         = skb->data[1] & LAPB_EPF;"
+   },
+   {
+    "line": 178,
+    "text": "frame->pf         = skb->data[0] & LAPB_SPF;"
+   },
+   {
+    "line": 191,
+    "text": "frame->pf   = skb->data[0] & LAPB_SPF;"
+   },
+   {
+    "line": 198,
+    "text": "frame->pf   = skb->data[0] & LAPB_SPF;"
+   },
+   {
+    "line": 204,
+    "text": "frame->pf   = skb->data[0] & LAPB_SPF;"
+   }
+  ]
+ },
+ {
+  "file": "net/mac80211/rx.c",
+  "func": "ieee80211_invoke_fast_rx",
+  "func_start_line": 4968,
+  "pull_line": 5039,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 4972,
+  "var": "hdr",
+  "capture": "hdr = (void *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 5068,
+    "text": "if (rx->key && !ieee80211_has_protected(hdr->frame_control))"
+   }
+  ]
+ },
+ {
+  "file": "net/mpls/af_mpls.c",
+  "func": "mpls_forward",
+  "func_start_line": 365,
+  "pull_line": 451,
+  "pull_func": "skb_cow",
+  "capture_line": 407,
+  "var": "hdr",
+  "capture": "hdr = mpls_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 471,
+    "text": "hdr[i] = mpls_entry_encode(nh->nh_label[i],"
+   }
+  ]
+ },
+ {
+  "file": "net/netfilter/nf_flow_table_ip.c",
+  "func": "nf_flow_tunnel_ipip_push",
+  "func_start_line": 595,
+  "pull_line": 612,
+  "pull_func": "skb_cow_head",
+  "capture_line": 599,
+  "var": "iph",
+  "capture": "iph = (struct iphdr *)skb_network_header(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 624,
+    "text": "iph->version\t= 4;"
+   },
+   {
+    "line": 625,
+    "text": "iph->ihl\t= sizeof(*iph) >> 2;"
+   },
+   {
+    "line": 626,
+    "text": "iph->frag_off\t= ip_mtu_locked(&rt->dst) ? 0 : frag_off;"
+   },
+   {
+    "line": 627,
+    "text": "iph->protocol\t= tuple->tun.l3_proto;"
+   },
+   {
+    "line": 628,
+    "text": "iph->tos\t= tos;"
+   },
+   {
+    "line": 629,
+    "text": "iph->daddr\t= tuple->tun.src_v4.s_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/nfc/hci/core.c",
+  "func": "nfc_hci_recv_from_llc",
+  "func_start_line": 854,
+  "pull_line": 912,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 869,
+  "var": "packet",
+  "capture": "packet = (struct hcp_packet *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 918,
+    "text": "type = HCP_MSG_GET_TYPE(packet->message.header);"
+   },
+   {
+    "line": 920,
+    "text": "pipe = packet->header;"
+   },
+   {
+    "line": 921,
+    "text": "instruction = HCP_MSG_GET_CMD(packet->message.header);"
+   }
+  ]
+ },
+ {
+  "file": "net/nfc/nci/hci.c",
+  "func": "nci_hci_data_received_cb",
+  "func_start_line": 427,
+  "pull_line": 490,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 447,
+  "var": "packet",
+  "capture": "packet = (struct nci_hcp_packet *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 496,
+    "text": "type = NCI_HCP_MSG_GET_TYPE(packet->message.header);"
+   },
+   {
+    "line": 498,
+    "text": "pipe = NCI_HCP_MSG_GET_PIPE(packet->header);"
+   }
+  ]
+ },
+ {
+  "file": "net/openvswitch/flow.c",
+  "func": "parse_vlan_tag",
+  "func_start_line": 446,
+  "pull_line": 457,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 449,
+  "var": "vh",
+  "capture": "vh = (struct vlan_head *)skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 462,
+    "text": "key_vh->tci = vh->tci | htons(VLAN_CFI_MASK);"
+   },
+   {
+    "line": 463,
+    "text": "key_vh->tpid = vh->tpid;"
+   }
+  ]
+ },
+ {
+  "file": "net/phonet/af_phonet.c",
+  "func": "can_respond",
+  "func_start_line": 287,
+  "pull_line": 297,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 296,
+  "var": "ph",
+  "capture": "ph = pn_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 299,
+    "text": "if (ph->pn_res == PN_COMMGR)"
+   },
+   {
+    "line": 306,
+    "text": "submsg_id = (ph->pn_res == PN_PREFIX)"
+   }
+  ]
+ },
+ {
+  "file": "net/phonet/pep.c",
+  "func": "pep_get_sb",
+  "func_start_line": 45,
+  "pull_line": 56,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 55,
+  "var": "ph",
+  "capture": "ph = skb_header_pointer(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 58,
+    "text": "ph->sb_len -= 2;"
+   },
+   {
+    "line": 59,
+    "text": "*ptype = ph->sb_type;"
+   },
+   {
+    "line": 60,
+    "text": "*plen = ph->sb_len;"
+   },
+   {
+    "line": 62,
+    "text": "if (buflen > ph->sb_len)"
+   },
+   {
+    "line": 63,
+    "text": "buflen = ph->sb_len;"
+   },
+   {
+    "line": 65,
+    "text": "__skb_pull(skb, 2 + ph->sb_len);"
+   }
+  ]
+ },
+ {
+  "file": "net/sched/act_nat.c",
+  "func": "tcf_nat_act",
+  "func_start_line": 115,
+  "pull_line": 183,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 148,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 228,
+    "text": "addr = iph->daddr;"
+   },
+   {
+    "line": 230,
+    "text": "addr = iph->saddr;"
+   },
+   {
+    "line": 247,
+    "text": "iph->daddr = new_addr;"
+   },
+   {
+    "line": 249,
+    "text": "iph->saddr = new_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/sched/act_nat.c",
+  "func": "tcf_nat_act",
+  "func_start_line": 115,
+  "pull_line": 183,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 163,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 228,
+    "text": "addr = iph->daddr;"
+   },
+   {
+    "line": 230,
+    "text": "addr = iph->saddr;"
+   },
+   {
+    "line": 247,
+    "text": "iph->daddr = new_addr;"
+   },
+   {
+    "line": 249,
+    "text": "iph->saddr = new_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/sched/act_nat.c",
+  "func": "tcf_nat_act",
+  "func_start_line": 115,
+  "pull_line": 196,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 148,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 228,
+    "text": "addr = iph->daddr;"
+   },
+   {
+    "line": 230,
+    "text": "addr = iph->saddr;"
+   },
+   {
+    "line": 247,
+    "text": "iph->daddr = new_addr;"
+   },
+   {
+    "line": 249,
+    "text": "iph->saddr = new_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/sched/act_nat.c",
+  "func": "tcf_nat_act",
+  "func_start_line": 115,
+  "pull_line": 196,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 163,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 228,
+    "text": "addr = iph->daddr;"
+   },
+   {
+    "line": 230,
+    "text": "addr = iph->saddr;"
+   },
+   {
+    "line": 247,
+    "text": "iph->daddr = new_addr;"
+   },
+   {
+    "line": 249,
+    "text": "iph->saddr = new_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/sched/act_nat.c",
+  "func": "tcf_nat_act",
+  "func_start_line": 115,
+  "pull_line": 213,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 148,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 228,
+    "text": "addr = iph->daddr;"
+   },
+   {
+    "line": 230,
+    "text": "addr = iph->saddr;"
+   },
+   {
+    "line": 247,
+    "text": "iph->daddr = new_addr;"
+   },
+   {
+    "line": 249,
+    "text": "iph->saddr = new_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/sched/act_nat.c",
+  "func": "tcf_nat_act",
+  "func_start_line": 115,
+  "pull_line": 213,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 163,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 228,
+    "text": "addr = iph->daddr;"
+   },
+   {
+    "line": 230,
+    "text": "addr = iph->saddr;"
+   },
+   {
+    "line": 247,
+    "text": "iph->daddr = new_addr;"
+   },
+   {
+    "line": 249,
+    "text": "iph->saddr = new_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/sched/act_nat.c",
+  "func": "tcf_nat_act",
+  "func_start_line": 115,
+  "pull_line": 221,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 148,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 228,
+    "text": "addr = iph->daddr;"
+   },
+   {
+    "line": 230,
+    "text": "addr = iph->saddr;"
+   },
+   {
+    "line": 247,
+    "text": "iph->daddr = new_addr;"
+   },
+   {
+    "line": 249,
+    "text": "iph->saddr = new_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/sched/act_nat.c",
+  "func": "tcf_nat_act",
+  "func_start_line": 115,
+  "pull_line": 221,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 163,
+  "var": "iph",
+  "capture": "iph = ip_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 228,
+    "text": "addr = iph->daddr;"
+   },
+   {
+    "line": 230,
+    "text": "addr = iph->saddr;"
+   },
+   {
+    "line": 247,
+    "text": "iph->daddr = new_addr;"
+   },
+   {
+    "line": 249,
+    "text": "iph->saddr = new_addr;"
+   }
+  ]
+ },
+ {
+  "file": "net/sctp/offload.c",
+  "func": "sctp_gso_segment",
+  "func_start_line": 39,
+  "pull_line": 49,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 48,
+  "var": "sh",
+  "capture": "sh = sctp_hdr(",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 81,
+    "text": "sh->checksum = sctp_gso_make_checksum(skb);"
+   }
+  ]
+ },
+ {
+  "file": "net/x25/af_x25.c",
+  "func": "x25_rx_call_request",
+  "func_start_line": 940,
+  "pull_line": 977,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 976,
+  "var": "len",
+  "capture": "len = skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 984,
+    "text": "if (skb->len > X25_MAX_CUD_LEN)"
+   },
+   {
+    "line": 991,
+    "text": "if (!pskb_may_pull(skb, skb->len))"
+   },
+   {
+    "line": 1078,
+    "text": "skb_copy_from_linear_data(skb, makex25->calluserdata.cuddata, skb->len);"
+   },
+   {
+    "line": 1079,
+    "text": "makex25->calluserdata.cudlength = skb->len;"
+   }
+  ]
+ },
+ {
+  "file": "net/x25/af_x25.c",
+  "func": "x25_rx_call_request",
+  "func_start_line": 940,
+  "pull_line": 991,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 976,
+  "var": "len",
+  "capture": "len = skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 1078,
+    "text": "skb_copy_from_linear_data(skb, makex25->calluserdata.cuddata, skb->len);"
+   },
+   {
+    "line": 1079,
+    "text": "makex25->calluserdata.cudlength = skb->len;"
+   }
+  ]
+ },
+ {
+  "file": "net/x25/x25_subr.c",
+  "func": "x25_decode",
+  "func_start_line": 261,
+  "pull_line": 294,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 269,
+  "var": "frame",
+  "capture": "frame = skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 298,
+    "text": "*nr = (frame[3] >> 1) & 0x7F;"
+   },
+   {
+    "line": 299,
+    "text": "return frame[2];"
+   },
+   {
+    "line": 302,
+    "text": "if ((frame[2] & 0x1F) == X25_RR  ||"
+   },
+   {
+    "line": 303,
+    "text": "(frame[2] & 0x1F) == X25_RNR ||"
+   },
+   {
+    "line": 304,
+    "text": "(frame[2] & 0x1F) == X25_REJ) {"
+   },
+   {
+    "line": 305,
+    "text": "*nr = (frame[2] >> 5) & 0x07;"
+   }
+  ]
+ },
+ {
+  "file": "net/x25/x25_subr.c",
+  "func": "x25_decode",
+  "func_start_line": 261,
+  "pull_line": 312,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 269,
+  "var": "frame",
+  "capture": "frame = skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 316,
+    "text": "*q  = (frame[0] & X25_Q_BIT) == X25_Q_BIT;"
+   },
+   {
+    "line": 317,
+    "text": "*d  = (frame[0] & X25_D_BIT) == X25_D_BIT;"
+   },
+   {
+    "line": 318,
+    "text": "*m  = (frame[3] & X25_EXT_M_BIT) == X25_EXT_M_BIT;"
+   },
+   {
+    "line": 319,
+    "text": "*nr = (frame[3] >> 1) & 0x7F;"
+   },
+   {
+    "line": 320,
+    "text": "*ns = (frame[2] >> 1) & 0x7F;"
+   },
+   {
+    "line": 324,
+    "text": "if ((frame[2] & 0x01) == X25_DATA) {"
+   }
+  ]
+ },
+ {
+  "file": "net/x25/x25_subr.c",
+  "func": "x25_decode",
+  "func_start_line": 261,
+  "pull_line": 312,
+  "pull_func": "pskb_may_pull",
+  "capture_line": 296,
+  "var": "frame",
+  "capture": "frame = skb->data",
+  "loop_before_pull": false,
+  "loop_near": false,
+  "uses": [
+   {
+    "line": 316,
+    "text": "*q  = (frame[0] & X25_Q_BIT) == X25_Q_BIT;"
+   },
+   {
+    "line": 317,
+    "text": "*d  = (frame[0] & X25_D_BIT) == X25_D_BIT;"
+   },
+   {
+    "line": 318,
+    "text": "*m  = (frame[3] & X25_EXT_M_BIT) == X25_EXT_M_BIT;"
+   },
+   {
+    "line": 319,
+    "text": "*nr = (frame[3] >> 1) & 0x7F;"
+   },
+   {
+    "line": 320,
+    "text": "*ns = (frame[2] >> 1) & 0x7F;"
+   },
+   {
+    "line": 324,
+    "text": "if ((frame[2] & 0x01) == X25_DATA) {"
+   }
+  ]
+ }
+]

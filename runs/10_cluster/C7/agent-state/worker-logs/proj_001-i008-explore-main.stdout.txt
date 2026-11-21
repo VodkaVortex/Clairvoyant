@@ -1,0 +1,4 @@
+The mwl8k stream_lock pattern is fully confirmed in s07. Let me do a quick bounded triage of other candidates for the artifact.
+mwl8k in s07 shows the exact seed shape: 14 plain `spin_lock(&priv->stream_lock)`, zero `_bh` on that lock, with `spin_lock_bh(&priv->tx_lock)` in the very same function. Verifying the call chains now.
+mwl8k stream_lock finding is solid (14 plain sites, 0 `_bh`, same function takes tx_lock with `spin_lock_bh`). Now let me quickly triage the other top-density candidates: ath9k, cassini, iwlwifi.
+I'll finalize now. Let me get the exact source lines for the strongest candidates with a few targeted calls.

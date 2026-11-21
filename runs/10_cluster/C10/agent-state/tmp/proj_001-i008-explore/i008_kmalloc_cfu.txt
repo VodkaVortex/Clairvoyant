@@ -1,0 +1,348 @@
+mm/memfd.c:318:	name = kmalloc(len + MFD_NAME_PREFIX_LEN, GFP_KERNEL);
+mm/memfd.c:319:	if (!name)
+mm/memfd.c:320:		return -ENOMEM;
+mm/memfd.c:321:
+mm/memfd.c:322:	strcpy(name, MFD_NAME_PREFIX);
+mm/memfd.c:323:	if (copy_from_user(&name[MFD_NAME_PREFIX_LEN], uname, len)) {
+kernel/trace/trace.c:10102:	kbuf = kmalloc(WRITE_BUFSIZE, GFP_KERNEL);
+kernel/trace/trace.c:10103:	if (!kbuf)
+kernel/trace/trace.c:10104:		return -ENOMEM;
+kernel/trace/trace.c:10105:
+kernel/trace/trace.c:10106:	while (done < count) {
+kernel/trace/trace.c:10107:		size = count - done;
+kernel/trace/trace.c:10108:
+kernel/trace/trace.c:10109:		if (size >= WRITE_BUFSIZE)
+kernel/trace/trace.c:10110:			size = WRITE_BUFSIZE - 1;
+kernel/trace/trace.c:10111:
+kernel/trace/trace.c:10112:		if (copy_from_user(kbuf, buffer + done, size)) {
+net/compat.c:176:		kcmsg_base = kcmsg = sock_kmalloc(sk, kcmlen, GFP_KERNEL);
+net/compat.c:177:	if (kcmsg == NULL)
+net/compat.c:178:		return -ENOMEM;
+net/compat.c:179:
+net/compat.c:180:	/* Now copy them over neatly. */
+net/compat.c:181:	memset(kcmsg, 0, kcmlen);
+net/compat.c:182:	ucmsg = CMSG_COMPAT_FIRSTHDR(kmsg);
+net/compat.c:183:	while (ucmsg != NULL) {
+net/compat.c:184:		struct compat_cmsghdr cmsg;
+net/compat.c:185:		if (copy_from_user(&cmsg, ucmsg, sizeof(cmsg)))
+net/socket.c:2556:			ctl_buf = sock_kmalloc(sock->sk, ctl_len, GFP_KERNEL);
+net/socket.c:2557:			if (ctl_buf == NULL)
+net/socket.c:2558:				goto out;
+net/socket.c:2559:		}
+net/socket.c:2560:		err = -EFAULT;
+net/socket.c:2561:		if (copy_from_user(ctl_buf, msg_sys->msg_control_user, ctl_len))
+net/sunrpc/auth_gss/auth_gss.c:737:	buf = kmalloc(mlen, GFP_KERNEL);
+net/sunrpc/auth_gss/auth_gss.c:738:	if (!buf)
+net/sunrpc/auth_gss/auth_gss.c:739:		goto out;
+net/sunrpc/auth_gss/auth_gss.c:740:
+net/sunrpc/auth_gss/auth_gss.c:741:	err = -EFAULT;
+net/sunrpc/auth_gss/auth_gss.c:742:	if (copy_from_user(buf, src, mlen))
+kernel/debug/kdb/kdb_support.c:250:	char *s = kmalloc(n, type);
+kernel/debug/kdb/kdb_support.c:251:	if (!s)
+kernel/debug/kdb/kdb_support.c:252:		return NULL;
+kernel/debug/kdb/kdb_support.c:253:	return strcpy(s, str);
+kernel/debug/kdb/kdb_support.c:254:}
+kernel/debug/kdb/kdb_support.c:255:
+kernel/debug/kdb/kdb_support.c:256:/*
+kernel/debug/kdb/kdb_support.c:257: * kdb_getarea_size - Read an area of data.  The kdb equivalent of
+kernel/debug/kdb/kdb_support.c:258: *	copy_from_user, with kdb messages for invalid addresses.
+drivers/virt/vboxguest/vboxguest_linux.c:143:		buf = kmalloc(size, GFP_KERNEL);
+drivers/virt/vboxguest/vboxguest_linux.c:144:	if (!buf)
+drivers/virt/vboxguest/vboxguest_linux.c:145:		return -ENOMEM;
+drivers/virt/vboxguest/vboxguest_linux.c:146:
+drivers/virt/vboxguest/vboxguest_linux.c:147:	*((struct vbg_ioctl_hdr *)buf) = hdr;
+drivers/virt/vboxguest/vboxguest_linux.c:148:	if (copy_from_user(buf + sizeof(hdr), (void *)arg + sizeof(hdr),
+drivers/virt/fsl_hypervisor.c:363:	propval = kmalloc(param.proplen, GFP_KERNEL);
+drivers/virt/fsl_hypervisor.c:364:	if (!propval) {
+drivers/virt/fsl_hypervisor.c:365:		ret = -ENOMEM;
+drivers/virt/fsl_hypervisor.c:366:		goto err_free_propname;
+drivers/virt/fsl_hypervisor.c:367:	}
+drivers/virt/fsl_hypervisor.c:368:
+drivers/virt/fsl_hypervisor.c:369:	if (set) {
+drivers/virt/fsl_hypervisor.c:370:		if (copy_from_user(propval, upropval, param.proplen)) {
+drivers/virt/coco/tdx-guest/tdx-guest.c:74:	reportdata = kmalloc(TDX_REPORTDATA_LEN, GFP_KERNEL);
+drivers/virt/coco/tdx-guest/tdx-guest.c:75:	if (!reportdata)
+drivers/virt/coco/tdx-guest/tdx-guest.c:76:		return -ENOMEM;
+drivers/virt/coco/tdx-guest/tdx-guest.c:77:
+drivers/virt/coco/tdx-guest/tdx-guest.c:78:	tdreport = kzalloc(TDX_REPORT_LEN, GFP_KERNEL);
+drivers/virt/coco/tdx-guest/tdx-guest.c:79:	if (!tdreport) {
+drivers/virt/coco/tdx-guest/tdx-guest.c:80:		ret = -ENOMEM;
+drivers/virt/coco/tdx-guest/tdx-guest.c:81:		goto out;
+drivers/virt/coco/tdx-guest/tdx-guest.c:82:	}
+drivers/virt/coco/tdx-guest/tdx-guest.c:83:
+drivers/virt/coco/tdx-guest/tdx-guest.c:84:	if (copy_from_user(reportdata, req->reportdata, TDX_REPORTDATA_LEN)) {
+fs/fhandle.c:195:	handle = kmalloc(sizeof(struct file_handle) + f_handle.handle_bytes,
+fs/fhandle.c:196:			 GFP_KERNEL);
+fs/fhandle.c:197:	if (!handle) {
+fs/fhandle.c:198:		retval = -ENOMEM;
+fs/fhandle.c:199:		goto out_err;
+fs/fhandle.c:200:	}
+fs/fhandle.c:201:	/* copy the full handle */
+fs/fhandle.c:202:	*handle = f_handle;
+fs/fhandle.c:203:	if (copy_from_user(&handle->f_handle,
+fs/binfmt_misc.c:365:	e = kmalloc(memsize, GFP_KERNEL_ACCOUNT);
+fs/binfmt_misc.c:366:	if (!e)
+fs/binfmt_misc.c:367:		goto out;
+fs/binfmt_misc.c:368:
+fs/binfmt_misc.c:369:	p = buf = (char *)e + sizeof(Node);
+fs/binfmt_misc.c:370:
+fs/binfmt_misc.c:371:	memset(e, 0, sizeof(Node));
+fs/binfmt_misc.c:372:	if (copy_from_user(buf, buffer, count))
+fs/debugfs/file.c:1020:	new = kmalloc(pos + count + 1, GFP_KERNEL);
+fs/debugfs/file.c:1021:	if (!new)
+fs/debugfs/file.c:1022:		goto error;
+fs/debugfs/file.c:1023:
+fs/debugfs/file.c:1024:	if (pos)
+fs/debugfs/file.c:1025:		memcpy(new, old, pos);
+fs/debugfs/file.c:1026:
+fs/debugfs/file.c:1027:	r = -EFAULT;
+fs/debugfs/file.c:1028:	if (copy_from_user(new + pos, user_buf, count))
+fs/dlm/debug_fs.c:923:	buf = kmalloc(PAGE_SIZE, GFP_NOFS);
+fs/dlm/debug_fs.c:924:	if (!buf)
+fs/dlm/debug_fs.c:925:		return -ENOMEM;
+fs/dlm/debug_fs.c:926:
+fs/dlm/debug_fs.c:927:	if (copy_from_user(buf, user_buf, count)) {
+fs/namespace.c:3557:	copy = kmalloc(PAGE_SIZE, GFP_KERNEL);
+fs/namespace.c:3558:	if (!copy)
+fs/namespace.c:3559:		return ERR_PTR(-ENOMEM);
+fs/namespace.c:3560:
+fs/namespace.c:3561:	left = copy_from_user(copy, data, PAGE_SIZE);
+drivers/dma-buf/dma-heap.c:155:		kdata = kmalloc(ksize, GFP_KERNEL);
+drivers/dma-buf/dma-heap.c:156:		if (!kdata)
+drivers/dma-buf/dma-heap.c:157:			return -ENOMEM;
+drivers/dma-buf/dma-heap.c:158:	}
+drivers/dma-buf/dma-heap.c:159:
+drivers/dma-buf/dma-heap.c:160:	if (copy_from_user(kdata, (void __user *)arg, in_size) != 0) {
+fs/ntfs3/super.c:504:	label = kmalloc(count, GFP_NOFS);
+fs/ntfs3/super.c:505:
+fs/ntfs3/super.c:506:	if (!label)
+fs/ntfs3/super.c:507:		return -ENOMEM;
+fs/ntfs3/super.c:508:
+fs/ntfs3/super.c:509:	if (copy_from_user(label, buffer, ret)) {
+drivers/acpi/apei/erst-dbg.c:171:		p = kmalloc(usize, GFP_KERNEL);
+drivers/acpi/apei/erst-dbg.c:172:		if (!p)
+drivers/acpi/apei/erst-dbg.c:173:			goto out;
+drivers/acpi/apei/erst-dbg.c:174:		kfree(erst_dbg_buf);
+drivers/acpi/apei/erst-dbg.c:175:		erst_dbg_buf = p;
+drivers/acpi/apei/erst-dbg.c:176:		erst_dbg_buf_len = usize;
+drivers/acpi/apei/erst-dbg.c:177:	}
+drivers/acpi/apei/erst-dbg.c:178:	rc = copy_from_user(erst_dbg_buf, ubuf, usize);
+drivers/hid/usbhid/hiddev.c:437:	uref_multi = kmalloc(sizeof(struct hiddev_usage_ref_multi), GFP_KERNEL);
+drivers/hid/usbhid/hiddev.c:438:	if (!uref_multi)
+drivers/hid/usbhid/hiddev.c:439:		return -ENOMEM;
+drivers/hid/usbhid/hiddev.c:440:	uref = &uref_multi->uref;
+drivers/hid/usbhid/hiddev.c:441:	if (cmd == HIDIOCGUSAGES || cmd == HIDIOCSUSAGES) {
+drivers/hid/usbhid/hiddev.c:442:		if (copy_from_user(uref_multi, user_arg,
+drivers/macintosh/adb.c:786:	req = kmalloc(sizeof(struct adb_request),
+drivers/macintosh/adb.c:787:					     GFP_KERNEL);
+drivers/macintosh/adb.c:788:	if (req == NULL)
+drivers/macintosh/adb.c:789:		return -ENOMEM;
+drivers/macintosh/adb.c:790:
+drivers/macintosh/adb.c:791:	req->nbytes = count;
+drivers/macintosh/adb.c:792:	req->done = adb_write_done;
+drivers/macintosh/adb.c:793:	req->arg = (void *) state;
+drivers/macintosh/adb.c:794:	req->complete = 0;
+drivers/macintosh/adb.c:795:	
+drivers/macintosh/adb.c:796:	ret = -EFAULT;
+drivers/macintosh/adb.c:797:	if (copy_from_user(req->data, buf, count))
+drivers/hid/hidraw.c:215:	buf = kmalloc(count, GFP_KERNEL);
+drivers/hid/hidraw.c:216:	if (!buf) {
+drivers/hid/hidraw.c:217:		ret = -ENOMEM;
+drivers/hid/hidraw.c:218:		goto out;
+drivers/hid/hidraw.c:219:	}
+drivers/hid/hidraw.c:220:
+drivers/hid/hidraw.c:221:	/*
+drivers/hid/hidraw.c:222:	 * Read the first byte from the user. This is the report number,
+drivers/hid/hidraw.c:223:	 * which is passed to hid_hw_raw_request().
+drivers/hid/hidraw.c:224:	 */
+drivers/hid/hidraw.c:225:	if (copy_from_user(&report_number, buffer, 1)) {
+drivers/char/adi.c:144:	ver_buf = kmalloc(ver_buf_sz, GFP_KERNEL);
+drivers/char/adi.c:145:	if (!ver_buf)
+drivers/char/adi.c:146:		return -ENOMEM;
+drivers/char/adi.c:147:
+drivers/char/adi.c:148:	offset = (*offp) * adi_blksize();
+drivers/char/adi.c:149:
+drivers/char/adi.c:150:	do {
+drivers/char/adi.c:151:		if (copy_from_user(ver_buf, &buf[bytes_written],
+drivers/firewire/core-cdev.c:926:	r = kmalloc(sizeof(*r) + a->length * 4, GFP_KERNEL);
+drivers/firewire/core-cdev.c:927:	if (r == NULL)
+drivers/firewire/core-cdev.c:928:		return -ENOMEM;
+drivers/firewire/core-cdev.c:929:
+drivers/firewire/core-cdev.c:930:	if (copy_from_user(r->data, u64_to_uptr(a->data), a->length * 4)) {
+drivers/gpu/drm/drm_ioctl.c:826:		kdata = kmalloc(ksize, GFP_KERNEL);
+drivers/gpu/drm/drm_ioctl.c:827:		if (!kdata) {
+drivers/gpu/drm/drm_ioctl.c:828:			retcode = -ENOMEM;
+drivers/gpu/drm/drm_ioctl.c:829:			goto err_i1;
+drivers/gpu/drm/drm_ioctl.c:830:		}
+drivers/gpu/drm/drm_ioctl.c:831:	}
+drivers/gpu/drm/drm_ioctl.c:832:
+drivers/gpu/drm/drm_ioctl.c:833:	if (copy_from_user(kdata, (void __user *)arg, in_size) != 0) {
+drivers/block/floppy.c:3095:	ptr = kmalloc(sizeof(struct floppy_raw_cmd), GFP_KERNEL);
+drivers/block/floppy.c:3096:	if (!ptr)
+drivers/block/floppy.c:3097:		return -ENOMEM;
+drivers/block/floppy.c:3098:	*rcmd = ptr;
+drivers/block/floppy.c:3099:	ret = copy_from_user(ptr, param, sizeof(*ptr));
+drivers/gpu/drm/msm/msm_gem_submit.c:235:		submit->cmd[i].relocs = kmalloc(sz, GFP_KERNEL | __GFP_NOWARN);
+drivers/gpu/drm/msm/msm_gem_submit.c:236:		if (!submit->cmd[i].relocs) {
+drivers/gpu/drm/msm/msm_gem_submit.c:237:			ret = -ENOMEM;
+drivers/gpu/drm/msm/msm_gem_submit.c:238:			goto out;
+drivers/gpu/drm/msm/msm_gem_submit.c:239:		}
+drivers/gpu/drm/msm/msm_gem_submit.c:240:		ret = copy_from_user(submit->cmd[i].relocs, userptr, sz);
+drivers/infiniband/core/uverbs_cmd.c:2214:	user_wr = kmalloc(wqe_size, GFP_KERNEL);
+drivers/infiniband/core/uverbs_cmd.c:2215:	if (!user_wr)
+drivers/infiniband/core/uverbs_cmd.c:2216:		return ERR_PTR(-ENOMEM);
+drivers/infiniband/core/uverbs_cmd.c:2217:
+drivers/infiniband/core/uverbs_cmd.c:2218:	sg_ind = 0;
+drivers/infiniband/core/uverbs_cmd.c:2219:	last = NULL;
+drivers/infiniband/core/uverbs_cmd.c:2220:	for (i = 0; i < wr_count; ++i) {
+drivers/infiniband/core/uverbs_cmd.c:2221:		if (copy_from_user(user_wr, wqes + i * wqe_size,
+drivers/hwtracing/stm/core.c:648:	kbuf = kmalloc(count + 1, GFP_KERNEL);
+drivers/hwtracing/stm/core.c:649:	if (!kbuf)
+drivers/hwtracing/stm/core.c:650:		return -ENOMEM;
+drivers/hwtracing/stm/core.c:651:
+drivers/hwtracing/stm/core.c:652:	err = copy_from_user(kbuf, buf, count);
+drivers/ntb/test/ntb_tool.c:778:	buf = kmalloc(size, GFP_KERNEL);
+drivers/ntb/test/ntb_tool.c:779:	if (!buf)
+drivers/ntb/test/ntb_tool.c:780:		return -ENOMEM;
+drivers/ntb/test/ntb_tool.c:781:
+drivers/ntb/test/ntb_tool.c:782:	ret = copy_from_user(buf, ubuf, size);
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:917:	q_data = kmalloc(sizeof(*q_data), GFP_KERNEL);
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:918:	if (!q_data)
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:919:		return -ENOMEM;
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:920:
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:921:	ret = copy_from_user(q_data, user_priv_ptr + *priv_data_offset, sizeof(*q_data));
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:935:	q_extra_data = kmalloc(q_extra_data_size, GFP_KERNEL);
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:936:	if (!q_extra_data) {
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:937:		ret = -ENOMEM;
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:938:		goto exit;
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:939:	}
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:940:
+drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c:941:	ret = copy_from_user(q_extra_data, user_priv_ptr + *priv_data_offset, q_extra_data_size);
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3304:			kdata = kmalloc(asize, GFP_KERNEL);
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3305:			if (!kdata) {
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3306:				retcode = -ENOMEM;
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3307:				goto err_i1;
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3308:			}
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3309:		}
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3310:		if (asize > usize)
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3311:			memset(kdata + usize, 0, asize - usize);
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3312:	}
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3313:
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3314:	if (cmd & IOC_IN) {
+drivers/gpu/drm/amd/amdkfd/kfd_chardev.c:3315:		if (copy_from_user(kdata, (void __user *)arg, usize) != 0) {
+drivers/media/usb/uvc/uvc_ctrl.c:2262:	data = kmalloc(size, GFP_KERNEL);
+drivers/media/usb/uvc/uvc_ctrl.c:2263:	if (data == NULL) {
+drivers/media/usb/uvc/uvc_ctrl.c:2264:		ret = -ENOMEM;
+drivers/media/usb/uvc/uvc_ctrl.c:2265:		goto done;
+drivers/media/usb/uvc/uvc_ctrl.c:2266:	}
+drivers/media/usb/uvc/uvc_ctrl.c:2267:
+drivers/media/usb/uvc/uvc_ctrl.c:2268:	if (xqry->query == UVC_SET_CUR &&
+drivers/media/usb/uvc/uvc_ctrl.c:2269:	    copy_from_user(data, xqry->data, size)) {
+drivers/mtd/ubi/cdev.c:946:		req = kmalloc(sizeof(struct ubi_rnvol_req), GFP_KERNEL);
+drivers/mtd/ubi/cdev.c:947:		if (!req) {
+drivers/mtd/ubi/cdev.c:948:			err = -ENOMEM;
+drivers/mtd/ubi/cdev.c:949:			break;
+drivers/mtd/ubi/cdev.c:950:		}
+drivers/mtd/ubi/cdev.c:951:
+drivers/mtd/ubi/cdev.c:952:		err = copy_from_user(req, argp, sizeof(struct ubi_rnvol_req));
+drivers/usb/core/devio.c:1670:		dr = kmalloc(sizeof(struct usb_ctrlrequest), GFP_KERNEL);
+drivers/usb/core/devio.c:1671:		if (!dr)
+drivers/usb/core/devio.c:1672:			return -ENOMEM;
+drivers/usb/core/devio.c:1673:		if (copy_from_user(dr, uurb->buffer, 8)) {
+drivers/usb/core/devio.c:1818:			buf = kmalloc(u, GFP_KERNEL);
+drivers/usb/core/devio.c:1819:			if (!buf) {
+drivers/usb/core/devio.c:1820:				ret = -ENOMEM;
+drivers/usb/core/devio.c:1821:				goto error;
+drivers/usb/core/devio.c:1822:			}
+drivers/usb/core/devio.c:1823:			sg_set_buf(&as->urb->sg[i], buf, u);
+drivers/usb/core/devio.c:1824:
+drivers/usb/core/devio.c:1825:			if (!is_in) {
+drivers/usb/core/devio.c:1826:				if (copy_from_user(buf, uurb->buffer, u)) {
+drivers/usb/core/devio.c:1841:			as->urb->transfer_buffer = kmalloc(uurb->buffer_length,
+drivers/usb/core/devio.c:1842:					GFP_KERNEL | __GFP_NOWARN);
+drivers/usb/core/devio.c:1843:			if (!as->urb->transfer_buffer) {
+drivers/usb/core/devio.c:1844:				ret = -ENOMEM;
+drivers/usb/core/devio.c:1845:				goto error;
+drivers/usb/core/devio.c:1846:			}
+drivers/usb/core/devio.c:1847:			if (!is_in) {
+drivers/usb/core/devio.c:1848:				if (copy_from_user(as->urb->transfer_buffer,
+drivers/usb/core/devio.c:2333:		buf = kmalloc(size, GFP_KERNEL);
+drivers/usb/core/devio.c:2334:		if (buf == NULL)
+drivers/usb/core/devio.c:2335:			return -ENOMEM;
+drivers/usb/core/devio.c:2336:		if ((_IOC_DIR(ctl->ioctl_code) & _IOC_WRITE)) {
+drivers/usb/core/devio.c:2337:			if (copy_from_user(buf, ctl->data, size)) {
+drivers/usb/class/usbtmc.c:660:	buffer = kmalloc(8, GFP_KERNEL);
+drivers/usb/class/usbtmc.c:661:	if (!buffer)
+drivers/usb/class/usbtmc.c:662:		return -ENOMEM;
+drivers/usb/class/usbtmc.c:663:
+drivers/usb/class/usbtmc.c:664:	if (cmd == USBTMC488_REQUEST_REN_CONTROL) {
+drivers/usb/class/usbtmc.c:665:		rv = copy_from_user(&val, arg, sizeof(val));
+drivers/usb/class/usbtmc.c:1937:		buffer = kmalloc(request.req.wLength, GFP_KERNEL);
+drivers/usb/class/usbtmc.c:1938:		if (!buffer)
+drivers/usb/class/usbtmc.c:1939:			return -ENOMEM;
+drivers/usb/class/usbtmc.c:1940:
+drivers/usb/class/usbtmc.c:1941:		if (!is_in) {
+drivers/usb/class/usbtmc.c:1942:			/* Send control data to device */
+drivers/usb/class/usbtmc.c:1943:			res = copy_from_user(buffer, request.data,
+drivers/scsi/smartpqi/smartpqi_init.c:6749:		kernel_buffer = kmalloc(iocommand.buf_size, GFP_KERNEL);
+drivers/scsi/smartpqi/smartpqi_init.c:6750:		if (!kernel_buffer)
+drivers/scsi/smartpqi/smartpqi_init.c:6751:			return -ENOMEM;
+drivers/scsi/smartpqi/smartpqi_init.c:6752:		if (iocommand.Request.Type.Direction & XFER_WRITE) {
+drivers/scsi/smartpqi/smartpqi_init.c:6753:			if (copy_from_user(kernel_buffer, iocommand.buf,
+drivers/s390/char/vmur.c:237:		kbuf = kmalloc(reclen, GFP_KERNEL | GFP_DMA);
+drivers/s390/char/vmur.c:238:		if (!kbuf) {
+drivers/s390/char/vmur.c:239:			free_chan_prog(cpa);
+drivers/s390/char/vmur.c:240:			return ERR_PTR(-ENOMEM);
+drivers/s390/char/vmur.c:241:		}
+drivers/s390/char/vmur.c:242:		cpa[i].cda = virt_to_dma32(kbuf);
+drivers/s390/char/vmur.c:243:		if (copy_from_user(kbuf, ubuf, reclen)) {
+drivers/s390/char/hmcdrv_dev.c:255:		fp->private_data = kmalloc(len + 1, GFP_KERNEL);
+drivers/s390/char/hmcdrv_dev.c:256:
+drivers/s390/char/hmcdrv_dev.c:257:		if (!fp->private_data)
+drivers/s390/char/hmcdrv_dev.c:258:			return -ENOMEM;
+drivers/s390/char/hmcdrv_dev.c:259:
+drivers/s390/char/hmcdrv_dev.c:260:		if (!copy_from_user(fp->private_data, ubuf, len)) {
+drivers/media/pci/bt8xx/dst_ca.c:457:	hw_buffer = kmalloc(sizeof(*hw_buffer), GFP_KERNEL);
+drivers/media/pci/bt8xx/dst_ca.c:458:	if (!hw_buffer)
+drivers/media/pci/bt8xx/dst_ca.c:459:		return -ENOMEM;
+drivers/media/pci/bt8xx/dst_ca.c:460:	dprintk(verbose, DST_CA_DEBUG, 1, " ");
+drivers/media/pci/bt8xx/dst_ca.c:461:
+drivers/media/pci/bt8xx/dst_ca.c:462:	if (copy_from_user(p_ca_message, arg, sizeof (struct ca_msg))) {
+drivers/scsi/cxlflash/main.c:3409:		buf = kmalloc(ulen + cache_line_size() - 1, GFP_KERNEL);
+drivers/scsi/cxlflash/main.c:3410:		if (unlikely(!buf)) {
+drivers/scsi/cxlflash/main.c:3411:			rc = -ENOMEM;
+drivers/scsi/cxlflash/main.c:3412:			goto out;
+drivers/scsi/cxlflash/main.c:3413:		}
+drivers/scsi/cxlflash/main.c:3414:
+drivers/scsi/cxlflash/main.c:3415:		kbuf = PTR_ALIGN(buf, cache_line_size());
+drivers/scsi/cxlflash/main.c:3416:
+drivers/scsi/cxlflash/main.c:3417:		if (is_write) {
+drivers/scsi/cxlflash/main.c:3418:			req_flags |= SISL_REQ_FLAGS_HOST_WRITE;
+drivers/scsi/cxlflash/main.c:3419:
+drivers/scsi/cxlflash/main.c:3420:			if (copy_from_user(kbuf, ubuf, ulen)) {
+drivers/scsi/hpsa.c:6416:		buff = kmalloc(iocommand->buf_size, GFP_KERNEL);
+drivers/scsi/hpsa.c:6417:		if (buff == NULL)
+drivers/scsi/hpsa.c:6418:			return -ENOMEM;
+drivers/scsi/hpsa.c:6419:		if (iocommand->Request.Type.Direction & XFER_WRITE) {
+drivers/scsi/hpsa.c:6420:			/* Copy the data into the buffer we created */
+drivers/scsi/hpsa.c:6421:			if (copy_from_user(buff, iocommand->buf,
+drivers/scsi/hpsa.c:6531:		buff[sg_used] = kmalloc(sz, GFP_KERNEL);
+drivers/scsi/hpsa.c:6532:		if (buff[sg_used] == NULL) {
+drivers/scsi/hpsa.c:6533:			status = -ENOMEM;
+drivers/scsi/hpsa.c:6534:			goto cleanup1;
+drivers/scsi/hpsa.c:6535:		}
+drivers/scsi/hpsa.c:6536:		if (ioc->Request.Type.Direction & XFER_WRITE) {
+drivers/scsi/hpsa.c:6537:			if (copy_from_user(buff[sg_used], data_ptr, sz)) {
+drivers/media/dvb-core/dvbdev.c:980:			mbuf = kmalloc(_IOC_SIZE(cmd), GFP_KERNEL);
+drivers/media/dvb-core/dvbdev.c:981:			if (!mbuf)
+drivers/media/dvb-core/dvbdev.c:982:				return -ENOMEM;
+drivers/media/dvb-core/dvbdev.c:983:			parg = mbuf;
+drivers/media/dvb-core/dvbdev.c:984:		}
+drivers/media/dvb-core/dvbdev.c:985:
+drivers/media/dvb-core/dvbdev.c:986:		err = -EFAULT;
+drivers/media/dvb-core/dvbdev.c:987:		if (copy_from_user(parg, (void __user *)arg, _IOC_SIZE(cmd)))
+drivers/staging/greybus/raw.c:132:	request = kmalloc(len + sizeof(*request), GFP_KERNEL);
+drivers/staging/greybus/raw.c:133:	if (!request)
+drivers/staging/greybus/raw.c:134:		return -ENOMEM;
+drivers/staging/greybus/raw.c:135:
+drivers/staging/greybus/raw.c:136:	if (copy_from_user(&request->data[0], data, len)) {

@@ -1,0 +1,7 @@
+The final artifact is written and validated. Summary of the investigation for intent i051 on snapshot s13:
+
+**Primary finding (medium confidence):** `drivers/virt/fsl_hypervisor.c:218` — `ioctl_memcpy` copies a user `__u64 count` from `copy_from_user`, then truncates it via `num_pages = (param.count + lb_offset + PAGE_SIZE - 1) >> PAGE_SHIFT` into an `unsigned int`, and uses that plain 32-bit value in `kmalloc(num_pages * sizeof(struct fh_sg_list) + ...)` (line 236) without `kcalloc`/`array_size` overflow checking, followed by the per-element fill loop `for (i = 1; i < num_pages; i++)` (line 272) that writes `sg_list[i]` entries — the structural analogue of the seed's unchecked-count → allocator → loop chain.
+
+**Safe:** `block/partitions/ldm.c:1275` — `kmalloc(sizeof(*f) + size*num)` is bounded by the explicit `num` in 1..4 check before allocation; no 32-bit multiply overflow reachable.
+
+**Excluded-by-rule seed:** `drivers/usb/usbip/usbip_common.c:616` — the unpatched seed chain (`int size = np * sizeof(*iso)` → `kzalloc` → per-packet recv loop, no `USBIP_MAX_ISO` anywhere in the tree) is present but is demonstration-only and must not be reported.

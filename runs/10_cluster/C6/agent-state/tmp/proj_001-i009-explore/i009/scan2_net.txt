@@ -1,0 +1,511 @@
+total candidate chains: 102
+### net/802/garp.c
+  CAPTURE L449 var=a: ga = (struct garp_attr_hdr *)skb->data;
+  PULL    L453: if (!pskb_may_pull(skb, ga->len))
+  STALE   L456: skb_pull(skb, ga->len);
+
+### net/batman-adv/bridge_loop_avoidance.c
+  CAPTURE L1105 var=r: ethhdr = eth_hdr(skb);
+  PULL    L1135: if (unlikely(!pskb_may_pull(skb, headlen + arp_hdr_len(skb->dev))))
+  STALE   L1145: if (arphdr->ar_hrd != htons(ARPHRD_ETHER))
+
+### net/batman-adv/bridge_loop_avoidance.c
+  CAPTURE L1105 var=r: ethhdr = eth_hdr(skb);
+  PULL    L1138: /* pskb_may_pull() may have modified the pointers, get ethhdr again */
+  STALE   L1145: if (arphdr->ar_hrd != htons(ARPHRD_ETHER))
+
+### net/batman-adv/distributed-arp-table.c
+  CAPTURE L1011 var=r: ethhdr = (struct ethhdr *)(skb->data + hdr_size);
+  PULL    L1017: if (unlikely(!pskb_may_pull(skb, hdr_size + ETH_HLEN +
+  STALE   L1024: if (arphdr->ar_hrd != htons(ARPHRD_ETHER))
+
+### net/batman-adv/gateway_client.c
+  CAPTURE L574 var=r: ethhdr = eth_hdr(skb);
+  PULL    L580: if (!pskb_may_pull(skb, *header_len + VLAN_HLEN))
+  STALE   L584: proto = vhdr->h_vlan_encapsulated_proto;
+
+### net/batman-adv/gateway_client.c
+  CAPTURE L574 var=r: ethhdr = eth_hdr(skb);
+  PULL    L591: if (!pskb_may_pull(skb, *header_len + sizeof(*iphdr)))
+  STALE   L595: *header_len += iphdr->ihl * 4;
+
+### net/batman-adv/gateway_client.c
+  CAPTURE L574 var=r: ethhdr = eth_hdr(skb);
+  PULL    L603: if (!pskb_may_pull(skb, *header_len + sizeof(*ipv6hdr)))
+  STALE   L610: if (ipv6hdr->nexthdr != IPPROTO_UDP)
+
+### net/batman-adv/gateway_client.c
+  CAPTURE L574 var=r: ethhdr = eth_hdr(skb);
+  PULL    L618: if (!pskb_may_pull(skb, *header_len + sizeof(*udphdr)))
+  STALE   L627: if (udphdr->dest == htons(67))
+
+### net/batman-adv/gateway_client.c
+  CAPTURE L594 var=r: iphdr = (struct iphdr *)(skb->data + *header_len);
+  PULL    L603: if (!pskb_may_pull(skb, *header_len + sizeof(*ipv6hdr)))
+  STALE   L610: if (ipv6hdr->nexthdr != IPPROTO_UDP)
+
+### net/batman-adv/gateway_client.c
+  CAPTURE L594 var=r: iphdr = (struct iphdr *)(skb->data + *header_len);
+  PULL    L618: if (!pskb_may_pull(skb, *header_len + sizeof(*udphdr)))
+  STALE   L627: if (udphdr->dest == htons(67))
+
+### net/batman-adv/gateway_client.c
+  CAPTURE L606 var=r: ipv6hdr = (struct ipv6hdr *)(skb->data + *header_len);
+  PULL    L618: if (!pskb_may_pull(skb, *header_len + sizeof(*udphdr)))
+  STALE   L627: if (udphdr->dest == htons(67))
+
+### net/batman-adv/mesh-interface.c
+  CAPTURE L205 var=r: ethhdr = eth_hdr(skb);
+  PULL    L211: if (!pskb_may_pull(skb, sizeof(*vhdr)))
+  STALE   L214: proto = vhdr->h_vlan_encapsulated_proto;
+
+### net/batman-adv/mesh-interface.c
+  CAPTURE L430 var=r: ethhdr = eth_hdr(skb);
+  PULL    L434: if (!pskb_may_pull(skb, VLAN_ETH_HLEN))
+  STALE   L441: if (vhdr->h_vlan_encapsulated_proto != htons(ETH_P_BATMAN))
+
+### net/batman-adv/routing.c
+  CAPTURE L406 var=r: ethhdr = eth_hdr(skb);
+  PULL    L426: if (skb_linearize(skb) < 0)
+  STALE   L436: if (icmp_packet_rr->rr_cur >= BATADV_RR_LEN)
+
+### net/batman-adv/routing.c
+  CAPTURE L420 var=h: icmph = (struct batadv_icmp_header *)skb->data;
+  PULL    L426: if (skb_linearize(skb) < 0)
+  STALE   L445: if (batadv_is_my_mac(bat_priv, icmph->dst))
+
+### net/bridge/br_netfilter_hooks.c
+  CAPTURE L214 var=h: iph = ip_hdr(skb);
+  PULL    L220: if (!pskb_may_pull(skb, iph->ihl*4))
+  STALE   L224: if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
+
+### net/bridge/br_stp_bpdu.c
+  CAPTURE L158 var=f: buf = skb->data;
+  PULL    L193: if (!pskb_may_pull(skb, 32))
+  STALE   L197: bpdu.topology_change = (buf[1] & 0x01) ? 1 : 0;
+
+### net/core/dev.c
+  CAPTURE L4110 var=shinfo: struct skb_shared_info *shinfo = skb_shinfo(skb);
+  PULL    L4138: if (!pskb_may_pull(skb, hdr_len + sizeof(struct tcphdr)))
+  STALE   L4148: } else if (shinfo->gso_type & SKB_GSO_UDP_L4) {
+
+### net/core/dev.c
+  CAPTURE L4110 var=shinfo: struct skb_shared_info *shinfo = skb_shinfo(skb);
+  PULL    L4146: if (!pskb_may_pull(skb, hdr_len))
+  STALE   L4148: } else if (shinfo->gso_type & SKB_GSO_UDP_L4) {
+
+### net/core/skbuff.c
+  CAPTURE L2913 var=list: struct sk_buff *list = skb_shinfo(skb)->frag_list;
+  PULL    L2941: if (!pskb_pull(list, eat)) {
+  STALE   L2951: skb_shinfo(skb)->frag_list = list->next;
+
+### net/core/skbuff.c
+  CAPTURE L4871 var=s: nfrags = skb_shinfo(head_skb)->nr_frags;
+  PULL    L5065: __skb_linearize(nskb))
+  STALE   L5079: * Put it in segs->prev to avoid walking the list.
+
+### net/core/skbuff.c
+  CAPTURE L4900 var=s: nfrags = skb_shinfo(list_skb)->nr_frags;
+  PULL    L5065: __skb_linearize(nskb))
+  STALE   L5079: * Put it in segs->prev to avoid walking the list.
+
+### net/core/skbuff.c
+  CAPTURE L5006 var=s: nfrags = skb_shinfo(list_skb)->nr_frags;
+  PULL    L5065: __skb_linearize(nskb))
+  STALE   L5079: * Put it in segs->prev to avoid walking the list.
+
+### net/hsr/hsr_forward.c
+  CAPTURE L44 var=r: eth_hdr = (struct ethhdr *)skb_mac_header(skb);
+  PULL    L59: if (!pskb_may_pull(skb, total_length))
+  STALE   L63: if (hsr_V1_hdr->hsr.encap_proto != htons(ETH_P_PRP))
+
+### net/hsr/hsr_forward.c
+  CAPTURE L90 var=v: hsr_sup_tlv = (struct hsr_sup_tlv *)skb->data;
+  PULL    L103: if (!pskb_may_pull(skb, total_length + sizeof(struct hsr_sup_tlv)))
+  STALE   L113: if (hsr_sup_tlv->HSR_TLV_type != HSR_TLV_EOT ||
+
+### net/hsr/hsr_forward.c
+  CAPTURE L127 var=r: eth_hdr = (struct ethhdr *)skb_mac_header(skb);
+  PULL    L135: if (!pskb_may_pull(skb, total_length + sizeof(struct hsr_sup_payload)))
+  STALE   L145: return hsr_is_node_in_db(&hsr->proxy_node_db,
+
+### net/hsr/hsr_forward.c
+  CAPTURE L705 var=r: ethhdr = (struct ethhdr *)skb_mac_header(skb);
+  PULL    L714: if (!pskb_may_pull(skb,
+  STALE   L719: proto = vlan_hdr->vlanhdr.h_vlan_encapsulated_proto;
+
+### net/ife/ife.c
+  CAPTURE L75 var=r: ifehdr = (struct ifeheadr *) (skb->data + skb->dev->hard_header_len);
+  PULL    L82: if (unlikely(!pskb_may_pull(skb, total_pull + ETH_HLEN)))
+  STALE   L90: return &ifehdr->tlv_data;
+
+### net/ipv4/af_inet.c
+  CAPTURE L1382 var=h: iph = ip_hdr(skb);
+  PULL    L1391: if (unlikely(!pskb_may_pull(skb, ihl)))
+  STALE   L1425: iph->frag_off = htons(offset >> 3);
+
+### net/ipv4/ah4.c
+  CAPTURE L334 var=h: ah = (struct ip_auth_hdr *)skb->data;
+  PULL    L351: if (!pskb_may_pull(skb, ah_hlen))
+  STALE   L390: memcpy(auth_data, ah->auth_data, ahp->icv_trunc_len);
+
+### net/ipv4/fou_core.c
+  CAPTURE L136 var=r: guehdr = (struct guehdr *)&udp_hdr(skb)[1];
+  PULL    L171: if (!pskb_may_pull(skb, len))
+  STALE   L193: data = &guehdr[1];
+
+### net/ipv4/fou_core.c
+  CAPTURE L1107 var=r: guehdr = (struct guehdr *)&udp_hdr(skb)[1];
+  PULL    L1139: if (!pskb_may_pull(skb, transport_offset + len + optlen))
+  STALE   L1150: if (guehdr->proto_ctype == IPPROTO_UDP)
+
+### net/ipv4/gre_demux.c
+  CAPTURE L72 var=h: greh = (struct gre_base_hdr *)(skb->data + nhs);
+  PULL    L79: if (!pskb_may_pull(skb, nhs + hdr_len))
+  STALE   L83: tpi->proto = greh->protocol;
+
+### net/ipv4/gre_offload.c
+  CAPTURE L19 var=tnl_hlen: int tnl_hlen = skb_inner_mac_header(skb) - skb_transport_header(skb);
+  PULL    L33: if (unlikely(!pskb_may_pull(skb, tnl_hlen)))
+  STALE   L39: __skb_pull(skb, tnl_hlen);
+
+### net/ipv4/igmp.c
+  CAPTURE L1606 var=h: iph = ip_hdr(skb);
+  PULL    L1613: if (!pskb_may_pull(skb, offset))
+  STALE   L1618: if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
+
+### net/ipv4/ip_gre.c
+  CAPTURE L284 var=h: iph = ip_hdr(skb);
+  PULL    L291: if (unlikely(!pskb_may_pull(skb,
+  STALE   L300: iph->saddr, iph->daddr, tpi->key);
+
+### net/ipv4/ip_input.c
+  CAPTURE L526 var=h: iph = ip_hdr(skb);
+  PULL    L549: if (!pskb_may_pull(skb, iph->ihl*4))
+  STALE   L554: if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
+
+### net/ipv4/tcp_ipv4.c
+  CAPTURE L2091 var=h: th = (const struct tcphdr *)skb->data;
+  PULL    L2097: if (!pskb_may_pull(skb, th->doff * 4))
+  STALE   L2102: * provided case of th->doff==0 is eliminated.
+
+### net/ipv4/tcp_offload.c
+  CAPTURE L149 var=h: th = tcp_hdr(skb);
+  PULL    L157: if (!pskb_may_pull(skb, thlen))
+  STALE   L199: seq = ntohl(th->seq);
+
+### net/ipv4/udp_offload.c
+  CAPTURE L178 var=tnl_hlen: int tnl_hlen = skb_inner_mac_header(skb) - skb_transport_header(skb);
+  PULL    L189: if (unlikely(!pskb_may_pull(skb, tnl_hlen)))
+  STALE   L207: __skb_pull(skb, tnl_hlen);
+
+### net/ipv4/udp_offload.c
+  CAPTURE L181 var=uh: struct udphdr *uh = udp_hdr(skb);
+  PULL    L189: if (unlikely(!pskb_may_pull(skb, tnl_hlen)))
+  STALE   L193: * We cannot rely on the value contained in uh->len as it is
+
+### net/ipv6/ah6.c
+  CAPTURE L560 var=h: ah = (struct ip_auth_hdr *)skb->data;
+  PULL    L571: if (!pskb_may_pull(skb, ah_hlen))
+  STALE   L604: memcpy(auth_data, ah->auth_data, ahp->icv_trunc_len);
+
+### net/ipv6/fou6.c
+  CAPTURE L101 var=r: guehdr = (struct guehdr *)&udp_hdr(skb)[1];
+  PULL    L133: if (!pskb_may_pull(skb, transport_offset + len + optlen))
+  STALE   L144: if (guehdr->proto_ctype == IPPROTO_UDP)
+
+### net/ipv6/ila/ila_common.c
+  CAPTURE L79 var=ip6h: struct ipv6hdr *ip6h = ipv6_hdr(skb);
+  PULL    L84: if (likely(pskb_may_pull(skb, nhoff + sizeof(struct tcphdr)))) {
+  STALE   L88: diff = get_csum_diff(ip6h, p);
+
+### net/ipv6/ila/ila_common.c
+  CAPTURE L79 var=ip6h: struct ipv6hdr *ip6h = ipv6_hdr(skb);
+  PULL    L94: if (likely(pskb_may_pull(skb, nhoff + sizeof(struct udphdr)))) {
+  STALE   L99: diff = get_csum_diff(ip6h, p);
+
+### net/ipv6/ila/ila_common.c
+  CAPTURE L79 var=ip6h: struct ipv6hdr *ip6h = ipv6_hdr(skb);
+  PULL    L108: if (likely(pskb_may_pull(skb,
+  STALE   L113: diff = get_csum_diff(ip6h, p);
+
+### net/ipv6/ip6_offload.c
+  CAPTURE L77 var=h: opth = (void *)skb->data;
+  PULL    L80: if (unlikely(!pskb_may_pull(skb, len)))
+  STALE   L84: proto = opth->nexthdr;
+
+### net/ipv6/ip6_tunnel.c
+  CAPTURE L414 var=r: hdr = (struct ipv6_opt_hdr *)(skb->data + off);
+  PULL    L423: if (!pskb_may_pull(skb, off + optlen))
+  STALE   L430: if (frag_hdr->frag_off)
+
+### net/ipv6/mcast.c
+  CAPTURE L1472 var=h2: mlh2 = (struct mld2_query *)skb_transport_header(skb);
+  PULL    L1485: if (!pskb_may_pull(skb, srcs_offset +
+  STALE   L1486: ntohs(mlh2->mld2q_nsrcs) * sizeof(struct in6_addr)))
+
+### net/ipv6/tcp_ipv6.c
+  CAPTURE L1754 var=h: th = (const struct tcphdr *)skb->data;
+  PULL    L1760: if (!pskb_may_pull(skb, th->doff*4))
+  STALE   L1771: th->source, th->dest, inet6_iif(skb), sdif,
+
+### net/mac80211/rx.c
+  CAPTURE L2982 var=r: mesh_hdr = (struct ieee80211s_hdr *)(skb->data + sizeof(*eth));
+  PULL    L2985: if (!pskb_may_pull(skb, sizeof(*eth) + mesh_hdrlen))
+  STALE   L2992: if (!mesh_hdr->ttl)
+
+### net/mac80211/rx.c
+  CAPTURE L2982 var=r: mesh_hdr = (struct ieee80211s_hdr *)(skb->data + sizeof(*eth));
+  PULL    L3081: if (skb_linearize(fwd_skb))
+  STALE   L3107: memcpy(fwd_hdr->addr2, sdata->vif.addr, ETH_ALEN);
+
+### net/mac80211/rx.c
+  CAPTURE L2988 var=h: eth = (struct ethhdr *)skb->data;
+  PULL    L3081: if (skb_linearize(fwd_skb))
+  STALE   L3116: mesh_path_error_tx(sdata, ifmsh->mshcfg.element_ttl,
+
+### net/mac80211/rx.c
+  CAPTURE L3324 var=tf: struct ieee80211_tdls_data *tf = (void *)rx->skb->data;
+  PULL    L3326: if (pskb_may_pull(rx->skb,
+  STALE   L3328: tf->payload_type == WLAN_TDLS_SNAP_RFTYPE &&
+
+### net/mac80211/rx.c
+  CAPTURE L5010 var=hdr: struct ieee80211_hdr *hdr = (void *)skb->data;
+  PULL    L5077: if (!pskb_may_pull(skb, snap_offs + sizeof(*payload)))
+  STALE   L5106: if (rx->key && !ieee80211_has_protected(hdr->frame_control))
+
+### net/mac80211/tdls.c
+  CAPTURE L2010 var=tf: struct ieee80211_tdls_data *tf = (void *)skb->data;
+  PULL    L2020: if (skb_linearize(skb))
+  STALE   L2026: switch (tf->action_code) {
+
+### net/mac80211/wpa.c
+  CAPTURE L521 var=hdr: struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)rx->skb->data;
+  PULL    L538: if (!pskb_may_pull(rx->skb, hdrlen + IEEE80211_CCMP_HDR_LEN))
+  STALE   L547: /* reload hdr - skb might have been reallocated */
+
+### net/mac80211/wpa.c
+  CAPTURE L521 var=hdr: struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)rx->skb->data;
+  PULL    L543: if (skb_linearize(rx->skb))
+  STALE   L547: /* reload hdr - skb might have been reallocated */
+
+### net/mac80211/wpa.c
+  CAPTURE L734 var=hdr: struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)rx->skb->data;
+  PULL    L750: if (!pskb_may_pull(rx->skb, hdrlen + IEEE80211_GCMP_HDR_LEN))
+  STALE   L759: /* reload hdr - skb might have been reallocated */
+
+### net/mac80211/wpa.c
+  CAPTURE L734 var=hdr: struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)rx->skb->data;
+  PULL    L755: if (skb_linearize(rx->skb))
+  STALE   L759: /* reload hdr - skb might have been reallocated */
+
+### net/mpls/af_mpls.c
+  CAPTURE L196 var=r: hdr = mpls_hdr(skb) + label_index;
+  PULL    L221: if (pskb_may_pull(skb, mpls_hdr_len + sizeof(struct iphdr))) {
+  STALE   L225: if (v4hdr->version == 4) {
+
+### net/mpls/af_mpls.c
+  CAPTURE L196 var=r: hdr = mpls_hdr(skb) + label_index;
+  PULL    L230: pskb_may_pull(skb, mpls_hdr_len +
+  STALE   L235: hash = __ipv6_addr_jhash(&v6hdr->saddr, hash);
+
+### net/netfilter/ipvs/ip_vs_core.c
+  CAPTURE L1779 var=h: iph = ip_hdr(skb);
+  PULL    L1920: if (pskb_pull(skb, ihl + sizeof(_icmph)) == NULL)
+  STALE   L1964: if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||
+
+### net/netfilter/ipvs/ip_vs_core.c
+  CAPTURE L1779 var=h: iph = ip_hdr(skb);
+  PULL    L1946: if (pskb_pull(skb, offset2) == NULL)
+  STALE   L1964: if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||
+
+### net/netfilter/ipvs/ip_vs_core.c
+  CAPTURE L1805 var=h: cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph);
+  PULL    L1920: if (pskb_pull(skb, ihl + sizeof(_icmph)) == NULL)
+  STALE   L1964: if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||
+
+### net/netfilter/ipvs/ip_vs_core.c
+  CAPTURE L1805 var=h: cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph);
+  PULL    L1946: if (pskb_pull(skb, offset2) == NULL)
+  STALE   L1964: if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||
+
+### net/netfilter/ipvs/ip_vs_core.c
+  CAPTURE L1825 var=h: cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph);
+  PULL    L1920: if (pskb_pull(skb, ihl + sizeof(_icmph)) == NULL)
+  STALE   L1964: if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||
+
+### net/netfilter/ipvs/ip_vs_core.c
+  CAPTURE L1825 var=h: cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph);
+  PULL    L1946: if (pskb_pull(skb, offset2) == NULL)
+  STALE   L1964: if (IPPROTO_TCP == cih->protocol || IPPROTO_UDP == cih->protocol ||
+
+### net/netfilter/nf_conntrack_proto_icmpv6.c
+  CAPTURE L165 var=t: nd_opt = skb_header_pointer(skb, dataoff, sizeof(*nd_opt), &tmp.nd_opt);
+  PULL    L172: * skb_linearize() and a bit more work.
+  STALE   L174: if (nd_opt->nd_opt_type != ND_OPT_REDIRECT_HDR)
+
+### net/netfilter/nf_flow_table_ip.c
+  CAPTURE L227 var=h: iph = (struct iphdr *)(skb_network_header(skb) + ctx->offset);
+  PULL    L256: if (!pskb_may_pull(skb, thoff + ctx->hdrsize))
+  STALE   L270: if ((greh->flags & GRE_VERSION) != GRE_VERSION_0)
+
+### net/netfilter/nf_flow_table_ip.c
+  CAPTURE L1000 var=h: ip6h = (struct ipv6hdr *)(skb_network_header(skb) + ctx->offset);
+  PULL    L1022: if (!pskb_may_pull(skb, thoff + ctx->hdrsize))
+  STALE   L1036: if ((greh->flags & GRE_VERSION) != GRE_VERSION_0)
+
+### net/netfilter/utils.c
+  CAPTURE L189 var=h: nh = (unsigned char *)(ipv6_hdr(skb) + 1);
+  PULL    L192: if (!pskb_may_pull(skb, off + len))
+  STALE   L201: if (nh[off] == IPV6_TLV_PAD1) {
+
+### net/nfc/hci/core.c
+  CAPTURE L869 var=t: packet = (struct hcp_packet *)skb->data;
+  PULL    L912: if (!pskb_may_pull(hcp_skb, NFC_HCI_HCP_HEADER_LEN)) {
+  STALE   L918: type = HCP_MSG_GET_TYPE(packet->message.header);
+
+### net/nfc/nci/hci.c
+  CAPTURE L447 var=t: packet = (struct nci_hcp_packet *)skb->data;
+  PULL    L490: if (!pskb_may_pull(hcp_skb, NCI_HCI_HCP_HEADER_LEN)) {
+  STALE   L496: type = NCI_HCP_MSG_GET_TYPE(packet->message.header);
+
+### net/phonet/af_phonet.c
+  CAPTURE L296 var=h: ph = pn_hdr(skb);
+  PULL    L297: if (ph->pn_res == PN_PREFIX && !pskb_may_pull(skb, 5))
+  STALE   L299: if (ph->pn_res == PN_COMMGR) /* indications */
+
+### net/phonet/pep.c
+  CAPTURE L55 var=h: ph = skb_header_pointer(skb, 0, 2, &h);
+  PULL    L56: if (ph == NULL || ph->sb_len < 2 || !pskb_may_pull(skb, ph->sb_len))
+  STALE   L58: ph->sb_len -= 2;
+
+### net/psp/psp_main.c
+  CAPTURE L309 var=h: eth = (struct ethhdr *)skb->data;
+  PULL    L318: if (unlikely(!pskb_may_pull(skb, l2_hlen + l3_hlen + PSP_ENCAP_HLEN)))
+  STALE   L324: if (unlikely(iph->ihl < 5))
+
+### net/psp/psp_main.c
+  CAPTURE L309 var=h: eth = (struct ethhdr *)skb->data;
+  PULL    L330: !pskb_may_pull(skb, l2_hlen + l3_hlen + PSP_ENCAP_HLEN))
+  STALE   L335: is_udp = ipv6h->nexthdr == IPPROTO_UDP;
+
+### net/psp/psp_main.c
+  CAPTURE L309 var=h: eth = (struct ethhdr *)skb->data;
+  PULL    L358: !pskb_may_pull(skb, l2_hlen + l3_hlen +
+  STALE   L369: pse->spi = psph->spi;
+
+### net/psp/psp_main.c
+  CAPTURE L341 var=h: uh = (struct udphdr *)(skb->data + l2_hlen + l3_hlen);
+  PULL    L358: !pskb_may_pull(skb, l2_hlen + l3_hlen +
+  STALE   L369: pse->spi = psph->spi;
+
+### net/sched/act_csum.c
+  CAPTURE L504 var=h: ip6h = ipv6_hdr(skb);
+  PULL    L516: if (!pskb_may_pull(skb, hl + sizeof(*ip6xh) + ntkoff))
+  STALE   L526: nexthdr = ip6xh->nexthdr;
+
+### net/sched/act_csum.c
+  CAPTURE L504 var=h: ip6h = ipv6_hdr(skb);
+  PULL    L520: if (!pskb_may_pull(skb, hl + ixhl + ntkoff))
+  STALE   L526: nexthdr = ip6xh->nexthdr;
+
+### net/sched/act_csum.c
+  CAPTURE L518 var=h: ip6xh = (void *)(skb_network_header(skb) + hl);
+  PULL    L520: if (!pskb_may_pull(skb, hl + ixhl + ntkoff))
+  STALE   L526: nexthdr = ip6xh->nexthdr;
+
+### net/sched/act_nat.c
+  CAPTURE L148 var=h: iph = ip_hdr(skb);
+  PULL    L183: if (!pskb_may_pull(skb, ihl + sizeof(*tcph) + noff) ||
+  STALE   L188: inet_proto_csum_replace4(&tcph->check, skb, addr, new_addr,
+
+### net/sched/act_nat.c
+  CAPTURE L148 var=h: iph = ip_hdr(skb);
+  PULL    L196: if (!pskb_may_pull(skb, ihl + sizeof(*udph) + noff) ||
+  STALE   L201: if (udph->check || skb->ip_summed == CHECKSUM_PARTIAL) {
+
+### net/sched/act_nat.c
+  CAPTURE L148 var=h: iph = ip_hdr(skb);
+  PULL    L213: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + noff))
+  STALE   L218: if (!icmp_is_err(icmph->type))
+
+### net/sched/act_nat.c
+  CAPTURE L148 var=h: iph = ip_hdr(skb);
+  PULL    L221: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + sizeof(*iph) +
+  STALE   L228: addr = iph->daddr;
+
+### net/sched/act_nat.c
+  CAPTURE L163 var=h: iph = ip_hdr(skb);
+  PULL    L183: if (!pskb_may_pull(skb, ihl + sizeof(*tcph) + noff) ||
+  STALE   L188: inet_proto_csum_replace4(&tcph->check, skb, addr, new_addr,
+
+### net/sched/act_nat.c
+  CAPTURE L163 var=h: iph = ip_hdr(skb);
+  PULL    L196: if (!pskb_may_pull(skb, ihl + sizeof(*udph) + noff) ||
+  STALE   L201: if (udph->check || skb->ip_summed == CHECKSUM_PARTIAL) {
+
+### net/sched/act_nat.c
+  CAPTURE L163 var=h: iph = ip_hdr(skb);
+  PULL    L213: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + noff))
+  STALE   L218: if (!icmp_is_err(icmph->type))
+
+### net/sched/act_nat.c
+  CAPTURE L163 var=h: iph = ip_hdr(skb);
+  PULL    L221: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + sizeof(*iph) +
+  STALE   L228: addr = iph->daddr;
+
+### net/sched/act_nat.c
+  CAPTURE L187 var=h: tcph = (void *)(skb_network_header(skb) + ihl);
+  PULL    L196: if (!pskb_may_pull(skb, ihl + sizeof(*udph) + noff) ||
+  STALE   L201: if (udph->check || skb->ip_summed == CHECKSUM_PARTIAL) {
+
+### net/sched/act_nat.c
+  CAPTURE L187 var=h: tcph = (void *)(skb_network_header(skb) + ihl);
+  PULL    L213: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + noff))
+  STALE   L218: if (!icmp_is_err(icmph->type))
+
+### net/sched/act_nat.c
+  CAPTURE L187 var=h: tcph = (void *)(skb_network_header(skb) + ihl);
+  PULL    L221: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + sizeof(*iph) +
+  STALE   L228: addr = iph->daddr;
+
+### net/sched/act_nat.c
+  CAPTURE L200 var=h: udph = (void *)(skb_network_header(skb) + ihl);
+  PULL    L213: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + noff))
+  STALE   L218: if (!icmp_is_err(icmph->type))
+
+### net/sched/act_nat.c
+  CAPTURE L200 var=h: udph = (void *)(skb_network_header(skb) + ihl);
+  PULL    L221: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + sizeof(*iph) +
+  STALE   L228: addr = iph->daddr;
+
+### net/sched/act_nat.c
+  CAPTURE L216 var=h: icmph = (void *)(skb_network_header(skb) + ihl);
+  PULL    L221: if (!pskb_may_pull(skb, ihl + sizeof(*icmph) + sizeof(*iph) +
+  STALE   L228: addr = iph->daddr;
+
+### net/sctp/offload.c
+  CAPTURE L48 var=h: sh = sctp_hdr(skb);
+  PULL    L49: if (!pskb_may_pull(skb, sizeof(*sh)))
+  STALE   L81: sh->checksum = sctp_gso_make_checksum(skb);
+
+### net/x25/x25_subr.c
+  CAPTURE L269 var=e: frame = skb->data;
+  PULL    L294: if (!pskb_may_pull(skb, X25_EXT_MIN_LEN))
+  STALE   L298: *nr = (frame[3] >> 1) & 0x7F;
+
+### net/x25/x25_subr.c
+  CAPTURE L269 var=e: frame = skb->data;
+  PULL    L312: if (!pskb_may_pull(skb, X25_EXT_MIN_LEN))
+  STALE   L316: *q  = (frame[0] & X25_Q_BIT) == X25_Q_BIT;
+
+### net/x25/x25_subr.c
+  CAPTURE L296 var=e: frame = skb->data;
+  PULL    L312: if (!pskb_may_pull(skb, X25_EXT_MIN_LEN))
+  STALE   L316: *q  = (frame[0] & X25_Q_BIT) == X25_Q_BIT;
+
+### net/xfrm/xfrm_input.c
+  CAPTURE L196 var=h: ph = (struct ip_beet_phdr *)skb->data;
+  PULL    L205: if (!pskb_may_pull(skb, phlen))
+  STALE   L218: iph->ihl += optlen / 4;
+

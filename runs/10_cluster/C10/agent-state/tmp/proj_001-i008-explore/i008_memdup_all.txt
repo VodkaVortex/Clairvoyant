@@ -1,0 +1,156 @@
+net/bluetooth/hidp/core.c:760:	session->rd_data = memdup_user(req->rd_data, req->rd_size);
+net/bluetooth/hidp/core.c:761:	if (IS_ERR(session->rd_data))
+net/bluetooth/hidp/core.c:762:		return PTR_ERR(session->rd_data);
+net/bluetooth/hidp/core.c:763:
+net/bluetooth/hidp/core.c:764:	session->rd_size = req->rd_size;
+net/bluetooth/hidp/core.c:765:
+net/bluetooth/hidp/core.c:766:	hid = hid_allocate_device();
+net/bluetooth/hidp/core.c:767:	if (IS_ERR(hid)) {
+net/bluetooth/hidp/core.c:768:		err = PTR_ERR(hid);
+net/bluetooth/hidp/core.c:769:		goto fault;
+net/bluetooth/hidp/core.c:770:	}
+net/bluetooth/hidp/core.c:771:
+net/bluetooth/hidp/core.c:772:	session->hid = hid;
+net/bluetooth/hidp/core.c:773:
+net/bluetooth/hidp/core.c:774:	hid->driver_data = session;
+net/bluetooth/hidp/core.c:775:
+net/bluetooth/hidp/core.c:776:	hid->bus     = BUS_BLUETOOTH;
+net/bluetooth/hidp/core.c:777:	hid->vendor  = req->vendor;
+net/bluetooth/hidp/core.c:778:	hid->product = req->product;
+net/bluetooth/hidp/core.c:779:	hid->version = req->version;
+net/bluetooth/hidp/core.c:780:	hid->country = req->country;
+net/bluetooth/hidp/core.c:781:
+net/bluetooth/hidp/core.c:782:	strscpy(hid->name, req->name, sizeof(hid->name));
+fs/btrfs/ioctl.c:1157:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c:1158:	if (IS_ERR(vol_args)) {
+fs/btrfs/ioctl.c:1159:		ret = PTR_ERR(vol_args);
+fs/btrfs/ioctl.c:1160:		goto out_drop;
+fs/btrfs/ioctl.c:1161:	}
+fs/btrfs/ioctl.c:1162:	ret = btrfs_check_ioctl_vol_args_path(vol_args);
+fs/btrfs/ioctl.c:1163:	if (ret < 0)
+fs/btrfs/ioctl.c:1164:		goto out_free;
+fs/btrfs/ioctl.c:1165:
+fs/btrfs/ioctl.c:1166:	sizestr = vol_args->name;
+fs/btrfs/ioctl.c:1167:	cancel = (strcmp("cancel", sizestr) == 0);
+fs/btrfs/ioctl.c:2496:		vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c:2497:		if (IS_ERR(vol_args))
+fs/btrfs/ioctl.c:2498:			return PTR_ERR(vol_args);
+fs/btrfs/ioctl.c:2499:
+fs/btrfs/ioctl.c:2500:		err = btrfs_check_ioctl_vol_args_path(vol_args);
+fs/btrfs/ioctl.c:2501:		if (err < 0)
+fs/btrfs/ioctl.c:2502:			goto out;
+fs/btrfs/ioctl.c:2503:
+fs/btrfs/ioctl.c:2504:		subvol_name = vol_args->name;
+fs/btrfs/ioctl.c:2505:
+fs/btrfs/ioctl.c:2506:		err = mnt_want_write_file(file);
+fs/btrfs/ioctl.c:2507:		if (err)
+fs/btrfs/ioctl.c:2508:			goto out;
+fs/btrfs/ioctl.c:2509:	}
+fs/btrfs/ioctl.c:2510:
+fs/btrfs/ioctl.c:2511:	subvol_namelen = strlen(subvol_name);
+fs/btrfs/ioctl.c:2746:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c:2747:	if (IS_ERR(vol_args))
+fs/btrfs/ioctl.c:2748:		return PTR_ERR(vol_args);
+fs/btrfs/ioctl.c:2749:
+fs/btrfs/ioctl.c:2750:	if (vol_args->flags & ~BTRFS_DEVICE_REMOVE_ARGS_MASK) {
+fs/btrfs/ioctl.c:2751:		ret = -EOPNOTSUPP;
+fs/btrfs/ioctl.c:2752:		goto out;
+fs/btrfs/ioctl.c:2753:	}
+fs/btrfs/ioctl.c:2754:
+fs/btrfs/ioctl.c:2755:	ret = btrfs_check_ioctl_vol_args2_subvol_name(vol_args);
+fs/btrfs/ioctl.c:2756:	if (ret < 0)
+fs/btrfs/ioctl.c:2757:		goto out;
+fs/btrfs/ioctl.c:2758:
+fs/btrfs/ioctl.c:2759:	if (vol_args->flags & BTRFS_DEVICE_SPEC_BY_ID) {
+fs/btrfs/ioctl.c:2760:		args.devid = vol_args->devid;
+fs/btrfs/ioctl.c:2761:	} else if (!strcmp("cancel", vol_args->name)) {
+fs/btrfs/ioctl.c:2814:	vol_args = memdup_user(arg, sizeof(*vol_args));
+fs/btrfs/ioctl.c:2815:	if (IS_ERR(vol_args))
+fs/btrfs/ioctl.c:2816:		return PTR_ERR(vol_args);
+fs/btrfs/ioctl.c:2817:
+fs/btrfs/ioctl.c:2818:	ret = btrfs_check_ioctl_vol_args_path(vol_args);
+fs/btrfs/ioctl.c:2819:	if (ret < 0)
+fs/btrfs/ioctl.c:2820:		goto out_free;
+fs/btrfs/ioctl.c:2821:
+fs/btrfs/ioctl.c:2822:	if (!strcmp("cancel", vol_args->name)) {
+fs/btrfs/ioctl.c:2915:	di_args = memdup_user(arg, sizeof(*di_args));
+fs/btrfs/ioctl.c:2916:	if (IS_ERR(di_args))
+fs/btrfs/ioctl.c:2917:		return PTR_ERR(di_args);
+fs/btrfs/ioctl.c:2918:
+fs/btrfs/ioctl.c:2919:	args.devid = di_args->devid;
+fs/btrfs/ioctl.c:2920:	if (!btrfs_is_empty_uuid(di_args->uuid))
+fs/btrfs/ioctl.c:2921:		args.uuid = di_args->uuid;
+fs/btrfs/ioctl.c:2922:
+fs/btrfs/ioctl.c:2923:	rcu_read_lock();
+fs/btrfs/ioctl.c:2924:	dev = btrfs_find_device(fs_info->fs_devices, &args);
+fs/btrfs/ioctl.c:2925:	if (!dev) {
+fs/btrfs/ioctl.c:2926:		ret = -ENODEV;
+fs/btrfs/ioctl.c:2927:		goto out;
+fs/btrfs/ioctl.c:2928:	}
+fs/btrfs/ioctl.c:2929:
+fs/btrfs/ioctl.c:2930:	di_args->devid = dev->devid;
+fs/btrfs/ioctl.c:2931:	di_args->bytes_used = btrfs_device_get_bytes_used(dev);
+fs/btrfs/ioctl.c:2932:	di_args->total_bytes = btrfs_device_get_total_bytes(dev);
+fs/btrfs/ioctl.c:2933:	memcpy(di_args->uuid, dev->uuid, sizeof(di_args->uuid));
+fs/btrfs/ioctl.c:2934:	memcpy(di_args->fsid, dev->fs_devices->fsid, BTRFS_UUID_SIZE);
+fs/btrfs/ioctl.c:2935:	if (dev->name)
+fs/btrfs/ioctl.c:2936:		strscpy(di_args->path, btrfs_dev_name(dev), sizeof(di_args->path));
+fs/pstore/platform.c:443:	record->buf = vmemdup_user(buf, record->size);
+fs/pstore/platform.c:444:	if (IS_ERR(record->buf)) {
+fs/pstore/platform.c:445:		ret = PTR_ERR(record->buf);
+fs/pstore/platform.c:446:		goto out;
+fs/pstore/platform.c:447:	}
+fs/pstore/platform.c:448:
+fs/pstore/platform.c:449:	ret = record->psi->write(record);
+fs/pstore/platform.c:450:
+fs/pstore/platform.c:451:	kvfree(record->buf);
+fs/pstore/platform.c:452:out:
+fs/pstore/platform.c:453:	record->buf = NULL;
+fs/pstore/platform.c:454:
+fs/pstore/platform.c:455:	return unlikely(ret < 0) ? ret : record->size;
+fs/pstore/platform.c:456:}
+fs/pstore/platform.c:457:
+fs/pstore/platform.c:458:/*
+fs/pstore/platform.c:459: * platform specific persistent storage driver registers with
+fs/pstore/platform.c:460: * us here. If pstore is already mounted, call the platform
+fs/pstore/platform.c:461: * read function right away to populate the file system. If not
+fs/pstore/platform.c:462: * then the pstore mount code will call us later to fill out
+fs/pstore/platform.c:463: * the file system.
+fs/pstore/platform.c:464: */
+fs/pstore/platform.c:465:int pstore_register(struct pstore_info *psi)
+fs/pstore/platform.c:466:{
+fs/pstore/platform.c:467:	char *new_backend;
+fs/pstore/platform.c:468:
+fs/pstore/platform.c:469:	if (backend && strcmp(backend, psi->name)) {
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:315:	kern_buf = memdup_user(buf, nbytes);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:316:	if (IS_ERR(kern_buf))
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:317:		return PTR_ERR(kern_buf);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:318:
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:319:	rc = sscanf(kern_buf, "%x:%x", &addr, &len);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:375:	kern_buf = memdup_user(buf, nbytes);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:376:	if (IS_ERR(kern_buf))
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:377:		return PTR_ERR(kern_buf);
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:378:
+drivers/net/ethernet/brocade/bna/bnad_debugfs.c:379:	rc = sscanf(kern_buf, "%x:%x", &addr, &val);
+drivers/s390/cio/cio_inject.c:98:	buffer = vmemdup_user(buf, lbuf);
+drivers/s390/cio/cio_inject.c:99:	if (IS_ERR(buffer))
+drivers/s390/cio/cio_inject.c:100:		return -ENOMEM;
+drivers/s390/cio/cio_inject.c:101:
+drivers/s390/cio/cio_inject.c:102:	rc = sscanf(buffer, "%x %x %x %x %x %x %x", &slct, &oflw, &chn, &rsc, &anc,
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1002:	cmd_buf = memdup_user(buffer, count + 1);
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1003:	if (IS_ERR(cmd_buf))
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1004:		return -ENOMEM;
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1005:
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1006:	cmd_buf[count] = '\0';
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1007:
+drivers/net/ethernet/marvell/octeontx2/af/rvu_debugfs.c:1008:	cmd_buf_tmp = strchr(cmd_buf, '\n');
+drivers/scsi/bfa/bfad_debugfs.c:253:	kern_buf = memdup_user(buf, nbytes);
+drivers/scsi/bfa/bfad_debugfs.c:254:	if (IS_ERR(kern_buf))
+drivers/scsi/bfa/bfad_debugfs.c:255:		return PTR_ERR(kern_buf);
+drivers/scsi/bfa/bfad_debugfs.c:256:
+drivers/scsi/bfa/bfad_debugfs.c:257:	rc = sscanf(kern_buf, "%x:%x", &addr, &len);
+drivers/scsi/bfa/bfad_debugfs.c:320:	kern_buf = memdup_user(buf, nbytes);
+drivers/scsi/bfa/bfad_debugfs.c:321:	if (IS_ERR(kern_buf))
+drivers/scsi/bfa/bfad_debugfs.c:322:		return PTR_ERR(kern_buf);
+drivers/scsi/bfa/bfad_debugfs.c:323:
+drivers/scsi/bfa/bfad_debugfs.c:324:	rc = sscanf(kern_buf, "%x:%x", &addr, &val);

@@ -1,0 +1,19 @@
+import json, os
+ckpt = {
+  "intent_id": "i018",
+  "branch": "terminator-write-off-by-one",
+  "snapshot": "s01",
+  "status": "complete",
+  "progress": [
+    "Resolved versal_edac.c inject_data_ue_store (lines 848-901 read): char buf[6] at 854, len = min_t(size_t, count, sizeof(buf)) at 859 without -1, buf[len] = 0 at 863 writes buf[6] when count >= 6 -> 1-byte stack OOB write. Reported (high).",
+    "Examined zynqmp_edac.c inject_ue_write (lines 294-341 read): byte-identical pattern (buf[6] at 299, clamp at 307, buf[len]=0 at 311), debugfs inject_ue_bitpos 0644. Reported (high).",
+    "Swept s01 write interfaces for clamp-then-terminate off-by-one: min_t/min(count,sizeof()) clamps (80 sites), buf[len]/buf[count] terminator writes (~140 sites), count==sizeof acceptance checks, scsi ->write_info callbacks with PROC_BLOCK_SIZE=3*1024 vs PAGE_SIZE page, lkdtm PAGE_SIZE pages, habanalabs/amdgpu/netdevsim/iio reference-safe patterns verified safe with concrete evidence.",
+    "Safe evidence recorded: amdgpu_pm 785 (count>127 rejected), habanalabs 495/558 (count > sizeof-1), lkdtm 247/324 (count >= PAGE_SIZE rejected), scsi_proc host write (PROC_BLOCK_SIZE 3072 < PAGE_SIZE) and proc_scsi_write (PAGE_SIZE case requires in-bounds NUL), speakup synth_store/devsynth, storage_common inquiry (read-index only), bt-bmc (binary), wil6210 (read path).",
+    "Final artifact written with 2 findings, 12 candidates, 5 limitations; snapshots_checked=[s01]."
+  ]
+}
+out = "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C10/agent-state/checkpoints/i018.json"
+tmp = out + ".tmp"
+with open(tmp, "w") as f: json.dump(ckpt, f, indent=2)
+os.replace(tmp, out)
+print("checkpoint updated")

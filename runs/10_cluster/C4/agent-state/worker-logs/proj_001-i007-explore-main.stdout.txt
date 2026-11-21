@@ -1,0 +1,2 @@
+The memcpy-from-nla_data candidates are guarded by nla policy length validation (safe). Let me now build a targeted scanner for the actual invariant: uninitialized stack locals used as out-params of error-returning parse/copy helpers with ignored returns.
+The netlink `tb` arrays are zeroed inside `__nla_validate_parse`, so ignored returns there don't leak stack (candidates safe). The `sscanf`-with-ignored-return list is far more promising. Let me read the top candidates.

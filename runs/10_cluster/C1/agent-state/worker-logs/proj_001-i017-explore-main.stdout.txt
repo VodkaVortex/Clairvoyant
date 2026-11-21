@@ -1,0 +1,2 @@
+I'll finalize using the evidence collected. Let me obtain exact source lines for the strongest candidates (gk20a.c DT speedo scaling, gk104.c VBIOS pwm divisor, r600_dpm.c firmware divider).
+I have concrete evidence from this session: the gk104 nouveau PWM-voltage code divides by two raw, unvalidated VBIOS-sourced fields (`bios->pwm_freq`, `bios->pwm_range`), parsed in `nvbios_volt_parse` with a truncating `/1000` and no range checks. That is a direct branch-4 variant of the seed's zero-denominator mechanism. I'll finalize now.

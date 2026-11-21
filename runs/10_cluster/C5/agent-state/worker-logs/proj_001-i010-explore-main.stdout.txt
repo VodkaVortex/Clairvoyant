@@ -1,0 +1,4 @@
+This snapshot has a newer API (`xdp_desc_ctx`, `xp_raw_get_ctx`). I can already see a strong candidate: `xsk_tx_metadata_request()` re-reads `meta->flags` and `meta->request.*` directly from UMEM shared memory, while validation happened earlier in `xsk_buff_valid_tx_metadata()` on a different read. Let me examine the surrounding infrastructure.
+I'll finalize using collected evidence. First, two targeted reads to nail exact source lines for the strongest candidate's consumer sink and the metadata-length constraints.
+I'll do one final verification of the exact source bytes for the reported range, then write the artifacts.
+I have all the evidence needed. Writing the checkpoint update and the final artifact now.

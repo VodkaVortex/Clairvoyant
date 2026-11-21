@@ -1,0 +1,10 @@
+The l2tp helper in s04 is the fixed exemplar (pointer-repair via `**ptr`/`**optr`), same as s05. Now a bounded interprocedural scan for callee-pull→caller-stale pairs.
+I have the evidence I need. The scan surfaced exactly three interprocedural chains plus the L2TP priority family; two are refetch-correct (xt_TCPMSS), and the mwl8k one is a genuine caller-side stale pointer across a callee `pskb_expand_head`. Let me write the checkpoint and final artifact.
+All evidence is verified against the s04 source. The final artifact is written with one finding and six classified candidates, bounded limitations, and literal source quotes.
+
+**Summary of intent i025 (s04, callee-pull-caller-stale):**
+
+- **Finding (medium):** `s04:drivers/net/wireless/marvell/mwl8k.c:1927-1990` — caller `mwl8k_txq_xmit()` captures `mgmt = (struct ieee80211_mgmt *)skb->data` (line 1927), then calls callee `mwl8k_encapsulate_tx_frame()`/`mwl8k_add_dma_header()` (1943/1945) which internally runs `pskb_expand_head(skb, REDUCED_TX_HEADROOM, 0, GFP_ATOMIC)` (line 867) under AP firmware with short 802.11 headers, freeing the old head. The caller refetches only `wh` (1947), then dereferences the stale `mgmt` at 1987/1988/1990 (`mgmt->u.action.category`, `.action_code`, `.addba_req.capab`), driving TX-queue/tid selection — the interprocedural twin of `pep_get_sb()`.
+- **Safe:** `xt_TCPMSS.c` tg4/tg6 (callers refetch `iph`/`ipv6h` after the callee's expand; flagged uses are pre-call arguments), l2tp trio `l2tp_core.c:1096` / `l2tp_ip.c:166` / `l2tp_ip6.c:176` (`l2tp_v3_ensure_opt_in_linear()` is the in-tree exemplar of the seed's fix — it repairs `*ptr`/`*optr` after its internal pull).
+- **Not re-counted:** the callee-internal `wh` case at mwl8k.c:867, already reported by sibling intent i013.
+- **Limitations:** static-only analysis (no KASAN reproducer), scanner regex/name-based interprocedural match with only 3 tree-wide hits, indirect dispatch boundaries unresolved, and mac80211-generated TX traffic gives weaker attacker control than the seed's remote RX packet.

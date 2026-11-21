@@ -1,0 +1,32 @@
+fs/pstore/platform.c:443:	record->buf = vmemdup_user(buf, record->size);
+fs/pstore/platform.c:444:	if (IS_ERR(record->buf)) {
+fs/pstore/platform.c:445:		ret = PTR_ERR(record->buf);
+fs/pstore/platform.c:446:		goto out;
+fs/pstore/platform.c:447:	}
+fs/pstore/platform.c:448:
+fs/pstore/platform.c:449:	ret = record->psi->write(record);
+fs/pstore/platform.c:450:
+fs/pstore/platform.c:451:	kvfree(record->buf);
+fs/pstore/platform.c:452:out:
+fs/pstore/platform.c:453:	record->buf = NULL;
+fs/pstore/platform.c:454:
+fs/pstore/platform.c:455:	return unlikely(ret < 0) ? ret : record->size;
+fs/pstore/platform.c:456:}
+fs/pstore/platform.c:457:
+fs/pstore/platform.c:458:/*
+fs/pstore/platform.c:459: * platform specific persistent storage driver registers with
+fs/pstore/platform.c:460: * us here. If pstore is already mounted, call the platform
+fs/pstore/platform.c:461: * read function right away to populate the file system. If not
+fs/pstore/platform.c:462: * then the pstore mount code will call us later to fill out
+fs/pstore/platform.c:463: * the file system.
+fs/pstore/platform.c:464: */
+fs/pstore/platform.c:465:int pstore_register(struct pstore_info *psi)
+fs/pstore/platform.c:466:{
+fs/pstore/platform.c:467:	char *new_backend;
+fs/pstore/platform.c:468:
+fs/pstore/platform.c:469:	if (backend && strcmp(backend, psi->name)) {
+drivers/s390/cio/cio_inject.c:98:	buffer = vmemdup_user(buf, lbuf);
+drivers/s390/cio/cio_inject.c:99:	if (IS_ERR(buffer))
+drivers/s390/cio/cio_inject.c:100:		return -ENOMEM;
+drivers/s390/cio/cio_inject.c:101:
+drivers/s390/cio/cio_inject.c:102:	rc = sscanf(buffer, "%x %x %x %x %x %x %x", &slct, &oflw, &chn, &rsc, &anc,

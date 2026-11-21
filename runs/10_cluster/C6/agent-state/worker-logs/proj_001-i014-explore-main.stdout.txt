@@ -1,0 +1,4 @@
+I'll start by writing the initial progress checkpoint and exploring the workspace structure.
+Now let me write an analysis script to find the pattern: pointer captured from skb data, a pull/linearize call, then stale dereference — with special attention to loop contexts.
+The script found 66 same-function candidates, including s04's unpatched `pep_get_sb` (confirming the pattern detector works). Now let me read the strongest loop-shaped candidates.
+I'll finalize now. I have strong evidence already: `garp_pdu_parse_attr()` in `net/802/garp.c` is a literal structural clone of the seed's `pep_get_sb()` (get-next-attribute helper inside a parse loop, attacker-controlled pull length, post-pull dereferences). Let me grab the exact source lines for the report and classify the remaining top candidates in one call.

@@ -1,0 +1,16 @@
+{
+  "intent_id": "i004",
+  "branch": "fixed-epidx-rest",
+  "snapshot": "s01",
+  "status": "in_progress",
+  "phase": "candidate triage",
+  "notes": "Enumerated 74 fixed-index + ~125 variable-index endpoint[] reads outside media/usb and net. Strongest candidate so far: drivers/isdn/hisax st5481 driver - probe path st5481_init.c probe_st5481 calls st5481_setup_usb (validates bNumEndpoints==7) BEFORE st5481_setup_d/st5481_setup_b which index endpoint[EP_D_OUT-1=5] and endpoint[EP_B1_OUT-1+ch*2] on the SAME altsetting 3; setup_usb validates once so probe-time path is SAFE, BUT st5481_b.c st5481_setup_b_out / st5481_d.c st5481_setup_d_out are also called on B-channel open (l2l1 activation) after potential reconfiguration - need to confirm whether validation still holds. ua101, midi, cdc-acm, qcserial, usbtmc, usb-serial core all have checks.",
+  "candidates": [
+    {"path": "drivers/isdn/hisax/st5481_d.c", "line": 673, "status": "unresolved", "reason": "endpoint[EP_D_OUT-1] = endpoint[5] without local bNumEndpoints check; guarded only by earlier st5481_setup_usb check==7; verify runtime path"},
+    {"path": "drivers/isdn/hisax/st5481_b.c", "line": 282, "status": "unresolved", "reason": "endpoint[EP_B1_OUT-1+ch*2] up to endpoint[4] without local check"},
+    {"path": "sound/usb/misc/ua101.c", "line": 1034, "status": "safe", "reason": "probe validates altsetting[1].bNumEndpoints==1 before use"},
+    {"path": "sound/usb/midi.c", "status": "safe", "reason": "bNumEndpoints checks at 1953/2052/2143 precede endpoint reads"},
+    {"path": "drivers/usb/class/cdc-acm.c", "status": "safe", "reason": "line 1322-1323 checks data_interface bNumEndpoints>=2, control !=0 before epread/epwrite indexing"}
+  ],
+  "updated_at": "2026-11-12"
+}

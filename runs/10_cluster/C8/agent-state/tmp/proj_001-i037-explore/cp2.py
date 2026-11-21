@@ -1,0 +1,39 @@
+import json
+path = "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/10_cluster/C8/agent-state/checkpoints/i037.json"
+doc = {
+  "version": 1, "intent_id": "i037", "branch": "if-alt-count", "snapshot": "s09", "phase": "post-secondary-search",
+  "primary_finding": {
+    "path": "drivers/hid/wacom_sys.c", "start": 2528, "end": 2541,
+    "status": "confirmed-strong",
+    "evidence": "wacom_wireless_work (2511): usbdev != NULL is the only guard (2528); hdev1 = usb_get_intfdata(usbdev->config->interface[1]) (2532), hdev2 = usb_get_intfdata(usbdev->config->interface[2]) (2538); no bNumInterfaces check anywhere in wacom_sys.c/wacom_wac.c (grep exit 1). Trigger: wacom_wireless_irq (wacom_wac.c:3370) on device-supplied WACOM_PKGLEN_WIRELESS report with data[1]&0x01 and changed pid -> wacom_schedule_work(WACOM_WORKER_WIRELESS) (3396/3405) -> schedule_work(&wacom->wireless_work) (wacom.h:191-192). usbdev set only when hid_is_usb (wacom_sys.c:2860-2863). NULL/garbage interface[1]/[2] then usb_get_intfdata -> usb_get_intfdata dereferences intf->dev? Need to confirm usb_get_intfdata deref chain: usb_get_intfdata(intf) = dev_get_drvdata(&intf->dev) -> dereferences &intf->dev => NULL+offsetof deref if interface[1] is NULL."
+  },
+  "candidates": [
+    {"path": "sound/usb/card.c", "line": 339, "status": "safe",
+     "evidence": "snd_usb_create_streams: host_iface = &usb_ifnum_to_if(dev, ctrlif)->altsetting[0] at 339 has no visible NULL check in this function, BUT ctrlif comes from snd_usb_probe's ifnum = interface->altsetting[0].desc.bInterfaceNumber of the bound interface (the interface usbcore handed to probe), so usb_ifnum_to_if(dev, ctrlif) returns that same non-NULL interface; UAC1 h1->baInterfaceNr[i] loop feeds snd_usb_create_stream which NULL-checks usb_ifnum_to_if (253-259); UAC2/3 IAD assoc->bFirstInterface+i loop likewise goes through the NULL-checked snd_usb_create_stream; ctrlif+1 fallback at 409 is NULL-checked."},
+    {"path": "sound/usb/card.c", "line": 261, "status": "safe",
+     "evidence": "snd_usb_create_stream NULL-checks usb_ifnum_to_if(dev, interface) at 255-259 before altsetting[0] use at 261; Android quirk re-lookup at 274-276 also NULL-checked."},
+    {"path": "sound/usb/helper.c", "line": 145, "status": "safe",
+     "evidence": "snd_usb_add_ctrl_interface_link: host_iface = &usb_ifnum_to_if(dev, ctrlif)->altsetting[0] at 145 without local NULL check, but ctrlif is the probed interface's own ifnum (card.c:1031 snd_usb_create_streams(chip, ifnum) where ifnum = the interface passed to probe), so lookup cannot fail; every other caller path NULL-checks before alt use."},
+    {"path": "drivers/usb/misc/uss720.c", "line": 690, "status": "safe",
+     "evidence": "probe requires intf->num_altsetting == 3 (686-688) before usb_set_interface(...,2) (690), then re-reads intf->cur_altsetting and checks bNumEndpoints < 2 (694-695) before endpoint use; alt switch itself is core-validated."},
+    {"path": "drivers/media/usb/ttusb-dec/ttusb_dec.c", "line": 908, "status": "safe",
+     "evidence": "ttusb_dec_set_interface uses literal altnums 0/8/1 only via usb_set_interface (901/908/911) which usbcore validates against the parsed descriptor set; no direct altsetting[] indexing in the driver."},
+    {"path": "drivers/media/usb/ttusb-budget/dvb-ttusb-budget.c", "line": 918, "status": "safe",
+     "evidence": "ttusb_setup_interfaces only calls usb_set_interface(dev, 1, 1) (918) with hardcoded pipes (1/1/2), not descriptor-array indexing; core validates altnum; pipes are ep addresses not array indexes."},
+    {"path": "drivers/bluetooth/btusb.c", "line": 2375, "status": "safe",
+     "evidence": "btusb_find_altsetting loops i < intf->num_altsetting comparing altsetting[i].desc.bAlternateSetting == alt before returning &intf->altsetting[i]; loop-bounded and NULL-checks data->isoc."},
+    {"path": "drivers/usb/misc/usbtest.c", "line": 838, "status": "safe",
+     "evidence": "ch9_postconfig loops i < iface->num_altsetting, takes alt from altsetting[i].desc.bAlternateSetting, and set_altsetting() -> usb_set_interface is core-validated; usbtest is also a testing driver not normally bound to arbitrary devices."},
+    {"path": "drivers/usb/host/xhci.c", "line": 5097, "status": "safe",
+     "evidence": "xhci_get_timeout_no_hub_lpm loops i < config->desc.bNumInterfaces with NULL check on config->interface[i]; loop-bounded by the same count that sized the array."},
+    {"path": "sound/usb/card.c", "line": 858, "status": "safe",
+     "evidence": "find_last_interface loops i < config->desc.bNumInterfaces over config->interface[i]; loop-bounded."},
+    {"path": "drivers/media/usb/gspca/stv06xx/stv06xx.c", "line": 343, "status": "safe",
+     "evidence": "intf_cache[0]->altsetting[1] in stv06xx_isoc_nego relies on stv06xx_isoc_init's num_altsetting<2 (318) and bNumEndpoints<1 (324) checks via gspca core ordering (isoc_init at gspca.c:774 runs before any isoc_nego at 882); altsetting-count half guarded, endpoint half owned by media-epidx (f035)."},
+    {"path": "drivers/media/usb/gspca/xirlink_cit.c", "line": 2684, "status": "safe",
+     "evidence": "Same isoc_init-guards-isoc_nego ordering; cit_isoc_init checks num_altsetting<2 at 2650 and bNumEndpoints<1 at 2656 before its altsetting[1] write at 2659."}
+  ],
+  "notes": "Remaining checks: (a) usb_get_intfdata/usb_get_serial_data NULL-intf deref confirmation for wacom finding (include/linux/usb.h dev_get_drvdata(&intf->dev)); (b) confirm interface[1]/[2] beyond bNumInterfaces are NULL in usb core (config.c kmalloc_array + kzalloc?); (c) usbtv/cxusb/ttusbir already covered by earlier grep as safe (f035/earlier facts); (d) hso.c:2884 usb_set_interface(if_num,1) - literal altnum via core; (e) cdc-phonet/ipheth/catc alt switches via core; (f) write final artifact."
+}
+with open(path, "w") as f: json.dump(doc, f, indent=1)
+print("ok")

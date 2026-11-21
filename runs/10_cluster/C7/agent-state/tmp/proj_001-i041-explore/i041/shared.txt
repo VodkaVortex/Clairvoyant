@@ -1,0 +1,680 @@
+== drivers/atm/eni.c :: lock
+  SOFTIRQ eni_tasklet:1531 kind=irqsave expr=eni_dev->lock
+  OTHER   eni_int:1515 kind=plain :: spin_lock(&eni_dev->lock);
+== drivers/atm/solos-pci.c :: cli_queue_lock
+  SOFTIRQ solos_bh:857 kind=plain expr=card->cli_queue_lock
+  OTHER   console_show:455 kind=plain :: spin_lock(&card->cli_queue_lock);
+== drivers/block/umem.c :: lock
+  SOFTIRQ process_page:432 kind=bh expr=card->lock
+  OTHER   mm_unplug:520 kind=irq :: spin_lock_irq(&card->lock);
+  OTHER   mm_make_request:537 kind=irq :: spin_lock_irq(&card->lock);
+  OTHER   check_all_batteries:731 kind=bh :: spin_lock_bh(&card->lock);
+== drivers/block/xsysace.c :: lock
+  SOFTIRQ ace_fsm_tasklet:763 kind=irqsave expr=ace->lock
+  OTHER   ace_stall_timer:782 kind=irqsave :: spin_lock_irqsave(&ace->lock, flags);
+  OTHER   ace_interrupt:821 kind=plain :: spin_lock(&ace->lock);
+  OTHER   ace_revalidate_disk:888 kind=irqsave :: spin_lock_irqsave(&ace->lock, flags);
+  OTHER   ace_open:908 kind=irqsave :: spin_lock_irqsave(&ace->lock, flags);
+  OTHER   ace_release:927 kind=irqsave :: spin_lock_irqsave(&ace->lock, flags);
+== drivers/char/mmtimer.c :: lock
+  SOFTIRQ mmtimer_tasklet:563 kind=irqsave expr=mn->lock
+  OTHER   sgi_timer_del:615 kind=irqsave :: spin_lock_irqsave(&timers[nodeid].lock, irqflags);
+  OTHER   sgi_timer_set:732 kind=irqsave :: spin_lock_irqsave(&timers[nodeid].lock, irqflags);
+== drivers/crypto/dcp.c :: queue_lock
+  SOFTIRQ dcp_queue_task:485 kind=irqsave expr=dev->queue_lock
+  OTHER   dcp_aes_cbc_crypt:590 kind=irqsave :: spin_lock_irqsave(&dev->queue_lock, flags);
+== drivers/crypto/picoxcell_crypto.c :: hw_lock
+  SOFTIRQ spacc_spacc_complete:1235 kind=irqsave expr=engine->hw_lock
+  OTHER   spacc_aead_setup:721 kind=irqsave :: spin_lock_irqsave(&engine->hw_lock, flags);
+  OTHER   spacc_ablk_setup:1059 kind=irqsave :: spin_lock_irqsave(&engine->hw_lock, flags);
+  OTHER   spacc_process_done:1157 kind=irqsave :: spin_lock_irqsave(&engine->hw_lock, flags);
+== drivers/crypto/s5p-sss.c :: lock
+  SOFTIRQ s5p_tasklet_cb:410 kind=irqsave expr=dev->lock
+  OTHER   s5p_aes_interrupt:303 kind=irqsave :: spin_lock_irqsave(&dev->lock, flags);
+  OTHER   s5p_aes_crypt_start:368 kind=irqsave :: spin_lock_irqsave(&dev->lock, flags);
+  OTHER   s5p_aes_handle_req:434 kind=irqsave :: spin_lock_irqsave(&dev->lock, flags);
+== drivers/crypto/sahara.c :: lock
+  SOFTIRQ sahara_aes_queue_task:581 kind=plain expr=dev->lock
+  OTHER   sahara_aes_done_task:413 kind=plain :: spin_lock(&dev->lock);
+  OTHER   sahara_aes_crypt:646 kind=bh :: spin_lock_bh(&dev->lock);
+== drivers/dma/at_hdmac.c :: lock
+  SOFTIRQ atc_tasklet:518 kind=irqsave expr=atchan->lock
+  OTHER   atc_desc_get:118 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+  OTHER   atc_desc_get:137 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+  OTHER   atc_desc_put:160 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+  OTHER   atc_tx_submit:589 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+  OTHER   atc_control:1029 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+  OTHER   atc_control:1039 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+  OTHER   atc_control:1053 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+  OTHER   atc_issue_pending:1149 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+  OTHER   atc_alloc_chan_resources:1211 kind=irqsave :: spin_lock_irqsave(&atchan->lock, flags);
+== drivers/dma/coh901318.c :: lock
+  SOFTIRQ dma_tasklet:1924 kind=irqsave expr=cohc->lock
+  OTHER   enable_powersave:1421 kind=irqsave :: spin_lock_irqsave(&pm->lock, flags);
+  OTHER   disable_powersave:1432 kind=irqsave :: spin_lock_irqsave(&pm->lock, flags);
+  OTHER   coh901318_get_bytes_left:1620 kind=irqsave :: spin_lock_irqsave(&cohc->lock, flags);
+  OTHER   coh901318_pause:1701 kind=irqsave :: spin_lock_irqsave(&cohc->lock, flags);
+  OTHER   coh901318_resume:1745 kind=irqsave :: spin_lock_irqsave(&cohc->lock, flags);
+  OTHER   coh901318_config:1816 kind=irqsave :: spin_lock_irqsave(&cohc->lock, flags);
+  OTHER   dma_tc_handle:1966 kind=plain :: spin_lock(&cohc->lock);
+  OTHER   dma_irq_handler:2029 kind=plain :: spin_lock(&cohc->lock);
+  OTHER   dma_irq_handler:2075 kind=plain :: spin_lock(&cohc->lock);
+  OTHER   coh901318_alloc_chan_resources:2128 kind=irqsave :: spin_lock_irqsave(&cohc->lock, flags);
+== drivers/dma/ep93xx_dma.c :: lock
+  SOFTIRQ ep93xx_dma_tasklet:766 kind=irq expr=edmac->lock
+  OTHER   ep93xx_dma_desc_put:699 kind=irqsave :: spin_lock_irqsave(&edmac->lock, flags);
+  OTHER   ep93xx_dma_advance_work:719 kind=irqsave :: spin_lock_irqsave(&edmac->lock, flags);
+  OTHER   ep93xx_dma_interrupt:810 kind=plain :: spin_lock(&edmac->lock);
+  OTHER   ep93xx_dma_tx_submit:856 kind=irqsave :: spin_lock_irqsave(&edmac->lock, flags);
+  OTHER   ep93xx_dma_alloc_chan_resources:926 kind=irq :: spin_lock_irq(&edmac->lock);
+  OTHER   ep93xx_dma_free_chan_resources:979 kind=irqsave :: spin_lock_irqsave(&edmac->lock, flags);
+  OTHER   ep93xx_dma_terminate_all:1208 kind=irqsave :: spin_lock_irqsave(&edmac->lock, flags);
+  OTHER   ep93xx_dma_slave_config:1266 kind=irqsave :: spin_lock_irqsave(&edmac->lock, flags);
+== drivers/dma/fsldma.c :: desc_lock
+  SOFTIRQ dma_do_tasklet:1067 kind=irqsave expr=chan->desc_lock
+  OTHER   fsl_dma_tx_submit:413 kind=irqsave :: spin_lock_irqsave(&chan->desc_lock, flags);
+  OTHER   fsl_dma_free_chan_resources:538 kind=irqsave :: spin_lock_irqsave(&chan->desc_lock, flags);
+  OTHER   fsl_dma_device_control:799 kind=irqsave :: spin_lock_irqsave(&chan->desc_lock, flags);
+  OTHER   fsl_dma_memcpy_issue_pending:971 kind=irqsave :: spin_lock_irqsave(&chan->desc_lock, flags);
+== drivers/dma/imx-dma.c :: lock
+  SOFTIRQ imxdma_tasklet:626 kind=irqsave expr=imxdma->lock
+  OTHER   dma_irq_handle_channel:442 kind=irqsave :: spin_lock_irqsave(&imxdma->lock, flags);
+  OTHER   imxdma_control:681 kind=irqsave :: spin_lock_irqsave(&imxdma->lock, flags);
+  OTHER   imxdma_tx_submit:747 kind=irqsave :: spin_lock_irqsave(&imxdma->lock, flags);
+  OTHER   imxdma_free_chan_resources:793 kind=irqsave :: spin_lock_irqsave(&imxdma->lock, flags);
+  OTHER   imxdma_issue_pending:1001 kind=irqsave :: spin_lock_irqsave(&imxdma->lock, flags);
+== drivers/dma/ipu/ipu_idmac.c :: lock
+  SOFTIRQ ipu_gc_tasklet:1318 kind=irqsave expr=ichan->lock
+  OTHER   ipu_enable_channel:612 kind=irqsave :: spin_lock_irqsave(&ipu->lock, flags);
+  OTHER   ipu_update_channel_buffer:739 kind=irqsave :: spin_lock_irqsave(&ipu_data.lock, flags);
+  OTHER   idmac_tx_submit:872 kind=irqsave :: spin_lock_irqsave(&ichan->lock, flags);
+  OTHER   idmac_tx_submit:897 kind=irqsave :: spin_lock_irqsave(&ichan->lock, flags);
+  OTHER   ipu_init_channel:966 kind=irqsave :: spin_lock_irqsave(&ipu->lock, flags);
+  OTHER   ipu_uninit_channel:1018 kind=irqsave :: spin_lock_irqsave(&ipu->lock, flags);
+  OTHER   ipu_disable_channel:1111 kind=irqsave :: spin_lock_irqsave(&ipu->lock, flags);
+  OTHER   idmac_interrupt:1173 kind=irqsave :: spin_lock_irqsave(&ipu_data.lock, flags);
+  OTHER   idmac_interrupt:1197 kind=plain :: spin_lock(&ichan->lock);
+  OTHER   idmac_interrupt:1255 kind=irqsave :: spin_lock_irqsave(&ipu_data.lock, flags);
+  OTHER   idmac_interrupt:1285 kind=plain :: spin_lock(&ichan->lock);
+  OTHER   idmac_prep_slave_sg:1357 kind=irqsave :: spin_lock_irqsave(&ichan->lock, flags);
+  OTHER   idmac_issue_pending:1387 kind=irqsave :: spin_lock_irqsave(&ipu->lock, flags);
+  OTHER   __idmac_control:1411 kind=irqsave :: spin_lock_irqsave(&ipu->lock, flags);
+  OTHER   __idmac_control:1432 kind=irqsave :: spin_lock_irqsave(&ichan->lock, flags);
+== drivers/dma/k3dma.c :: lock
+  SOFTIRQ k3_dma_tasklet:308 kind=irq expr=c->vc.lock
+  SOFTIRQ k3_dma_tasklet:285 kind=irq expr=d->lock
+  OTHER   k3_dma_int_handler:209 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   k3_dma_free_chan_resources:327 kind=irqsave :: spin_lock_irqsave(&d->lock, flags);
+  OTHER   k3_dma_tx_status:350 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   k3_dma_issue_pending:388 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   k3_dma_issue_pending:391 kind=plain :: spin_lock(&d->lock);
+  OTHER   k3_dma_control:582 kind=plain :: spin_lock(&d->lock);
+  OTHER   k3_dma_control:587 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   k3_dma_control:607 kind=plain :: spin_lock(&d->lock);
+  OTHER   k3_dma_control:616 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   k3_dma_control:622 kind=plain :: spin_lock(&d->lock);
+== drivers/dma/mmp_pdma.c :: desc_lock
+  SOFTIRQ dma_do_tasklet:794 kind=irqsave expr=chan->desc_lock
+  OTHER   mmp_pdma_tx_submit:341 kind=irqsave :: spin_lock_irqsave(&chan->desc_lock, flags);
+  OTHER   mmp_pdma_free_chan_resources:422 kind=irqsave :: spin_lock_irqsave(&chan->desc_lock, flags);
+  OTHER   mmp_pdma_control:696 kind=irqsave :: spin_lock_irqsave(&chan->desc_lock, flags);
+  OTHER   mmp_pdma_issue_pending:760 kind=irqsave :: spin_lock_irqsave(&chan->desc_lock, flags);
+== drivers/dma/mpc512x_dma.c :: error_status_lock
+  SOFTIRQ mpc_dma_tasklet:383 kind=irqsave expr=mdma->error_status_lock
+  OTHER   mpc_dma_irq:315 kind=plain :: spin_lock(&mdma->error_status_lock);
+== drivers/dma/omap-dma.c :: lock
+  SOFTIRQ omap_dma_sched:182 kind=irq expr=c->vc.lock
+  SOFTIRQ omap_dma_sched:174 kind=irq expr=d->lock
+  OTHER   omap_dma_callback:145 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   omap_dma_tx_status:254 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   omap_dma_issue_pending:283 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   omap_dma_issue_pending:291 kind=plain :: spin_lock(&d->lock);
+  OTHER   omap_dma_terminate_all:477 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   omap_dma_terminate_all:480 kind=plain :: spin_lock(&d->lock);
+== drivers/dma/pch_dma.c :: lock
+  SOFTIRQ pdc_tasklet:703 kind=irqsave expr=pd_chan->lock
+  OTHER   pd_tx_submit:426 kind=plain :: spin_lock(&pd_chan->lock);
+  OTHER   pdc_desc_get:465 kind=plain :: spin_lock(&pd_chan->lock);
+  OTHER   pdc_desc_get:481 kind=plain :: spin_lock(&pd_chan->lock);
+  OTHER   pdc_desc_put:497 kind=plain :: spin_lock(&pd_chan->lock);
+  OTHER   pd_alloc_chan_resources:531 kind=irq :: spin_lock_irq(&pd_chan->lock);
+  OTHER   pd_free_chan_resources:553 kind=irq :: spin_lock_irq(&pd_chan->lock);
+  OTHER   pd_issue_pending:575 kind=plain :: spin_lock(&pd_chan->lock);
+  OTHER   pd_device_control:677 kind=irq :: spin_lock_irq(&pd_chan->lock);
+== drivers/dma/pl330.c :: lock
+  SOFTIRQ pl330_tasklet:2274 kind=irqsave expr=pch->lock
+  SOFTIRQ pl330_dotask:1657 kind=irqsave expr=pl330->lock
+  OTHER   pl330_submit_req:1552 kind=irqsave :: spin_lock_irqsave(&pl330->lock, flags);
+  OTHER   pl330_update:1690 kind=irqsave :: spin_lock_irqsave(&pl330->lock, flags);
+  OTHER   pl330_update:1764 kind=irqsave :: spin_lock_irqsave(&pl330->lock, flags);
+  OTHER   pl330_chan_ctrl:1793 kind=irqsave :: spin_lock_irqsave(&pl330->lock, flags);
+  OTHER   pl330_request_channel:1872 kind=irqsave :: spin_lock_irqsave(&pl330->lock, flags);
+  OTHER   pl330_release_channel:1925 kind=irqsave :: spin_lock_irqsave(&pl330->lock, flags);
+  OTHER   dma_pl330_rqcb:2290 kind=irqsave :: spin_lock_irqsave(&pch->lock, flags);
+  OTHER   pl330_alloc_chan_resources:2351 kind=irqsave :: spin_lock_irqsave(&pch->lock, flags);
+  OTHER   pl330_control:2380 kind=irqsave :: spin_lock_irqsave(&pch->lock, flags);
+  OTHER   pl330_free_chan_resources:2434 kind=irqsave :: spin_lock_irqsave(&pch->lock, flags);
+  OTHER   pl330_tx_submit:2469 kind=irqsave :: spin_lock_irqsave(&pch->lock, flags);
+== drivers/dma/sa11x0-dma.c :: lock
+  SOFTIRQ sa11x0_dma_tasklet:382 kind=irq expr=c->vc.lock
+  SOFTIRQ sa11x0_dma_tasklet:358 kind=irq expr=d->lock
+  OTHER   sa11x0_dma_irq:285 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   sa11x0_dma_free_chan_resources:405 kind=irqsave :: spin_lock_irqsave(&d->lock, flags);
+  OTHER   sa11x0_dma_tx_status:445 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   sa11x0_dma_issue_pending:517 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   sa11x0_dma_issue_pending:520 kind=plain :: spin_lock(&d->lock);
+  OTHER   sa11x0_dma_control:726 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   sa11x0_dma_control:748 kind=plain :: spin_lock(&d->lock);
+  OTHER   sa11x0_dma_control:760 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   sa11x0_dma_control:768 kind=plain :: spin_lock(&d->lock);
+  OTHER   sa11x0_dma_control:779 kind=irqsave :: spin_lock_irqsave(&c->vc.lock, flags);
+  OTHER   sa11x0_dma_control:787 kind=plain :: spin_lock(&d->lock);
+== drivers/dma/ste_dma40.c :: lock
+  SOFTIRQ dma_tasklet:1646 kind=irqsave expr=d40c->lock
+  OTHER   d40_lcla_alloc_one:701 kind=irqsave :: spin_lock_irqsave(&d40c->base->lcla_pool.lock, flags);
+  OTHER   d40_lcla_free_all:733 kind=irqsave :: spin_lock_irqsave(&d40c->base->lcla_pool.lock, flags);
+  OTHER   d40_pause:1498 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+  OTHER   d40_resume:1516 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+  OTHER   d40_tx_submit:1538 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+  OTHER   d40_handle_interrupt:1751 kind=plain :: spin_lock(&d40c->lock);
+  OTHER   d40_alloc_mask_set:1815 kind=irqsave :: spin_lock_irqsave(&phy->lock, flags);
+  OTHER   d40_alloc_mask_free:1872 kind=irqsave :: spin_lock_irqsave(&phy->lock, flags);
+  OTHER   d40_is_paused:2127 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+  OTHER   stedma40_residue:2172 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+  OTHER   d40_alloc_chan_resources:2459 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+  OTHER   d40_free_chan_resources:2529 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+  OTHER   d40_issue_pending:2648 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+  OTHER   d40_terminate_all:2665 kind=irqsave :: spin_lock_irqsave(&d40c->lock, flags);
+== drivers/dma/tegra20-apb-dma.c :: lock
+  SOFTIRQ tegra_dma_tasklet:638 kind=irqsave expr=tdc->lock
+  OTHER   tegra_dma_desc_get:270 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+  OTHER   tegra_dma_desc_put:302 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+  OTHER   tegra_dma_sg_req_get:315 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+  OTHER   tegra_dma_isr:649 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+  OTHER   tegra_dma_tx_submit:673 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+  OTHER   tegra_dma_issue_pending:686 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+  OTHER   tegra_dma_terminate_all:718 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+  OTHER   tegra_dma_tx_status:774 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+  OTHER   tegra_dma_free_chan_resources:1186 kind=irqsave :: spin_lock_irqsave(&tdc->lock, flags);
+== drivers/dma/timb_dma.c :: lock
+  SOFTIRQ td_tasklet:641 kind=plain expr=td_chan->lock
+  OTHER   td_tx_submit:352 kind=bh :: spin_lock_bh(&td_chan->lock);
+  OTHER   td_desc_put:429 kind=bh :: spin_lock_bh(&td_chan->lock);
+  OTHER   td_desc_get:439 kind=bh :: spin_lock_bh(&td_chan->lock);
+  OTHER   td_alloc_chan_resources:479 kind=bh :: spin_lock_bh(&td_chan->lock);
+  OTHER   td_free_chan_resources:499 kind=bh :: spin_lock_bh(&td_chan->lock);
+  OTHER   td_issue_pending:530 kind=bh :: spin_lock_bh(&td_chan->lock);
+  OTHER   td_control:612 kind=bh :: spin_lock_bh(&td_chan->lock);
+== drivers/dma/txx9dmac.c :: lock
+  SOFTIRQ txx9dmac_chan_tasklet:645 kind=plain expr=dc->lock
+  OTHER   txx9dmac_desc_get:217 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_desc_get:234 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_desc_put:271 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_tasklet:690 kind=plain :: spin_lock(&dc->lock);
+  OTHER   txx9dmac_tx_submit:727 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_control:940 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_issue_pending:1001 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_alloc_chan_resources:1055 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_alloc_chan_resources:1064 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_alloc_chan_resources:1069 kind=bh :: spin_lock_bh(&dc->lock);
+  OTHER   txx9dmac_free_chan_resources:1095 kind=bh :: spin_lock_bh(&dc->lock);
+== drivers/dma/virt-dma.c :: lock
+  SOFTIRQ vchan_complete:67 kind=irq expr=vc->lock
+  OTHER   vchan_tx_submit:29 kind=irqsave :: spin_lock_irqsave(&vc->lock, flags);
+== drivers/firewire/ohci.c :: lock
+  SOFTIRQ context_tasklet:1103 kind=irqsave expr=ctx->ohci->lock
+  OTHER   at_context_transmit:1645 kind=irqsave :: spin_lock_irqsave(&ctx->ohci->lock, flags);
+  OTHER   bus_reset_work:1998 kind=irq :: spin_lock_irq(&ohci->lock);
+  OTHER   bus_reset_work:2014 kind=irq :: spin_lock_irq(&ohci->lock);
+  OTHER   irq_handler:2164 kind=plain :: spin_lock(&ohci->lock);
+  OTHER   ohci_set_config_rom:2500 kind=irq :: spin_lock_irq(&ohci->lock);
+  OTHER   ohci_enable_phys_dma:2602 kind=irqsave :: spin_lock_irqsave(&ohci->lock, flags);
+  OTHER   ohci_read_csr:2660 kind=irqsave :: spin_lock_irqsave(&ohci->lock, flags);
+  OTHER   ohci_write_csr:2718 kind=irqsave :: spin_lock_irqsave(&ohci->lock, flags);
+  OTHER   ohci_allocate_iso_context:2959 kind=irq :: spin_lock_irq(&ohci->lock);
+  OTHER   ohci_allocate_iso_context:3029 kind=irq :: spin_lock_irq(&ohci->lock);
+  OTHER   ohci_free_iso_context:3133 kind=irqsave :: spin_lock_irqsave(&ohci->lock, flags);
+  OTHER   ohci_set_iso_channels:3168 kind=irqsave :: spin_lock_irqsave(&ohci->lock, flags);
+  OTHER   ohci_queue_iso:3459 kind=irqsave :: spin_lock_irqsave(&ctx->context.ohci->lock, flags);
+== drivers/infiniband/hw/ipath/ipath_sdma.c :: ipath_sdma_lock
+  SOFTIRQ sdma_abort_task:240 kind=irqsave expr=dd->ipath_sdma_lock
+  OTHER   sdma_notify_taskbody:179 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sdma_lock, flags);
+  OTHER   ipath_sdma_intr:368 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sdma_lock, flags);
+  OTHER   teardown_sdma:517 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sdma_lock, flags);
+  OTHER   teardown_sdma:534 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sdma_lock, flags);
+  OTHER   teardown_sdma:549 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sdma_lock, flags);
+  OTHER   ipath_restart_sdma:604 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sdma_lock, flags);
+  OTHER   ipath_sdma_verbs_send:685 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sdma_lock, flags);
+== drivers/infiniband/hw/ipath/ipath_sdma.c :: ipath_sendctrl_lock
+  SOFTIRQ sdma_abort_task:318 kind=irqsave expr=dd->ipath_sendctrl_lock
+  OTHER   setup_sdma:497 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sendctrl_lock, flags);
+  OTHER   teardown_sdma:527 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sendctrl_lock, flags);
+  OTHER   ipath_restart_sdma:619 kind=irqsave :: spin_lock_irqsave(&dd->ipath_sendctrl_lock, flags);
+== drivers/infiniband/hw/qib/qib_sdma.c :: sdma_lock
+  SOFTIRQ sdma_sw_clean_up_task:151 kind=irqsave expr=ppd->sdma_lock
+  OTHER   qib_sdma_intr:417 kind=irqsave :: spin_lock_irqsave(&ppd->sdma_lock, flags);
+  OTHER   qib_setup_sdma:445 kind=irqsave :: spin_lock_irqsave(&ppd->sdma_lock, flags);
+  OTHER   qib_sdma_running:499 kind=irqsave :: spin_lock_irqsave(&ppd->sdma_lock, flags);
+  OTHER   qib_sdma_verbs_send:547 kind=irqsave :: spin_lock_irqsave(&ppd->sdma_lock, flags);
+  OTHER   qib_sdma_process_event:778 kind=irqsave :: spin_lock_irqsave(&ppd->sdma_lock, flags);
+== drivers/media/pci/ddbridge/ddbridge-core.c :: lock
+  SOFTIRQ input_tasklet:1000 kind=plain expr=input->lock
+  SOFTIRQ output_tasklet:1032 kind=plain expr=output->lock
+  OTHER   ddb_input_start:353 kind=irq :: spin_lock_irq(&input->lock);
+  OTHER   ddb_input_stop:379 kind=irq :: spin_lock_irq(&input->lock);
+  OTHER   ddb_output_start:390 kind=irq :: spin_lock_irq(&output->lock);
+  OTHER   ddb_output_stop:415 kind=irq :: spin_lock_irq(&output->lock);
+== drivers/media/pci/ngene/ngene-core.c :: state_lock
+  SOFTIRQ demux_tasklet:167 kind=irq expr=chan->state_lock
+  OTHER   flush_buffers:522 kind=irq :: spin_lock_irq(&chan->state_lock);
+  OTHER   ngene_command_stream_control:590 kind=irq :: spin_lock_irq(&chan->state_lock);
+  OTHER   ngene_command_stream_control:642 kind=irq :: spin_lock_irq(&chan->state_lock);
+  OTHER   set_transfer:736 kind=irq :: spin_lock_irq(&chan->state_lock);
+  OTHER   set_transfer:767 kind=irq :: spin_lock_irq(&chan->state_lock);
+== drivers/media/pci/ttpci/av7110.c :: debilock
+  SOFTIRQ gpioirq:511 kind=plain expr=av7110->debilock
+  OTHER   debiirq:486 kind=plain :: spin_lock(&av7110->debilock);
+== drivers/media/platform/marvell-ccic/mcam-core.c :: dev_lock
+  SOFTIRQ mcam_frame_tasklet:463 kind=irqsave expr=cam->dev_lock
+  OTHER   mcam_ctlr_configure:837 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+  OTHER   mcam_ctlr_init:867 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+  OTHER   mcam_ctlr_stop_dma:899 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+  OTHER   mcam_ctlr_stop_dma:915 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+  OTHER   mcam_ctlr_power_up:928 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+  OTHER   mcam_ctlr_power_down:944 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+  OTHER   mcam_read_setup:1042 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+  OTHER   mcam_vb_buf_queue:1094 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+  OTHER   mcam_vb_stop_streaming:1182 kind=irqsave :: spin_lock_irqsave(&cam->dev_lock, flags);
+== drivers/media/radio/wl128x/fmdrv_common.c :: resp_skb_lock
+  SOFTIRQ recv_tasklet:320 kind=irqsave expr=fmdev->resp_skb_lock
+  OTHER   fmc_send_cmd:484 kind=irqsave :: spin_lock_irqsave(&fmdev->resp_skb_lock, flags);
+  OTHER   check_cmdresp_status:519 kind=irqsave :: spin_lock_irqsave(&fmdev->resp_skb_lock, flags);
+== drivers/media/usb/ttusb-dec/ttusb_dec.c :: urb_frame_list_lock
+  SOFTIRQ ttusb_dec_process_urb_frame_list:743 kind=irqsave expr=dec->urb_frame_list_lock
+  OTHER   ttusb_dec_process_urb:784 kind=irqsave :: spin_lock_irqsave(&dec->urb_frame_list_lock,
+== drivers/memstick/host/jmb38x_ms.c :: lock
+  SOFTIRQ jmb38x_ms_req_tasklet:617 kind=irqsave expr=host->lock
+  OTHER   jmb38x_ms_isr:526 kind=plain :: spin_lock(&host->lock);
+  OTHER   jmb38x_ms_abort:602 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   jmb38x_ms_remove:1012 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+== drivers/memstick/host/tifm_ms.c :: lock
+  SOFTIRQ tifm_ms_req_tasklet:468 kind=irqsave expr=sock->lock
+  OTHER   tifm_ms_data_event:392 kind=plain :: spin_lock(&sock->lock);
+  OTHER   tifm_ms_card_event:428 kind=plain :: spin_lock(&sock->lock);
+  OTHER   tifm_ms_remove:605 kind=irqsave :: spin_lock_irqsave(&sock->lock, flags);
+== drivers/mmc/host/atmel-mci.c :: lock
+  SOFTIRQ atmci_tasklet_func:1637 kind=plain expr=host->lock
+  OTHER   atmci_req_show:286 kind=bh :: spin_lock_bh(&slot->host->lock);
+  OTHER   atmci_regs_show:396 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   atmci_queue_request:1228 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   atmci_set_ios:1297 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   atmci_set_ios:1370 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   atmci_request_end:1502 kind=plain :: spin_lock(&host->lock);
+  OTHER   atmci_detect_change:1562 kind=plain :: spin_lock(&host->lock);
+  OTHER   atmci_detect_change:1619 kind=plain :: spin_lock(&host->lock);
+== drivers/mmc/host/dw_mmc.c :: lock
+  SOFTIRQ dw_mci_tasklet_func:1266 kind=plain expr=host->lock
+  OTHER   dw_mci_req_show:126 kind=bh :: spin_lock_bh(&slot->host->lock);
+  OTHER   dw_mci_request:929 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   dw_mci_request_end:1171 kind=plain :: spin_lock(&host->lock);
+  OTHER   dw_mci_work_routine_card:1924 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   dw_mci_work_routine_card:1974 kind=plain :: spin_lock(&host->lock);
+== drivers/mmc/host/tifm_sd.c :: lock
+  SOFTIRQ tifm_sd_end_cmd:744 kind=irqsave expr=sock->lock
+  OTHER   tifm_sd_data_event:482 kind=plain :: spin_lock(&sock->lock);
+  OTHER   tifm_sd_card_event:512 kind=plain :: spin_lock(&sock->lock);
+  OTHER   tifm_sd_request:628 kind=irqsave :: spin_lock_irqsave(&sock->lock, flags);
+  OTHER   tifm_sd_ios:804 kind=irqsave :: spin_lock_irqsave(&sock->lock, flags);
+  OTHER   tifm_sd_ro:871 kind=irqsave :: spin_lock_irqsave(&sock->lock, flags);
+  OTHER   tifm_sd_remove:1004 kind=irqsave :: spin_lock_irqsave(&sock->lock, flags);
+  OTHER   tifm_sd_remove:1012 kind=irqsave :: spin_lock_irqsave(&sock->lock, flags);
+== drivers/mmc/host/tmio_mmc_dma.c :: lock
+  SOFTIRQ tmio_mmc_tasklet_fn:245 kind=irq expr=host->lock
+  OTHER   tmio_mmc_issue_tasklet_fn:224 kind=irq :: spin_lock_irq(&host->lock);
+== drivers/mmc/host/via-sdmmc.c :: lock
+  SOFTIRQ via_sdc_tasklet_finish:974 kind=irqsave expr=host->lock
+  OTHER   via_sdc_request:668 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   via_sdc_set_power:698 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   via_sdc_set_ios:729 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   via_sdc_get_ro:789 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   via_reset_pcictrl:809 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   via_reset_pcictrl:827 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   via_sdc_isr:881 kind=plain :: spin_lock(&sdhost->lock);
+  OTHER   via_sdc_timeout:941 kind=irqsave :: spin_lock_irqsave(&sdhost->lock, flags);
+  OTHER   via_sdc_card_detect:999 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   via_sdc_card_detect:1019 kind=irqsave :: spin_lock_irqsave(&host->lock, flags);
+  OTHER   via_sd_remove:1185 kind=irqsave :: spin_lock_irqsave(&sdhost->lock, flags);
+== drivers/mmc/host/wbsd.c :: lock
+  SOFTIRQ wbsd_tasklet_crc:1089 kind=plain expr=host->lock
+  OTHER   wbsd_request_end:233 kind=plain :: spin_lock(&host->lock);
+  OTHER   wbsd_request:762 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   wbsd_set_ios:856 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   wbsd_get_ro:929 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   wbsd_reset_ignore:970 kind=bh :: spin_lock_bh(&host->lock);
+  OTHER   wbsd_tasklet_card:1010 kind=plain :: spin_lock(&host->lock);
+  OTHER   wbsd_tasklet_fifo:1058 kind=plain :: spin_lock(&host->lock);
+  OTHER   wbsd_tasklet_timeout:1113 kind=plain :: spin_lock(&host->lock);
+  OTHER   wbsd_tasklet_finish:1137 kind=plain :: spin_lock(&host->lock);
+== drivers/net/ethernet/chelsio/cxgb3/sge.c :: lock
+  SOFTIRQ restart_ctrlq:1478 kind=plain expr=q->lock
+  OTHER   ctrl_xmit:1440 kind=plain :: spin_lock(&q->lock);
+  OTHER   ofld_xmit:1649 kind=plain :: spin_lock(&q->lock);
+  OTHER   restart_offloadq:1691 kind=plain :: spin_lock(&q->lock);
+  OTHER   restart_offloadq:1721 kind=plain :: spin_lock(&q->lock);
+  OTHER   ofld_poll:1842 kind=irq :: spin_lock_irq(&q->lock);
+  OTHER   ofld_poll:1870 kind=irq :: spin_lock_irq(&q->lock);
+  OTHER   t3_sge_intr_msix:2546 kind=plain :: spin_lock(&q->lock);
+  OTHER   t3_sge_intr_msix_napi:2564 kind=plain :: spin_lock(&q->lock);
+  OTHER   t3_intr_msi:2584 kind=plain :: spin_lock(&q->lock);
+  OTHER   t3_intr_msi_napi:2634 kind=plain :: spin_lock(&q->lock);
+  OTHER   t3_intr:2673 kind=plain :: spin_lock(&q0->lock);
+  OTHER   t3b_intr:2716 kind=plain :: spin_lock(&q0->lock);
+  OTHER   t3b_intr_napi:2751 kind=plain :: spin_lock(&q0->lock);
+== drivers/net/ethernet/chelsio/cxgb4/sge.c :: lock
+  SOFTIRQ restart_ctrlq:1243 kind=plain expr=q->sendq.lock
+  OTHER   ctrl_xmit:1175 kind=plain :: spin_lock(&q->sendq.lock);
+  OTHER   service_ofldq:1373 kind=plain :: spin_lock(&q->sendq.lock);
+  OTHER   service_ofldq:1399 kind=plain :: spin_lock(&q->sendq.lock);
+  OTHER   ofld_xmit:1418 kind=plain :: spin_lock(&q->sendq.lock);
+  OTHER   restart_ofldq:1436 kind=plain :: spin_lock(&q->sendq.lock);
+== drivers/net/ethernet/marvell/skge.c :: hw_lock
+  SOFTIRQ skge_extirq:3370 kind=irq expr=hw->hw_lock
+  OTHER   skge_up:2610 kind=irq :: spin_lock_irq(&hw->hw_lock);
+  OTHER   skge_down:2662 kind=irq :: spin_lock_irq(&hw->hw_lock);
+  OTHER   skge_poll:3235 kind=irqsave :: spin_lock_irqsave(&hw->hw_lock, flags);
+  OTHER   skge_intr:3383 kind=plain :: spin_lock(&hw->hw_lock);
+  OTHER   skge_remove:4069 kind=irq :: spin_lock_irq(&hw->hw_lock);
+== drivers/net/ethernet/marvell/skge.c :: phy_lock
+  SOFTIRQ skge_extirq:3361 kind=plain expr=hw->phy_lock
+  OTHER   skge_led:685 kind=bh :: spin_lock_bh(&hw->phy_lock);
+  OTHER   xm_link_timer:1499 kind=irqsave :: spin_lock_irqsave(&hw->phy_lock, flags);
+  OTHER   skge_phy_reset:2421 kind=bh :: spin_lock_bh(&hw->phy_lock);
+  OTHER   skge_ioctl:2452 kind=bh :: spin_lock_bh(&hw->phy_lock);
+  OTHER   skge_ioctl:2464 kind=bh :: spin_lock_bh(&hw->phy_lock);
+  OTHER   skge_up:2587 kind=bh :: spin_lock_bh(&hw->phy_lock);
+  OTHER   skge_set_mac_address:3474 kind=bh :: spin_lock_bh(&hw->phy_lock);
+== drivers/net/ethernet/micrel/ks8842.c :: lock
+  SOFTIRQ ks8842_tasklet:794 kind=irqsave expr=adapter->lock
+  OTHER   ks8842_write_mac_addr:400 kind=irqsave :: spin_lock_irqsave(&adapter->lock, flags);
+  OTHER   ks8842_xmit_frame:1059 kind=irqsave :: spin_lock_irqsave(&adapter->lock, flags);
+  OTHER   ks8842_tx_timeout_work:1100 kind=irqsave :: spin_lock_irqsave(&adapter->lock, flags);
+== drivers/net/ethernet/micrel/ksz884x.c :: hwlock
+  SOFTIRQ tx_proc_task:5223 kind=irq expr=hw_priv->hwlock
+  OTHER   transmit_cleanup:4764 kind=irq :: spin_lock_irq(&hw_priv->hwlock);
+  OTHER   netdev_tx:4876 kind=irq :: spin_lock_irq(&hw_priv->hwlock);
+  OTHER   rx_proc_task:5204 kind=irq :: spin_lock_irq(&hw_priv->hwlock);
+  OTHER   netdev_intr:5262 kind=plain :: spin_lock(&hw_priv->hwlock);
+== drivers/net/ethernet/natsemi/ns83820.c :: misc_lock
+  SOFTIRQ rx_action:948 kind=irq expr=dev->misc_lock
+  OTHER   ns83820_setup_rx:755 kind=plain :: spin_lock(&dev->misc_lock);
+  OTHER   ns83820_cleanup_rx:786 kind=irqsave :: spin_lock_irqsave(&dev->misc_lock, flags);
+  OTHER   ns83820_get_stats:1213 kind=irq :: spin_lock_irq(&dev->misc_lock);
+  OTHER   ns83820_set_settings:1306 kind=irq :: spin_lock_irq(&dev->misc_lock);
+  OTHER   ns83820_mib_isr:1396 kind=irqsave :: spin_lock_irqsave(&dev->misc_lock, flags);
+  OTHER   ns83820_do_isr:1436 kind=irqsave :: spin_lock_irqsave(&dev->misc_lock, flags);
+  OTHER   ns83820_do_isr:1493 kind=irqsave :: spin_lock_irqsave(&dev->misc_lock, flags);
+  OTHER   ns83820_do_isr:1507 kind=irqsave :: spin_lock_irqsave(&dev->misc_lock, flags);
+  OTHER   ns83820_stop:1553 kind=irq :: spin_lock_irq(&dev->misc_lock);
+  OTHER   ns83820_set_multicast:1709 kind=irq :: spin_lock_irq(&dev->misc_lock);
+== drivers/net/ethernet/silan/sc92031.c :: lock
+  SOFTIRQ sc92031_tasklet:843 kind=plain expr=priv->lock
+  OTHER   sc92031_get_stats:918 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_start_xmit:949 kind=plain :: spin_lock(&priv->lock);
+  OTHER   sc92031_open:1024 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_stop:1059 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_set_multicast_list:1080 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_tx_timeout:1096 kind=plain :: spin_lock(&priv->lock);
+  OTHER   sc92031_ethtool_get_settings:1134 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_ethtool_set_settings:1239 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_ethtool_get_wol:1259 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_ethtool_set_wol:1286 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_ethtool_nway_reset:1317 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_ethtool_get_ethtool_stats:1364 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_suspend:1519 kind=bh :: spin_lock_bh(&priv->lock);
+  OTHER   sc92031_resume:1545 kind=bh :: spin_lock_bh(&priv->lock);
+== drivers/net/usb/rtl8150.c :: rx_pool_lock
+  SOFTIRQ rx_fixup:590 kind=irq expr=dev->rx_pool_lock
+  OTHER   read_bulk_callback:416 kind=plain :: spin_lock(&dev->rx_pool_lock);
+== drivers/net/wireless/ath/ath9k/wmi.c :: wmi_lock
+  SOFTIRQ ath9k_wmi_event_tasklet:145 kind=irqsave expr=wmi->wmi_lock
+  OTHER   ath9k_wmi_event_drain:128 kind=irqsave :: spin_lock_irqsave(&priv->wmi->wmi_lock, flags);
+  OTHER   ath9k_wmi_ctrl_rx:218 kind=plain :: spin_lock(&wmi->wmi_lock);
+  OTHER   ath9k_wmi_ctrl_rx:226 kind=plain :: spin_lock(&wmi->wmi_lock);
+  OTHER   ath9k_wmi_cmd:323 kind=irqsave :: spin_lock_irqsave(&wmi->wmi_lock, flags);
+== drivers/net/wireless/brcm80211/brcmsmac/mac80211_if.c :: isr_lock
+  SOFTIRQ brcms_dpc:972 kind=irqsave expr=wl->isr_lock
+  OTHER   brcms_isr:1003 kind=plain :: spin_lock(&wl->isr_lock);
+  OTHER   brcms_intrson:1370 kind=irqsave :: spin_lock_irqsave(&wl->isr_lock, flags);
+  OTHER   brcms_intrsoff:1380 kind=irqsave :: spin_lock_irqsave(&wl->isr_lock, flags);
+  OTHER   brcms_intrsrestore:1390 kind=irqsave :: spin_lock_irqsave(&wl->isr_lock, flags);
+== drivers/net/wireless/brcm80211/brcmsmac/mac80211_if.c :: lock
+  SOFTIRQ brcms_dpc:965 kind=bh expr=wl->lock
+  OTHER   brcms_ops_tx:411 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_start:430 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_start:444 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_stop:475 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_stop:487 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_config:535 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_sw_scan_start:772 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_sw_scan_complete:781 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_rfkill_poll:885 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_tx_flush_completed:896 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_get_tsf:922 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_ops_set_tsf:934 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_suspend:1250 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   brcms_down:1429 kind=bh :: spin_lock_bh(&wl->lock);
+  OTHER   _brcms_timer:1440 kind=bh :: spin_lock_bh(&t->wl->lock);
+  OTHER   brcms_rfkill_set_hw_state:1709 kind=bh :: spin_lock_bh(&wl->lock);
+== drivers/net/wireless/mwl8k.c :: tx_lock
+  SOFTIRQ mwl8k_tx_poll:4509 kind=bh expr=priv->tx_lock
+  OTHER   mwl8k_tx_wait_empty:1554 kind=bh :: spin_lock_bh(&priv->tx_lock);
+  OTHER   mwl8k_tx_wait_empty:1567 kind=bh :: spin_lock_bh(&priv->tx_lock);
+  OTHER   mwl8k_tx_wait_empty:1573 kind=bh :: spin_lock_bh(&priv->tx_lock);
+== drivers/rapidio/devices/tsi721_dma.c :: lock
+  SOFTIRQ tsi721_dma_tasklet:446 kind=plain expr=bdma_chan->lock
+  OTHER   tsi721_desc_put:263 kind=bh :: spin_lock_bh(&bdma_chan->lock);
+  OTHER   tsi721_desc_get:278 kind=bh :: spin_lock_bh(&bdma_chan->lock);
+  OTHER   tsi721_tx_submit:461 kind=bh :: spin_lock_bh(&bdma_chan->lock);
+  OTHER   tsi721_alloc_chan_resources:521 kind=bh :: spin_lock_bh(&bdma_chan->lock);
+  OTHER   tsi721_free_chan_resources:594 kind=bh :: spin_lock_bh(&bdma_chan->lock);
+  OTHER   tsi721_tx_status:622 kind=bh :: spin_lock_bh(&bdma_chan->lock);
+  OTHER   tsi721_issue_pending:645 kind=bh :: spin_lock_bh(&bdma_chan->lock);
+  OTHER   tsi721_device_control:752 kind=bh :: spin_lock_bh(&bdma_chan->lock);
+== drivers/s390/crypto/ap_bus.c :: ap_device_list_lock
+  SOFTIRQ ap_poll_all:1748 kind=plain expr=ap_device_list_lock
+  OTHER   ap_device_probe:900 kind=bh :: spin_lock_bh(&ap_device_list_lock);
+  OTHER   ap_device_remove:944 kind=bh :: spin_lock_bh(&ap_device_list_lock);
+  OTHER   ap_poll_thread:1796 kind=bh :: spin_lock_bh(&ap_device_list_lock);
+== drivers/s390/crypto/ap_bus.c :: lock
+  SOFTIRQ ap_poll_all:1750 kind=plain expr=ap_dev->lock
+  OTHER   ap_request_count_show:676 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_requestq_count_show:690 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_pendingq_count_show:704 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_bus_suspend:818 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_bus_suspend:823 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_bus_resume:873 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_flush_queue:931 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_device_remove:949 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_scan_bus:1344 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_scan_bus:1409 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_queue_message:1631 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_cancel_message:1665 kind=bh :: spin_lock_bh(&ap_dev->lock);
+  OTHER   ap_poll_thread:1798 kind=plain :: spin_lock(&ap_dev->lock);
+== drivers/scsi/aic94xx/aic94xx_hwi.c :: pend_q_lock
+  SOFTIRQ asd_dl_tasklet_handler:755 kind=irqsave expr=seq->pend_q_lock
+  OTHER   asd_post_ascb_list:1213 kind=irqsave :: spin_lock_irqsave(&asd_ha->seq.pend_q_lock, flags);
+  OTHER   asd_post_escb_list:1263 kind=irqsave :: spin_lock_irqsave(&asd_ha->seq.pend_q_lock, flags);
+== drivers/scsi/aic94xx/aic94xx_hwi.c :: tc_index_lock
+  SOFTIRQ asd_dl_tasklet_handler:744 kind=irqsave expr=seq->tc_index_lock
+  OTHER   asd_ascb_alloc:1068 kind=irqsave :: spin_lock_irqsave(&seq->tc_index_lock, flags);
+== drivers/staging/octeon-usb/octeon-hcd.c :: lock
+  SOFTIRQ octeon_usb_urb_dequeue_work:3169 kind=irqsave expr=priv->lock
+  OTHER   octeon_usb_port_callback:2864 kind=plain :: spin_lock(&priv->lock);
+  OTHER   octeon_usb_irq:2979 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_urb_enqueue:3017 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_urb_dequeue:3187 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_endpoint_disable:3207 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_hub_status_data:3222 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_hub_control:3262 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_hub_control:3281 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_hub_control:3290 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_hub_control:3300 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_hub_control:3315 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_hub_control:3347 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_hub_control:3412 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_driver_probe:3491 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+  OTHER   octeon_usb_driver_remove:3516 kind=irqsave :: spin_lock_irqsave(&priv->lock, flags);
+== drivers/staging/ozwpan/ozhcd.c :: g_tasklet_lock
+  SOFTIRQ oz_urb_cancel_tasklet:1750 kind=irqsave expr=g_tasklet_lock
+  OTHER   oz_complete_urb:384 kind=irqsave :: spin_lock_irqsave(&g_tasklet_lock, irq_state);
+  OTHER   oz_complete_urb:410 kind=plain :: spin_lock(&g_tasklet_lock);
+  OTHER   oz_urb_process_tasklet:1642 kind=irqsave :: spin_lock_irqsave(&g_tasklet_lock, irq_state);
+  OTHER   oz_urb_process_tasklet:1654 kind=irqsave :: spin_lock_irqsave(&g_tasklet_lock, irq_state);
+  OTHER   oz_urb_cancel:1689 kind=irqsave :: spin_lock_irqsave(&g_tasklet_lock, irq_state);
+  OTHER   oz_hcd_urb_enqueue:1842 kind=irqsave :: spin_lock_irqsave(&g_tasklet_lock, irq_state);
+  OTHER   oz_hcd_urb_dequeue:1897 kind=irqsave :: spin_lock_irqsave(&g_tasklet_lock, irq_state);
+== drivers/tty/ipwireless/hardware.c :: lock
+  SOFTIRQ ipwireless_do_tasklet:1013 kind=irqsave expr=hw->lock
+  OTHER   do_send_fragment:415 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   do_send_packet:508 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipw_setup_hardware:524 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   pool_allocate:562 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   queue_received_packet:664 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   queue_received_packet:688 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipw_receive_data_work:708 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipw_receive_data_work:737 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   get_packets_from_hw:933 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   get_packets_from_hw:941 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   send_pending_packet:959 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   send_pending_packet:990 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipwireless_handle_v1_interrupt:1073 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipwireless_handle_v1_interrupt:1080 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipwireless_handle_v2_v3_interrupt:1153 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipwireless_handle_v2_v3_interrupt:1170 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipwireless_handle_v2_v3_interrupt:1179 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   flush_packets_to_hw:1229 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   send_packet:1241 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+  OTHER   ipwireless_setup_timer:1695 kind=irqsave :: spin_lock_irqsave(&hw->lock, flags);
+== drivers/tty/serial/atmel_serial.c :: lock
+  SOFTIRQ atmel_tasklet_func:1364 kind=plain expr=port->lock
+  OTHER   atmel_config_rs485:252 kind=irqsave :: spin_lock_irqsave(&port->lock, flags);
+  OTHER   atmel_complete_tx_dma:611 kind=irqsave :: spin_lock_irqsave(&port->lock, flags);
+  OTHER   atmel_flip_buffer_rx_dma:802 kind=plain :: spin_lock(&port->lock);
+  OTHER   atmel_rx_from_ring:1215 kind=plain :: spin_lock(&port->lock);
+  OTHER   atmel_rx_from_pdc:1309 kind=plain :: spin_lock(&port->lock);
+  OTHER   atmel_set_termios:1799 kind=irqsave :: spin_lock_irqsave(&port->lock, flags);
+== drivers/tty/serial/timbuart.c :: lock
+  SOFTIRQ timbuart_tasklet:192 kind=plain expr=uart->port.lock
+  OTHER   timbuart_rx_chars:104 kind=plain :: spin_lock(&port->lock);
+  OTHER   timbuart_set_termios:316 kind=irqsave :: spin_lock_irqsave(&port->lock, flags);
+== drivers/tty/vt/keyboard.c :: led_lock
+  SOFTIRQ kbd_bh:1099 kind=irqsave expr=led_lock
+  OTHER   setledstate:977 kind=irqsave :: spin_lock_irqsave(&led_lock, flags);
+  OTHER   vt_get_leds:1025 kind=irqsave :: spin_lock_irqsave(&led_lock, flags);
+  OTHER   vt_kbd_con_start:1064 kind=irqsave :: spin_lock_irqsave(&led_lock, flags);
+  OTHER   vt_kbd_con_stop:1081 kind=irqsave :: spin_lock_irqsave(&led_lock, flags);
+  OTHER   vt_do_kdskled:2006 kind=irqsave :: spin_lock_irqsave(&led_lock, flags);
+  OTHER   vt_reset_keyboard:2105 kind=plain :: spin_lock(&led_lock);
+== drivers/usb/core/hcd.c :: lock
+  SOFTIRQ usb_giveback_urb_bh:1714 kind=irq expr=bh->lock
+  OTHER   usb_hcd_giveback_urb:1760 kind=plain :: spin_lock(&bh->lock);
+== drivers/usb/gadget/amd5536udc.c :: lock
+  SOFTIRQ udc_tasklet_disconnect:1633 kind=irq expr=dev->lock
+  SOFTIRQ udc_tasklet_disconnect:1638 kind=plain expr=dev->lock
+  OTHER   udc_ep_disable:496 kind=irqsave :: spin_lock_irqsave(&ep->dev->lock, iflags);
+  OTHER   udc_dequeue:1265 kind=irqsave :: spin_lock_irqsave(&ep->dev->lock, iflags);
+  OTHER   amd5536_udc_stop:1970 kind=irqsave :: spin_lock_irqsave(&dev->lock, flags);
+  OTHER   udc_control_out_isr:2538 kind=plain :: spin_lock(&dev->lock);
+  OTHER   udc_dev_isr:2792 kind=plain :: spin_lock(&dev->lock);
+  OTHER   udc_dev_isr:2852 kind=plain :: spin_lock(&dev->lock);
+  OTHER   udc_dev_isr:2875 kind=plain :: spin_lock(&dev->lock);
+  OTHER   udc_dev_isr:2918 kind=plain :: spin_lock(&dev->lock);
+  OTHER   udc_irq:2972 kind=plain :: spin_lock(&dev->lock);
+  OTHER   udc_remote_wakeup:3328 kind=irqsave :: spin_lock_irqsave(&dev->lock, flags);
+== drivers/usb/gadget/fsl_qe_udc.c :: lock
+  SOFTIRQ ep_rx_tasklet:950 kind=irqsave expr=udc->lock
+  OTHER   done:127 kind=plain :: spin_lock(&udc->lock);
+  OTHER   qe_ep_init:640 kind=irqsave :: spin_lock_irqsave(&udc->lock, flags);
+  OTHER   qe_ep_disable:1635 kind=irqsave :: spin_lock_irqsave(&udc->lock, flags);
+  OTHER   qe_ep_queue:1777 kind=irqsave :: spin_lock_irqsave(&udc->lock, flags);
+  OTHER   qe_ep_dequeue:1793 kind=irqsave :: spin_lock_irqsave(&ep->udc->lock, flags);
+  OTHER   qe_ep_set_halt:1840 kind=irqsave :: spin_lock_irqsave(&ep->udc->lock, flags);
+  OTHER   reset_queues:1926 kind=plain :: spin_lock(&udc->lock);
+  OTHER   setup_received_handle:2069 kind=plain :: spin_lock(&udc->lock);
+  OTHER   setup_received_handle:2093 kind=plain :: spin_lock(&udc->lock);
+  OTHER   setup_received_handle:2101 kind=plain :: spin_lock(&udc->lock);
+  OTHER   qe_udc_irq:2236 kind=irqsave :: spin_lock_irqsave(&udc->lock, flags);
+  OTHER   fsl_qe_start:2295 kind=irqsave :: spin_lock_irqsave(&udc->lock, flags);
+  OTHER   fsl_qe_stop:2334 kind=irqsave :: spin_lock_irqsave(&udc->lock, flags);
+== drivers/usb/gadget/u_serial.c :: port_lock
+  SOFTIRQ gs_rx_push:492 kind=irq expr=port->port_lock
+  OTHER   gs_start_tx:401 kind=plain :: spin_lock(&port->port_lock);
+  OTHER   gs_start_rx:456 kind=plain :: spin_lock(&port->port_lock);
+  OTHER   gs_read_complete:589 kind=plain :: spin_lock(&port->port_lock);
+  OTHER   gs_write_complete:599 kind=plain :: spin_lock(&port->port_lock);
+  OTHER   gs_open:733 kind=irq :: spin_lock_irq(&port->port_lock);
+  OTHER   gs_open:771 kind=irq :: spin_lock_irq(&port->port_lock);
+  OTHER   gs_open:778 kind=irq :: spin_lock_irq(&port->port_lock);
+  OTHER   gs_writes_finished:825 kind=irq :: spin_lock_irq(&p->port_lock);
+  OTHER   gs_close:837 kind=irq :: spin_lock_irq(&port->port_lock);
+  OTHER   gs_close:867 kind=irq :: spin_lock_irq(&port->port_lock);
+  OTHER   gs_write:902 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+  OTHER   gs_put_char:922 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+  OTHER   gs_flush_chars:936 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+  OTHER   gs_write_room:948 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+  OTHER   gs_chars_in_buffer:965 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+  OTHER   gs_unthrottle:981 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+  OTHER   gs_break_ctl:1002 kind=irq :: spin_lock_irq(&port->port_lock);
+  OTHER   gs_closed:1068 kind=irq :: spin_lock_irq(&port->port_lock);
+  OTHER   gserial_connect:1198 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+  OTHER   gserial_disconnect:1252 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+  OTHER   gserial_disconnect:1274 kind=irqsave :: spin_lock_irqsave(&port->port_lock, flags);
+== drivers/usb/host/fhci-sched.c :: lock
+  SOFTIRQ process_done_list:645 kind=plain expr=fhci->lock
+  OTHER   fhci_frame_limit_timer_irq:514 kind=plain :: spin_lock(&fhci->lock);
+  OTHER   fhci_irq:553 kind=irqsave :: spin_lock_irqsave(&fhci->lock, flags);
+== drivers/usb/serial/mos7720.c :: listlock
+  SOFTIRQ send_deferred_urbs:313 kind=irqsave expr=mos_parport->listlock
+  OTHER   async_complete:348 kind=plain :: spin_lock(&urbtrack->mos_parport->listlock);
+  OTHER   write_parport_reg_nonblock:400 kind=irqsave :: spin_lock_irqsave(&mos_parport->listlock, flags);
+  OTHER   write_parport_reg_nonblock:417 kind=irqsave :: spin_lock_irqsave(&mos_parport->listlock, flags);
+  OTHER   write_parport_reg_nonblock:425 kind=irqsave :: spin_lock_irqsave(&mos_parport->listlock, flags);
+  OTHER   mos7720_release:2000 kind=irqsave :: spin_lock_irqsave(&mos_parport->listlock, flags);
+== net/iucv/iucv.c :: iucv_queue_lock
+  SOFTIRQ iucv_tasklet_fn:1754 kind=irq expr=iucv_queue_lock
+  OTHER   iucv_cleanup_queue:748 kind=irq :: spin_lock_irq(&iucv_queue_lock);
+  OTHER   iucv_work_fn:1784 kind=irq :: spin_lock_irq(&iucv_queue_lock);
+  OTHER   iucv_external_interrupt:1826 kind=plain :: spin_lock(&iucv_queue_lock);
+  OTHER   iucv_exit:2101 kind=irq :: spin_lock_irq(&iucv_queue_lock);
+== net/sunrpc/xprtrdma/svc_rdma_transport.c :: dto_lock
+  SOFTIRQ dto_tasklet_func:235 kind=irqsave expr=dto_lock
+  OTHER   rq_comp_handler:266 kind=irqsave :: spin_lock_irqsave(&dto_lock, flags);
+  OTHER   sq_comp_handler:430 kind=irqsave :: spin_lock_irqsave(&dto_lock, flags);
+== net/tipc/handler.c :: qitem_lock
+  SOFTIRQ process_signal_queue:90 kind=bh expr=qitem_lock
+  OTHER   tipc_k_signal:64 kind=bh :: spin_lock_bh(&qitem_lock);
+  OTHER   tipc_handler_stop:121 kind=bh :: spin_lock_bh(&qitem_lock);
+== sound/core/timer.c :: lock
+  SOFTIRQ snd_timer_tasklet:626 kind=irqsave expr=timer->lock
+  SOFTIRQ snd_timer_tasklet:643 kind=plain expr=timer->lock
+  OTHER   snd_timer_close:335 kind=irq :: spin_lock_irq(&timer->lock);
+  OTHER   snd_timer_close:339 kind=irq :: spin_lock_irq(&timer->lock);
+  OTHER   snd_timer_notify1:410 kind=irqsave :: spin_lock_irqsave(&timer->lock, flags);
+  OTHER   snd_timer_start:469 kind=irqsave :: spin_lock_irqsave(&timer->lock, flags);
+  OTHER   _snd_timer_stop:498 kind=irqsave :: spin_lock_irqsave(&timer->lock, flags);
+  OTHER   snd_timer_stop:540 kind=irqsave :: spin_lock_irqsave(&timer->lock, flags);
+  OTHER   snd_timer_continue:563 kind=irqsave :: spin_lock_irqsave(&timer->lock, flags);
+  OTHER   snd_timer_interrupt:666 kind=irqsave :: spin_lock_irqsave(&timer->lock, flags);
+  OTHER   snd_timer_interrupt:744 kind=plain :: spin_lock(&timer->lock);
+  OTHER   snd_timer_notify:898 kind=irqsave :: spin_lock_irqsave(&timer->lock, flags);
+  OTHER   snd_timer_user_params:1641 kind=irq :: spin_lock_irq(&t->lock);
+== sound/pci/lx6464es/lx6464es.c :: lock
+  SOFTIRQ lx_trigger_tasklet:512 kind=irqsave expr=chip->lock
+  OTHER   lx_pcm_stream_pointer:290 kind=irqsave :: spin_lock_irqsave(&chip->lock, flags);
+== sound/pci/pcxhr/pcxhr.c :: lock
+  SOFTIRQ pcxhr_trigger_tasklet:804 kind=irqsave expr=mgr->lock
+  OTHER   pcxhr_stream_pointer:1135 kind=irqsave :: spin_lock_irqsave(&chip->mgr->lock, flags);
+== sound/soc/txx9/txx9aclc.c :: dma_lock
+  SOFTIRQ txx9aclc_dma_tasklet:198 kind=irqsave expr=dmadata->dma_lock
+  OTHER   txx9aclc_dma_complete:115 kind=irqsave :: spin_lock_irqsave(&dmadata->dma_lock, flags);
+  OTHER   txx9aclc_pcm_trigger:220 kind=irqsave :: spin_lock_irqsave(&dmadata->dma_lock, flags);

@@ -1,0 +1,5 @@
+I'll start by examining the workspace structure and writing my initial checkpoint.
+The `solos-pci` driver has exactly the seed shape. Let me confirm the context of each site and check the sysfs attribute, then survey other tasklet/NAPI drivers in this snapshot.
+The solos-pci candidate is confirmed structurally. Now let me build a systematic cross-check script for all tasklet callbacks and NAPI polls in s13.
+Two promising hits: `he.c:1771` and `eni.c:1519` take locks with plain `spin_lock()` while their tasklets take the same locks in softirq context. Let me examine both functions closely.
+I'll finalize now with the evidence collected. Writing the final artifact.

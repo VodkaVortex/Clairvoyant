@@ -1,0 +1,60 @@
+=== net/ipv4/netfilter/ipt_ECN.c:set_ect_ip (lines 26-41) call@32 skb_ensure_writable
+    capture iph @ 28: ip_hdr(skb)
+    USE iph @ 34: iph = ip_hdr(skb);
+    USE iph @ 35: oldtos = iph->tos;
+    USE iph @ 36: iph->tos &= ~IPT_ECN_IP_MASK;
+    USE iph @ 37: iph->tos |= (einfo->ip_ect & IPT_ECN_IP_MASK);
+    USE iph @ 38: csum_replace2(&iph->check, htons(oldtos), htons(iph->tos));
+
+=== net/ipv6/exthdrs.c:ipv6_dest_hao (lines 232-293) call@271 pskb_expand_head
+    capture ipv6h @ 236: ipv6_hdr(skb)
+    USE ipv6h @ 277: ipv6h = ipv6_hdr(skb);
+    USE ipv6h @ 283: swap(ipv6h->saddr, hao->addr);
+
+=== net/ipv6/ip6_output.c:ip6_forward (lines 519-700) call@678 skb_cow
+    capture hdr @ 522: ipv6_hdr(skb)
+    USE hdr @ 684: hdr = ipv6_hdr(skb);
+    USE hdr @ 688: hdr->hop_limit--;
+
+=== net/mac80211/tdls.c:None (lines 2007-2037) call@2020 skb_linearize
+    capture tf @ 2010: (void *)skb->data
+    USE tf @ 2026: switch (tf->action_code) {
+
+=== net/mac80211/wpa.c:ieee80211_rx_h_michael_mic_verify (lines 94-191) call@154 skb_linearize
+    capture hdr @ 102: (struct ieee80211_hdr *)skb->data
+    USE hdr @ 156: hdr = (void *)skb->data;
+    USE hdr @ 161: michael_mic(key, hdr, data, data_len, mic);
+    USE hdr @ 184: cfg80211_michael_mic_failure(rx->sdata->dev, hdr->addr2,
+    USE hdr @ 185: is_multicast_ether_addr(hdr->addr1) ?
+
+=== net/mac80211/wpa.c:ieee80211_crypto_tkip_decrypt (lines 264-311) call@281 skb_linearize
+    capture hdr @ 266: (struct ieee80211_hdr *) rx->skb->data
+    USE hdr @ 283: hdr = (void *)skb->data;
+    USE hdr @ 296: hdr->addr1, hwaccel, rx->security_idx,
+
+=== net/mac80211/wpa.c:None (lines 518-609) call@543 skb_linearize
+    capture hdr @ 521: (struct ieee80211_hdr *)rx->skb->data
+    USE hdr @ 547: /* reload hdr - skb might have been reallocated */
+    USE hdr @ 548: hdr = (void *)rx->skb->data;
+    USE hdr @ 574: if (is_unicast_ether_addr(hdr->addr1) &&
+    USE hdr @ 575: !ieee80211_is_data(hdr->frame_control)) {
+    USE hdr @ 598: if (unlikely(ieee80211_is_frag(hdr)))
+
+=== net/mac80211/wpa.c:ieee80211_crypto_gcmp_decrypt (lines 732-821) call@755 skb_linearize
+    capture hdr @ 734: (struct ieee80211_hdr *)rx->skb->data
+    USE hdr @ 759: /* reload hdr - skb might have been reallocated */
+    USE hdr @ 760: hdr = (void *)rx->skb->data;
+    USE hdr @ 786: if (is_unicast_ether_addr(hdr->addr1) &&
+    USE hdr @ 787: !ieee80211_is_data(hdr->frame_control)) {
+    USE hdr @ 810: if (unlikely(ieee80211_is_frag(hdr)))
+
+=== net/netfilter/xt_DSCP.c:tos_tg (lines 72-89) call@82 skb_ensure_writable
+    capture iph @ 75: ip_hdr(skb)
+    USE iph @ 84: iph = ip_hdr(skb);
+    USE iph @ 85: ipv4_change_dsfield(iph, 0, nv);
+
+=== net/netfilter/xt_DSCP.c:tos_tg6 (lines 92-109) call@102 skb_ensure_writable
+    capture iph @ 95: ipv6_hdr(skb)
+    USE iph @ 104: iph = ipv6_hdr(skb);
+    USE iph @ 105: ipv6_change_dsfield(iph, 0, nv);
+

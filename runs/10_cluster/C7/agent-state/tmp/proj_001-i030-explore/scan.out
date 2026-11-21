@@ -1,0 +1,99 @@
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/sun/cassini.c  LOCK cp->stat_lock[0]  (softirq-side sites below; other-plain=3 bh-in-file=False)
+  SOFTIRQ cas_handle_irq               napi-callee      line 2488 : cp->stat_lock[0]
+  SOFTIRQ cas_abnormal_irq             napi-callee2     line 1732 : cp->stat_lock[0]
+  SOFTIRQ cas_abnormal_irq             napi-callee2     line 1742 : cp->stat_lock[0]
+  OTHER  line 1111   plain      in cas_txmac_interrupt          | spin_lock(&cp->stat_lock[0]);
+  OTHER  line 1491   plain      in cas_rxmac_interrupt          | spin_lock(&cp->stat_lock[0]);
+  OTHER  line 4398   plain      in cas_get_stats                | spin_lock(&cp->stat_lock[0]);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/broadcom/genet/bcmgenet.c  LOCK ring->lock  (softirq-side sites below; other-plain=2 bh-in-file=True)
+  SOFTIRQ bcmgenet_tx_poll             napi             line 1949 : ring->lock
+  OTHER  line 2081   plain      in bcmgenet_xmit                | spin_lock(&ring->lock);
+  OTHER  line 3510   plain      in bcmgenet_dump_tx_queue       | spin_lock(&ring->lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/silan/sc92031.c  LOCK priv->lock  (softirq-side sites below; other-plain=2 bh-in-file=True)
+  SOFTIRQ sc92031_tasklet              tasklet          line 842 : priv->lock
+  OTHER  line 946    plain      in sc92031_start_xmit           | spin_lock(&priv->lock);
+  OTHER  line 1089   plain      in sc92031_tx_timeout           | spin_lock(&priv->lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/via/via-rhine.c  LOCK rp->lock  (softirq-side sites below; other-plain=2 bh-in-file=True)
+  SOFTIRQ rhine_napipoll               napi             line 846 : rp->lock
+  OTHER  line 2073   plain      in rhine_rx                     | spin_lock(&rp->lock);
+  OTHER  line 2475   plain      in rhine_shutdown_pci           | spin_lock(&rp->lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/tun.c  LOCK queue->lock  (softirq-side sites below; other-plain=2 bh-in-file=True)
+  SOFTIRQ tun_napi_receive             napi-callee      line 235 : queue->lock
+  SOFTIRQ tun_napi_receive             napi-callee      line 245 : queue->lock
+  OTHER  line 1552   plain      in tun_rx_batched               | spin_lock(&queue->lock);
+  OTHER  line 2508   plain      in tun_xdp_one                  | spin_lock(&queue->lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/chelsio/cxgb4/sge.c  LOCK q->sendq.lock  (softirq-side sites below; other-plain=2 bh-in-file=False)
+  SOFTIRQ restart_ctrlq                tasklet          line 2796 : q->sendq.lock
+  SOFTIRQ restart_ctrlq                tasklet          line 2820 : q->sendq.lock
+  SOFTIRQ restart_ctrlq                tasklet          line 2828 : q->sendq.lock
+  SOFTIRQ restart_ofldq                tasklet          line 3100 : q->sendq.lock
+  SOFTIRQ service_ofldq                tasklet-callee   line 2994 : q->sendq.lock
+  SOFTIRQ service_ofldq                tasklet-callee   line 3048 : q->sendq.lock
+  OTHER  line 2761   plain      in ctrl_xmit                    | spin_lock(&q->sendq.lock);
+  OTHER  line 3072   plain      in ofld_xmit                    | spin_lock(&q->sendq.lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/freescale/fs_enet/fs_enet-main.c  LOCK fep->tx_lock  (softirq-side sites below; other-plain=2 bh-in-file=False)
+  SOFTIRQ fs_enet_napi                 napi             line 98 : fep->tx_lock
+  OTHER  line 523    plain      in fs_enet_start_xmit           | spin_lock(&fep->tx_lock);
+  OTHER  line 777    plain      in fs_enet_close                | spin_lock(&fep->tx_lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/altera/altera_tse_main.c  LOCK priv->tx_lock  (softirq-side sites below; other-plain=1 bh-in-file=True)
+  SOFTIRQ tse_tx_complete              napi-callee      line 437 : priv->tx_lock
+  OTHER  line 1009   plain      in tse_shutdown                 | spin_lock(&priv->tx_lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/broadcom/tg3.c  LOCK tp->lock  (softirq-side sites below; other-plain=1 bh-in-file=True)
+  SOFTIRQ tg3_poll_link                napi-callee      line 7009 : tp->lock
+  OTHER  line 10965  plain      in tg3_timer                    | spin_lock(&tp->lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/wireless/intersil/hostap/hostap_hw.c  LOCK local->baplock  (softirq-side sites below; other-plain=1 bh-in-file=True)
+  SOFTIRQ prism2_rx                    tasklet-callee   line 1940 : local->baplock
+  SOFTIRQ prism2_info                  tasklet-callee   line 2407 : local->baplock
+  SOFTIRQ hostap_tx_compl_read         tasklet-callee2  line 2216 : local->baplock
+  OTHER  line 1849   plain      in prism2_tx_80211              | spin_lock(&local->baplock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/apm/xgene/xgene_enet_main.c  LOCK pdata->mss_lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ xgene_enet_tx_completion     napi-callee2     line 255 : pdata->mss_lock
+  OTHER  line 282    plain      in xgene_enet_setup_mss         | spin_lock(&pdata->mss_lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/broadcom/bcm63xx_enet.c  LOCK priv->rx_lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ bcm_enet_poll                napi             line 504 : priv->rx_lock
+  OTHER  line 292    plain      in bcm_enet_refill_rx_timer     | spin_lock(&priv->rx_lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/broadcom/bcm63xx_enet.c  LOCK priv->tx_lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ bcm_enet_tx_reclaim          napi-callee      line 442 : priv->tx_lock
+  OTHER  line 586    plain      in bcm_enet_start_xmit          | spin_lock(&priv->tx_lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/faraday/ftmac100.c  LOCK priv->tx_lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ ftmac100_tx_complete_packet  napi-callee2     line 611 : priv->tx_lock
+  OTHER  line 644    plain      in ftmac100_xmit                | spin_lock(&priv->tx_lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/mediatek/mtk_star_emac.c  LOCK priv->lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ mtk_star_rx_poll             napi             line 1352 : priv->lock
+  SOFTIRQ mtk_star_tx_poll             napi             line 1186 : priv->lock
+  OTHER  line 783    plain      in mtk_star_handle_irq          | spin_lock(&priv->lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/qlogic/qlcnic/qlcnic_io.c  LOCK rds_ring->lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ qlcnic_83xx_process_rcv_ring napi-callee      line 1935 : rds_ring->lock
+  OTHER  line 1421   plain      in qlcnic_process_rcv_ring      | spin_lock(&rds_ring->lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/ethernet/ti/cpmac.c  LOCK priv->rx_lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ cpmac_poll                   napi             line 408 : priv->rx_lock
+  OTHER  line 720    plain      in cpmac_hw_error               | spin_lock(&priv->rx_lock);
+====================================================================================================
+FILE snapshots/s01/drivers/net/wireless/ath/ath5k/base.c  LOCK ah->txbuflock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ ath5k_tx_processq            tasklet-callee   line 1819 : ah->txbuflock
+  OTHER  line 1170   plain      in ath5k_drain_tx_buffs         | spin_lock(&ah->txbuflock);
+====================================================================================================
+FILE snapshots/s01/drivers/usb/host/fhci-sched.c  LOCK fhci->lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ process_done_list            tasklet          line 641 : fhci->lock
+  OTHER  line 510    plain      in fhci_frame_limit_timer_irq   | spin_lock(&fhci->lock);
+====================================================================================================
+FILE snapshots/s01/drivers/usb/host/xhci-dbgtty.c  LOCK port->port_lock  (softirq-side sites below; other-plain=1 bh-in-file=False)
+  SOFTIRQ dbc_start_rx                 tasklet-callee   line 94 : port->port_lock
+  OTHER  line 62     plain      in dbc_start_tx                 | spin_lock(&port->port_lock);
