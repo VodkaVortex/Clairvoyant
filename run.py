@@ -18,11 +18,12 @@ from pathlib import Path, PurePosixPath
 
 HERE = Path(__file__).resolve().parent
 EXPERIMENTS = HERE.parent
-DEFAULT_REPO = Path("/mnt/raid/home/yangshuangning/linux")
+DEFAULT_REPO = Path(os.environ.get("LINUX_REPO", str(Path.home() / "linux")))
 DEFAULT_PREPARED = EXPERIMENTS / "benchmark_large_scale" / "prepared"
 DEFAULT_WORKSPACES = EXPERIMENTS / "benchmark_large_scale" / "workspaces"
 DEFAULT_CLAIRVOYANT = EXPERIMENTS / ".clairvoyant-build" / "release" / "clairvoyant"
-DEFAULT_CLAUDE = Path("/mnt/raid/home/yangshuangning/claude-code-2.1.88/claude")
+DEFAULT_CLAUDE = Path(os.environ.get("CLAUDE_BIN", shutil.which("claude") or "claude"))
+DEFAULT_BASE_URL = os.environ.get("GLM_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 ALLOWED_CONFIDENCE = {"high", "medium", "low"}
 MAX_FINDING_LINES = 100
 
@@ -556,7 +557,7 @@ def doctor(args: argparse.Namespace) -> int:
             "GLM_API_KEY": health_env.get("GLM_API_KEY", "doctor-placeholder"),
             "GLM_MODEL": "GLM-5.3",
             "GLM_EFFORT": "low",
-            "GLM_ANTHROPIC_BASE_URL": "https://llm.shtech.org",
+            "GLM_ANTHROPIC_BASE_URL": DEFAULT_BASE_URL,
             "CLAUDE_BIN": str(args.claude),
             "LANDLOCK_BIN": str(landlock),
             "VARIANT_PUBLIC_ROOT": str(public),
@@ -654,7 +655,7 @@ def parse_args() -> argparse.Namespace:
         if name == "run":
             sub.add_argument("--model", default="GLM-5.3")
             sub.add_argument("--effort", choices=("low", "medium", "high"), default="low")
-            sub.add_argument("--base-url", default="https://llm.shtech.org")
+            sub.add_argument("--base-url", default=DEFAULT_BASE_URL)
             sub.add_argument("--workers", type=int, default=16)
             sub.add_argument("--max-intents", type=int, default=16)
             sub.add_argument("--worker-timeout", type=int, default=1200)
@@ -666,7 +667,7 @@ def parse_args() -> argparse.Namespace:
             sub.add_argument("--max-ticks", type=int, default=64)
         if name == "api-smoke":
             sub.add_argument("--model", default="GLM-5.3")
-            sub.add_argument("--base-url", default="https://llm.shtech.org")
+            sub.add_argument("--base-url", default=DEFAULT_BASE_URL)
             sub.add_argument("--worker-timeout", type=int, default=180)
     args = parser.parse_args()
     if args.command == "run" and not 1 <= args.worker_max_turns <= 100:

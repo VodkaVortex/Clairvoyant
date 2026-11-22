@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-experiments_dir="$(cd "$(dirname "$0")/.." && pwd)"
-cargo_home="$experiments_dir/.clairvoyant-cargo"
-rustup_home="$experiments_dir/.clairvoyant-rustup"
-target_dir="$experiments_dir/.clairvoyant-build"
-source_dir="${CLAIRVOYANT_SOURCE:-/mnt/raid/home/yangshuangning/Clairvoyant}"
+repo_root="$(cd "$(dirname "$0")" && pwd)"
+cargo_home="$repo_root/.clairvoyant-cargo"
+rustup_home="$repo_root/.clairvoyant-rustup"
+target_dir="$repo_root/.clairvoyant-build"
+source_dir="${CLAIRVOYANT_SOURCE:-$repo_root/framework}"
 
 if [[ ! -x "$cargo_home/bin/cargo" ]]; then
   echo "isolated cargo is missing: $cargo_home/bin/cargo" >&2

@@ -648,7 +648,7 @@ def main() -> int:
     environment["ANTHROPIC_API_KEY"] = environment.get("GLM_API_KEY", "")
     environment["ANTHROPIC_AUTH_TOKEN"] = environment.get("GLM_API_KEY", "")
     environment["ANTHROPIC_BASE_URL"] = environment.get(
-        "GLM_ANTHROPIC_BASE_URL", "https://llm.shtech.org"
+        "GLM_ANTHROPIC_BASE_URL", "https://api.anthropic.com"
     )
     environment["CLAUDE_CONFIG_DIR"] = str(config_dir)
     environment["TMPDIR"] = str(tmp_dir)

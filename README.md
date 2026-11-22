@@ -49,6 +49,8 @@ branch; cross-snapshot knowledge is carried in the Intent created by Reason.
 - [`runs/10_cluster`](runs/10_cluster): current databases, artifacts, findings,
   evaluator reports, checkpoints, dispatcher prompts, raw worker streams,
   Claude Code session histories, and worker-generated intermediate analysis;
+- [`framework`](framework): the Clairvoyant Rust workspace, including the CLI,
+  dispatcher, runtime, server, protocol, workers, and development tasks;
 - `worker.py`, `done_tool.py`, `prompts/`: the Clairvoyant adapter and worker
   protocol.
 
@@ -73,7 +75,7 @@ analyzed after the run.
 ## Preflight
 
 ```bash
-cd /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search
+cd Clairvoyant
 python3 run.py doctor
 ```
 
@@ -98,9 +100,9 @@ python3 run.py prepare \
 
 ## Run/resume one cluster
 
-Claude Code speaks the Anthropic Messages protocol. The configured gateway root
-is `https://llm.shtech.org`, which maps to `/v1/messages`; change `--base-url`
-if the deployment uses a different Anthropic-compatible prefix.
+Claude Code speaks the Anthropic Messages protocol. Set
+`GLM_ANTHROPIC_BASE_URL` or pass `--base-url` when using an
+Anthropic-compatible gateway.
 
 ```bash
 export GLM_API_KEY='...'
