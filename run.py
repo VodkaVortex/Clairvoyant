@@ -201,6 +201,7 @@ def write_dispatch_config(args: argparse.Namespace, public: Path, state: Path) -
             '      VARIANT_WORKER_TIMEOUT: "${VARIANT_CLAUDE_TIMEOUT}"',
             '      VARIANT_EXPLORE_TIMEOUT: "${VARIANT_EXPLORE_TIMEOUT}"',
             '      CLAUDE_MAX_TURNS: "${CLAUDE_MAX_TURNS}"',
+            '      VARIANT_REASON_FACT_BATCH: "${VARIANT_REASON_FACT_BATCH}"',
         ]
     path = state / "dispatch.yaml"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -311,6 +312,9 @@ def run_dispatch(args: argparse.Namespace, manifest: dict) -> str:
         # turn accumulated evidence into the native done event.
         "VARIANT_EXPLORE_TIMEOUT": str(min(1200, max(30, args.worker_timeout - 660))),
         "CLAUDE_MAX_TURNS": str(args.worker_max_turns),
+        # Reason calls the model once this many new Facts have arrived (or on a new
+        # hint, or when no Intent is open).  1 reproduces the dispatcher's triggers.
+        "VARIANT_REASON_FACT_BATCH": str(args.reason_fact_batch),
     })
     deadline = time.monotonic() + args.timeout
     dispatch_log = state / "dispatch.log"
@@ -565,6 +569,7 @@ def doctor(args: argparse.Namespace) -> int:
             "VARIANT_CLAUDE_TIMEOUT": "30",
             "VARIANT_EXPLORE_TIMEOUT": "30",
             "CLAUDE_MAX_TURNS": "100",
+            "VARIANT_REASON_FACT_BATCH": "1",
         })
         checked([str(args.clairvoyant), "dispatch", "--config", str(config),
                  "--startup-healthcheck-only"], env=health_env)
@@ -605,6 +610,7 @@ def api_smoke(args: argparse.Namespace) -> int:
             "VARIANT_STATE_ROOT": str(state),
             "VARIANT_WORKER_TIMEOUT": str(args.worker_timeout),
             "CAIRN_PROJECT_ID": "api-smoke",
+            "VARIANT_API_SMOKE": "1",
         })
         prompt = (
             "# Task\nReturn a planning WorkerEvent.\n\n## Context\n"
@@ -658,6 +664,10 @@ def parse_args() -> argparse.Namespace:
             sub.add_argument("--base-url", default=DEFAULT_BASE_URL)
             sub.add_argument("--workers", type=int, default=16)
             sub.add_argument("--max-intents", type=int, default=16)
+            sub.add_argument(
+                "--reason-fact-batch", type=int, default=1,
+                help="new Facts needed before Reason calls the model again (default 1)",
+            )
             sub.add_argument("--worker-timeout", type=int, default=1200)
             sub.add_argument(
                 "--worker-max-turns", type=int, default=100,
@@ -672,6 +682,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.command == "run" and not 1 <= args.worker_max_turns <= 100:
         parser.error("--worker-max-turns must be between 1 and 100")
+    if args.command == "run" and args.reason_fact_batch < 1:
+        parser.error("--reason-fact-batch must be at least 1")
     for name in ("repo", "prepared_root", "workspaces_root", "clairvoyant", "claude", "output"):
         value = getattr(args, name, None)
         if value is not None:

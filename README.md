@@ -26,21 +26,33 @@ cards carry only the information needed to plan the next search.
 
 ```mermaid
 flowchart LR
-    Seed[Seed vulnerability] --> Bootstrap[Bootstrap: derive mechanism]
-    Bootstrap --> Fact0[Mechanism Fact]
-    Fact0 --> Reason[Reason: plan next Intent]
-    Reason --> Intent[Explore Intent]
-    Intent --> Explore[Explore worker]
+    Seed[Seed vulnerability] --> Bootstrap[Bootstrap: pattern + branches]
+    Bootstrap --> Registry[(branches.json)]
+    Registry --> Schedule[Adapter: one Intent per branch x snapshot]
+    Schedule --> Explore[Explore worker]
     Explore --> Artifact[Artifact: full evidence]
     Artifact --> Done[Done]
     Done --> Fact1[Short Fact card]
-    Fact1 --> Reason
+    Fact1 --> Reason[Reason: propose new branches]
+    Reason --> Registry
 ```
 
-Reason may combine several earlier Facts when creating a new Intent, so the
-persistent search history is a directed acyclic graph rather than a simple
-tree. Explore workers receive only Facts relevant to the current snapshot or
-branch; cross-snapshot knowledge is carried in the Intent created by Reason.
+Bootstrap returns the mechanism pattern and its search branches as structured
+JSON. The adapter (`worker.py`) stores every branch definition once in
+`agent-state/branches.json` and, without a model call, creates one Intent per
+registered branch and snapshot. Each Explore worker receives the pattern, its
+branch definition verbatim, its snapshot assignment, and the relevant Fact
+cards, so no model rewrites a branch between Bootstrap and Explore.
+
+Reason only discovers branches. Reason keeps the dispatcher's original triggers
+(new Facts, new hints, or the last open Intent concluding); each call may
+register new branches justified by the concluded Facts, which the adapter then
+schedules on every snapshot. When Reason proposes no new branch and no Intent
+is still open, the adapter completes the project. `--reason-fact-batch N` (default 1)
+makes Reason call the model only after N new Facts; a new hint or the last
+open Intent concluding still calls it immediately. Reason may
+cite several earlier Facts for a new branch, so the persistent search history
+is still a directed acyclic graph.
 
 ## Repository map
 
@@ -113,12 +125,15 @@ python3 run.py run \
   --effort low \
   --workers 16 \
   --max-intents 16 \
+  --reason-fact-batch 1 \
   --worker-max-turns 100 \
   --timeout 7200
 ```
 
 Re-running the same command resumes the Clairvoyant database and existing
-artifacts. Re-evaluate without model calls using:
+artifacts. Runs created before the branch registry existed (no
+`agent-state/branches.json`) are not rescheduled by Reason; their Explore
+workers still use the stored Intent text. Re-evaluate without model calls using:
 
 ```bash
 python3 run.py evaluate --output runs/seed22_clairvoyant

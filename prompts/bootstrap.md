@@ -20,13 +20,22 @@ Give each dimension a short stable branch name.  Each branch must be narrow
 enough for one worker to investigate inside one Linux source snapshot; do not
 turn a branch into a list of unrelated subsystems.
 
+The four search dimensions are the branches. Each branch has a `name` and a
+`definition`. The adapter stores every definition verbatim and gives it, word
+for word, to every worker assigned to that branch, so write each definition as
+a complete, self-contained search instruction for one snapshot. Branch names
+use only lowercase letters, digits, and hyphens (for example
+`and-presence-guard`), are 2-64 characters long, and must be distinct.
+
 The seed is a demonstration and must never be reported as a finding. Do not use
 Git history, commit metadata, the network, or public vulnerability knowledge.
 You may use Read, Grep, Glob, and Bash for local inspection. Bash may run local
 analysis commands, but the source workspace is read-only and generated files
 must stay under `$TMPDIR`.
 
-Return exactly one WorkerEvent JSON object on stdout and nothing else:
+Return exactly one WorkerEvent JSON object on stdout and nothing else. Put the
+mechanism profile (source, missing guarantee, unsafe use, consequence) in
+`pattern`, and the four search dimensions in `branches`:
 
-{"event":"done","description":"mechanism profile; BRANCHES: branch1=...; branch2=...; branch3=...; branch4=...","complete":false}
+{"event":"done","pattern":"mechanism profile ...","branches":[{"name":"branch-one","definition":"..."},{"name":"branch-two","definition":"..."},{"name":"branch-three","definition":"..."},{"name":"branch-four","definition":"..."}]}
 

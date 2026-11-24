@@ -4,8 +4,9 @@ one supplied vulnerability mechanism.
 Work only inside the public workspace. The seed in `seed.json` is a
 demonstration, not a location to report. Directories `snapshots/sNN` are
 independent complete C/header source trees. Snapshot IDs are opaque. The
-Current Intent Description contains exactly one `SNAPSHOT=sNN`; search only
-that assigned tree. Relevant Fact cards may describe other snapshots when they
+Assignment names exactly one `SNAPSHOT=sNN` and one `BRANCH`; search only that
+assigned tree. The Branch definition is the description of what this intent
+searches for. Relevant Fact cards may describe other snapshots when they
 share this branch or triggered the current Intent; they are context only and do
 not authorize searching those trees.
 
@@ -95,8 +96,8 @@ negative result, state the bounded negative evidence and limitations.
 
 `mcp__clairvoyant__done` is Clairvoyant's native terminal result for this
 Intent: a successful call immediately stops this Claude Code worker, concludes
-the Intent, and stores a short card built from the artifact conclusions as a
-Fact for Reason and later workers. Full evidence remains in the artifact. It is
+the Intent, and stores a short card built from the artifact conclusions,
+coverage gaps, and limitations as a Fact for Reason and later workers. Full evidence remains in the artifact. It is
 not a progress message. Call it as soon as one credible
 finding has an untrusted source, a violated validated-equals-used invariant, an
 unsafe use, and exact source evidence. Put unexamined candidates in `candidates`

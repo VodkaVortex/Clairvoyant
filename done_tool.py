@@ -11,6 +11,7 @@ from pathlib import Path
 ALLOWED_CONFIDENCE = {"high", "medium", "low"}
 MAX_SHORT_TEXT_CHARS = 300
 MAX_FACT_CARD_BYTES = 8192
+MAX_LIMITATION_CHARS = 600
 
 
 def response(request_id: object, *, result: object | None = None,
@@ -66,6 +67,18 @@ def short_card_text(value: object) -> str | None:
     return text
 
 
+def card_limitation_text(value: object) -> str | None:
+    """One card line for a limitation: whitespace collapsed, long text shortened."""
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())
+    if not text:
+        return None
+    if len(text) > MAX_LIMITATION_CHARS:
+        text = text[:MAX_LIMITATION_CHARS].rstrip() + " ... (see artifact)"
+    return text
+
+
 def card_location(row: dict, *, finding: bool, expected_snapshot: str) -> str | None:
     if row.get("snapshot") != expected_snapshot:
         return None
@@ -114,9 +127,15 @@ def build_fact_card(artifact: Path, payload: dict, snapshot: str,
         for value in payload["coverage_gaps"]
         if (text := short_card_text(value)) is not None
     ]
+    limitation_lines = [
+        f"limitation={text}"
+        for value in payload["limitations"]
+        if (text := card_limitation_text(value)) is not None
+    ]
     header = f"intent={intent} snapshot={snapshot} branch={branch} status=complete"
     artifact_line = f"artifact=findings/{artifact.name}"
     omitted_findings = 0
+    omitted_limitations = 0
     omitted_followups = 0
 
     def render() -> str:
@@ -126,16 +145,22 @@ def build_fact_card(artifact: Path, payload: dict, snapshot: str,
         lines.extend([*unresolved_lines, *gap_lines])
         if omitted_followups:
             lines.append(f"omitted_followups={omitted_followups}; see artifact")
+        lines.extend(limitation_lines)
+        if omitted_limitations:
+            lines.append(f"omitted_limitations={omitted_limitations}; see artifact")
         lines.append(artifact_line)
         return "\n".join(lines)
 
-    # Preserve complete lines only. Findings are discarded before follow-up
-    # leads and coverage gaps, which have higher value for later decisions.
+    # Preserve complete lines only. Findings are discarded first, then
+    # limitations, then coverage gaps and follow-up leads.
     card = render()
     while len(card.encode("utf-8")) > MAX_FACT_CARD_BYTES:
         if finding_lines:
             finding_lines.pop()
             omitted_findings += 1
+        elif limitation_lines:
+            limitation_lines.pop()
+            omitted_limitations += 1
         elif gap_lines:
             gap_lines.pop()
             omitted_followups += 1
