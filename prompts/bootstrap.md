@@ -21,11 +21,9 @@ enough for one worker to investigate inside one Linux source snapshot; do not
 turn a branch into a list of unrelated subsystems.
 
 The four search dimensions are the branches. Each branch has a `name` and a
-`definition`. The adapter stores every definition verbatim and gives it, word
-for word, to every worker assigned to that branch, so write each definition as
-a complete, self-contained search instruction for one snapshot. Branch names
-use only lowercase letters, digits, and hyphens (for example
-`and-presence-guard`), are 2-64 characters long, and must be distinct.
+`definition`. Branch names use only lowercase letters, digits, and hyphens
+(for example `and-presence-guard`), are 2-64 characters long, and must be
+distinct.
 
 The seed is a demonstration and must never be reported as a finding. Do not use
 Git history, commit metadata, the network, or public vulnerability knowledge.
