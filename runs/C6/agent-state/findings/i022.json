@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "intent_id": "i022",
+  "branch": "header-accessor-no-linearize",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/exthdrs.c",
+      "start": 366,
+      "end": 452,
+      "quote": "hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb);\n\n\tidev = __in6_dev_get(skb->dev);\n\n\taccept_seg6 = net->ipv6.devconf_all->seg6_enabled;\n\tif (accept_seg6 > idev->cnf.seg6_enabled)\n\t\taccept_seg6 = idev->cnf.seg6_enabled;\n\n\tif (!accept_seg6) {\n\t\tkfree_skb(skb);\n\t\treturn -1;\n\t}\n\n#ifdef CONFIG_IPV6_SEG6_HMAC\n\tif (!seg6_hmac_validate_skb(skb)) {\n\t\tkfree_skb(skb);\n\t\treturn -1;\n\t}\n#endif\n\nlooped_back:\n\tif (hdr->segments_left == 0) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: any remote IPv6 packet carrying an SRH (routing header type 4) reaching ipv6_rthdr_rcv. The caller ipv6_rthdr_rcv (net/ipv6/exthdrs.c:660-668) does pskb_may_pull(skb, transport_offset+8) and pskb_may_pull(skb, transport_offset+((skb_transport_header(skb)[1]+1)<<3)), so the SRH bytes ARE guaranteed linear before ipv6_srh_rcv is called; the plain missing-linearization half of the branch does not apply. The violated invariant is the transferable seed rule: a pointer derived from the skb data area (hdr = skb_transport_header(skb), line 375) must be re-derived after any call that can reallocate or free the skb head. Between capture (line 375) and the dereferences at lines 396-425 (hdr->segments_left, hdr->nexthdr, hdr->hdrlen) the function calls seg6_hmac_validate_skb(skb) (line 389, under CONFIG_IPV6_SEG6_HMAC) and seg6_hmac_compute, which hash srh with crypto_shash_setkey/update/final on a struct scatterlist-free linear walk; no pull/trim/expand runs there in this tree (net/ipv6/seg6_hmac.c:236-277 contains no pskb_may_pull/skb_cow/pskb_expand_head/skb_trim), so the stale-pointer half is NOT triggered on that path. Counterevidence checked: the classic reallocating path is skb_cloned() -> pskb_expand_head() at lines 433-442, and the code explicitly re-derives hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb) at line 441 after the expand, so that site is correct; the looped_back re-entry at line 475-482 re-derives hdr via skb_transport_header after __skb_pull too. The concrete defect that remains: hdr is captured at 375 BEFORE the seg6_hmac_validate_skb() call at 389 and only re-derived at 441; if any future/optional path inside the HMAC validation (or any helper inserted there) linearizes/unshares the skb, hdr dangles exactly like the seed's ph after pskb_may_pull. Additionally, on the decap branch (lines 397-419) hdr->nexthdr and hdr->hdrlen are read after skb_pull(skb, offset) at 402 (data moved forward), which is not itself a head realloc. So this is a validated-equals-used pattern (the pull guarantee was established once, at caller scope, and the accessor-derived pointer is not re-derived across a validation call), reported per the instruction to report the shared-pattern hypothesis with uncertainty; it is NOT a confirmed KASAN UAF.",
+      "conclusion": "ipv6_srh_rcv captures skb_transport_header() into hdr at exthdrs.c:375 and dereferences hdr->segments_left/nexthdr/hdrlen at 396-425 across the seg6_hmac_validate_skb(skb) validation call at 389 without re-deriving hdr; the clone/pskb_expand_head path at 433-442 re-derives correctly, so this is a medium-confidence stale-header-pointer hypothesis (OOB read of old head if the validation path ever reallocates), not a confirmed UAF."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ieee802154/6lowpan/rx.c",
+      "start": 64,
+      "end": 73,
+      "quote": "static lowpan_rx_result lowpan_rx_h_frag(struct sk_buff *skb)\n{\n\tint ret;\n\n\tif (!(lowpan_is_frag1(*skb_network_header(skb)) ||\n\t      lowpan_is_fragn(*skb_network_header(skb))))\n\t\treturn RX_CONTINUE;\n\n\tret = lowpan_frag_rcv(skb, *skb_network_header(skb) &\n\t\t\t      LOWPAN_DISPATCH_FRAG_MASK);",
+      "confidence": "medium",
+      "reason": "Untrusted source: net/ieee802154/6lowpan/rx.c registers lowpan_rcv via dev_add_pack (line 317) on ARPHRD_IEEE802154 devices, so this is a packet_type handler receiving attacker-controlled frames. Violated invariant: *skb_network_header(skb) is dereferenced (single-byte read at skb->data) with NO pskb_may_pull()/skb_linearize()/skb_headlen() guard anywhere in the file; the only length guard is skb->len != 0 in lowpan_rx_h_check (line 261). skb->len counts non-linear bytes too, so a non-linear skb (frag/fraglist from a scatter-gather 802.15.4 driver or after GRO-style merging) with zero skb_headlen() reads past the linear head at lines 68-69 and 72, and the same unguarded dereference repeats at lines 97, 114, 129, 145, 161, 177, 193, 264-265, 295-296. Unsafe use: the byte read at line 72 feeds lowpan_frag_rcv dispatch, then lowpan_get_cb's lowpan_fetch_skb() (which DOES pskb_may_pull properly, include/net/6lowpan.h:260-270) pulls 4-5 bytes and then reassembly builds a non-linear fraglist skb via inet_frag_reasm_finish; the reassembled skb re-enters lowpan_frag_rx_h_iphc (reassembly.c:210) which again does *skb_network_header(skb) with no headlen guarantee. Counterevidence checked: ieee802154_hdr_peek_addrs uses skb_mac_header(skb) with skb_tail_pointer() bounds checks, and ieee802154_hdr_pull uses pskb_may_pull correctly; the defect is confined to the skb_network_header() dispatch reads, which are exactly the accessor form this branch targets.",
+      "conclusion": "6lowpan packet_type handler lowpan_rcv/lowpan_rx_h_frag dereferences *skb_network_header(skb) (rx.c:68-72,97,114,129,145,161,177,193,264-265,295-296) with only an skb->len check and no pskb_may_pull/linearize/headlen guard, so a non-linear ieee802154 skb with empty linear head reads OOB past skb_headlen on remote packet reception (medium confidence)."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/mac802154/llsec.c",
+      "start": 876,
+      "end": 879,
+      "quote": "\tdata = skb_mac_header(skb) + skb->mac_len;\n\tdatalen = skb_tail_pointer(skb) - data;\n\n\tsg_init_one(&sg, skb_mac_header(skb), assoclen + datalen);",
+      "confidence": "medium",
+      "reason": "Untrusted source: mac802154_llsec_decrypt is called from ieee802154_subif_frame (net/mac802154/rx.c:173) on every received 802.15.4 frame with security_enabled, i.e. remote attacker-chosen MAC frames, after ieee802154_parse_frame_start pulled the header with pskb_may_pull and set skb->mac_len. Violated invariant: llsec_do_decrypt_auth (and the unauth variant at 842-845) builds a single contiguous scatterlist from skb_mac_header(skb) spanning assoclen + datalen bytes, where datalen = skb_tail_pointer(skb) - data covers ALL skb->len bytes; if the received skb is non-linear (payload in frags), sg_init_one over the linear head reads/writes beyond skb_headlen and the aead decrypts garbage and scribbles the auth tag outside the head. There is NO pskb_may_pull/skb_linearize/skb_is_nonlinear check anywhere in llsec.c (verified by grep: only the six skb_mac_header uses at 623,667,672,842,876,879 exist, no pull guard). Unsafe use: crypto_aead_decrypt on that sg (line 890) performs the OOB access; the decrypt-auth path also does skb_trim(skb, skb->len - authlen) at 893 which can pskb_expand_head on a cloned skb (net/core/skbuff.c:2518-2521: ___pskb_trim calls pskb_expand_head when skb_cloned), and ieee802154_subif_frame passes skb2 = skb_clone(skb) (rx.c:335), so the cloned+trim combination on the receive path matches the reallocating-head shape. Counterevidence checked: for hardware-linear 802.15.4 frames (the common case, MTU 127) the sg is in-bounds, and ieee802154_rx's skb_put(skb,2)/skb_trim(skb, len-2) around line 372-401 assume linear too, so non-linearity depends on the driver handing frag-backed skbs to ieee802154_rx_irqsafe; this was not traced per-driver.",
+      "conclusion": "mac802154 receive-path llsec_do_decrypt_auth builds one contiguous scatterlist over skb_mac_header(skb)..skb_tail_pointer(skb) (llsec.c:876-890) with no pskb_may_pull/linearize/is_nonlinear guard, so a non-linear received 802.15.4 secured frame makes crypto_aead_decrypt read/write beyond skb_headlen (medium confidence; driver non-linearity unverified)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/mip6.c",
+      "line": 216,
+      "status": "safe",
+      "reason": "mip6_destopt_reject reads hao->addr at 222 only when ipv6_find_tlv(skb, opt->dsthao, IPV6_TLV_HAO) returned >= 0; ipv6_find_tlv (net/ipv6/exthdrs_core.c:116-159) bounds every access by skb_tail_pointer(skb) - skb_network_header(skb), and ipv6_destopt_rcv has already pskb_may_pull'ed the full destination-options header, so the pointer is derived after the guarantee.",
+      "conclusion": "Guarded by ipv6_find_tlv tail-pointer bounds plus caller pskb_may_pull; no missing-linearization defect."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/xfrm/xfrm_input.c",
+      "line": 554,
+      "status": "safe",
+      "reason": "daddr = (xfrm_address_t *)(skb_network_header(skb) + daddroff) at 554 is reached only after xfrm4_rcv/xfrm6_rcv did pskb_may_pull(sizeof iphdr/ipv6hdr) (lines 239, 276) and xfrm_parse_spi pskb_may_pull'ed the ESP/AH header (168-172); the inner-mode decap helpers all pskb_may_pull before casting (189, 201, 239, 276).",
+      "conclusion": "All accessor-derived header reads in xfrm_input are preceded by covering pskb_may_pull calls."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/reassembly.c",
+      "line": 345,
+      "status": "safe",
+      "reason": "ipv6_frag_rcv pskb_may_pull's transport_offset+sizeof(frag_hdr) at 345-347 and re-derives hdr = ipv6_hdr(skb) and fhdr = skb_transport_header(skb) at 349-350 AFTER the pull; ip6_frag_reasm's writes at 284-289 operate on a reassembled skb built by inet_frag_reasm_prepare and adjust the offsets, matching the documented contract.",
+      "conclusion": "ipv6 reassembly re-derives accessor pointers after every pskb_may_pull; no seed-pattern defect."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/act_ct.c",
+      "line": 550,
+      "status": "safe",
+      "reason": "tcf_ct_flow_table_fill_tuple_ipv4/ipv6 call pskb_network_may_pull(skb, thoff + hdrsize) at 545/614 immediately BEFORE casting skb_network_header(skb) + thoff to tcph/ports/greh, and re-fetch iph = ip_hdr(skb) after the pull (567, 636); the later tcph->fin/rst read in tcf_ct_flow_table_lookup (line ~690) uses the pointer after no intervening reallocating call.",
+      "conclusion": "act_ct tuple fill guards every accessor cast with pskb_network_may_pull covering exactly those bytes."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sched/act_nat.c",
+      "line": 187,
+      "status": "safe",
+      "reason": "Every tcph/udph/icmph cast is preceded on the same line-pair by pskb_may_pull(skb, ...+sizeof(...)+noff) covering the exact header size (145, 183-187, 196-200, 213-216, 221-225).",
+      "conclusion": "act_nat accessor casts are fully guarded by preceding pskb_may_pull calls."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/hsr/hsr_forward.c",
+      "line": 44,
+      "status": "safe",
+      "reason": "hsr_fill_frame_info pskb_may_pull's total_length (59, 69, 87, 103) before each skb_mac_header() cast, and skb_mac_header_was_set is WARN'd at 43; hsr fill/tag paths operate on skbs built by hsr_dev_xmit/hsr_forward_skb with linear headers.",
+      "conclusion": "HSR forwarding path guards mac-header casts with pskb_may_pull; no defect."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/ndisc.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "ndisc.c showed 11 accessor hits in the ranking but was only name-triaged; the neighbor-discovery option parser (ndisc_parse_options) walks variable-length options derived from network-header pointers and was not read line-by-line within the candidate budget.",
+      "conclusion": "Follow up: read ndisc.c ndisc_router_discovery/ndisc_parse_options to check whether any nd_opt_hdr access from skb_network_header() lacks a covering pskb_may_pull for a non-linear neighbor-solicit/router-advert skb."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netfilter/nf_flow_table_ip.c",
+      "line": 0,
+      "status": "unresolved",
+      "reason": "18 accessor hits; nf_flow_table_ip processes flowtable offloaded packets (both ingress decap and egress) and manipulates iph/tcph pointers around pskb_may_pull/skb_try_make_writable calls; not per-function audited in this session.",
+      "conclusion": "Follow up: audit nf_flow_offload_ip_hook/nf_flow_offload_ipv6_hook for accessor-derived iph/tcph pointers reused across skb_try_make_writable or pskb_may_pull reallocation."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ieee802154/6lowpan/rx.c",
+      "line": 295,
+      "status": "reported",
+      "reason": "Covered by finding 2 (same file, same unguarded *skb_network_header() dereference family).",
+      "conclusion": "Reported as part of the 6lowpan finding; no separate action."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/mac802154/llsec.c",
+      "line": 623,
+      "status": "reported",
+      "reason": "The TX-side encrypt variants (623-625, 667-672) share the same unguarded skb_mac_header()+mac_len scatterlist pattern as the RX decrypt at 876-890; the RX side is the reported finding, TX operates on locally generated skbs.",
+      "conclusion": "TX encrypt paths are same pattern but operate on locally built skbs; RX decrypt is the reportable instance."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/ethernet/huawei/hinic/hinic_tx.c",
+      "line": 0,
+      "status": "safe",
+      "reason": "The top drivers/net accessor users (hinic_tx, wx_lib, hns3_enet, ice_txrx, i40e_txrx, fm10k_main, iavf_txrx, ixgbe_main, sge, bnx2x_cmn, sunvnet_common) are transmit/checksum/TSO/TS paths that operate after skb_linearize or on headers guaranteed linear by the stack before netdev->ndo_start_xmit; none is a packet_type receive parser.",
+      "conclusion": "High-hit drivers are TX-path header manipulation, not receive-path header parsing."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 78,
+      "status": "safe",
+      "reason": "ip6_tlvopt_unknown and ipv6_hop_ra/jumbo/calipso (78-101, 891-1022) dereference skb_network_header(skb)[optoff...] only from inside ip6_parse_tlv, which is called exclusively from ipv6_parse_hopopts (1037-1039) and ipv6_destopt_rcv (303-305), both of which pskb_may_pull the complete ext header ((hdrlen+1)<<3) BEFORE the walk; optoff is additionally bounded against the walked len.",
+      "conclusion": "Hop-by-hop/destopt TLV walkers are fully covered by the caller's pskb_may_pull of the whole extension header."
+    }
+  ],
+  "coverage_gaps": [
+    "Only net/ and drivers/net/ .c files were grepped for the seven accessor names plus reset/set variants (964 hits in 260 files); files outside those directories (e.g. netfilter users in security/, fs/, or selftests) were not scanned.",
+    "Roughly 230 files with only one or two accessor uses, mostly TX checksum/GSO code in ethernet drivers, were ranked but never opened; their receive-path subset is unreviewed.",
+    "net/ipv6/ndisc.c (11 hits, variable-length ND options) and net/netfilter/nf_flow_table_ip.c (18 hits, offload decap) were name-triaged only and are recorded as unresolved candidates.",
+    "net/openvswitch/flow.c, net/ipv6/mcast.c, net/ipv6/ip6_gre.c, net/ipv4/ip_tunnel_core.c, net/ipv6/seg6_iptunnel.c, net/xfrm/xfrm_iptfs.c and net/core/drop_monitor.c accessor users were never read.",
+    "The macro-wrapped wrappers ipv6_hdr()/ip_hdr()/tcp_hdr()/udp_hdr()/icmp_hdr() and skb_header_pointer() call sites were deliberately outside this branch's literal grep terms, so variants expressed only through those wrappers are not enumerated here (prior fact i016 covered the skb_header_pointer NULL-check subset in another snapshot).",
+    "Whether any ieee802154/mac802154 hardware driver actually hands a non-linear (frag-backed) skb into ieee802154_rx_irqsafe/lowpan_rcv was assessed structurally, not by tracing each driver's skb allocation; this is the empirical precondition for both 802.154 findings.",
+    "No runtime reproduction: the snapshot is read-only, no KASAN build, crafted non-linear frame, or C reproduction harness was produced (no compile attempted; conclusions rest on static reading of the exact supplied lines)."
+  ],
+  "limitations": [
+    "All findings are source-reading hypotheses, not reproductions; unlike the phonet seed, none is a KASAN-confirmed slab-use-after-free, and the concrete failure modes are OOB reads past skb_headlen (6lowpan, llsec) rather than a stale-pointer read of a freed head.",
+    "The ipv6_srh_rcv finding is the weakest: the SRH bytes are guaranteed linear by the caller's double pskb_may_pull (exthdrs.c:660-666), and seg6_hmac_validate_skb in this tree performs no skb mutation, so the captured hdr (line 375) is currently re-derived correctly at line 441 and the defect is only the missing re-derivation across the validation call at 389; it is reported as a medium-confidence structural hypothesis, and a future/optional HMAC path that unshares or trims the skb would turn it into the seed's exact UAF.",
+    "The 6lowpan and llsec findings depend on a driver delivering non-linear skbs on the 802.15.4 receive path (scatter-gather or fraglist); for the common hardware case where drivers allocate one linear buffer per frame the code is merely fragile, not exploitable.",
+    "Triggering the llsec finding additionally requires a configured 802.15.4 secure network (mac802154_llsec enabled with a key and security level) so that llsec_do_decrypt_auth is reached, and the 6lowpan one requires CONFIG_6LOWPAN plus an ARPHRD_IEEE802154 device with a bound lowpan interface.",
+    "The ranking scan (grep over accessor names with receive-path keyword filtering) does no dataflow analysis, so an accessor-derived pointer invalidated by a helper in another file or by a macro could be missed; conversely the 12-candidate budget means most of the 260 files were classified by pattern heuristics, not full-function reading.",
+    "Snapshot revision is opaque; line numbers and code state are valid only for snapshots/s01 as supplied, and net/phonet/pep.c pep_get_sb (confirmed present at pep.c:45-66) was deliberately never reported per branch instruction."
+  ]
+}

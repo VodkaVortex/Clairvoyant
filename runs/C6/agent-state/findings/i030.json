@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "intent_id": "i030",
+  "branch": "pull-return-unchecked",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/nfc/llcp_core.c",
+      "start": 1429,
+      "end": 1441,
+      "quote": "if (skb->len <= LLCP_HEADER_SIZE) {\n\t\tpr_err(\"Malformed AGF PDU\\n\");\n\t\treturn;\n\t}\n\n\tskb_pull(skb, LLCP_HEADER_SIZE);\n\n\twhile (skb->len > LLCP_AGF_PDU_HEADER_SIZE) {\n\t\tpdu_len = skb->data[0] << 8 | skb->data[1];\n\n\t\tskb_pull(skb, LLCP_AGF_PDU_HEADER_SIZE);\n\n\t\tif (pdu_len < LLCP_HEADER_SIZE || pdu_len > skb->len) {",
+      "confidence": "medium",
+      "reason": "Untrusted source: NFC LLCP PDUs arriving from a remote NFC peer are delivered via nfc_llcp_data_received()/nfc_llcp_recv_skb() into nfc_llcp_recv_agf(); NFC drivers allocate and hand up skbs whose linearity is not guaranteed (no pskb_may_pull anywhere in this function or on the rx_work path, and skb->len counts frag bytes). Violated invariant: only skb->len (total, including frags) is checked at lines 1429 and 1436, then skb_pull() (which validates only against skb->len and never linearizes) is used as if it were a linearizer at 1434 and 1439. Unsafe use: line 1437 reads the two-byte AGF length as skb->data[0] and skb->data[1] immediately after the loop check, and line 1445's skb_put_data(new_skb, skb->data, pdu_len) copies pdu_len bytes from skb->data; both only touch linear bytes if the payload happens to be in the head, and nfc_llcp_ptype(skb) at 1447 likewise reads skb->data[0..1]. Counterevidence checked: the return value of both skb_pull() calls is discarded (a short/clipped skb silently pulls past headlen), there is no pskb_may_pull/pskb_pull in the whole function, and the same loop shape in the sibling handlers (nfc_llcp_recv_ui uses only skb_pull too) shows the pattern is systemic; on a fully linear skb the code is correct, so a non-linear (frag-backed) LLCP AGF PDU from the peer is required to trigger, which is plausible for NFC drivers doing scatter-gather RX but not proven in this snapshot.",
+      "conclusion": "nfc_llcp_recv_agf() uses skb_pull() as a linearizer after only skb->len checks and then reads skb->data[0..1] and copies pdu_len bytes from skb->data, so a non-linear LLCP AGF PDU makes those reads touch bytes not present in the linear head (unchecked skb_pull return plus frag-assuming linear read), matching the pull-return-unchecked branch shape."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/tipc/udp_media.c",
+      "start": 377,
+      "end": 391,
+      "quote": "ub = rcu_dereference_sk_user_data(sk);\n\tif (!ub) {\n\t\tpr_err_ratelimited(\"Failed to get UDP bearer reference\");\n\t\tgoto out;\n\t}\n\tskb_pull(skb, sizeof(struct udphdr));\n\thdr = buf_msg(skb);",
+      "confidence": "low",
+      "reason": "Untrusted source: tipc_udp_recv() is the encap_rcv callback of a UDP socket bound to the TIPC media port, so any remote host that can send UDP to that port reaches this code with an attacker-crafted datagram. Violated invariant: skb_pull(skb, sizeof(struct udphdr)) at line 382 has its return value discarded entirely; nothing verifies even skb->len >= 8 before the pull, and nothing ever linearizes the payload (no pskb_may_pull/pskb_pull in this function). Unsafe use: hdr = buf_msg(skb) at 383 aliases skb->data as struct tipc_msg and is immediately dereferenced by msg_user(hdr) at 395/405 and passed into tipc_rcv(), which parses header fields (word 0) from that pointer; a datagram shorter than 8 bytes makes the pull silently move skb->data past the tail into uninitialized tailroom and msg_user() reads out of bounds, and a frag-backed datagram would make the TIPC header reads touch bytes not in the linear head. Counterevidence checked: UDP recv path delivers the full datagram as skb (skb->len == datagram length), __udp_enqueue_schedule_skb requires only len >= sizeof(struct udphdr) in most stacks but the encap_rcv hook is invoked before any such check in some configurations, so the short-datagram case cannot be excluded from source alone; on a normal-length linear datagram the code is fine, hence low confidence and reliance on the unchecked-return shape itself.",
+      "conclusion": "tipc_udp_recv() discards the return of skb_pull(skb, sizeof(struct udphdr)) with no prior length or pskb_may_pull check and then parses the TIPC header through buf_msg(skb)=skb->data, so a short or non-linear UDP TIPC datagram leads the subsequent header-field reads to run past the guaranteed linear head."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/x25/af_x25.c",
+      "start": 951,
+      "end": 965,
+      "quote": "\t/*\n\t * \tRemove the LCI and frame type.\n\t */\n\tskb_pull(skb, X25_STD_MIN_LEN);\n\n\t/*\n\t * \tExtract the X.25 addresses and convert them to ASCII strings,\n\t * \tand remove them.\n\t */",
+      "confidence": "low",
+      "reason": "Untrusted source: X.25 frames arrive from a remote peer over LAPB (lapbether Ethernet type or hdlc_x25), reach x25_lapb_receive_frame(), which skb_copy()s the frame (making it fully linear), then x25_receive_data() does pskb_may_pull(skb, X25_STD_MIN_LEN) before dispatching Call Requests to x25_rx_call_request(). Violated invariant: within x25_rx_call_request() itself the only validation is the caller's, and the return of skb_pull(skb, X25_STD_MIN_LEN) at line 954 is discarded; subsequent pulls at 965 (addr_len, derived from the attacker-controlled first address-block byte) and 979 (len = skb->data[0] + 1) likewise discard returns, although each is preceded by its own pskb_may_pull. Unsafe use: after the unchecked pulls, x25_parse_address_block/x25_addr_ntoa read multi-byte fields at skb->data, and skb_pull can move skb->data past the linear data end if skb->len was under-counted (the caller's pskb_may_pull(skb, 3) does hold here, so the primary risk is the discarded-return shape on the 965/979 pulls where addr_len/len come from packet bytes but are pskb_may_pull-guarded). Counterevidence checked: the skb_copy in x25_lapb_receive_frame linearizes every frame, and x25_receive_data's pskb_may_pull(skb, X25_STD_MIN_LEN) covers the line-954 pull; the 977/979 pair is guarded by pskb_may_pull(skb, len); so the concrete OOB read is only reachable if a frame with len < 3 slips through the pskb_may_pull at x25_dev.c:33, which cannot happen, making this a shape-match of lower severity rather than a proven OOB.",
+      "conclusion": "x25_rx_call_request() discards skb_pull() returns (lines 954, 965, 979) while parsing attacker-controlled X.25 Call Request fields from skb->data, the exact unchecked-pull shape, but the caller's skb_copy plus pskb_may_pull(skb, X25_STD_MIN_LEN) largely restores the missing guarantees, leaving it a low-confidence structural match."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/lapb/lapb_subr.c",
+      "line": 116,
+      "status": "safe",
+      "reason": "lapb_decode() checks pskb_may_pull(skb, 2) before any read, pskb_may_pull(skb, 2) again on the extended I/S-frame paths after the first skb_pull(1), and the standard-mode and U-frame paths read only skb->data[0] which is inside the 2 bytes already pulled; every pull follows a linearizing may_pull.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/wireless/util.c",
+      "line": 644,
+      "status": "safe",
+      "reason": "ieee80211_data_to_8023_exthdr() checks skb->len < hdrlen before pskb_pull(skb, hdrlen) and uses skb_copy_bits() (linear-safe) for the LLC payload; the discarded pskb_pull return is preceded by an skb->len check and the following write is to skb_push()'d headroom, not the pulled area.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xfrm/xfrm_device.c",
+      "line": 32,
+      "status": "safe",
+      "reason": "The pskb_pull() calls in __xfrm_transport_prep/__xfrm_mode_tunnel_prep/__xfrm_mode_beet_prep operate on locally constructed TX skbs with known headroom and are followed only by header-offset bookkeeping, not by reads of pulled data; failure would leave offsets wrong but no dereference of a possibly-NULL result occurs.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/seg6_local.c",
+      "line": 249,
+      "status": "safe",
+      "reason": "decap_and_validate() branches on !pskb_pull(skb, off) and returns false before any dereference; the pull is preceded by ipv6_find_hdr() which pskb_may_pull-validated the offset region.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/amt.c",
+      "line": 538,
+      "status": "safe",
+      "reason": "The unchecked pskb_pull()/skb_pull() calls at amt.c:538, 559, 660, 749, 833, 853, 2600 are all on locally netdev_alloc_skb_ip_align()-built TX control packets with skb_put() guaranteeing the linear bytes; every remote-facing RX handler (amt_discovery_handler 2648, amt_request_handler 2673, etc.) checks pskb_may_pull before reading.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/x25/af_x25.c",
+      "line": 1339,
+      "status": "safe",
+      "reason": "x25_parse_facilities loop (af_x25.c 1312-1339) does pskb_may_pull(skb, header_len) before each skb_pull(skb, header_len), so each pull is linearity-guaranteed; the return of skb_pull itself is discarded but the may_pull already established the guarantee.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/sctp/inqueue.c",
+      "line": 210,
+      "status": "unresolved",
+      "reason": "sctp_inq_pop() reads ch = chunk->skb->data, computes chunk->chunk_end = ch + SCTP_PAD4(ntohs(ch->length)) from the attacker-controlled length, then skb_pull(chunk->skb, sizeof(*ch)) at 210 with the return discarded; no pskb_may_pull in this function, and GSO/frag_list cover-letter skbs are explicitly handled at 152-165 by switching chunk->skb to frag_list entries whose linearity is not established here, so the guards may live in sctp_rcv()/sctp_endpoint_bh_rcv instead.",
+      "conclusion": "Verify whether sctp_rcv() (sctp input path) guarantees SCTP_CHUNKHDR bytes linear at chunk->skb->data before sctp_inq_pop()'s skb_pull(4) and length-field reads, especially for GSO/frag_list cover-letter skbs; if not, the discarded skb_pull plus ch->length read is the same unchecked-pull linear-assume shape."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/can/j1939/main.c",
+      "line": 62,
+      "status": "unresolved",
+      "reason": "j1939_can_recv() does cf = (void *)skb->data before skb_pull(skb, J1939_CAN_HDR) with the return discarded, then reads cf->len/cf->can_id and calls skb_trim(skb, min(cf->len, 8)); can_is_can_skb() checked the frame type but not linearity of the cloned skb, and CAN RX skbs from vcan are linear while some drivers may not be; no pskb_may_pull on this path.",
+      "conclusion": "Determine whether j1939's input CAN skbs (from can_receive / can_rcv_filter path) are always fully linear in the head so that the unchecked skb_pull(J1939_CAN_HDR) at main.c:62 and the following cf->len/can_id reads never touch non-linear bytes."
+    }
+  ],
+  "coverage_gaps": [
+    "The 974 bare skb_pull() and 142 __skb_pull() sites in net/ and drivers/net/ were enumerated and filtered by grep heuristics but only the strongest RX-path candidates (x25, lapb, amt, wireless util, tipc udp, nfc llcp, sctp inqueue, j1939, ip_gre, mpls, openvswitch, bridge, icmp, seg6, xfrm) were read in full; wireless driver stacks (mt76, ath10k/11k/12k, brcmfmac, mwifiex, rsi, cw1200, p54, wil6210, rtw88/89) and USB NIC drivers (lan78xx, smsc*, aqc111, ax88179) with dozens of unchecked skb_pull calls each were triaged by pattern only, not by reading, since their skbs are driver-constructed and usually linear.",
+    "pskb_may_pull returns are checked at effectively every site found in net/ and drivers/net/ (the only unguarded hits were comments and reason-code assignments that are then tested), so branch shape (1) yielded no finding; the search relied on grep/awk filters that can miss a call whose result is stored in a variable and ignored.",
+    "The branch's named template dn_process_ack() (net/decnet/dn_nsp_in.c:130-158) does not exist in s04: net/decnet/ is entirely absent from this snapshot, so the shape was matched by structure (len-check, unchecked pull, multi-byte read at new skb->data) rather than against the literal template.",
+    "No runtime reproducer, KASAN build, or per-driver audit was performed (read-only snapshot, no build system exercised), so the non-linear-skb precondition for the NFC LLCP and TIPC-UDP findings is argued structurally only."
+  ],
+  "limitations": [
+    "All findings are source-reading hypotheses; the nfc_llcp_recv_agf and tipc_udp_recv issues require an skb that is non-linear or shorter than expected at those points, and no driver configuration was confirmed to deliver such an skb there.",
+    "tipc_udp_recv's short-datagram case depends on whether the UDP encap path can invoke encap_rcv with len < sizeof(struct udphdr); this was not traced to a definitive answer in xfrm/udp tunnel code within this session.",
+    "The x25 finding is included as a low-confidence shape match because the caller's pskb_may_pull(skb, X25_STD_MIN_LEN) in x25_dev.c:33 largely restores the missing guarantee; the discarded returns at af_x25.c:954/965/979 remain the only structural defect.",
+    "Seed code net/phonet/pep.c pep_get_sb (s04 lines 55-65) exhibits the related save-pull-stale-deref pattern but is excluded from reporting by assignment rules; the two sctp and j1939 candidates remain unresolved rather than safe/reported.",
+    "Snapshot revision is opaque (no git history available), so it cannot be determined whether upstream has since fixed any reported site."
+  ]
+}

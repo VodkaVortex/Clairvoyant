@@ -1,0 +1,146 @@
+{
+ "version": 1,
+ "intent_id": "i040",
+ "branch": "stacks-outside-net-dirs",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s04"
+ ],
+ "findings": [
+  {
+   "snapshot": "s04",
+   "path": "drivers/scsi/cxgbi/cxgb4i/cxgb4i.c",
+   "start": 1515,
+   "end": 1584,
+   "quote": "struct cpl_rx_iscsi_cmp *rpl = (struct cpl_rx_iscsi_cmp *)skb->data;",
+   "confidence": "medium",
+   "reason": "Untrusted source: do_rx_iscsi_cmp (and do_rx_iscsi_hdr/do_rx_iscsi_data) run on skbs delivered by the cxgb4 HW TOE RX path for attacker-supplied iSCSI/FCoE-over-TCP traffic on a Chelsio T4-T6 adapter. The function saves rpl = (struct cpl_rx_iscsi_cmp *)skb->data at line 1515 (a pointer into the skb linear head), then __skb_pull(skb, sizeof(*rpl)) + __pskb_trim(skb, be16_to_cpu(rpl->len)) at line 1555; __pskb_trim->___pskb_trim takes the skb_cloned() branch and calls pskb_expand_head, which allocates a new data buffer and frees the old head whenever the RX skb is cloned or the trim crosses into frags. After that, the stale rpl is dereferenced at line 1583 (be32_to_cpu(rpl->ulp_crc)) and pdu_len_ddp/seq/ddpvld captured earlier from rpl are reused; the identical shape appears in do_rx_iscsi_hdr (cpl saved 1248, trim 1282, cpl->len re-read 1303) and do_rx_iscsi_data (cpl saved 1353, trim 1389). The seed's validated-equals-used invariant is violated: cpl->len/rpl->len is validated/read before the trim (driving the trim length) and then read again after the head may have been freed. Unsafe use: read of freed slab memory (stale header fields feed cxgbi_skcb_rx_ddigest and the PDU length checks). Counterevidence checked: the CPL header is always in the driver's linear head on this path (cpl is read at skb->data before any pull, so the save itself is in-bounds), the trim only reallocates when skb is cloned or non-linear past the cut, and on the common never-cloned path the stale pointer still aliases valid memory, so the issue is latent unless the RX skb is cloned (AF_PACKET tap, GRO) or the trim length lands in frags; no build or KASAN run was possible on the read-only snapshot.",
+   "conclusion": "cxgb4i do_rx_iscsi_cmp/do_rx_iscsi_hdr/do_rx_iscsi_data save cpl/rpl from skb->data, then __pskb_trim(skb, cpl->len) can free the old head for a cloned skb, and the stale rpl->ulp_crc / cpl->len reads hit freed memory (stale-pointer UAF read on the Chelsio iSCSI RX path)."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/scsi/bnx2fc/bnx2fc_fcoe.c",
+   "start": 529,
+   "end": 565,
+   "quote": "mac = eth_hdr(skb)->h_source;",
+   "confidence": "medium",
+   "reason": "Untrusted source: bnx2fc_recv_frame runs on the bnx2fc_l2_rcv_thread for FCoE frames received from the network on a bnx2fc CNA interface. mac = eth_hdr(skb)->h_source and dest_mac = eth_hdr(skb)->h_dest (lines 530-531) capture 6-byte pointers into the skb's linear head; pskb_trim(skb, fr_len) at line 552 (fr_len = skb->len - sizeof(struct fcoe_crc_eof), so any received frame longer than the FC frame plus trailer triggers the trim) can reallocate and free the old head via ___pskb_trim's skb_cloned()/non-linear branch (pskb_expand_head). After the trim, the stale mac/dest_mac pointers are read at line 563 (ntoh24(&dest_mac[3])), 576 (ether_addr_equal(port->data_src_addr, dest_mac)) and 585 (ether_addr_equal(mac, ctlr->dest_addr)). The invariant violated is that eth_hdr()-derived pointers are used after pskb_trim without re-derivation. Unsafe use: 3-byte reads of freed slab memory used for FC d_id comparison and MAC filtering (stale-pointer UAF read). Counterevidence checked: skb_linearize(skb) at line 529 runs before the save, so the save itself is over linear data and in-bounds; fh is correctly refetched at line 558 via fc_frame_header_get(fp) after the trim, showing the code knows the head can move but misses the MAC pointers; the reallocation only happens when the skb is cloned (e.g. AF_PACKET tap) or the trim cuts into frags, on the never-cloned RX path the stale pointers still alias valid memory, so the finding is latent on common configurations; no KASAN reproducer was possible on the read-only snapshot.",
+   "conclusion": "bnx2fc_recv_frame keeps eth_hdr(skb)->h_source/h_dest in mac/dest_mac across pskb_trim(skb, fr_len), which frees the old head for a cloned FCoE frame, so the post-trim dest_mac/mac comparisons read freed memory (stale-pointer UAF read)."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/infiniband/ulp/ipoib/ipoib_ib.c",
+   "start": 602,
+   "end": 680,
+   "quote": "phead = skb->data;",
+   "confidence": "medium",
+   "reason": "Untrusted source: ipoib_send is the ndo_start_xmit for an IPoIB netdev, called with locally originated (but potentially attacker-influenced via a shared host) GSO skbs. For a GSO skb it captures phead = skb->data at line 602 (the LSO header pointer into the linear head) and pulls hlen bytes; at line 623, if skb_shinfo(skb)->nr_frags > usable_sge, skb_linearize(skb) runs, and for a cloned skb (GSO skbs forwarded/redirected through TC, ifb, macvlan or veth commonly arrive cloned) __skb_linearize -> pskb_expand_head allocates a new buffer and frees the old head. The stale phead is then passed to post_send(..., phead, hlen) at line 679 and stored into priv->tx_wr.header for IB_WR_LSO, so the HCA's DMA engine reads the LSO header from freed memory. Violated invariant: a pointer derived from skb->data is used after an operation that may linearize/reallocate the head without re-derivation. Unsafe use: DMA read of freed slab memory used as the transmitted LSO header (garbage/leaked bytes on the wire or I/O error). Counterevidence checked: on the non-GSO path phead is NULL and unaffected; skb_linearize is a no-op (returns 0 without reallocating) when the skb is already linear AND uncloned, so the bug needs a cloned GSO skb with more frags than usable_sge; the observable failure is a bad header on the wire rather than a KASAN splat in softirq since the reader is the device DMA, not the CPU; no runtime confirmation was possible on the read-only snapshot.",
+   "conclusion": "ipoib_send captures phead=skb->data for a GSO skb, skb_linearize (line 623) can free the old head via pskb_expand_head for a cloned skb, and the stale phead is still passed to post_send/tx_wr.header and DMA-read by the HCA (stale-pointer UAF read on TX)."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s04",
+   "path": "drivers/s390/net/qeth_core_main.c",
+   "line": 3994,
+   "status": "safe",
+   "reason": "skb_linearize(skb) at 3994 is immediately followed by re-derivation of start/end from the fresh skb->data (3964-3976 capture happens in branches that do not cross the linearize, and 4342's skb_cow_head is followed by re-push of the HW header); no pointer saved before the linearize/cow is dereferenced afterwards.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/s390/net/ctcm_main.c",
+   "line": 168,
+   "status": "safe",
+   "reason": "ctcm_unpack_skb copies the frame into a fresh dev_alloc_skb before netif_rx(skb) (line 168); the loop-local struct ll_header *header is re-derived from pskb->data at the top of each iteration and no pskb_may_pull/pskb_trim/skb_cow intervenes between the derivation and header->length use.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/block/aoe/aoenet.c",
+   "line": 150,
+   "status": "safe",
+   "reason": "aoenet_rcv calls __pskb_pull_tail(skb, sn) at line 150 to guarantee sizeof(aoe_hdr)+sizeof(aoe_atahdr) bytes and only then derives h = (struct aoe_hdr *)skb->data at line 153; every later use of h is after the pull, matching the fixed pattern.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/hsi/clients/ssi_protocol.c",
+   "line": 618,
+   "status": "safe",
+   "reason": "ssip_pn_rx checks pskb_may_pull(skb, SSIP_MIN_PN_HDR) at 618 before any read of skb->data; the subsequent (u16 *)skb->data writes/reads at 621-627 are all after the pull and no pointer is cached across it.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/firewire/net.c",
+   "line": 479,
+   "status": "safe",
+   "reason": "fwnet_finish_incoming_packet derives eth = (struct fwnet_header *)skb_mac_header(skb) (513) and rawp = (u16 *)skb->data (529) after dev_hard_header/skb_pull and performs no pskb_may_pull/pskb_trim/skb_cow between those derivations and their uses before netif_rx at 539.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/infiniband/ulp/ipoib/ipoib_cm.c",
+   "line": 668,
+   "status": "safe",
+   "reason": "ipoib_cm_rx_completion's ((struct ipoib_header *)skb->data)->proto read at 668 happens on a driver-built RX skb (skb_put_frags/copybreak copy), fully linear by construction, with no pskb_may_pull/trim between skb_put_frags and the read; the skb_linearize at 724 is on the unrelated TX path with no cached pointer.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/scsi/fcoe/fcoe.c",
+   "line": 1689,
+   "status": "safe",
+   "reason": "fcoe_recv_frame saves no eth_hdr pointer before pskb_trim(skb, fr_len) at 1689; it re-derives hp/fh from skb_network_header/skb_transport_header after the trim, and skb_linearize at 1651 precedes all pointer derivations.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/scsi/qedf/qedf_main.c",
+   "line": 2514,
+   "status": "unresolved",
+   "reason": "qedf_process_cqe linearizes (2493) then pskb_trims (2514) the RX frame; the grep window shows no obviously saved skb-head pointer, but the enclosing function and its FCoE header extraction were not read to a conclusion before the finalize limit.",
+   "conclusion": "Follow up: read drivers/scsi/qedf/qedf_main.c around lines 2470-2560 to confirm no eth_hdr()/skb->data pointer captured before the skb_linearize/pskb_trim pair survives to a dereference."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/scsi/cxgbi/cxgb3i/cxgb3i.c",
+   "line": 828,
+   "status": "unresolved",
+   "reason": "__pskb_trim(skb, len) at 828 mirrors the reported cxgb4i shape; the enclosing receive handler and any cpl pointer saved before it were only pattern-triaged via grep, not line-read.",
+   "conclusion": "Follow up: read drivers/scsi/cxgbi/cxgb3i/cxgb3i.c around lines 780-880 to check whether a cpl/lsi pointer saved from skb->data before __pskb_trim at 828 is dereferenced afterwards."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/nfc/st21nfca/dep.c",
+   "line": 348,
+   "status": "unresolved",
+   "reason": "st21nfca_tm_event_send_data reads skb->data[1]/skb->data[2] with no skb->len >= 3 check, and the tm_recv_* handlers cast skb->data to packed structs after only partial length validation (e.g. dep.c:348 cmd0/cmd1 indexes, dep.c:491 nfcid1_len-driven memcpy); these are NFCC/peer-supplied HCI frames, but a length/OOB conclusion was not reached within the candidate budget.",
+   "conclusion": "Follow up: trace the st21nfca HCI EVT_SEND_DATA skb constructor and confirm whether skb->data[1]/[2] at dep.c:348-349 can index past skb->len for a short peer frame, and whether the dep.c:491-496 nfcid1_len memcpy is bounded by the checked skb->len."
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/bluetooth/btnxpuart.c",
+   "line": 1582,
+   "status": "unresolved",
+   "reason": "btnxpuart's recv path casts skb->data to struct hci_command_hdr / nxp_fw_dump_hdr (1365, 1582) on frames parsed from the UART/controller; presence of a guaranteed linear headroom/length check before these multi-byte reads was not verified within the budget.",
+   "conclusion": "Follow up: verify btnxpuart.c:1365 and 1582 header casts are preceded by an skb->len >= sizeof(*hdr) check and that the reassembled skb is linear, since the controller-supplied dump/command frames are attacker-influenced firmware input."
+  }
+ ],
+ "coverage_gaps": [
+  "Only the ~20 files outside net/ and drivers/net/ containing literal pskb_may_pull/pskb_pull/skb_cow/pskb_trim/skb_linearize/pskb_expand_head/skb_realloc_headroom call sites (grep enumeration) were triaged; receive parsers in drivers/nfc, drivers/bluetooth, drivers/tty and drivers/staging that read multi-byte headers from skb->data with no pull call at all (branch item c, no grep anchor) were only sampled (st21nfca/dep.c, microread, pn544, btmrvl), not exhaustively audited.",
+  "drivers/tty modem-protocol code, drivers/staging networking drivers and drivers/usb/gadget (f_phonet.c, f_rndis.c pskb_expand_head/skb_realloc_headroom uses) were enumerated by grep but not read to a conclusion; f_rndis.c:368 skb_realloc_headroom keeps skb unchanged and skb2 separate, judged safe by pattern only.",
+  "The 716 kfree_skb/netif_rx/skb_queue_tail/handoff sites under drivers/nfc, drivers/bluetooth, drivers/infiniband, drivers/s390/net, drivers/hsi, drivers/atm and drivers/firewire were counted and only the RX-handoff functions (ctcm, qeth, ipoib_cm, ipoib_ib, ssi_protocol, fwnet, hfi1) were read; per-device stored skb pointers (csk->skb_ulp_lhdr, chan-style private state) under drivers/scsi/cxgbi were inspected only for the trim shape, not full lifetime tracing.",
+  "No runtime confirmation was possible: the snapshot is read-only, no kernel build, KASAN run or crafted-packet reproducer was performed, so all three findings are static source-reading hypotheses and their cloned/non-linear preconditions are argued from ___pskb_trim's skb_cloned() branch and pskb_expand_head's alloc-copy-free semantics rather than observed."
+ ],
+ "limitations": [
+  "All three findings require the skb to be cloned (or the trim to cut into frags) at the pskb_trim/skb_linearize call: on a never-cloned, already-linear receive/transmit path the stale pointer still aliases valid unmodified memory and the issue is latent, hence medium confidence.",
+  "The cxgb4i and bnx2fc findings depend on the specific Chelsio T4-T6 / bnx2fc CNA hardware RX paths being compiled in and delivering cloned skbs (e.g. via an AF_PACKET tap, GRO, or TC mirroring); reachability is narrower than the seed's internet-reachable phonet path and was argued structurally only.",
+  "The ipoib finding is a TX-path variant: the stale header is read by the HCA's DMA engine through priv->tx_wr.header, so the observable failure is a corrupted/garbage LSO header on the wire or an I/O error rather than a KASAN splat, and impact assessment beyond stale-read is unproven.",
+  "The cxgb4i cpl/rpl fields are read from driver-private HW descriptor space at skb->data (not attacker-controlled bytes), but the trim length itself (cpl->len/rpl->len) is HW/NIC-supplied and the stale-pointer mechanism, not the field provenance, is the defect; if the NIC never produces cloned RX skbs the stale dereference cannot trigger.",
+  "grep -r was used in place of the unavailable ripgrep wrapper; the enumeration of pull-family call sites is literal-string based and could miss macro-wrapped or helper-inlined invalidating calls (e.g. pskb_expand_head inside a static inline in a driver header).",
+  "Snapshot revision is opaque (no git history, no network), so it cannot be determined whether upstream has since fixed bnx2fc_fcoe.c, cxgb4i.c or ipoib_ib.c; line numbers are valid only for snapshots/s04 as supplied.",
+  "net/phonet/pep.c pep_get_sb (the seed, present in s04 at net/phonet/pep.c:55-65) was deliberately never reported per the assignment rule, and net/ plus drivers/net/ trees were out of scope for this branch and were not searched."
+ ]
+}

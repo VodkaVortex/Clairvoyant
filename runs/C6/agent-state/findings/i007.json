@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "intent_id": "i007",
+  "branch": "expand-cow-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/appletalk/ddp.c",
+      "start": 1332,
+      "end": 1338,
+      "quote": "\tskb_trim(skb, min_t(unsigned int, origlen,\n\t\t\t    (rt->dev->hard_header_len +\n\t\t\t     ddp_dl->header_length + (len_hops & 1023))));\n\n\t/* FIXME: use skb->cb to be able to use shared skbs */\n\tddp->deh_len_hops = htons(len_hops);",
+      "confidence": "medium",
+      "reason": "atalk_route_packet() (net/appletalk/ddp.c:1287) receives a remote AppleTalk DDP packet forwarded by atalk_rcv() when no local interface matches (atalk_rcv calls pskb_may_pull(sizeof(*ddp)) then ddp = ddp_hdr(skb) at net/appletalk/ddp.c:1409, and passes that raw head pointer into atalk_route_packet(skb, dev, ddp, len_hops, origlen) at line 1447). len_hops comes straight from the attacker-controlled deh_len_hops field (ntohs(ddp->deh_len_hops), line 1411). Inside atalk_route_packet, skb_trim(skb, ...) (line 1333) is called with an attacker-influenced length; when the trimmed length is below the current skb->len, the trim resolves to ___pskb_trim() (net/core/skbuff.c:2515), which first does pskb_expand_head(skb, 0, 0, GFP_ATOMIC) whenever skb_cloned(skb) (net/core/skbuff.c:2524-2525) -- the classic reallocation that allocates a new data buffer and memcpy's the old head, freeing it. Immediately after the trim, the saved pre-trim pointer is written through at line 1338 (ddp->deh_len_hops = htons(len_hops)), i.e. a stale write into the old freed head (and stale writes also occur in the later else-branch skb_unshare path context). An attacker reaches this with a received DDP frame that has deh_dnet/deh_dnode matching a routed network but no local interface, on an skb that is cloned (e.g. delivered via a packet socket tap/clone on receive) and non-linear/oversized so the trim actually fires pskb_expand_head. Counterevidence checked: if skb_cloned() is false and skb->data_len is 0, __pskb_trim reduces to __skb_trim which only moves skb->tail and never reallocates, so the bug needs the cloned (or paged) receive path; the write happens unconditionally after the trim regardless of skb_trim's internal path, so the pointer is used without any re-derivation. This is a hypothesis from source reading, not a run-time KASAN confirmation.",
+      "conclusion": "atalk_route_packet writes through the ddp pointer captured before skb_trim(), which can call pskb_expand_head on a cloned skb and free the old head, yielding a stale-pointer write (UAF) on received DDP packets."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/appletalk/ddp.c",
+      "line": 1333,
+      "status": "reported",
+      "reason": "skb_trim() at line 1333 can reach ___pskb_trim()->pskb_expand_head() when the skb is cloned (net/core/skbuff.c:2524) and thus reallocate the head; the ddp pointer derived from the old head (saved in atalk_rcv at line 1409 via ddp_hdr(skb)) is dereferenced for write at line 1338 after the trim with no re-fetch.",
+      "conclusion": "Stale ddp head pointer is written after skb_trim() may have reallocated the cloned skb head in atalk_route_packet(); needs runtime confirmation of the cloned non-linear receive path."
+    }
+  ],
+  "coverage_gaps": [
+    "Static review of the 480 helper call sites in net/ and drivers/net/ was only begun (a whole-function pointer-liveness scanner was written but produced no output before the session was cut), so the other ~479 pskb_expand_head/skb_cow/skb_linearize/pskb_trim/pskb_carve/skb_copy_expand_head sites in snapshots/s01 remain unreviewed."
+  ],
+  "limitations": [
+    "No run-time reproduction was performed (no build or KASAN harness), so the pskb_expand_head reallocation on the cloned-receive path is inferred from the skb_cloned() branch in ___pskb_trim() (net/core/skbuff.c:2524-2525) rather than observed.",
+    "AppleTalk must be configured (an atalk interface and route) and the skb must arrive cloned and with len above the trim target for the reallocating trim to fire; if skbs are never cloned on that receive path the write stays in-bounds and the issue is latent.",
+    "The scanner used for candidate enumeration had a defect (it emitted no output for any of the 262 files), so coverage of this branch beyond the manually confirmed ddp.c case is not established."
+  ]
+}

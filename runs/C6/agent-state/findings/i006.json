@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "pull-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": ["s05"],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "net/decnet/dn_route.c",
+      "start": 531,
+      "end": 590,
+      "quote": "unsigned char *ptr = skb->data;\n\n\tif (!pskb_may_pull(skb, 21)) /* 20 for long header, 1 for shortest nsp */\n\t\tgoto drop_it;\n\n\tskb_pull(skb, 20);\n\tskb_reset_transport_header(skb);\n\n\t/* Destination info */\n\tptr += 2;\n\tcb->dst = dn_eth2dn(ptr);",
+      "confidence": "medium",
+      "reason": "Untrusted source: dn_route_rx_long() is the DECnet routing-layer receive handler (packet_type dev_add_pack for ETH_P_DNA_RT, dispatched from dn_route_rcv at net/decnet/dn_route.c:719 after __netif_receive_skb core), so skb content and layout are attacker-controlled and the skb can be non-linear on any modern driver/NIC that fills frags. Violated invariant: ptr is saved as a raw alias of skb->data at line 534 BEFORE pskb_may_pull(skb, 21) at line 536; pskb_may_pull() -> __pskb_pull_tail() can kfree the old head and install a new, larger head when the requested 21 bytes are not in the linear area, so the pre-pull ptr aliases freed memory. Unsafe use: after skb_pull(skb, 20) (which advances skb->data another 20 bytes) the stale ptr is still used at lines 543-547 (cb->dst = dn_eth2dn(ptr), memcmp(ptr, dn_hiord_addr, 4)), lines 551-555 (cb->src, second memcmp) and line 557-558 (cb->hops = *ptr++), with no re-derivation of ptr from the post-pull skb->data anywhere in the function. Impact: slab use-after-free reads of attacker-influenced offsets in the freed head (dst/src address parsing and memcmp), matching the seed mechanism (KASAN 'slab-use-after-free' class) and enabling stale-memory disclosure or crash; note the post-pull code reads at ptr+2..ptr+20, which is data that only exists linearly AFTER the pull, so on a non-linear skb the read is both stale and, on the new head, out of the validated 21-byte region. Counterevidence checked: I verified the callers (dn_route_rcv -> dn_route_rx_long at net/decnet/dn_route.c:719), that no wrapper (e.g. skb_linearize or eth_type_trans side effects) forces linearity before the handler, and that ptr is never reassigned from skb after the pull; DECnet must be compiled in (CONFIG_DECNET) and a DNA_RT packet delivered to the host, which limits exposure on default kernels.",
+      "conclusion": "dn_route_rx_long() saves ptr=skb->data, then pskb_may_pull(skb,21) may free/move the head, and the stale ptr is dereferenced for cb->dst/src/hops afterwards, giving a remote slab-UAF read on non-linear DNA_RT packets (medium confidence; needs CONFIG_DECNET and a frag-filled skb to trigger)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/decnet/dn_route.c",
+      "start": 571,
+      "end": 595,
+      "quote": "unsigned char *ptr = skb->data;\n\n\tif (!pskb_may_pull(skb, 6)) /* 5 for short header + 1 for shortest nsp */\n\t\tgoto drop_it;\n\n\tskb_pull(skb, 5);\n\tskb_reset_transport_header(skb);\n\n\tcb->dst = *(__le16 *)ptr;",
+      "confidence": "medium",
+      "reason": "Untrusted source: dn_route_rx_short() is the second DECnet routing receive path, reached from dn_route_rcv (net/decnet/dn_route.c:721) for short-header DNA_RT packets, i.e. remotely craftable and potentially non-linear. Violated invariant: ptr = skb->data is captured at line 574 before pskb_may_pull(skb, 6) at line 576; if the 6 bytes are not all linear, __pskb_pull_tail() reallocates the head and the old head is freed, leaving ptr dangling. Unsafe use: after the pull and skb_pull(skb, 5), lines 582-586 dereference the stale ptr three times (cb->dst = *(__le16*)ptr; cb->src = *(__le16*)ptr; cb->hops = *ptr & 0x3f) with no refetch, so routing decisions (dst/src addresses, hop count) are made from freed memory, causing a slab use-after-free read of up to 5 bytes. Counterevidence checked: same function shape as dn_route_rx_long; no re-derivation of ptr, no linearization in the caller; same CONFIG_DECNET gating and non-linearity precondition limit real-world reachability.",
+      "conclusion": "dn_route_rx_short() captures ptr=skb->data before pskb_may_pull(skb,6) and reads cb->dst/src/hops through the stale pointer afterwards, a remote slab-UAF read for short-header DNA_RT packets (medium confidence; same preconditions as the long-header variant)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/decnet/dn_nsp_in.c",
+      "start": 709,
+      "end": 745,
+      "quote": "unsigned char *ptr = (unsigned char *)skb->data;\n\n\tif (!pskb_may_pull(skb, 2))\n\t\tgoto free_out;\n\n\tskb_reset_transport_header(skb);\n\tcb->nsp_flags = *ptr++;",
+      "confidence": "medium",
+      "reason": "Untrusted source: dn_nsp_rx_packet() is the DECnet NSP receive function fed by dn_route_rcv/route input after the routing header is consumed, so ptr content and non-linearity are attacker-chosen. Violated invariant: ptr = (unsigned char *)skb->data is saved at line 715 before pskb_may_pull(skb, 2) at line 718; if the first 2 bytes are non-linear the head is reallocated and freed, making ptr stale. Unsafe use: cb->nsp_flags = *ptr++ at line 723 reads freed memory (1 byte) and cb->dst_port = *(__le16 *)ptr at line 756 (after further pskb_may_pull(skb, 3)/pskb_may_pull(skb, 5) calls that can also re-derive) continues using the same pre-pull base pointer, so NSP message classification and destination-port lookup key are computed from freed head memory. Counterevidence checked: the later pskb_may_pull(skb, 5) call and skb_pull(skb, 5) happen after the uses; no reassignment of ptr occurs after line 715, so every use is on the pre-pull alias; reachability again gated on CONFIG_DECNET and a non-linear skb.",
+      "conclusion": "dn_nsp_rx_packet() saves ptr=skb->data, calls pskb_may_pull(skb,2) which may free the head, then reads cb->nsp_flags and cb->dst_port through the stale ptr, a remote slab-UAF read in NSP packet classification (medium confidence; CONFIG_DECNET + non-linear skb required)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "net/phonet/pep.c",
+      "line": 56,
+      "status": "safe",
+      "reason": "This is the seed demonstration itself (pep_get_sb, ph from skb_header_pointer then pskb_may_pull(skb, ph->sb_len)); per instructions the seed is never reported, listed only to document that it was recognized and excluded."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/decnet/dn_nsp_in.c",
+      "line": 130,
+      "status": "unresolved",
+      "reason": "dn_process_ack() saves __le16 *ptr = (__le16 *)skb->data at line 130, then calls skb_pull(skb, 2) at lines 138/154 and continues dereferencing the incremented ptr (le16_to_cpu(*ptr)) at lines 151 and 158; skb_pull() only advances skb->data within the already-linear head and never reallocates, so unlike pskb_may_pull there is no head move, but the second read at line 151/158 happens after len bookkeeping and would read past the pulled region if skb->len checks (lines 134, 148) race with frag-backed data; needs a confirmatory read of whether skb->len >= 2 guarantees those 2 bytes are linear.",
+      "conclusion": "Verify whether dn_process_ack()'s *ptr reads after skb_pull(2) can touch non-linear bytes: skb->len>=2 does not imply 2 linear bytes at that offset, so a pull-based linearization is missing before lines 151/158."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/decnet/dn_nsp_in.c",
+      "line": 220,
+      "status": "safe",
+      "reason": "dn_find_listener() assigns msg = (struct nsp_conn_init_msg *)skb->data at line 220 but re-reads all fields (cb->src_port, dst_port, services, info, segsize) into skb control-block copies BEFORE the pskb_may_pull(skb, sizeof(*msg)) at line 243 and then does skb_pull; the msg pointer itself is not dereferenced after the pull, and later parsing re-derives ptr = skb->data at line 249 after the pull, so no stale use exists."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/icmp.c",
+      "line": 746,
+      "status": "safe",
+      "reason": "icmp_socket_deliver() saves iph = (const struct iphdr *)skb->data and reads protocol into a local before pskb_may_pull(skb, iph->ihl * 4 + 8) at line 753; after the pull only the saved integer 'protocol' and freshly derived pointers inside err_handler are used; iph is not dereferenced after the pull, so the pattern is benign."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv4/tcp_ipv4.c",
+      "line": 1804,
+      "status": "safe",
+      "reason": "tcp_v4_rcv() re-derives th = (const struct tcphdr *)skb->data at line 1815 immediately after pskb_may_pull(skb, th->doff * 4) at line 1804 and again before lookup; all post-pull uses go through the refetched pointer, so no stale dereference."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bluetooth/l2cap_core.c",
+      "line": 7005,
+      "status": "unresolved",
+      "reason": "In the l2cap receive path lh (and the d = (void *)skb->data at line 5742) are captured before pskb_may_pull calls (lines 7016/5743) and used afterwards, but these handlers run over HCI sockets where the skb is locally composed and typically fully linear, and the exact function bodies at lines 5735-5760 and 7000-7020 were not fully re-read line-by-line in the final pass; needs one confirmatory read to classify.",
+      "conclusion": "Re-read l2cap_core.c lines 5735-5760 and 7000-7020 to confirm whether the pre-pull data pointer is dereferenced after pskb_may_pull and whether HCI RX skbs can be non-linear."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/wan/hdlc_fr.c",
+      "line": 871,
+      "status": "unresolved",
+      "reason": "fr_rx() captures data = (struct frhdr *)skb->data at line 871 and the static scan flagged uses at lines 929-937 and 962 after pskb_may_pull calls at 925/930/938; the flags fields are read into locals before the first pull, but the later dereferences (e.g. for DLCI/IP parsing) were not line-by-line verified against each pull in the final pass, so a stale-read cannot be excluded.",
+      "conclusion": "Line-by-line check of fr_rx() (hdlc_fr.c 830-1000) for dereferences of 'data' after each pskb_may_pull, and whether the WAN driver can deliver non-linear skbs, is still pending."
+    }
+  ],
+  "coverage_gaps": [
+    "Static regex triage covered all 686 pskb_may_pull/pskb_pull/skb_pull/__pskb_pull_tail call sites in net/ and drivers/ but only deep-read the DECnet, ICMP/TCP, and Bluetooth candidates; the remaining flagged driver paths (aoe, ath10k wmi, sfc ptp, fcoe/bnx2fc, pptp, ppp_generic) were classified by pattern shape only and not re-read line-by-line.",
+    "Callers of the three reported DECnet functions were traced only up to dn_route_rcv and the ETH_P_DNA_RT packet_type registration; no runtime reproducer or KASAN build was produced to empirically confirm the reallocation on a frag-backed DNA_RT skb.",
+    "Non-linearity preconditions were assessed structurally (modern NAPI/GRO paths can deliver frag-backed skbs) but no per-driver audit of which configurations actually hand non-linear skbs to these legacy DECnet handlers was performed."
+  ],
+  "limitations": [
+    "All three findings are hypotheses supported by source reading of the exact save/pull/use lines, not by execution; the triggering requires CONFIG_DECNET plus an incoming non-linear DECnet routing packet, and the old head is only freed when __pskb_pull_tail must actually reallocate (payload bytes in frags), so exploitability may be narrower than the seed's phonet case.",
+    "The coarse scanner's function-boundary heuristic (column-0 braces) can mis-scope large functions or macros, so a small number of false negatives among the 686 call sites cannot be excluded.",
+    "No git history, network access, or cross-snapshot comparison was used, per assignment constraints; only snapshot s05 was searched."
+  ]
+}

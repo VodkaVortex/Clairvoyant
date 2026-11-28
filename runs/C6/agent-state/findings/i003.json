@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "intent_id": "i003",
+  "branch": "pull-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_route.c",
+      "start": 548,
+      "end": 575,
+      "quote": "unsigned char *ptr = skb->data;\n\n\tif (!pskb_may_pull(skb, 21)) /* 20 for long header, 1 for shortest nsp */\n\t\tgoto drop_it;\n\n\tskb_pull(skb, 20);\n\tskb_reset_transport_header(skb);\n\n\t/* Destination info */\n\tptr += 2;\n\tcb->dst = dn_eth2dn(ptr);",
+      "confidence": "medium",
+      "reason": "dn_route_rx_long() (called from dn_route_rcv, registered via dev_add_pack for ETH_P_DNA_RT, so any host sending a DECnet routing packet reaches it) saves ptr=skb->data at line 550 into the skb's linear head, then pskb_may_pull(skb,21) at line 552 can call __pskb_pull_tail, allocate a fresh head and free the old one when the needed bytes live in frags/fraglist of a non-linear skb; ptr is never refetched and lines 559-574 dereference it (dn_eth2dn(ptr), memcmp(ptr,...), cb->hops = *ptr++). The skb comes straight from netif_rx/NAPI and can be non-linear (GRO/frag-backed receive), so this is a remotely reachable slab UAF read of the freed old head. Counterevidence: on a fully linear skb pskb_may_pull is a no-op and nothing is freed; triggering requires CONFIG_DECNET and a frag-filled DNA_RT packet, and no runtime KASAN reproducer was built.",
+      "conclusion": "dn_route_rx_long() saves ptr=skb->data, pskb_may_pull(skb,21) may free/move the head, and the stale ptr is used for cb->dst/src/hops, a remote slab-UAF read on non-linear DNA_RT packets (medium confidence; CONFIG_DECNET + frag-backed skb needed)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_route.c",
+      "start": 588,
+      "end": 601,
+      "quote": "unsigned char *ptr = skb->data;\n\n\tif (!pskb_may_pull(skb, 6)) /* 5 for short header, 1 for shortest nsp */\n\t\tgoto drop_it;\n\n\tskb_pull(skb, 5);\n\tskb_reset_transport_header(skb);\n\n\t/* Destination info */\n\tcb->dst = *(__le16 *)ptr;",
+      "confidence": "medium",
+      "reason": "dn_route_rx_short() in the same DECnet receive path (dn_route_rcv) saves ptr=skb->data at line 590 before pskb_may_pull(skb,6) at line 592, which can reallocate/free the head for a non-linear skb; ptr is not refetched and lines 598-600 read cb->dst=*(__le16*)ptr, cb->src=*(__le16*)ptr and cb->hops=*ptr through the stale pointer. Same remote reachability via the ETH_P_DNA_RT packet_type and same preconditions as the long-header variant (CONFIG_DECNET, non-linear skb required; linear skbs unaffected).",
+      "conclusion": "dn_route_rx_short() captures ptr=skb->data before pskb_may_pull(skb,6) and reads cb->dst/src/hops through the stale pointer afterwards, a remote slab-UAF read for short-header DNA_RT packets (medium confidence)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_nsp_in.c",
+      "start": 718,
+      "end": 771,
+      "quote": "unsigned char *ptr = (unsigned char *)skb->data;\n\n\tif (!pskb_may_pull(skb, 2))\n\t\tgoto free_out;\n\n\tskb_reset_transport_header(skb);\n\tcb->nsp_flags = *ptr++;",
+      "confidence": "medium",
+      "reason": "dn_nsp_rx_packet() (reached from dn_nsp_rcv via the ETH_P_DNA_RT packet_type, i.e. remote packet reception) saves ptr=(unsigned char*)skb->data at line 722, then calls pskb_may_pull(skb,2) at 725, pskb_may_pull(skb,3) at 755 and pskb_may_pull(skb,5) at 768; any of these can reallocate and free the old head when the skb is non-linear, and ptr is never refetched. Lines 729, 761 and 769 dereference the stale ptr (cb->nsp_flags=*ptr++; cb->dst_port=*(__le16*)ptr; cb->src_port=*(__le16*)ptr), reading freed memory that feeds NSP message classification and listener lookup. Counterevidence: linear skbs are safe (no reallocation); CONFIG_DECNET required; no KASAN reproducer was run.",
+      "conclusion": "dn_nsp_rx_packet() saves ptr=skb->data, calls pskb_may_pull(skb,2/3/5) which may free the head, then reads cb->nsp_flags/dst_port/src_port through the stale ptr, a remote slab-UAF read in NSP classification (medium confidence)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "start": 2556,
+      "end": 2565,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;\n\n\t\tif (pskb_may_pull(rx->skb,\n\t\t\t\t  offsetof(struct ieee80211_tdls_data, u)) &&\n\t\t    tf->payload_type == WLAN_TDLS_SNAP_RFTYPE &&\n\t\t    tf->category == WLAN_CATEGORY_TDLS &&",
+      "confidence": "medium",
+      "reason": "In ieee80211_rx_h_data() (mac80211 receive path for data frames from any associated peer, remote-reachable over the air) tf=(void*)rx->skb->data is captured at line 2558 into the skb's linear head, then pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data,u)) at lines 2560-2561 is evaluated inside the same condition; the && reads tf->payload_type, tf->category and tf->action_code at lines 2562-2565 only when the pull succeeded, i.e. exactly after a call that may have reallocated and freed the old head via __pskb_pull_tail, with no refetch. WiFi RX skbs can be non-linear (A-MSDU and frag-backed receives), so the stale tf is a slab-UAF read of the freed old head whose values decide whether the frame is queued for TDLS channel-switch handling. Counterevidence: for a linear skb the pull is a no-op; the outer ethhdr h_proto check at 2556 requires the first 14 bytes to already be linear; no runtime reproducer was produced.",
+      "conclusion": "ieee80211_rx_h_data() saves tf=rx->skb->data, then dereferences tf->payload_type/category/action_code after pskb_may_pull() inside the same condition, a stale-pointer slab-UAF read on non-linear WiFi RX frames headed for TDLS channel-switch (medium confidence)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "line": 3913,
+      "status": "reported",
+      "reason": "ieee80211_invoke_fast_rx() saves hdr=(void*)skb->data at 3785 and pskb_may_pull(skb, snap_offs+sizeof(*payload)) at 3855 can reallocate the head; ieee80211_sta_rx_notify(rx->sdata, hdr) at 3878 and ieee80211_has_protected(hdr->frame_control) at 3913 dereference the stale hdr with no refetch (pskb_trim at 3868-3869 can also move data).",
+      "conclusion": "Covered as an additional stale-hdr use of the same function; the strongest mac80211 report is the ieee80211_rx_h_data() TDLS finding above."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/ipvs/ip_vs_core.c",
+      "line": 1714,
+      "status": "unresolved",
+      "reason": "cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph) at 1606; later pskb_pull(skb, ihl+sizeof(_icmph)) at 1668 and pskb_pull(skb, offset2) at 1696 can reallocate the head, and cih->protocol at 1714 is read with no refetch; when skb_header_pointer used the on-stack _ciph fallback (non-linear short header) cih points at the stack, not the skb, so behavior differs per path and the reachability of a frag-backed IPIP-in-ICMP packet on the IPVS LOCAL_IN hook was not fully traced.",
+      "conclusion": "Re-read ip_vs_core.c 1600-1718 to determine whether cih ever points into the skb head (vs the _ciph stack fallback) on the ICMP-for-IPIP path that reaches pskb_pull at 1668/1696 and the cih->protocol use at 1714."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/network-coding.c",
+      "line": 1607,
+      "status": "safe",
+      "reason": "payload = skb_network_header(skb) is captured at 1581, but the skb is skb_clone()ed at 1593 before pskb_may_pull(skb, ETH_HLEN) at 1600; the clone shares the original head data, and pskb_may_pull on a clone whose data is shared does not free the original head (it copies or fails), so the stale payload still points at live data; only a possible short-linear-area read remains, not a UAF.",
+      "conclusion": "batadv_nc_skb_store_for_decoding(): the pull happens on a skb_clone sharing the original head, so the pre-clone payload pointer is not freed; no UAF."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_nsp_in.c",
+      "line": 130,
+      "status": "unresolved",
+      "reason": "dn_process_ack() sets ptr=(__le16*)skb->data and reads *ptr after only skb_pull(skb,2); skb->len checks do not guarantee the bytes are in the linear area, and the earlier pskb_may_pull in dn_nsp_rx_packet only guaranteed 5 bytes, so whether the ack-block reads at lines 151/158 can touch non-linear bytes (an OOB read rather than the seed's UAF) was not settled.",
+      "conclusion": "Verify whether dn_process_ack()'s *ptr reads at dn_nsp_in.c:151/158 can run past the linearly-available bytes (missing pull before read) and turn into an OOB read."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/main.c",
+      "line": 606,
+      "status": "safe",
+      "reason": "batadv_get_vid() saves ethhdr=(struct ethhdr*)(skb->data+header_len) at 600, but after pskb_may_pull(skb, header_len+VLAN_ETH_HLEN) at 605 it refetches vhdr=(struct vlan_ethhdr*)(skb->data+header_len) at 606 and only the refetched pointer is used; ethhdr is not dereferenced after the pull.",
+      "conclusion": "batadv_get_vid() refetches the header pointer after pskb_may_pull(); correct pattern, no stale-pointer use."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_route.c",
+      "line": 631,
+      "status": "safe",
+      "reason": "dn_route_rcv() saves only scalar values (len = le16_to_cpu(*(__le16*)skb->data), flags = *skb->data) before pskb_may_pull(skb, padlen+1); scalars cannot dangle and no pointer into the skb data is dereferenced after the pull.",
+      "conclusion": "dn_route_rcv() only copies scalar fields before the pull; no stale pointer is used afterwards."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/l2cap_core.c",
+      "line": 6908,
+      "status": "safe",
+      "reason": "l2cap_recv_frame() saves lh=(void*)skb->data and calls skb_pull(skb, L2CAP_HDR_SIZE); plain skb_pull never reallocates the head (it only advances data), and the HCI receive path guaranteed L2CAP_HDR_SIZE linear bytes before this point, so lh stays valid.",
+      "conclusion": "l2cap_recv_frame()'s lh pointer survives skb_pull(), which never reallocates; not a pull-invalidates-pointer case."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/esp4.c",
+      "line": 434,
+      "status": "safe",
+      "reason": "esp_input()'s pre-pull saved variable aead=x->data points into the xfrm state, not into the skb, and esph=(struct ip_esp_hdr*)skb->data is not dereferenced after pskb_may_pull; only the aead pointer (unrelated to skb data) is reused.",
+      "conclusion": "esp4/esp6 save x->data (xfrm state, not skb data); no skb-data pointer is used after the pull."
+    }
+  ],
+  "coverage_gaps": [
+    "The two IPVS pskb_pull sites in net/netfilter/ipvs/ip_vs_core.c (1668/1696) with the later cih->protocol read at 1714 were only partially traced; whether cih points into the skb head or the on-stack _ciph fallback on the ICMP-for-IPIP path was not determined.",
+    "A per-driver audit of which WiFi hardware/driver configurations actually deliver non-linear (A-MSDU/frag-backed) skbs into ieee80211_rx_h_data() and ieee80211_invoke_fast_rx() was not performed.",
+    "No runtime KASAN build or reproducer was produced to empirically confirm head reallocation on frag-backed DNA_RT or TDLS frames in s02."
+  ],
+  "limitations": [
+    "All findings are source-reading hypotheses; triggering requires a non-linear skb so __pskb_pull_tail actually reallocates and frees the old head, and CONFIG_DECNET=y/m for the three DECnet sites, so exploitability may be narrower than the seed's phonet case.",
+    "The function-boundary heuristic (column-0 braces) of the scanners can mis-scope large functions or macros, so false negatives among the several hundred pskb_may_pull/pskb_pull call sites in s02 cannot be excluded.",
+    "Only net/, drivers/net/, drivers/ .c files were scanned by script; other directories and .h files were not systematically covered.",
+    "No git history, network access, or cross-snapshot comparison was used, per assignment constraints; only snapshot s02 was searched."
+  ]
+}

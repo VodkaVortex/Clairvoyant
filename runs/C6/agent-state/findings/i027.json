@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "intent_id": "i027",
+  "branch": "pull-return-unchecked",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wan/hdlc_fr.c",
+      "start": 893,
+      "end": 979,
+      "quote": "u8 *data = skb->data;",
+      "confidence": "medium",
+      "reason": "fr_rx() receives an attacker-supplied Frame Relay frame as .netif_rx handler (drivers/net/wan/hdlc_fr.c:1180). It validates only total length ('if (skb->len < 4 || fh->ea1 || !fh->ea2 || data[2] != FR_UI)' line 899; 'if (skb->len < 5)' line 963) and then uses skb_pull() as if it linearized: skb_pull(skb,4) at lines 949/957 and skb_pull(skb,5) at line 966 are unchecked (return ignored) and only decrement skb->len against the TOTAL length including frags/fraglist; no pskb_may_pull/linearize exists anywhere in hdlc_fr.c. Worse, line 940 'skb = skb_share_check(skb, GFP_ATOMIC);' may replace/free the original shared skb, after which the saved pointer from line 894 (u8 *data = skb->data; also struct fr_hdr *fh = (struct fr_hdr *)skb->data; line 893) is dereferenced at lines 946, 954, 962, 965, 977 (data[3]/data[4]) - a stale pointer over the old freed head, plus post-pull fr_snap_parse (lines 849-884) reads skb->data[0..4] that the len-only pull never guaranteed to be in the linear head. Counterevidence checked: skb_pull_inline (include/linux/skbuff.h:2655-2658) clamps to skb->len, so a pull itself cannot move skb->data past the valid range, and if the WAN device never delivers non-linear skbs (many HDLC drivers deliver freshly allocated linear buffers) the reads stay in-bounds; skb_share_check only reallocates when the head is shared (cloned).",
+      "conclusion": "fr_rx() uses unchecked skb_pull(4/5) as a linearizer after only skb->len checks and keeps dereferencing the data pointer saved before skb_share_check() (line 940), so a non-linear or shared received frame can cause a stale-head read and reads of bytes not in the linear head (medium confidence)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wan/hdlc_fr.c",
+      "line": 940,
+      "status": "reported",
+      "reason": "Main finding: skb_share_check may free the original skb head while 'data' (saved at line 894) and fh (line 893) continue to be dereferenced at 946/954/962/965/977; combined with unchecked len-only skb_pull calls.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/l2cap_core.c",
+      "line": 7766,
+      "status": "unresolved",
+      "reason": "l2cap_recv_frame() does 'struct l2cap_hdr *lh = (void *) skb->data;' then unchecked skb_pull(skb, L2CAP_HDR_SIZE) at line 7766 and reads lh->cid/lh->len afterwards with only an implied len check ('if (len != skb->len)') at 7771; hci_acldata_packet() (net/bluetooth/hci_core.c:3849-3853) has the same pattern for HCI_ACL_HDR_SIZE. The pull validates only against skb->len, so if an HCI transport hands a non-linear skb these reads touch bytes outside the linear head; however the HCI core (hci_rx_work -> hci_acldata_packet) was not traced to the individual transport drivers to establish which ones can deliver frags, and no skb_share_check-style free occurs here, so this is a len-only linearizer hypothesis not yet confirmed.",
+      "conclusion": "Verify whether any HCI transport driver (drivers/bluetooth/*) can hand a non-linear skb into hci_acldata_packet/l2cap_recv_frame; if yes, lh->cid/len reads after the unchecked skb_pull(L2CAP_HDR_SIZE) touch non-linear bytes."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/cmtp/core.c",
+      "line": 132,
+      "status": "safe",
+      "reason": "cmtp_recv_frame's unchecked skb_pull calls (lines 167/186/259) operate on skbs that cmtp_session() explicitly linearized first: 'if (!skb_linearize(skb)) cmtp_recv_frame(session, skb); else kfree_skb(skb);' at net/bluetooth/cmtp/core.c:297-300, so skb->data always covers skb->len.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/x25/af_x25.c",
+      "line": 91,
+      "status": "safe",
+      "reason": "x25_parse_address_block() re-validates linear presence before every read ('if (!pskb_may_pull(skb, 1))' line 91 and 'if (!pskb_may_pull(skb, needed))' line 100) before calling x25_addr_ntoa(skb->data,...) at line 107, and x25_rx_call_request (lines 974-991) likewise pskb_may_pull's before each skb->data read; the subsequent skb_pull calls are unchecked but are preceded by matching length validation.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/atm/pppoatm.c",
+      "line": 298,
+      "status": "unresolved",
+      "reason": "pppoatm_push() checks 'if (skb->len < LLC_LEN || memcmp(skb->data, pppllc, LLC_LEN))' (lines 198-199) then unchecked skb_pull(skb, LLC_LEN) (line 201) and in the autodetect branch reads 6 bytes after only 'skb->len >= sizeof(pppllc)' (line 205). memcmp(skb->data,...) itself reads LLC_LEN bytes guaranteed only in the len sense, not linearly; ATM AAL5 skbs are normally allocated linear by the driver, which was not verified per-driver.",
+      "conclusion": "Confirm whether ATM AAL5 receive skbs (net/atm/* and drivers/atm/*) can be non-linear; if so the memcmp(skb->data, pppllc, LLC_LEN) at net/atm/pppoatm.c:199 reads beyond the linear head."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/a2mp.c",
+      "line": 615,
+      "status": "unresolved",
+      "reason": "a2mp_chan_recv_cb() loop does 'hdr = (void *) skb->data;' (line 615), reads hdr->len, then 'skb_pull(skb, sizeof(*hdr));' (line 622) and keeps dereferencing the saved hdr ('if (len > skb->len || !hdr->ident)' line 625; 'switch (hdr->code)' line 631) and after the switch 'skb_pull(skb, le16_to_cpu(hdr->len))' at line 682; subhandlers also do 'skb_pull(skb, le16_to_cpu(hdr->len))' (lines 550/604) with the return ignored. The loop guard 'while (skb->len >= sizeof(*hdr))' validates only total length; if the A2MP channel skb is non-linear (A2MP runs over an L2CAP channel fed by hci_acldata_packet) the hdr reads after pull touch non-linear bytes and the stale hdr pointer is used after the head may have been reallocated by other paths - the L2CAP channel recv path was not traced end-to-end to settle non-linearity.",
+      "conclusion": "Trace l2cap_data_channel->a2mp_chan_recv_cb skb delivery to decide whether the hdr pointer saved before 'skb_pull(skb, sizeof(*hdr))' (net/bluetooth/a2mp.c:622) can be non-linear or be invalidated before the hdr->code/hdr->ident reads at 625/631."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/nfc/llcp_core.c",
+      "line": 1382,
+      "status": "unresolved",
+      "reason": "nfc_llcp_recv_agf() pulls the 2-byte header and per-PDU lengths with only total-len guards ('if (skb->len <= LLCP_HEADER_SIZE)' line 1387; 'while (skb->len > LLCP_AGF_PDU_HEADER_SIZE)' line 1400; 'if (pdu_len < LLCP_HEADER_SIZE || pdu_len > skb->len)' line 1405) then reads skb->data[0]/[1] (line 1401) and copies pdu_len bytes via skb_put_data (line 1417) from skb->data - none of these linear guarantees hold if the RX skb is non-linear; NFC response skbs are usually freshly allocated by digital_skb_alloc()/nfc_alloc_recv_skb (linear by construction), but the analog/NCI target paths and per-driver skb construction were not exhaustively checked.",
+      "conclusion": "Determine whether any NFC driver (net/nfc/nci, drivers/nfc/*) can deliver a non-linear skb to nfc_llcp_recv_agf; if yes the skb->data[0]<<8|skb->data[1] read at line 1401 is out of the linear head."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ax25/ax25_in.c",
+      "line": 218,
+      "status": "unresolved",
+      "reason": "ax25_rcv() checks no linear length at all: it calls ax25_addr_parse(skb->data, skb->len, ...) which returns NULL only if fewer than 14+digis TOTAL bytes exist, then does unchecked 'skb_pull(skb, ax25_addr_size(&dp));' (line 218) and afterwards reads *skb->data and skb->data[1] (lines 241-243, 248) and in the connected path ax25_decode() (net/ax25/ax25_subr.c:97-149) reads frame[0]/frame[1] with unchecked skb_pull(skb,2). No pskb_may_pull exists anywhere in net/ax25/. Whether AX.25 (KISS over SLIP/mkiss, baycom, etc.) receive skbs can be non-linear was not verified; mkiss typically assembles linear skbs, which would keep the reads in-bounds.",
+      "conclusion": "Verify whether any AX.25-capable device (drivers/net/hamradio/mkiss, 6pack, yam, scc) can hand a non-linear skb to ax25_kiss_rcv; if yes, reads of skb->data[0]/[1] after the unchecked skb_pull at ax25_in.c:218 read non-linear bytes."
+    }
+  ],
+  "coverage_gaps": [
+    "The ~1100 pull-family sites in drivers/net/ were enumerated but only pattern-sampled (hdlc_fr.c read in full); files such as drivers/net/ethernet receive offload helpers and drivers/net/wireless were not individually audited.",
+    "No runtime or KASAN reproduction was performed (read-only snapshot, no network): the fr_rx stale-data-pointer after skb_share_check and the non-linear reads are inferred from source structure, not observed.",
+    "Non-linearity preconditions were assessed structurally (which subsystems linearize before parsing) rather than by tracing each hardware driver's skb allocation path (HCI transports, ATM AAL5, NFC, hamradio).",
+    "The prescribed open template net/decnet/dn_nsp_in.c:130-158 (dn_process_ack) does not exist in snapshots/s01 (no net/decnet tree at all), so that exact shape could only be matched by analogy, not verified in place.",
+    "Assigned sites named in prior facts (net/decnet/*, net/phonet/pep.c) were excluded or out of scope by instruction; phonet pep_get_sb was confirmed present at net/phonet/pep.c:45-66 but deliberately not reported."
+  ],
+  "limitations": [
+    "All conclusions rest on static reading of snapshots/s01 exact lines; snapshot revision is opaque, so line numbers are valid only for this supplied tree.",
+    "The primary fr_rx finding's stale-pointer half depends on the received skb being shared/cloned at skb_share_check() and its non-linear half on the FRAD driver delivering frags; many WAN drivers build fresh linear skbs, in which case the code is merely fragile, not exploitable.",
+    "The five unresolved candidates (l2cap/hci_acldata, pppoatm, a2mp, llcp_agf, ax25) could not be closed because each hinges on per-driver non-linearity that a source snapshot alone does not resolve without tracing every hardware path.",
+    "The coarse scanner's statement-continuation heuristic (up to 6 lines) may have misjoined a few multi-line calls, so a small number of false positives/negatives among the 416 flagged sites cannot be excluded."
+  ]
+}

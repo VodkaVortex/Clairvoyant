@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "nonlinear-linear-assume",
+  "status": "complete",
+  "snapshot": "s02",
+  "step": "final - artifact written to findings/i013.json",
+  "findings": [
+    "net/netfilter/xt_osf.c:220-272 (high): skb_header_pointer NULL ignored, *optp deref at 262 -> NULL read on non-linear SYN with doff>5 and matching fingerprint",
+    "net/batman-adv/routing.c:952-978 (medium): struct casts before any pull; only offset-0 packet_type unguarded (covered by 2-byte dispatcher pull) - pattern mirror, bounded impact"
+  ],
+  "classified_candidates": [
+    "xt_osf.c:223 reported",
+    "batman-adv/routing.c:952 reported",
+    "flow_dissector.c:867 safe",
+    "ieee802154/header_ops.c:249 safe",
+    "caif/cfpkt_skbuff.c:139 safe",
+    "batman-adv/routing.c:681 safe (refetch after cow)",
+    "batman-adv/routing.c:1049 safe (explicit linearize)",
+    "batman-adv/routing.c:1091 safe",
+    "batman-adv/routing.c:1170 safe",
+    "mac80211/rx.c:2300 safe (hdrlen pull at entry)",
+    "mac80211/rx.c:5010 safe (stale-ptr aspect belongs to pull-invalidates-pointer branch)",
+    "mac80211/rx.c:1276 safe"
+  ],
+  "notes": "Scanners used: skb_header_pointer NULL-check scanner (253 sites, 16 raw hits -> 1 real: xt_osf), rcv-named function struct-cast scanner (17 hits -> mac80211 all guarded by entry pull/linearize), memcpy-from-skb->data list (34 sites, receive ones safe). Finalize order received; done called next."
+}

@@ -1,0 +1,15 @@
+{
+  "intent_id": "i027",
+  "branch": "pull-return-unchecked",
+  "snapshot": "s01",
+  "status": "finalizing",
+  "progress": [
+    "Template dn_process_ack (net/decnet/dn_nsp_in.c) absent from s01 (no net/decnet tree) - shape matched elsewhere.",
+    "Scanned net/ (329 pskb_may_pull, 458 skb_pull-family sites) + drivers/net/ (674 sites) for unchecked pull returns and len-only linearizer pulls.",
+    "Verified finding: drivers/net/wan/hdlc_fr.c fr_rx() lines 889-979 - only skb->len checked (line 899 'skb->len < 4'), unchecked skb_pull(4/5) at 949/957/966, saved u8 *data = skb->data (line 894) dereferenced at 946/954/962/965/977 AFTER skb_share_check(skb) at line 940 which can free/replace the original skb.",
+    "Verified finding: drivers/net/wan/hdlc_fr.c fr_snap_parse() lines 849-884 - reads skb->data[0..4] after fr_rx pulled 5 with only skb->len guards; no pskb_may_pull/linearize anywhere in hdlc_fr.c.",
+    "Classified safe: net/bluetooth/cmtp/core.c (skb_linearize before cmtp_recv_frame), net/x25/af_x25.c x25_parse_address_block (pskb_may_pull before each read).",
+    "Unresolved candidates: l2cap_recv_frame/hci_acldata_packet len-only struct reads; pppoatm memcmp+pull with len-only check; a2mp_chan_recv_cb; nfc_llcp_recv_agf; ax25_addr_parse/ax25_decode."
+  ],
+  "candidates": []
+}

@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "expand-cow-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/en_accel/ipsec_rxtx.c",
+      "start": 47,
+      "end": 68,
+      "quote": "ipv4hdr->tot_len = htons(ntohs(ipv4hdr->tot_len) - trailer_len);",
+      "confidence": "medium",
+      "reason": "mlx5e_ipsec_remove_trailer() saves struct ipv6hdr *ipv6hdr = ipv6_hdr(skb) and struct iphdr *ipv4hdr = ip_hdr(skb) at lines 48-49, then calls pskb_trim(skb, skb->len - trailer_len) at line 61, and afterwards dereferences both stale pointers (ipv4hdr->tot_len write + ip_send_check(ipv4hdr) at 65-66, ipv6hdr->payload_len write at 67-68). Untrusted source: the skb is a network packet carrying an attacker-controlled ESP trailer length byte (plen read via skb_copy_bits at 56 drives trailer_len), and the header fields it overwrites come from the packet. Unsafe use: pskb_trim()->___pskb_trim() (net/core/skbuff.c:2721-2723) calls pskb_expand_head(skb,0,0,GFP_ATOMIC) whenever skb_cloned(skb); pskb_expand_head (net/core/skbuff.c:2285-2363) kmallocs a new head, memcpy's data, and frees/releases the old head (skb_free_head/skb_release_data), so ipv4hdr/ipv6hdr dangle and the post-trim writes go into freed slab memory (UAF write, plus stale-read of the old tot_len/payload_len). Counterevidence/limits: the reallocation only fires when the skb is cloned at trim time; the exact caller path (mlx5e IPsec software-crypto/esw handling of the xfrm skb) and a run-time KASAN confirmation were not re-verified in this session, hence medium confidence.",
+      "conclusion": "mlx5e_ipsec_remove_trailer keeps ipv6_hdr/ip_hdr pointers across pskb_trim, which frees the old head for a cloned skb, so the post-trim tot_len/payload_len writes hit freed memory (stale-pointer UAF write)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/emulex/benet/be_main.c",
+      "start": 1146,
+      "end": 1157,
+      "quote": "veh->h_vlan_proto == htons(ETH_P_8021Q))",
+      "confidence": "medium",
+      "reason": "be_lancer_xmit_workarounds() captures struct vlan_ethhdr *veh = skb_vlan_eth_hdr(skb) at function entry (line 1124) and struct iphdr *ip = (struct iphdr *)ip_hdr(skb) at 1139, then calls pskb_trim(skb, eth_hdr_len + ntohs(ip->tot_len)) at 1141 with the attacker-influenced IPv4 tot_len (padded short frames, skb->len <= 60), and after the trim dereferences the stale veh at 1155-1156 (veh->h_vlan_proto == htons(ETH_P_8021Q)) to decide VLAN_SKIP_HW. Untrusted source: transmitted network skb whose IP header/tot_len are attacker-chosen. Unsafe use: pskb_trim()->___pskb_trim() (net/core/skbuff.c:2721-2723) calls pskb_expand_head() when skb_cloned(skb), and pskb_expand_head (net/core/skbuff.c:2285-2363) allocates a new data buffer and frees the old head, so the entry-time veh pointer dangles and the 1155 read is a slab use-after-free read that can also drive a wrong be_insert_vlan_in_pkt decision. Counterevidence/limits: requires a cloned (or otherwise reallocating) skb reaching ndo_start_xmit for this NIC; ip itself is only read before the trim, and no run-time reproduction was done.",
+      "conclusion": "be_lancer_xmit_workarounds captures veh from the skb head at entry and reads veh->h_vlan_proto after pskb_trim, which can free the old head for a cloned skb, giving a stale-pointer UAF read on short padded TX frames."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/i40e/i40e_txrx.c",
+      "line": 3050,
+      "status": "unresolved",
+      "reason": "Scanner shows vhdr (obtained via skb header access around line 3028) still referenced after skb_cow_head(skb, 0) at 3050; skb_cow_head reallocates via pskb_expand_head for cloned/unwritable skbs.",
+      "conclusion": "Verify whether i40e's vhdr points into the skb head and is dereferenced after skb_cow_head at i40e_txrx.c:3050; if so it is the same stale-header-pointer UAF."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_main.c",
+      "line": 9461,
+      "status": "unresolved",
+      "reason": "Same pattern as i40e: vhdr captured around 9415, skb_cow_head at 9461, later use not read to conclusion.",
+      "conclusion": "Read ixgbe_main.c:9415-9500 to confirm whether vhdr survives skb_cow_head and is dereferenced afterwards."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mpls/mpls_iptunnel.c",
+      "line": 108,
+      "status": "unresolved",
+      "reason": "Scanner flags a ttl value/pointer derived around line 91 and used after skb_cow_head at 108; not manually read.",
+      "conclusion": "Check whether ttl in mpls_iptunnel.c is a pointer into the skb head that is used after skb_cow_head at line 108."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/atheros/atlx/atl1.c",
+      "line": 2129,
+      "status": "safe",
+      "reason": "iph is dereferenced after pskb_trim at 2124, but skb_cow_head(skb, 0) at 2115 already cleared skb->cloned, so ___pskb_trim's pskb_expand_head branch cannot fire on this path.",
+      "conclusion": "atl1_tso's stale-looking iph use after pskb_trim cannot reallocate because skb_cow_head(skb,0) uncloned the skb first."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 444,
+      "status": "safe",
+      "reason": "All four sites (273 ipv6_dest_hao, 444 ipv6_srh_rcv, 602 ipv6_rpl_srh_rcv, 767 ipv6_rthdr_rcv) explicitly re-derive hdr/oldhdr/hao/ipv6h via skb_transport_header()/ipv6_hdr(skb) immediately after pskb_expand_head.",
+      "conclusion": "IPv6 extension-header receivers refetch every header pointer after pskb_expand_head, so no stale use."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/calipso.c",
+      "line": 1343,
+      "status": "safe",
+      "reason": "ip6_hdr = ipv6_hdr(skb); is re-derived right after skb_cow() with the comment 'Reset as skb_cow() may have moved it' (lines 1348-1349).",
+      "conclusion": "calipso explicitly refetches ip6_hdr after skb_cow, aware of the head-move hazard."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/sit.c",
+      "line": 1004,
+      "status": "safe",
+      "reason": "skb_realloc_headroom returns a new skb; code does skb = new_skb and re-derives iph6 = ipv6_hdr(skb) at 1014-1015.",
+      "conclusion": "ipip6_tunnel_xmit replaces the skb and refetches iph6 after skb_realloc_headroom."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/ip_input.c",
+      "line": 568,
+      "status": "safe",
+      "reason": "iph = ip_hdr(skb) is refetched immediately after pskb_trim_rcsum at 568 (line 573); same refetch pattern in ip6_input.c:314, udp.c:2610, net/ipv6/udp.c:1095, nf_reject_ipv6.c:38, ip6mr.c:2094.",
+      "conclusion": "IP/IPv6/UDP receive and reject paths refetch header pointers right after pskb_trim_rcsum."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/batman-adv/routing.c",
+      "line": 375,
+      "status": "safe",
+      "reason": "After skb_linearize (371) and skb_cow (375), ethhdr and icmph are both re-derived from the skb (lines 377-378) before use.",
+      "conclusion": "batman-adv ICMP receive refetches ethhdr/icmph after linearize and cow."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/sched/act_pedit.c",
+      "line": 450,
+      "status": "safe",
+      "reason": "The d pointer from skb_header_pointer is consumed before skb_cow at 450; the write pointer is re-derived afterwards as ptr = (u32 *)(skb->data + write_offset).",
+      "conclusion": "act_pedit re-derives its write pointer from skb->data after skb_cow."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/en_accel/ipsec_rxtx.c",
+      "line": 61,
+      "status": "reported",
+      "reason": "Promoted to finding 1: ipv4hdr/ipv6hdr dereferenced after pskb_trim.",
+      "conclusion": "See findings[0]."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/emulex/benet/be_main.c",
+      "line": 1141,
+      "status": "reported",
+      "reason": "Promoted to finding 2: veh read after pskb_trim.",
+      "conclusion": "See findings[1]."
+    }
+  ],
+  "coverage_gaps": [
+    "Plain `ptr = skb->data + off` derivations and bare skb_trim() (not pskb_trim) were not enumerated by the scanner/greps, so the net/appletalk/ddp.c skb_trim pattern documented for s01 in fact f002 was never verified in s04.",
+    "i40e_txrx.c:3050, ixgbe_main.c:9461 and mpls_iptunnel.c:108 flagged vhdr/ttl uses after skb_cow_head but were not read to a conclusion before the session finalize limit.",
+    "Only net/ and drivers/net/ were searched (per branch instructions); helper uses elsewhere (e.g., netfilter core, wireless stacks under drivers/net/wireless beyond grep hits) were triaged only through grep line counts, not full reads."
+  ],
+  "limitations": [
+    "No build or KASAN harness was run; the head reallocation on each reported path is inferred from the skb_cloned() branch of ___pskb_trim (net/core/skbuff.c:2721-2723) and pskb_expand_head's alloc-copy-free of the old head (net/core/skbuff.c:2285-2363) rather than observed.",
+    "Both findings require a cloned skb at trim time; on common TX paths skbs may already be uncloned, in which case the stale pointer still aliases valid (unmodified) memory and the issue is latent.",
+    "The caller path of mlx5e_ipsec_remove_trailer (which mlx5e IPsec/esw TX or RX entry invokes it, and whether those skbs can be cloned) was not re-verified in the final pass, so reachability rests on the function's own code.",
+    "The function-extent scanner matches derivations only through named accessors/function calls and one-line statements, so multi-line pointer arithmetic derivations may have been missed; 33 flagged triples were triaged, not all 559 grep hits."
+  ]
+}

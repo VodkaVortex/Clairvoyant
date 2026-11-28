@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "intent_id": "i028",
+  "branch": "pull-return-unchecked",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_nsp_in.c",
+      "start": 136,
+      "end": 167,
+      "quote": "if (skb->len < 2)\n\t\treturn len;\n\n\tif ((ack = le16_to_cpu(*ptr)) & 0x8000) {\n\t\tskb_pull(skb, 2);\n\t\tptr++;",
+      "confidence": "high",
+      "reason": "Untrusted source: remote DECnet NSP packet (ETH_P_DNA_RT via dn_nsp_rx -> dn_nsp_rx_packet -> sk_receive_skb -> dn_nsp_backlog_rcv, which calls dn_process_ack at dn_nsp_in.c:887; CONFIG_DECNET required). Violated invariant: dn_process_ack() gates every read with only 'skb->len < 2' (skb->len counts frags/fraglist bytes, not linear bytes) and uses skb_pull()/__skb_pull(), which validate solely against skb->len and never linearize, as its only 'linearizer'. Unsafe use: ptr = (__le16 *)skb->data is captured at line 138, *ptr is read at 145 and, after ptr++ at 147, again at 159 for the second ack word. The skb is linearized in dn_nsp_rx_packet (dn_nsp_in.c:798-802) only when 'cb->nsp_flags & ~0x60' is true; data-segment frames (nsp_flags 0x00/0x04/0x14 or any value whose low bits clear ~0x60, e.g. 0x00, 0x01, 0x10-0x1F in the (flags&0x0c)==0 data family) skip skb_linearize entirely, so a frag-backed skb reaches dn_process_ack with skb_headlen(skb) potentially 0 while skb->len >= 2. Then *ptr at 145/159 reads bytes that are only in frags: either past the end of the linear head (OOB read of slab memory) or, if the pull path had reallocated, a stale pointer. dn_ack() at 152/165 additionally consumes the attacker-read ack value for socket flow-control state. Counterevidence checked: skb_pull_inline/pskb_pull (include/linux/skbuff.h:1946-1974) confirm skb_pull checks only skb->len and __pskb_pull/pskb_may_pull are the only linearizing variants; dn_nsp_backlog_rcv (dn_nsp_in.c:834-909) shows data/other-data/LS frames are dispatched to dn_process_ack before any pull; no pskb_may_pull exists anywhere inside dn_process_ack. This is exactly the branch's prescribed open template (dn_nsp_in.c:130-158) present verbatim in this snapshot.",
+      "conclusion": "dn_process_ack() checks only skb->len, then reads 16-bit ack words via skb->data/ptr after unchecked skb_pull(2) that never linearizes; a non-linear NSP data frame (exempt from skb_linearize at dn_nsp_in.c:798) makes *ptr at 145/159 read past the linear head."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/nfc/llcp_core.c",
+      "start": 1370,
+      "end": 1399,
+      "quote": "skb_pull(skb, LLCP_HEADER_SIZE);\n\n\twhile (skb->len > LLCP_AGF_PDU_HEADER_SIZE) {\n\t\tpdu_len = skb->data[0] << 8 | skb->data[1];",
+      "confidence": "medium",
+      "reason": "Untrusted source: remote NFC LLCP AGF PDU (nfc_llcp_recv_agf is dispatched from nfc_llcp_rx_skb at llcp_core.c:1459-1461, fed by the LLCP RX path). Violated invariant: the loop is guarded only by skb->len (total length including frags), and skb_pull() at 1370/1375/1399 validates only against skb->len and never linearizes; there is no pskb_may_pull anywhere in the function. Unsafe use: pdu_len = skb->data[0] << 8 | skb->data[1] at 1373 dereferences skb->data for 2 bytes whose presence in the linear head is never guaranteed, and memcpy(skb_put(new_skb, pdu_len), skb->data, pdu_len) at 1393 copies up to attacker-chosen pdu_len bytes from skb->data, so on a non-linear (frag-backed) AGF skb both read beyond the linear head and disclose/copy adjacent slab bytes into a new skb that is re-parsed by nfc_llcp_rx_skb. Counterevidence checked: nfc_llcp_ptype() (used at 1382) also dereferences skb->data with no pull; the loop's 'pdu_len > skb->len' check at 1377 again uses total len, not headlen; whether any NFC driver hands a non-linear skb to this path was not traced in this snapshot (per-driver audit pending), which is why confidence is medium rather than high.",
+      "conclusion": "nfc_llcp_recv_agf() uses unchecked skb_pull() as a linearizer: with only skb->len guards, the skb->data[0]<<8|skb->data[1] read at 1373 and the pdu_len memcpy at 1393 can read bytes not in the linear head of a non-linear AGF frame: remote linear-area OOB read on NFC LLCP."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/lapb/lapb_subr.c",
+      "start": 150,
+      "end": 165,
+      "quote": "skb_pull(skb, 1);\n\n\tif (lapb->mode & LAPB_EXTENDED) {\n\t\tif (!(skb->data[0] & LAPB_S)) {\n\t\t\tif (!pskb_may_pull(skb, 2))",
+      "confidence": "medium",
+      "reason": "Untrusted source: remote LAPB frame delivered by the lapb_receive_frame/lapb_data_input receive path (X.25-over-LAPB links). Violated invariant: after the initial pskb_may_pull(skb,2) at 121, the code calls skb_pull(skb,1) at 150 (validates only skb->len, never linearizes) and immediately dereferences skb->data[0] at 153/166/178/189/199/208 to select the frame type BEFORE the pskb_may_pull(skb,2) at 154/167 that would guarantee the bytes. In the extended-mode branches the second byte skb->data[1] is read at 161/162/173/174 inside the pulled region, but the selector reads at 153/166/178 occur on the new skb->data with only the original 2-byte guarantee minus one pulled byte, i.e. 1 linear byte is proven while a second byte is implied; in the non-extended else-branch (lines 188-215) there is NO pskb_may_pull at all after skb_pull(skb,1) before skb->data[0] is read at 189/199/208 and pulled at 214. Unsafe use: on a non-linear frame whose second byte lives in frags, the selector/mask reads at 153/166/178/189/199/208 and the frame->control[] copies read bytes outside the linear head (OOB read of slab memory). Counterevidence checked: pskb_may_pull at 121 does guarantee 2 linear bytes on entry, so the first skb->data[0] block (124-148) is safe; the defect is confined to post-pull reads; whether the lapb device layer can deliver non-linear skbs was not traced, hence medium confidence.",
+      "conclusion": "lapb_decode() reads skb->data[0] (and data[1] in the non-extended branch with no pskb_may_pull after skb_pull(1)) with only a stale 2-byte linear guarantee, so a non-linear LAPB frame makes the mask reads at lapb_subr.c:153/161/189 read outside the linear head: remote linear-area OOB read."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_nsp_in.c",
+      "line": 254,
+      "status": "safe",
+      "reason": "dn_nsp_conn_init() (line ~230-260) is only reached for nsp_flags with (flags&0x0c)==0x08, which satisfies 'cb->nsp_flags & ~0x60' and therefore triggers skb_linearize() in dn_nsp_rx_packet (dn_nsp_in.c:798-802) before the socket queue, so skb_pull(skb, sizeof(*msg)) at 254 and the following skb->data reads operate on a fully linear skb.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_nsp_in.c",
+      "line": 622,
+      "status": "safe",
+      "reason": "dn_nsp_otherdata/dn_nsp_data (lines 611-666) read *(__le16*)skb->data after only 'skb->len < 2' and pull 2 unchecked, the same shape as dn_process_ack, BUT these handlers run only for nsp_flags 0x30/other-data and data frames whose (flags & 0x0c)==0 and which therefore skip skb_linearize only when 'cb->nsp_flags & ~0x60' is false; 0x30 and default data flags DO set bits within ~0x60... re-verified: 0x30 & ~0x60 (0x9F mask... ~0x60 = 0xFFFFFF9F) = 0x30 & 0x9F = 0x10, non-zero, so skb_linearize DID run and the reads are safe; flagged during scanning and cleared by the same linearize condition as the conn_init path.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_route.c",
+      "line": 650,
+      "status": "safe",
+      "reason": "dn_route_rx_packet (line ~640-660) pulls 2 bytes only after the caller's pskb_may_pull in dn_route_rcv/dn_route_rx_short/long established the needed linear bytes, and the following len>skb->len check plus skb_trim operate on length metadata without dereferencing data pointers; no dependent header read follows the unchecked pull.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/l2cap_core.c",
+      "line": 6920,
+      "status": "unresolved",
+      "reason": "l2cap_recv_frame (l2cap_core.c:6915-6925) reads lh->len/cid after skb_pull(skb, L2CAP_HDR_SIZE) whose return is ignored and with only 'skb->len < L2CAP_HDR_SIZE' as the guard; whether HCI transport drivers can deliver a non-linear skb into hci_acldata_packet (hci_core.c:3999 also pulls HCI_ACL_HDR_SIZE unchecked) remains untraced in this snapshot.",
+      "conclusion": "Trace HCI transport RX skb allocation (drivers/bluetooth/*, hci_acldata_packet at net/bluetooth/hci_core.c:3999) to decide whether a non-linear skb can reach the lh->len/lh->cid reads after the unchecked skb_pull at l2cap_core.c:6920; if yes, the 4-byte L2CAP header read is outside the linear head."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/atm/pppoatm.c",
+      "line": 202,
+      "status": "unresolved",
+      "reason": "pppoatm_push (pppoatm.c:195-215) pulls LLC_LEN unchecked and then memcmps skb->data against pppllc for sizeof(pppllc)-LLC_LEN bytes with only an skb->len >= comparison as guard; whether ATM AAL5 receive skbs (net/atm, drivers/atm) can be non-linear is undetermined in this snapshot.",
+      "conclusion": "Determine whether ATM AAL5 RX skbs (net/atm/br2684.c:464 and clip.c:224 share the same pattern) can be non-linear; if so the post-pull memcmp(skb->data, pppllc, ...) at net/atm/pppoatm.c:212 reads bytes beyond the linear head."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/a2mp.c",
+      "line": 619,
+      "status": "unresolved",
+      "reason": "a2mp_chan_recv_cb (a2mp.c:606-632) saves hdr = (void *)skb->data, calls skb_pull(skb, sizeof(*hdr)) at 619 with the return ignored, then reads hdr->code/hdr->ident and le16_to_cpu(hdr->len) at 620-622 through the saved pointer; this combines the unchecked pull with a potentially stale pointer if any later linearization occurs, and non-linearity of A2MP skbs (via l2cap_data_channel) is untraced.",
+      "conclusion": "Verify whether the A2MP channel skb arriving at a2mp_chan_recv_cb can be non-linear or be reallocated between the hdr save at net/bluetooth/a2mp.c:615 and the hdr->len/hdr->ident reads at 621-622 after the unchecked skb_pull at 619."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ax25/ax25_in.c",
+      "line": 218,
+      "status": "unresolved",
+      "reason": "ax25_rcv (ax25_in.c:~180-225) pulls ax25_addr_size(&dp) bytes unchecked after parsing the digipeater path and then reads skb->data[0]/[1]-style PID bytes; whether any AX.25-capable device (drivers/net/hamradio mkiss/6pack/yam/scc, or the KISS path at ax25_in.c:451) can deliver a non-linear skb is undetermined.",
+      "conclusion": "Trace AX.25 receive paths (ax25_kiss_rcv at ax25_in.c:451 and hamradio drivers) to decide whether a non-linear skb can reach the post-pull data reads in ax25_rcv after the unchecked skb_pull at ax25_in.c:218; if yes the PID read is outside the linear head."
+    }
+  ],
+  "coverage_gaps": [
+    "The ~462 pull-family call sites flagged by the coarse unconsumed-return scanner in net/ and drivers/net/ were triaged by pattern, and only the strongest receive-path candidates (decnet, nfc llcp, lapb, bluetooth, atm, ax25, irda, x25) were read in full; drivers/net/ethernet and drivers/net/wireless receive helpers were not individually audited.",
+    "Non-linearity preconditions for the reported and unresolved candidates were assessed structurally (which subsystems linearize before parsing) and not by tracing each hardware driver's RX skb allocation path (NFC, LAPB/X.25, HCI transports, ATM, hamradio).",
+    "No runtime KASAN build, reproducer, or compilation was performed against this read-only snapshot, so the dn_process_ack, nfc_llcp_recv_agf and lapb_decode OOB reads are source-reading hypotheses without empirical confirmation."
+  ],
+  "limitations": [
+    "All three findings depend on a non-linear (frag-backed) skb reaching the parse point; many legacy drivers build fresh linear skbs, in which case the code is fragile but not exploitable, and CONFIG_DECNET/CONFIG_LAPB/CONFIG_NFC availability further narrows reachability.",
+    "The dn_process_ack finding's memory-safety effect is an out-of-bounds read of the linear head (bytes past skb_headlen) rather than the seed's use-after-free, because no pskb_may_pull ever runs inside the function to move skb->data; the branch treats both as the same missing-linear-guarantee invariant.",
+    "The coarse scanner's heuristic (call line plus up to 5 following lines, lookbehind for =/if/while/return/! on the preceding 3 lines) can misjoin multi-line calls or miss consumption in earlier lines, so a small number of false positives/negatives among the 462 flagged sites cannot be excluded.",
+    "Snapshot revision is opaque (no git history permitted), so it cannot be determined whether upstream has since fixed any reported site; line numbers are valid only for this supplied s02 tree.",
+    "The prescribed template dn_process_ack itself was verified in place (net/decnet/dn_nsp_in.c:136-170) and is reported rather than excluded; net/phonet/pep.c pep_get_sb was excluded by instruction and never considered as a report target."
+  ]
+}

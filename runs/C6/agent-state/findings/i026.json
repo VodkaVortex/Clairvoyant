@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "intent_id": "i026",
+  "branch": "header-accessor-no-linearize",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s05"
+  ],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "net/ncsi/ncsi-rsp.c",
+      "start": 1113,
+      "end": 1155,
+      "quote": "hdr = (struct ncsi_pkt_hdr *)skb_network_header(skb);",
+      "confidence": "medium",
+      "reason": "Untrusted source: ncsi_rcv_rsp() is the packet_type handler registered by dev_add_pack() for ETH_P_NCSI (net/ncsi/ncsi-manage.c:1737-1740), so any received frame with ethertype 0x88F8 reaches it after eth_type_trans() has only pulled ETH_HLEN and set the network header to skb->data. Violated invariant: hdr = (struct ncsi_pkt_hdr *)skb_network_header(skb) at ncsi-rsp.c:1113 is dereferenced at :1114 (hdr->type == NCSI_PKT_AEN), :1119 (handler lookup), :1137 (netdev_err of hdr->type) and :1143 (nr = &ndp->requests[hdr->id], an attacker-controlled array index into NCSI_RESERVED_REQUEST_PRI slots) with no pskb_may_pull()/skb_linearize()/skb_headlen()/skb_is_nonlinear() guard anywhere in the function (read lines 1095-1164) or in ncsi_validate_rsp_pkt() (net/ncsi/ncsi-rsp.c:25-50, h->common.revision at :35, ntohs(h->common.length) at :40, h->code/h->reason at :47-48, all via skb_network_header(nr->rsp) at :33). Unsafe use: for the handler whose table payload is -1 the code takes payload = ntohs(hdr->length) (ncsi-rsp.c:1152-1154) directly from the packet and passes it to ncsi_validate_rsp_pkt(), so the attacker's length field drives reads relative to the network-header pointer. Impact: if the skb is non-linear (frag/fraglist/GRO scatter-gather) with the NCSI header bytes outside the linear head, these dereferences read past skb_headlen() into frag memory or stale head bytes \u2014 an out-of-bounds read / crash, remotely reachable by frame injection. Counterevidence checked: greps over net/ncsi/*.c found no pskb_may_pull/skb_linearize/skb_headlen/skb_is_nonlinear in any of the returned hits; the reads occur before any pull could run; ndp->requests is indexed by hdr->id without bounds check (mitigated only by the array being sized to accept the u8 id); no confirmation exists that a specific NCSI-capable driver hands frag-backed skbs to this handler, so exploitability is plausible but unproven (hence medium).",
+      "conclusion": "ncsi_rcv_rsp, the ETH_P_NCSI packet_type handler, dereferences skb_network_header()-derived hdr->type/id/length (and feeds hdr->length into payload) with no pskb_may_pull or headlen guard, so a crafted non-linear 0x88F8 frame is read past skb_headlen (remote OOB read)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ncsi/ncsi-aen.c",
+      "start": 215,
+      "end": 229,
+      "quote": "h = (struct ncsi_aen_pkt_hdr *)skb_network_header(skb);",
+      "confidence": "medium",
+      "reason": "Untrusted source: ncsi_rcv_rsp() forwards AEN frames to ncsi_aen_handler() (ncsi-rsp.c:1114-1115) on the same receive path (dev_add_pack of ETH_P_NCSI, ncsi-manage.c:1740). Violated invariant: h = (struct ncsi_aen_pkt_hdr *)skb_network_header(skb) at ncsi-aen.c:215 is dereferenced at :217 (ncsi_aen_handlers[i].type == h->type), :225 and :233 (h->type in log messages) and passed to ncsi_validate_aen_pkt(h, nah->payload) at :229 with no linearization on the path. Unsafe use: ncsi_validate_aen_pkt() (ncsi-aen.c:19-44) reads h->common.revision (:25), ntohs(h->common.length) (:27), and then pchecksum = (__be32 *)((void *)(h + 1) + payload - 4) at :34 with ntohl(*pchecksum) at :35 and ncsi_calculate_checksum((unsigned char *)h, sizeof(*h) + payload - 4) at :38-39, i.e. payload-relative reads of a header pointer with no guarantee those bytes are in the linear area. Impact: a non-linear NCSI AEN frame (frag/fraglist) makes these reads go past skb_headlen() into frag memory \u2014 OOB read/crash, reachable by remote frame injection on the NC-SI channel. Counterevidence checked: no pskb_may_pull/skb_linearize/headlen guard appears in ncsi_aen_handler (208-245) or ncsi_validate_aen_pkt (19-44) as read; the length-vs-payload equality at :27 only ties payload to the handler table value, but the bytes at h+1+payload-4 may still lie beyond the linear head; no NCSI-capable driver was traced to prove a non-linear skb is actually delivered (hence medium).",
+      "conclusion": "ncsi_aen_handler dereferences skb_network_header()-derived h->type and ncsi_validate_aen_pkt reads pchecksum at (h+1)+payload-4 with no linearization, so a non-linear NCSI AEN frame is read beyond the skb linear area."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "net/ncsi/ncsi-rsp.c",
+      "line": 104,
+      "status": "reported",
+      "reason": "ncsi_rsp_handler_sp() reads rsp = (struct ncsi_rsp_pkt *)skb_network_header(nr->rsp) at :104 and dereferences rsp->rsp.common.channel at :105/:111; nr->rsp is the same receive skb stored by ncsi_rcv_rsp at :1149, and the identical missing-linearization invariant applies (same finding mechanism as ncsi-rsp.c:1113).",
+      "conclusion": "Covered by the reported ncsi_rcv_rsp finding: the response handlers read channel/length fields through skb_network_header(nr->rsp) on the same unguarded skb."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ncsi/ncsi-rsp.c",
+      "line": 52,
+      "status": "unresolved",
+      "reason": "ncsi_validate_rsp_pkt() lines 25-50 were read and show h->common.revision/length and h->code/h->reason dereferences, but the function's tail (~lines 50-64) containing the pchecksum = (__be32 *)((void *)(h + 1) + payload - 4) style checksum read was not captured verbatim, so the exact line numbers and text of the attacker-length-driven checksum dereference in the RSP path remain unread.",
+      "conclusion": "Follow up: read net/ncsi/ncsi-rsp.c lines 50-64 to capture verbatim the pchecksum dereference that uses the attacker-controlled payload (hdr->length) and confirm it reads bytes possibly outside the linear head."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ncsi/ncsi-rsp.c",
+      "line": 825,
+      "status": "unresolved",
+      "reason": "The grep enumeration shows ~40 further skb_network_header(nr->rsp)/nr->cmd casts in the ncsi_rsp_handlers table functions (ncsi-rsp.c:129-825, e.g. ncsi_rsp_handler_gp at :825 which copies variable-length parameter data). Only the entry function, ncsi_validate_rsp_pkt, and the SP handler were read; the deep per-handler payload copies were not individually audited, though they operate on the same skb and share the missing pull.",
+      "conclusion": "Follow up: read the remaining ncsi_rsp_handlers table bodies (ncsi-rsp.c:129-1080) for variable-length payload copies from skb_network_header(nr->rsp) that use attacker hdr->length and can exceed skb_headlen."
+    }
+  ],
+  "coverage_gaps": [
+    "The systematic per-file ranking of skb_{network,transport,mac,inner_*}_header dereference sites across net/ and drivers/net/ was never completed: the rg binary in this sandbox is not executable (permission denied), so only net/ncsi was enumerated via grep and read; all other subsystems (ipv6 exthdrs, xfrm, ovs, dsa taggers, pppoe, mctp, 6lowpan, mac802154, ethernet/wireless rx handlers) remain unenumerated for this branch in s05.",
+    "The grep over net/ncsi/*.c for pskb_may_pull|skb_linearize|skb_headlen|skb_is_nonlinear produced no matches in the examined output, but the output was truncated at 60 lines by the ncsi-rsp.c accessor list, so absence of a pull in unread tails of ncsi-rsp.c (lines 825-1094) is inferred from the read ranges and prior facts, not from a complete grep result.",
+    "No NCSI-capable driver (e.g. ftgmac100) was traced to confirm that a non-linear (frag/fraglist/GRO) skb can actually be delivered for ETH_P_NCSI 0x88F8 into ncsi_rcv_rsp in s05."
+  ],
+  "limitations": [
+    "Both findings are source-reading hypotheses, not reproductions: no KASAN build, crafted non-linear NCSI frame, compilation, or runtime harness was run, so the read past skb_headlen (or of stale head bytes) is inferred from the accessor dereferences and the absence of any linearization call, not observed.",
+    "Because no pskb_may_pull() runs at all on this path, the concrete failure mode is an out-of-bounds read of the linear head area (bytes past skb_headlen into frags) rather than the seed's pskb_may_pull-induced slab use-after-free; the branch treats both as the same missing-linear-guarantee invariant.",
+    "Triggering requires CONFIG_NET_NCSI, a registered NCSI netdev (ncsi_register_dev -> dev_add_pack at ncsi-manage.c:1740), and an attacker able to inject frames on the NC-SI management side channel (often BMC-internal rather than internet-facing), so remote reachability is narrower than the seed's phonet case.",
+    "Most NIC RX drivers place received L2/L3 headers in the linear head, so a linear NCSI frame is harmless; the bug needs a driver/GRO configuration that puts the 6-16 NCSI header bytes in frags, which was not verified for any driver.",
+    "Line numbers and code state are valid only for snapshots/s05 as supplied; the snapshot revision is opaque, no git history, network access, or cross-snapshot comparison was used, and net/phonet/pep.c pep_get_sb was excluded per the branch rule."
+  ]
+}

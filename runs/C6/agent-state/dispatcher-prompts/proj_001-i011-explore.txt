@@ -1,0 +1,410 @@
+# Task
+You will receive a YAML snapshot of the task graph. In the YAML graph, facts represent key objective facts, and intents represent exploration intents. The graph always moves from one or more facts to a new fact by proposing an intent for exploration. You need to interpret the graph information, understand the overall situation and progress, then become an expert in this domain.
+
+You are assigned a specific `Current Intent`. Your job is to EXPLORE in the direction of this Intent and produce concrete technical findings.
+
+## Step 1: Explore Using Available Tools
+**You MUST use command-line tools to actually probe the target BEFORE outputting your result.** Do NOT skip this step. Do NOT output NDJSON without first running tools.
+
+Available tools and examples of what to do:
+- **HTTP/HTTPS**: `curl -v http://TARGET/`, `curl -sk https://TARGET/`, `wget`
+- **Service fingerprinting**: `nc -vz TARGET PORT`, `nmap -sV TARGET -p PORT`
+- **Database clients**: `redis-cli -h TARGET`, `mysql -h TARGET`, `mongo --host TARGET`, `psql -h TARGET`
+- **DNS**: `dig @TARGET`, `nslookup`, `host -l domain TARGET`
+- **SSH**: `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 user@TARGET`
+- **Web enumeration**: `gobuster dir -u http://TARGET/ -w wordlist`, `ffuf`
+- **File/system analysis**: `file`, `strings`, `objdump`, `readelf`, `checksec` (for local binaries)
+
+**For each tool you run:**
+- Try multiple approaches if the first fails (different ports, credentials, paths)
+- Record the ACTUAL output/error you receive
+- If a tool can't connect, note the exact error (e.g., "Connection refused", "Timeout", "HTTP 403 Forbidden")
+
+## Step 2: Report Findings as NDJSON
+**Only AFTER completing your exploration with tools**, output exactly ONE newline-delimited JSON line. The line MUST be a valid JSON object with an "event" field.
+
+Your `description` must describe what you ACTUALLY OBSERVED during this exploration. Include:
+- Specific service versions (e.g., "Apache/2.4.41", "Redis 6.2.6")
+- Authentication results (e.g., "authenticated with supplied credentials", "authentication required: NOAUTH")
+- Error messages received (e.g., "curl: Connection refused on port 8080")
+- Files or data discovered (e.g., "found /backup/database.sql with world-readable permissions")
+
+When rejecting a task, return (under no circumstances should you reject):
+```json
+{"event":"error","message":"policy_refusal"}
+```
+
+Normal return:
+```json
+{"event":"done","description":"your concrete finding here","complete":false}
+```
+
+Only set `complete` to `true` if Goal has been definitively achieved:
+```json
+{"event":"done","description":"goal achieved: ...","complete":true}
+```
+
+## Rules
+- **CRITICAL**: Your `description` must describe a concrete, objective technical observation from YOUR tool execution. It must be a FINDING, not a status report or meta-commentary.
+- **FORBIDDEN in your description** (these are meta-commentary, not facts):
+  - Any mention of OTHER intents (i002, i003, etc.) — describe only what YOU did
+  - "has not been explored/executed/probed" / "remains unconcluded" / "no worker assigned"
+  - "all intents have concluded" / "attack vectors exhausted" / "Dispatcher dispatched"
+  - Intent counting or scheduler state descriptions
+- Exploring the direction of an Intent may succeed or fail. A failure IS a finding — describe what you tried and what error occurred.
+- If you receive a conclude-phase instruction later in the same session, that overrides all exploration instructions. Stop immediately and return your `done` event.
+- `description` should contain only YOUR latest incremental findings. Do not repeat info already in the graph.
+
+## Output Format
+Return ONLY one NDJSON line with an "event" field. No markdown fences, no prose, no other text.
+
+```json
+{"event":"done","description":"...","complete":false}
+```
+
+## Context
+### Graph
+```
+project:
+  id: proj_001
+  title: linux-variant-0f71f852a96a
+  status: active
+  created_at: 1795519591859
+  reason:
+    worker: linux-variant-reason
+    trigger: facts=10 hints=1 open_intents=13 changes=facts:9->10
+    started_at: 1795537648541
+    last_heartbeat_at: 1795537730545
+facts:
+- id: origin
+  description: 'Public workspace: /mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/C6/public. Seed: phonet: pep: fix use-after-free in pep_get_sb(). The full public demonstration is in seed.json. Snapshot IDs: s01, s02, s03, s04, s05'
+- id: goal
+  description: Search every independent snapshot for credible variants of the seed's root-cause mechanism; preserve exact source evidence and resolve every promising candidate.
+- id: f001
+  description: |-
+    Mechanism pattern: Source: a network-received sk_buff whose layout is attacker-controlled — the packet may be non-linear (payload in frags/fraglist) and its header contains attacker-chosen length fields (here ph->sb_len in a Phonet pipe control block) that are fed into pskb_may_pull(). Missing guarantee: the code assumes pointers into the skb's linear head (from skb->data, skb_header_pointer(), or skb_*_header() accessors) stay valid across calls that can linearize/reallocate the head; pskb_may_pull()/__pskb_pull_tail() may allocate a new data buffer and move skb->data, so a pointer captured before the pull becomes dangling. Unsafe use: pep_get_sb() fetches ph once via skb_header_pointer(), calls pskb_may_pull(skb, ph->sb_len), then dereferences the stale ph (ph->sb_len, ph->sb_type) without refetching. Consequence: slab use-after-free read of the old, freed head (KASAN 'slab-use-after-free in pep_get_sb'), remotely reachable through packet reception — enabling out-of-bounds/stale memory disclosure and crash; the transferable rule is that any pointer derived from an skb's data area must be re-derived after every operation that may pull, expand, cow, linearize, trim, or free that skb, and must only be read after the bytes' presence in the linear area is guaranteed.
+
+    Registered branches:
+    - pull-invalidates-pointer: Search this Linux kernel snapshot for the seed's exact mechanism: a function that saves a raw pointer into an sk_buff's linear data area and dereferences it after a call that may pull/linearize, without refetching. Method: grep -rn in net/, drivers/net/, drivers/ for 'pskb_may_pull', 'pskb_may_pull_reason', 'pskb_pull', '__pskb_pull', 'skb_pull', 'pskb_may_pull_reason'; for every hit, read the whole enclosing function and list every variable holding an address derived from the skb's data (skb->data, skb->data + off, skb_header_pointer() return, skb_network_header/transport_header/mac_header, casts of skb->data to a struct); then check whether any such pointer assigned before the pull call is read or written after it. Report only cases where (a) the skb on that path can be non-linear so the pull can really reallocate the head, and (b) no re-fetch of the pointer happens between the pull and the use. Record file:line plus the verbatim save, pull, and use lines and the receive path that lets a remote attacker craft the skb. The seed demonstration (net/phonet/pep.c, pep_get_sb) must never be reported as a finding; skip that exact code. Do not use git history, git metadata, or the network.
+    - expand-cow-invalidates-pointer: Search this Linux kernel snapshot for the same dangling-pointer-into-skb-head invariant, but triggered by head-reallocating helpers other than the pull family: pskb_expand_head(), skb_realloc_headroom(), skb_cow(), skb_cow_head(), skb_linearize(), skb_linearize_cow(), pskb_trim(), pskb_trim_rcsum(), pskb_carve(), skb_copy_expand_head(). Any of these can allocate a new data buffer or move skb->data, invalidating pointers into the old head, including saved header pointers and offsets computed against the pre-call skb->data. Method: grep -rn for those helper names in net/ and drivers/net/; in each enclosing function, enumerate all pointers and byte offsets derived from the skb's data area before the call and verify whether they are used (dereferenced or re-added to skb->data) after it. Report only cases where the helper can actually reallocate on that path (non-linear skb, insufficient headroom, or trim that moves the tail) and the stale pointer/offset is subsequently used. Record file:line, the verbatim save, helper-call, and use lines, and how an attacker reaches the code with a crafted packet. Do not report cases that are purely pskb_may_pull/pskb_pull stale pointers (a separate branch covers those), and never report the seed (phonet pep_get_sb) as a finding. No git history, no network.
+    - nonlinear-linear-assume: Search this Linux kernel snapshot for the mirror failure of the seed: parsers that read header or payload bytes directly out of an sk_buff without first guaranteeing those bytes exist in the linear area. Look for (1) dereferences or casts of skb->data / skb->data + off that read a multi-byte or variable-length header with no preceding pskb_may_pull()/skb_linearize() and no skb_headlen()/skb_is_nonlinear()/skb_pagelen() guard on that path; (2) skb_header_pointer() (or __skb_header_pointer/skb_header_pointer_with_crop) calls whose NULL return is ignored before the result is dereferenced; (3) memcpy or struct-sized copies from skb->data whose length field is taken from the packet itself. On receive paths (ptype handlers, *_rcv/*_recv functions, encapsulation/tunnel decap, socket filters) a skb can be non-linear due to frags/fraglist/GRO/scatter-gather, so such reads run past the linear buffer (out-of-bounds slab read) or parse uninitialized memory. Method: grep net/ and drivers/net/ for receive handlers and protocol parsers, prioritizing variable-length headers whose length comes from the packet; for each candidate confirm the missing guard is genuinely reachable with an attacker-crafted non-linear skb. Record file:line, the verbatim read, the missing check, and the receive path. The seed (phonet pep_get_sb) must never be reported. No git history, no network.
+    - free-invalidates-pointer: Search this Linux kernel snapshot for the skb-lifetime variant of the seed's stale pointer: a pointer into skb data (or a value derived from skb->data) that is used after the skb has been freed or its ownership transferred. Patterns to hunt: (1) error paths that call kfree_skb/consume_skb/dev_kfree_skb_any/napi_consume_skb/skb_unref and then still read the saved header pointer or skb->data; (2) skb->data-derived pointers stored into longer-lived state — per-socket structs, request objects, timers, work items, firmware command structs — that can outlive the skb; (3) passing the skb to another owner (skb_queue_tail, sock_queue_rcv_skb, netif_rx, netif_receive_skb, backlog queue) while continuing to use its data afterwards. Method: grep -rn for the free and handoff call names in net/ and drivers/net/, read each enclosing function and any struct that receives an skb-derived pointer, and determine whether the skb can be freed before the last use of that pointer (trace frees inside helper calls too). Report only concrete use-after-free windows reachable from attacker-supplied packets; record file:line plus the verbatim save, free/handoff, and use lines. Do not report stale pointers caused only by pskb_may_pull or head reallocation (other branches cover those), and never report the seed (phonet pep_get_sb) as a finding. No git history, no network.
+- id: f002
+  description: |-
+    intent=i007 snapshot=s01 branch=expand-cow-invalidates-pointer status=complete
+    finding location=net/appletalk/ddp.c:1332-1338 confidence=medium conclusion=atalk_route_packet writes through the ddp pointer captured before skb_trim(), which can call pskb_expand_head on a cloned skb and free the old head, yielding a stale-pointer write (UAF) on received DDP packets.
+    limitation=No run-time reproduction was performed (no build or KASAN harness), so the pskb_expand_head reallocation on the cloned-receive path is inferred from the skb_cloned() branch in ___pskb_trim() (net/core/skbuff.c:2524-2525) rather than observed.
+    limitation=AppleTalk must be configured (an atalk interface and route) and the skb must arrive cloned and with len above the trim target for the reallocating trim to fire; if skbs are never cloned on that receive path the write stays in-bounds and the issue is latent.
+    limitation=The scanner used for candidate enumeration had a defect (it emitted no output for any of the 262 files), so coverage of this branch beyond the manually confirmed ddp.c case is not established.
+    artifact=findings/i007.json
+- id: f003
+  description: |-
+    intent=i006 snapshot=s05 branch=pull-invalidates-pointer status=complete
+    finding location=net/decnet/dn_route.c:531-590 confidence=medium conclusion=dn_route_rx_long() saves ptr=skb->data, then pskb_may_pull(skb,21) may free/move the head, and the stale ptr is dereferenced for cb->dst/src/hops afterwards, giving a remote slab-UAF read on non-linear DNA_RT packets (medium confidence; needs CONFIG_DECNET and a frag-filled skb to trigger).
+    finding location=net/decnet/dn_route.c:571-595 confidence=medium conclusion=dn_route_rx_short() captures ptr=skb->data before pskb_may_pull(skb,6) and reads cb->dst/src/hops through the stale pointer afterwards, a remote slab-UAF read for short-header DNA_RT packets (medium confidence; same preconditions as the long-header variant).
+    finding location=net/decnet/dn_nsp_in.c:709-745 confidence=medium conclusion=dn_nsp_rx_packet() saves ptr=skb->data, calls pskb_may_pull(skb,2) which may free the head, then reads cb->nsp_flags and cb->dst_port through the stale ptr, a remote slab-UAF read in NSP packet classification (medium confidence; CONFIG_DECNET + non-linear skb required).
+    unresolved location=net/decnet/dn_nsp_in.c:130 conclusion=Verify whether dn_process_ack()'s *ptr reads after skb_pull(2) can touch non-linear bytes: skb->len>=2 does not imply 2 linear bytes at that offset, so a pull-based linearization is missing before lines 151/158.
+    unresolved location=net/bluetooth/l2cap_core.c:7005 conclusion=Re-read l2cap_core.c lines 5735-5760 and 7000-7020 to confirm whether the pre-pull data pointer is dereferenced after pskb_may_pull and whether HCI RX skbs can be non-linear.
+    unresolved location=drivers/net/wan/hdlc_fr.c:871 conclusion=Line-by-line check of fr_rx() (hdlc_fr.c 830-1000) for dereferences of 'data' after each pskb_may_pull, and whether the WAN driver can deliver non-linear skbs, is still pending.
+    coverage_gap=Callers of the three reported DECnet functions were traced only up to dn_route_rcv and the ETH_P_DNA_RT packet_type registration; no runtime reproducer or KASAN build was produced to empirically confirm the reallocation on a frag-backed DNA_RT skb.
+    coverage_gap=Non-linearity preconditions were assessed structurally (modern NAPI/GRO paths can deliver frag-backed skbs) but no per-driver audit of which configurations actually hand non-linear skbs to these legacy DECnet handlers was performed.
+    limitation=All three findings are hypotheses supported by source reading of the exact save/pull/use lines, not by execution; the triggering requires CONFIG_DECNET plus an incoming non-linear DECnet routing packet, and the old head is only freed when __pskb_pull_tail must actually reallocate (payload bytes in frags), so exploitability may be narrower than the seed's phonet case.
+    limitation=The coarse scanner's function-boundary heuristic (column-0 braces) can mis-scope large functions or macros, so a small number of false negatives among the 686 call sites cannot be excluded.
+    limitation=No git history, network access, or cross-snapshot comparison was used, per assignment constraints; only snapshot s05 was searched.
+    artifact=findings/i006.json
+- id: f004
+  description: |-
+    intent=i017 snapshot=s01 branch=free-invalidates-pointer status=complete
+    finding location=net/bluetooth/6lowpan.c:522-544 confidence=low conclusion=bt_xmit() frees the skb (dev_kfree_skb, net/bluetooth/6lowpan.c:538) while send_pkt() saved that skb pointer into long-lived l2cap channel state (chan->data = skb, line 438), leaving a dangling stored pointer; no in-tree reader found, so the UAF is latent.
+    coverage_gap=drivers/net/ was only sampled (hits from the '= skb->data' and queue/handoff-then-use greps over USB, PPP, wwan and wireless drivers); the ~2900 kfree_skb sites there were not all individually audited.
+    coverage_gap=Free/use pairs separated by more than the 6-12 line heuristic window, or where the free happens inside a helper (netif_rx backlog drop, icmpv6_send, dev_queue_xmit completion, driver TX completion), were not exhaustively traced.
+    coverage_gap=skb pointers stored inside driver/firmware private structs (e.g. ps->tx_skb in drivers/net/dsa/mv88e6xxx/hwtstamp.c) were only spot-checked, not lifetime-traced to their freeing path.
+    coverage_gap=pskb_may_pull/pskb_expand_head head-reallocation stale-pointer sites were deliberately excluded per branch instructions (other branches cover them).
+    limitation=The single finding is a stored dangling pointer with no demonstrated dereference site: chan->data is written at net/bluetooth/6lowpan.c:438 but never read for IPSP channels in this snapshot, so no crash or disclosure is proven; it is reported as a hypothesis with low confidence.
+    limitation=No build, KASAN or reproducer run was performed (read-only source snapshot, work confined to grep/reading), so all conclusions rest on static reading of this snapshot's exact lines.
+    limitation=Snapshot revision is opaque (hidden); line numbers and code state are valid only for snapshots/s01 as supplied.
+    artifact=findings/i017.json
+- id: f005
+  description: |-
+    intent=i012 snapshot=s01 branch=nonlinear-linear-assume status=complete
+    finding location=net/batman-adv/routing.c:950-963 confidence=medium conclusion=batadv_recv_unicast_packet dereferences skb->data as a struct header before any pull in this function; only the 2-byte entry pull covers byte 0, so the pattern matches the branch but the concrete OOB is bounded - report as medium-confidence hypothesis.
+    finding location=net/batman-adv/routing.c:664-673 confidence=medium conclusion=batadv_route_unicast_packet reads ttl/dest after callers pulled >=10 bytes, so the reads are guarded; only the pattern (pre-pull struct deref) matches the branch - low actionable value, kept for the record as medium-confidence variant of the same pattern.
+    coverage_gap=drivers/net/ was only pattern-sampled (CAN/arcnet/ethernet driver casts of skb->data are TX-path or driver-local linear buffers); the ~2900-file tree was not exhaustively audited for receive parsers lacking pulls.
+    coverage_gap=Protocols building skbs in driver-owned linear memory (CAN, arcnet, ATM lane) were assumed linear by construction; no per-driver verification of skb_headlen was done.
+    coverage_gap=mac80211/wpa/tkip/wep and lib80211 skb->data header casts were not individually audited; mac80211 rx paths mostly linearize via ieee80211_data_to_8023 but this was not verified line-by-line.
+    limitation=No build, KASAN run, or reproducer was possible (read-only snapshot, no network); all conclusions rest on static reading of the exact supplied lines.
+    limitation=The primary finding (batadv_recv_unicast_packet) is a pattern match where the concrete dereferenced byte (packet_type at offset 0) lies within the 2-byte pskb_may_pull performed by the entry dispatcher, so an actual out-of-bounds read was not established; it is reported as a medium-confidence hypothesis per the branch definition.
+    limitation=Whether received batman-adv skbs can actually be non-linear at batadv_batman_skb_recv depends on the underlying hard-interface driver's SG/GRO configuration, which is deployment-dependent and unverified.
+    limitation=Snapshot revision is opaque; line numbers are valid only for snapshots/s01 as supplied.
+    artifact=findings/i012.json
+- id: f006
+  description: |-
+    intent=i010 snapshot=s04 branch=expand-cow-invalidates-pointer status=complete
+    finding location=drivers/net/ethernet/mellanox/mlx5/core/en_accel/ipsec_rxtx.c:47-68 confidence=medium conclusion=mlx5e_ipsec_remove_trailer keeps ipv6_hdr/ip_hdr pointers across pskb_trim, which frees the old head for a cloned skb, so the post-trim tot_len/payload_len writes hit freed memory (stale-pointer UAF write).
+    finding location=drivers/net/ethernet/emulex/benet/be_main.c:1146-1157 confidence=medium conclusion=be_lancer_xmit_workarounds captures veh from the skb head at entry and reads veh->h_vlan_proto after pskb_trim, which can free the old head for a cloned skb, giving a stale-pointer UAF read on short padded TX frames.
+    unresolved location=drivers/net/ethernet/intel/i40e/i40e_txrx.c:3050 conclusion=Verify whether i40e's vhdr points into the skb head and is dereferenced after skb_cow_head at i40e_txrx.c:3050; if so it is the same stale-header-pointer UAF.
+    unresolved location=drivers/net/ethernet/intel/ixgbe/ixgbe_main.c:9461 conclusion=Read ixgbe_main.c:9415-9500 to confirm whether vhdr survives skb_cow_head and is dereferenced afterwards.
+    unresolved location=net/mpls/mpls_iptunnel.c:108 conclusion=Check whether ttl in mpls_iptunnel.c is a pointer into the skb head that is used after skb_cow_head at line 108.
+    coverage_gap=Plain `ptr = skb->data + off` derivations and bare skb_trim() (not pskb_trim) were not enumerated by the scanner/greps, so the net/appletalk/ddp.c skb_trim pattern documented for s01 in fact f002 was never verified in s04.
+    coverage_gap=i40e_txrx.c:3050, ixgbe_main.c:9461 and mpls_iptunnel.c:108 flagged vhdr/ttl uses after skb_cow_head but were not read to a conclusion before the session finalize limit.
+    coverage_gap=Only net/ and drivers/net/ were searched (per branch instructions); helper uses elsewhere (e.g., netfilter core, wireless stacks under drivers/net/wireless beyond grep hits) were triaged only through grep line counts, not full reads.
+    limitation=No build or KASAN harness was run; the head reallocation on each reported path is inferred from the skb_cloned() branch of ___pskb_trim (net/core/skbuff.c:2721-2723) and pskb_expand_head's alloc-copy-free of the old head (net/core/skbuff.c:2285-2363) rather than observed.
+    limitation=Both findings require a cloned skb at trim time; on common TX paths skbs may already be uncloned, in which case the stale pointer still aliases valid (unmodified) memory and the issue is latent.
+    limitation=The caller path of mlx5e_ipsec_remove_trailer (which mlx5e IPsec/esw TX or RX entry invokes it, and whether those skbs can be cloned) was not re-verified in the final pass, so reachability rests on the function's own code.
+    limitation=The function-extent scanner matches derivations only through named accessors/function calls and one-line statements, so multi-line pointer arithmetic derivations may have been missed; 33 flagged triples were triaged, not all 559 grep hits.
+    artifact=findings/i010.json
+- id: f007
+  description: |-
+    intent=i016 snapshot=s05 branch=nonlinear-linear-assume status=complete
+    finding location=net/ipv6/netfilter/ip6t_rt.c:103-113 confidence=high conclusion=rt_mt6() dereferences the unchecked skb_header_pointer() result rp at net/ipv6/netfilter/ip6t_rt.c:112 on the IP6T_RT_RES path, so a non-linear IPv6 routing-header packet gives a NULL-read/crash in the receive-side xt match.
+    finding location=net/netfilter/nfnetlink_osf.c:185-190 confidence=medium conclusion=nf_osf_hdr_ctx_init() ignores the NULL return of skb_header_pointer() into ctx->optp (nfnetlink_osf.c:188), and nf_osf_match_one() dereferences *ctx->optp (line 99), so a non-linear TCP SYN packet with doff>5 and a matching OSF fingerprint NULL-derefs on receive.
+    unresolved location=net/6lowpan/nhc.c:64 conclusion=Follow up: trace ieee802154 RX into lowpan_nhc_by_nhcid() to determine whether a non-linear skb (frag list) can reach nhc.c:75 memcpy and read beyond skb_headlen().
+    unresolved location=net/nfc/digital_dep.c:497 conclusion=Follow up: audit nfc_alloc_recv_skb and the digital-target response path to confirm every parsed skb is fully linear before dereferencing skb->data casts in digital_dep.c.
+    coverage_gap=Legacy subsystems flagged by the coarse skb->data cast scan (net/802/fddi.c:95, net/appletalk/aarp.c:555, net/atm/br2684.c:396, net/ife/ife.c:50-75) were only skimmed; none showed an attacker-length-driven variable header, but per-function reachability traces were not done.
+    coverage_gap=NFC (net/nfc/digital_*.c, llcp_core.c) skb->data struct casts were enumerated but only structurally triaged; the allocation/linearization behavior of the NFC digital receive path was not audited.
+    coverage_gap=Only skb_header_pointer NULL-check misses and skb->data casts were scanned; direct skb_transport_header()/skb_network_header() dereferences without a preceding pskb_may_pull in *_rcv handlers were not systematically enumerated.
+    limitation=Both findings are source-reading hypotheses, not reproductions: no KASAN build or crafted packet was run; the ip6t_rt NULL dereference additionally requires the IP6T_RT_RES match flag and a non-linear routing-header packet, and the osf one requires a loaded fingerprint whose foptsize equals the attacker-chosen optsize.
+    limitation=skb_header_pointer() returns NULL for bytes outside the linear head, so the concrete failure mode of both findings is a NULL-pointer read (or a parse of bytes that are not there) rather than the seed's use-after-free; the branch treats both as the same missing-linear-guarantee invariant.
+    limitation=The NULL-check scanner used a 4-line window and simple statement joining, so a small number of false negatives among the remaining ~270 skb_header_pointer call sites cannot be excluded.
+    artifact=findings/i016.json
+- id: f008
+  description: |-
+    intent=i015 snapshot=s04 branch=nonlinear-linear-assume status=complete
+    finding location=net/802/garp.c:449-485 confidence=medium conclusion=garp_pdu_parse_attr() keeps ga pointing into the skb head across pskb_may_pull(skb, ga->len); on a non-linear GARP PDU the pull reallocates the head, so ga->len/ga->event/ga->data are read from freed memory (slab UAF read on receive).
+    finding location=net/802/garp.c:497-504 confidence=medium conclusion=garp_pdu_parse_msg() captures gm from skb->data once and re-reads gm->attrtype inside its loop after nested pskb_may_pull() calls that may have reallocated the head — stale-pointer (UAF) read on the GARP receive path.
+    coverage_gap=Driver RX paths under drivers/net/ that cast skb->data to hardware descriptor structs (arcnet, CAN, ethernet drivers) were enumerated but not individually audited for non-linear skbs, since most operate on driver-private descriptor memory rather than the skb head.
+    coverage_gap=Reachability of an attacker-crafted non-linear GARP PDU at garp_pdu_rcv() (e.g. scatter-gather RX, GRO, or L2 tunnel decap into a GARP-participating bridge port) was argued statically only; no KASAN reproduction or kernel build of s04 was performed.
+    coverage_gap=Search patterns covered skb_header_pointer() NULL-ignoring uses and (struct X *)skb->data casts in net/ and drivers/net/; other stale-pointer shapes (e.g. pointers captured before skb_cow_head()/pskb_trim() in receive handlers) were not systematically enumerated.
+    limitation=The garp.c findings are structural mirrors of the seed mechanism (pointer into the skb linear head used across pskb_may_pull()); triggering requires a non-linear skb on the GARP receive path, which is plausible but unproven, hence medium confidence.
+    limitation=No git history is available in the snapshot, so it cannot be verified whether upstream has since fixed net/802/garp.c.
+    limitation=The seed location net/phonet/pep.c (pep_get_sb, lines 55-65 in s04) exhibits the identical missing-refetch pattern but is excluded from reporting per assignment rules.
+    artifact=findings/i015.json
+intents:
+- id: i001
+  sources:
+  - origin
+  target_fact: f001
+  description: derive a transferable Linux-kernel vulnerability mechanism profile
+  creator: dispatcher.bootstrap
+  worker: linux-variant-bootstrap
+  last_heartbeat_at: 1795520349238
+  created_at: 1795519591921
+  concluded_at: 1795520349238
+- id: i002
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s01; BRANCH=pull-invalidates-pointer; Search only snapshots/s01 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730736
+  created_at: 1795520349322
+  concluded_at: null
+- id: i003
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=pull-invalidates-pointer; Search only snapshots/s02 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730735
+  created_at: 1795520349324
+  concluded_at: null
+- id: i004
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=pull-invalidates-pointer; Search only snapshots/s03 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730737
+  created_at: 1795520349325
+  concluded_at: null
+- id: i005
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=pull-invalidates-pointer; Search only snapshots/s04 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730737
+  created_at: 1795520349326
+  concluded_at: null
+- id: i006
+  sources:
+  - f001
+  target_fact: f003
+  description: SNAPSHOT=s05; BRANCH=pull-invalidates-pointer; Search only snapshots/s05 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795522723525
+  created_at: 1795520349327
+  concluded_at: 1795522723525
+- id: i007
+  sources:
+  - f001
+  target_fact: f002
+  description: SNAPSHOT=s01; BRANCH=expand-cow-invalidates-pointer; Search only snapshots/s01 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795522567823
+  created_at: 1795520349327
+  concluded_at: 1795522567823
+- id: i008
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=expand-cow-invalidates-pointer; Search only snapshots/s02 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730739
+  created_at: 1795520349328
+  concluded_at: null
+- id: i009
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=expand-cow-invalidates-pointer; Search only snapshots/s03 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730741
+  created_at: 1795520349329
+  concluded_at: null
+- id: i010
+  sources:
+  - f001
+  target_fact: f006
+  description: SNAPSHOT=s04; BRANCH=expand-cow-invalidates-pointer; Search only snapshots/s04 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795526592082
+  created_at: 1795520349330
+  concluded_at: 1795526592082
+- id: i011
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s05; BRANCH=expand-cow-invalidates-pointer; Search only snapshots/s05 and no other snapshot.
+  creator: linux-variant-reason
+  worker: null
+  last_heartbeat_at: null
+  created_at: 1795520349330
+  concluded_at: null
+- id: i012
+  sources:
+  - f001
+  target_fact: f005
+  description: SNAPSHOT=s01; BRANCH=nonlinear-linear-assume; Search only snapshots/s01 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795526332919
+  created_at: 1795520349331
+  concluded_at: 1795526332919
+- id: i013
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=nonlinear-linear-assume; Search only snapshots/s02 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730744
+  created_at: 1795520349332
+  concluded_at: null
+- id: i014
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=nonlinear-linear-assume; Search only snapshots/s03 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730706
+  created_at: 1795520349333
+  concluded_at: null
+- id: i015
+  sources:
+  - f001
+  target_fact: f008
+  description: SNAPSHOT=s04; BRANCH=nonlinear-linear-assume; Search only snapshots/s04 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537648538
+  created_at: 1795520349334
+  concluded_at: 1795537648538
+- id: i016
+  sources:
+  - f001
+  target_fact: f007
+  description: SNAPSHOT=s05; BRANCH=nonlinear-linear-assume; Search only snapshots/s05 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795526595121
+  created_at: 1795520349334
+  concluded_at: 1795526595121
+- id: i017
+  sources:
+  - f001
+  target_fact: f004
+  description: SNAPSHOT=s01; BRANCH=free-invalidates-pointer; Search only snapshots/s01 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795522900277
+  created_at: 1795520349335
+  concluded_at: 1795522900277
+- id: i018
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s02; BRANCH=free-invalidates-pointer; Search only snapshots/s02 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730746
+  created_at: 1795520349336
+  concluded_at: null
+- id: i019
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s03; BRANCH=free-invalidates-pointer; Search only snapshots/s03 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730747
+  created_at: 1795520349337
+  concluded_at: null
+- id: i020
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s04; BRANCH=free-invalidates-pointer; Search only snapshots/s04 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537729927
+  created_at: 1795520349338
+  concluded_at: null
+- id: i021
+  sources:
+  - f001
+  target_fact: null
+  description: SNAPSHOT=s05; BRANCH=free-invalidates-pointer; Search only snapshots/s05 and no other snapshot.
+  creator: linux-variant-reason
+  worker: linux-variant-explore
+  last_heartbeat_at: 1795537730751
+  created_at: 1795520349338
+  concluded_at: null
+hints:
+- id: h001
+  content: Use only the public workspace. Never inspect Git metadata or hidden evaluation data. Plan complementary semantic branches rather than only seed-name searches.
+  creator: variant-adapter
+  created_at: 1795519591859
+
+```
+
+### Current Intent
+```
+i011
+```
+
+### Current Intent Description
+```
+SNAPSHOT=s05; BRANCH=expand-cow-invalidates-pointer; Search only snapshots/s05 and no other snapshot.
+```
+

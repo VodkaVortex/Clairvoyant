@@ -1,0 +1,52 @@
+{
+ "intent_id": "i016",
+ "branch": "nonlinear-linear-assume",
+ "snapshot": "s05",
+ "status": "complete",
+ "step": "finalized; 2 findings (ip6t_rt.c:112 high, nfnetlink_osf.c:188 medium), 4 safe, 2 unresolved",
+ "plan": [
+  "grep net/ and drivers/net/ for skb_header_pointer uses with ignored NULL return",
+  "grep for direct struct casts of skb->data in *_rcv/*_recv handlers with variable-length headers",
+  "grep for memcpy from skb->data with packet-derived length",
+  "triage up to 12 candidates, confirm reachability with non-linear skb"
+ ],
+ "candidates": [
+  {
+   "path": "net/phonet/pep.c",
+   "line": 55,
+   "status": "safe",
+   "reason": "this is the seed; excluded by assignment"
+  },
+  {
+   "path": "net/batman-adv/distributed-arp-table.c",
+   "line": 1508,
+   "status": "safe",
+   "reason": "NULL-checked in same statement 2 lines later"
+  },
+  {
+   "path": "net/sctp/input.c",
+   "line": 513,
+   "status": "safe",
+   "reason": "NULL-checked in following if"
+  },
+  {
+   "path": "net/sched/sch_cake.c",
+   "line": 852,
+   "status": "safe",
+   "reason": "return value of skb_header_pointer used as function return, checked by callers"
+  },
+  {
+   "path": "net/ipv6/netfilter/ip6t_rt.c",
+   "line": 106,
+   "status": "reported",
+   "reason": "rp = skb_header_pointer(...) then ret = (*rp == 0) with no NULL check: non-linear IPv6 routing header packet with bytes in frags makes skb_header_pointer return NULL and dereference crashes"
+  },
+  {
+   "path": "net/netfilter/nfnetlink_osf.c",
+   "line": 188,
+   "status": "unresolved",
+   "reason": "ctx->optp from skb_header_pointer not NULL-checked; deref at line 99 *ctx->optp; but requires ctx->optsize != foptsize match to reach; need full trace"
+  }
+ ],
+ "findings": []
+}

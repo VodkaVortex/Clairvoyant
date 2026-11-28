@@ -1,0 +1,11 @@
+I'll finalize now. First, targeted line-number extraction for the candidates I've already deeply read (ipoib, bnx2fc, ipoib_cm, dvb_net, qedf).
+The final artifact for intent i041 is written and validated. Summary of the investigation:
+
+**Search scope (s05 only, outside net/ and drivers/net/):** enumerated all `pskb_may_pull`/`pskb_pull`/`skb_header_pointer` and `skb_cow`/`pskb_trim`/`skb_linearize`/`pskb_expand_head`/`skb_realloc_headroom` sites under drivers/ (excluding drivers/net), all `dev_add_pack` registrations (only AoE), and all `netif_rx`/`netif_receive_skb` producers in firewire, dvb-core, s390 net, mptlan, staging, and infiniband.
+
+**Findings (3):**
+1. **drivers/infiniband/ulp/ipoib/ipoib_ib.c:574/595/649** — `phead = skb->data` saved for GSO, `skb_linearize()` can free the old head, stale `phead` DMA-read by the HCA via `tx_wr.header`.
+2. **drivers/scsi/bnx2fc/bnx2fc_fcoe.c:536-537/555/566-583** — `mac`/`dest_mac` from `eth_hdr()` kept across `pskb_trim(skb, fr_len)`, stale-pointer UAF reads for cloned FCoE frames.
+3. **drivers/media/dvb-core/dvb_net.c:250-255** — ULE extension-header walk advances `ule_next_hdr` by attacker-chosen `hlen<<1` with no bound against `ule_skb->len`, unbounded adjacent-slab read.
+
+Plus one unresolved candidate (gdm724x multi-SDU walk) and seven classified-safe candidates with concrete counterevidence.

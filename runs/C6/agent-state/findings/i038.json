@@ -1,0 +1,127 @@
+{
+ "version": 1,
+ "intent_id": "i038",
+ "branch": "stacks-outside-net-dirs",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s02"
+ ],
+ "findings": [
+  {
+   "snapshot": "s02",
+   "path": "drivers/nfc/st21nfca/se.c",
+   "start": 323,
+   "end": 341,
+   "quote": "\t\ttransaction->aid_len = skb->data[1];\n\t\tmemcpy(transaction->aid, &skb->data[2],\n\t\t       transaction->aid_len);",
+   "confidence": "medium",
+   "reason": "Untrusted source: the HCI EVT_TRANSACTION message skb, whose bytes come from the st21nfca NFC controller over the i2c/SHDLC link (drivers/nfc/st21nfca/i2c.c fills phy->pending_skb from i2c_master_recv, net/nfc/hci/llc_shdlc.c llc_shdlc_handle_rcv_queue pulls only the 1 control byte, net/nfc/hci/core.c nfc_hci_recv_from_llc pulls the 2 HCP header bytes and dispatches to st21nfca_hci_event_received -> st21nfca_connectivity_event_received), so skb->data[] contents are attacker-controlled once the peer controls the wire. Violated invariant: the code only guards with 'if (skb->len < NFC_MIN_AID_LENGTH + 2 && skb->data[0] != NFC_EVT_TRANSACTION_AID_TAG)' (line 323-325), i.e. a length check that is bypassed whenever data[0]==0x81 regardless of skb->len, and that check validates total skb->len rather than the linear headroom; more importantly every subsequent read is length-driven by unvalidated bytes: aid_len = skb->data[1] (line 330) is used as memcpy length into the fixed struct nfc_evt_transaction.aid[16] (include/net/nfc/nfc.h:156-161, __packed, aid_len u32 + aid[16] + params_len u8 + params[0]) with no aid_len<=16 check, and the tag read skb->data[aid_len+2] (line 335) and params_len read skb->data[aid_len+3] (line 339) plus the params memcpy of up to 255 bytes (lines 340-341) are driven by attacker bytes with no bound against skb->len. Unsafe use: heap overflow write of up to 255 bytes past the 21-byte fixed header of the devm_kzalloc(skb->len-2) buffer (line 327-328), and OOB reads of skb->data[aid_len+2..aid_len+4+params_len] past both skb->len and the linear head. Counter-evidence checked: no pskb_may_pull/skb_linearize exists anywhere in this path (grep of drivers/nfc and net/nfc/hci confirmed the only pull is the fixed 1+2 header bytes), so the multi-byte reads at offsets aid_len+2/aid_len+3 are not guaranteed to be in the linear area either; the allocation skb->len-2 only matches the wire length, not the struct layout (aid_len is u32 in the struct but only 1 wire byte), so even a spec-conformant message overflows the 16-byte aid field when the peer sends aid_len>16, and the && guard makes the length check ineffective whenever the AID tag byte is correct. No later refetch or revalidation exists between the single fetch and the uses.",
+   "conclusion": "st21nfca_connectivity_event_received trusts attacker bytes aid_len (no <=16 check) and params_len (up to 255) to drive memcpy into a fixed 21-byte-header devm_kzalloc(skb->len-2) buffer and to index skb->data[aid_len+2..], giving a heap overflow write and OOB reads on EVT_TRANSACTION from the NFC controller; the len guard is bypassed when data[0]==0x81."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s02",
+   "path": "drivers/firewire/net.c",
+   "line": 536,
+   "status": "unresolved",
+   "reason": "fwnet_finish_incoming_packet (drivers/firewire/net.c:482-544) runs dev_hard_header(skb,...) which pushes an 8-byte fwnet_header into the linear head, then skb_pull(skb, sizeof(*eth)) and reads rawp = (u16 *)skb->data with *rawp at line 536. Both constructors of the skb (unfragmented path lines ~595-606 with memcpy(skb_put(skb,len),buf,len), and fragmented completion path ~688-695 backed by pd->skb = dev_alloc_skb(dg_size)) are freshly allocated linear buffers, and dg_size >= 1 by the macro fwnet_get_hdr_dg_size (net.c:76), so after pulling the 8-byte header at least 1 payload byte remains and the 2-byte *rawp read is only reached when ntohs(eth->h_proto) < ETH_P_802_3_MIN. What was not verified before the session limit: whether LL_RESERVED_SPACE(net) plus the dev_hard_header push can ever fail to leave skb->data with 2 linear bytes when the underlying datagram is exactly 1 byte (dg_size==1 with a first fragment of 1 byte), i.e. a 2-byte read at offset 0..1 of a 1-byte linear area.",
+   "conclusion": "Follow up: confirm whether a 1-byte RFC2734 datagram (dg_size==1, first frag len==1) leaves only 1 linear byte at skb->data when *rawp is read at drivers/firewire/net.c:536, making the u16 read a 1-byte linear-area OOB read; the skb is always freshly allocated and linear, so this is an OOB-read-only variant of the invariant."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/isdn/i4l/isdn_net.c",
+   "line": 1742,
+   "status": "unresolved",
+   "reason": "isdn_net_ciscohdlck_slarp_in (isdn_net.c:1672-1710) checks only skb->len < 14 and then reads p[0..17] including *(__be32*)(p+16) at line 1742-ish (the SLARP reply path reads addr=p, mask=p+4, and the keepalive path reads p+0/p+4 after p+=10) via p = skb->data; the caller isdn_net_ciscohdlck_receive (lines 1718-1740) reads 4 header bytes with only skb->len>=4 before skb_pull(4). No pskb_may_pull or skb_headlen check exists on this path, so if the B-channel driver (hisax/gigaset/isdn loopback) can deliver a non-linear skb the reads go past the linear head. Not resolved before the limit: whether every i4l receive path that reaches isdn_net_receive() builds skbs with alloc_skb+skb_put (linear), which would make this fragile-but-safe.",
+   "conclusion": "Follow up: trace which CONFIG_ISDN driver feeds isdn_net_receive with p_encap==ISDN_NET_ENCAP_CISCOHDLCK and whether any of them (hisax sync-ppp B-channel, gigaset) can hand up a frag-backed skb; if yes the SLARP p[0..17] reads at isdn_net.c:1742 with only a skb->len>=14 guard are linear-area OOB reads."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/nfc/st21nfca/core.c",
+   "line": 878,
+   "status": "unresolved",
+   "reason": "st21nfca_admin_event_received dereferences skb->data[0] via ST21NFCA_EVT_HOT_PLUG_IS_INHIBITED(skb) (macro at core.c:80) with no skb->len check at all; the skb reaching here has had exactly 1 SHDLC control byte (llc_shdlc.c llc_shdlc_handle_rcv_queue) and 2 HCP header bytes (net/nfc/hci/core.c nfc_hci_recv_from_llc) pulled, so an I-frame whose HCI payload is empty (length 0 after the 3 header bytes) makes skb->data[0] read one byte past skb_headlen(skb) into the (allocated but unpulled) tail of the freshly alloc'd skb; that is a read of uninitialized-but-mapped memory rather than a fault, which is why this stays unresolved rather than reported.",
+   "conclusion": "Follow up: confirm whether a zero-payload ST21NFCA_EVT_HOT_PLUG admin event can arrive (HCI I-frame with 3 header bytes only) so skb->data[0] at drivers/nfc/st21nfca/core.c:878 reads past skb->len; impact is limited to an uninitialized-byte read inside the allocated linear buffer, not a UAF."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/hsi/clients/ssi_protocol.c",
+   "line": 631,
+   "status": "safe",
+   "reason": "ssip_pn_rx() calls pskb_may_pull(skb, SSIP_MIN_PN_HDR) at line 620 and only afterwards writes ((u16 *)skb->data)[2]; the pointer is derived from skb->data after the pull (lines 631-633) and never saved before it, so the seed's stale-pointer pattern is not present.",
+   "conclusion": "Not a variant: ssi_protocol re-derives skb->data after pskb_may_pull and the RX skb comes from an HSI buffer, so no stale pointer and no missing linear guarantee."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/scsi/fcoe/fcoe.c",
+   "line": 1395,
+   "status": "safe",
+   "reason": "fcoe_rcv() reads eh=eth_hdr(skb) before the pull but that pointer is only used for h_source/h_dest reads at lines 1383-1401 where the ethernet header is guaranteed linear by eth_type_trans (which pulled ETH_HLEN and rejects/adjusts short frames), and the fc_frame_header pointer at line 1399 is derived from skb_set_transport_header after pskb_may_pull(skb, FCOE_HEADER_LEN) at line 1395; no pointer saved before a pull is dereferenced after it.",
+   "conclusion": "Not a variant: the transport-header pointer is derived after pskb_may_pull(FCOE_HEADER_LEN) and the pre-pull eth_hdr reads are covered by the eth_type_trans linear guarantee."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/scsi/bnx2fc/bnx2fc_fcoe.c",
+   "line": 466,
+   "status": "safe",
+   "reason": "bnx2fc_rcv() performs pskb_may_pull(skb, FCOE_HEADER_LEN) at line 466 before skb_set_transport_header and the fh->fh_ox_id read at lines 469-472; the eth_hdr(skb)->h_proto read at line 456 happens before any pull and relies on the eth_type_trans guarantee; bnx2fc_recv_frame additionally calls skb_linearize(skb) at line 539 before re-reading headers.",
+   "conclusion": "Not a variant: the header pointer is created after the pull, and the worker thread linearizes the skb before re-parsing."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/block/aoe/aoenet.c",
+   "line": 150,
+   "status": "safe",
+   "reason": "aoenet_rcv() computes sn = sizeof(*h)+sizeof(*ah), sn -= skb_headlen(skb), and only calls __pskb_pull_tail(skb, sn) when sn > 0, then derives h = (struct aoe_hdr *) skb->data at line 153 after the pull; all h-> dereferences (tag, verfl, err, major, minor, cmd at lines 154-183) are post-pull.",
+   "conclusion": "Not a variant: the aoe header pointer is derived after __pskb_pull_tail, which is exactly the correct ordering the seed violated."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/infiniband/ulp/ipoib/ipoib_ib.c",
+   "line": 252,
+   "status": "safe",
+   "reason": "ipoib_ib_handle_rx_wc reads dgid/sgid from (struct ib_grh *)skb->data at lines 224-243 and then calls skb_pull(skb, IB_GRH_BYTES) at line 252 followed by reading ((struct ipoib_header *)skb->data)->proto at line 254; skb_pull is a pointer-advancing macro, not a reallocating one, and the RX skbs are freshly dev_alloc_skb'd linear buffers with only rx_sge[0] mapped (mapping[0], ipoib_ib.c:131-142, IPOIB_UD_RX_SG entries 1 are only an sge count guard), so there is no head reallocation and no non-linear skb on this path.",
+   "conclusion": "Not a variant: ipoib UD RX uses freshly allocated linear single-region skbs and skb_pull never reallocates, so the post-pull 4-byte header read is always inside the linear area."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/infiniband/ulp/ipoib/ipoib_cm.c",
+   "line": 664,
+   "status": "safe",
+   "reason": "ipoib_cm_rx_handler reads ((struct ipoib_header *)skb->data)->proto at line 664; the skb is either the small_skb copy path (skb_copy_from_linear_data of dlen < IPOIB_CM_COPYBREAK bytes, line 626-635) or the head skb whose first PAGE was DMA'd as IPOIB_CM_HEAD_SIZE linear bytes (ipoib_cm.c:151-161, sge[0].length = IPOIB_CM_HEAD_SIZE at line 339, and skb_put_frags advances skb->tail by min(length, hdr_space) at ipoib_cm.c:524-551); since IPOIB_CM_COPYBREAK <= IPOIB_CM_HEAD_SIZE (BUILD_BUG_ON at ipoib_main.c:2206) and IPOIB_CM_HEAD_SIZE is a positive PAGE modulo value, the 4-byte ipoib_header read is always within the linear head.",
+   "conclusion": "Not a variant: the CM RX head skb always has at least IPOIB_CM_HEAD_SIZE linear bytes before any frag, so the 4-byte header read at line 664 cannot leave the linear area."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/infiniband/hw/nes/nes_nic.c",
+   "line": 667,
+   "status": "safe",
+   "reason": "nes_nic.c line 667's skb_linearize(skb) is on the TX path (nes_netdev_start_xmit) and occurs before tx_req mapping is set up, with no pointer into the skb head saved before it; the skb_transport_header(skb) reads at lines 665-666 are TSO-offset computations used only as offsets, not dereferenced across the linearize.",
+   "conclusion": "Not a variant: the linearize is on TX before any header pointer is dereferenced, and the transport/network header values are used only as numeric offsets."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/s390/net/qeth_l2_main.c",
+   "line": 869,
+   "status": "safe",
+   "reason": "qeth_l2_main.c:869 skb_linearize(new_skb) and :900 skb_realloc_headroom operate on a freshly cloned/allocated new_skb on the TX path, and the skb_mac_header(new_skb) memcpy at line 897 happens after the new_skb's head was populated; the veth pointer at qeth_l2_main.c:272 is derived after the mac header was pushed on a fresh RX skb built by dev_alloc_skb in qeth_core_main.c (no pull between save and use).",
+   "conclusion": "Not a variant: qeth's linearize/realloc sites act on fresh TX copies before header pointers are taken, and its RX skbs are newly allocated linear buffers."
+  }
+ ],
+ "coverage_gaps": [
+  "drivers/bluetooth HCI transport parsers (hci_h4.c, hci_h5.c, hci_bcsp.c, btqca.c, btintel.c) read multi-byte headers from freshly alloc_skb'd skbs whose lengths are set by the preceding packet_type switch; only a grep-level review of their skb->data uses was completed, no per-state-machine audit of the h4/h5/bcsp reassembly state machines was done in this session.",
+  "The remaining ~40 files that merely use skb->data as a DMA address (drivers/atm zatm, nicstar, idt77252, lanai, horizon, fore200e, firestream, solos-pci; drivers/s390/net ctcm/netiucv/lcs; drivers/isdn mISDN and hisax; drivers/nfc trf7970a, st95hf, port100, fdp, nfcwilink, microread, pn544, st-nci) were only inspected at grep level for save-then-pull patterns; a per-function read of each vendor event handler (mirroring the st21nfca analysis) was not completed.",
+  "drivers/staging network code (wlan-ng p80211conv/p80211netdev, vt6656 rxtx, octeon ethernet-tx, visornic, wilc1000) was grep-triaged for skb_linearize/skb->data saves but not function-audited; the wlan-ng prism2sta receive path with its own 802.11-to-802.3 conversion (p80211conv.c) deserves a dedicated read.",
+  "No runtime confirmation (KASAN build, reproducer, or even a compile) was possible against this read-only snapshot; the st21nfca heap-overflow finding rests on source reading of the exact struct layout (include/net/nfc/nfc.h:156-161) and the devm_kzalloc size expression at se.c:327-328.",
+  "Only one NFC HCI client driver (st21nfca) was read to its HCI-event handler; the sibling drivers st-nci (drivers/nfc/st-nci/se.c) and microread were not checked for the same EVT_TRANSACTION aid_len/params_len pattern before the session limit."
+ ],
+ "limitations": [
+  "The reported st21nfca finding is a source-reading hypothesis: no exploitation attempt, KASAN run, or reproducer was performed, and the overflow write length (up to 255 bytes past a 21-byte fixed header) is derived from the struct definition rather than observed.",
+  "The st21nfca finding's reachability requires CONFIG_NFC_ST21NFCA (i2c or protocol variant), a registered NFC HCI device with a connectivity gate pipe, and an attacker able to make the NFC controller emit an EVT_TRANSACTION event; this is the NFCC/local-attacker or malicious-SE threat model, narrower than the seed's internet-reachable phonet path.",
+  "The skb->len-2 devm_kzalloc under-allocation is contingent on skb->len > 2 (otherwise kzalloc of 0/1 bytes returns ZERO_SIZE_PTR and the first transaction->aid_len write at se.c:330 is already a null-ish write); this degenerate case was reasoned about but not separately reported.",
+  "The skb->data[0] != 0x81 bypass of the length guard is judged from C semantics of the && at se.c:323-325; if data[0] != 0x81 the function returns -EPROTO, so the overflow needs the attacker to set the tag byte correctly, which is trivial but is an assumption.",
+  "Non-linearity preconditions for the unresolved candidates (firewire, isdn ciscohdlck) were assessed structurally from the skb constructors rather than by tracing every caller, and the three unresolved candidates each carry their own one-line follow-up instead of a report.",
+  "Snapshot revision is opaque (no git history or network permitted); line numbers are valid only for snapshots/s02 as supplied, and no check of upstream fix status was possible.",
+  "net/phonet/pep.c pep_get_sb was excluded by instruction and never considered as a report target; net/ and drivers/net/ trees were out of scope for this branch and were not searched."
+ ]
+}

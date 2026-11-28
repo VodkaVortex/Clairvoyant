@@ -46,15 +46,29 @@ def validate_artifact(path: Path, expected_intent: str,
         raise ValueError(
             f"artifact branch must be {expected_branch!r}; got {payload.get('branch')!r}"
         )
-    if payload.get("execution_status") != "complete":
-        raise ValueError("artifact execution_status must be 'complete'")
-    if payload.get("snapshots_checked") != [expected_snapshot]:
+    execution_status = payload.get("execution_status")
+    if execution_status not in {"complete", "timed_out"}:
         raise ValueError(
-            f"artifact snapshots_checked must be [{expected_snapshot!r}]"
+            "artifact execution_status must be 'complete' or 'timed_out'"
+        )
+    snapshots_checked = payload.get("snapshots_checked")
+    if execution_status == "complete":
+        if snapshots_checked != [expected_snapshot]:
+            raise ValueError(
+                f"artifact snapshots_checked must be [{expected_snapshot!r}]"
+            )
+    elif snapshots_checked not in ([], [expected_snapshot]):
+        raise ValueError(
+            "timed_out artifact snapshots_checked must be empty or "
+            f"[{expected_snapshot!r}]"
         )
     for field in ("findings", "candidates", "coverage_gaps", "limitations"):
         if not isinstance(payload.get(field), list):
             raise ValueError(f"artifact {field} must be a list")
+    if execution_status == "timed_out" and not any(
+        isinstance(value, str) and value.strip() for value in payload["limitations"]
+    ):
+        raise ValueError("timed_out artifact must record a limitation")
     return payload
 
 
@@ -132,7 +146,10 @@ def build_fact_card(artifact: Path, payload: dict, snapshot: str,
         for value in payload["limitations"]
         if (text := card_limitation_text(value)) is not None
     ]
-    header = f"intent={intent} snapshot={snapshot} branch={branch} status=complete"
+    header = (
+        f"intent={intent} snapshot={snapshot} branch={branch} "
+        f"status={payload['execution_status']}"
+    )
     artifact_line = f"artifact=findings/{artifact.name}"
     omitted_findings = 0
     omitted_limitations = 0

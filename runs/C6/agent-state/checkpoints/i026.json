@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "intent_id": "i026",
+  "branch": "header-accessor-no-linearize",
+  "snapshot": "s05",
+  "status": "finalized",
+  "stage": "final artifact written; done pending",
+  "findings": [
+    "net/ncsi/ncsi-rsp.c:1113-1155 ncsi_rcv_rsp skb_network_header deref, no pull (medium)",
+    "net/ncsi/ncsi-aen.c:215-229 ncsi_aen_handler + ncsi_validate_aen_pkt h+1+payload-4 checksum read (medium)"
+  ],
+  "candidates": [
+    "net/ncsi/ncsi-rsp.c:104 reported (same skb/mechanism)",
+    "net/ncsi/ncsi-rsp.c:52 unresolved (pchecksum tail of ncsi_validate_rsp_pkt not read verbatim)",
+    "net/ncsi/ncsi-rsp.c:825 unresolved (remaining handler-table payload copies unaudited)"
+  ],
+  "notes": [
+    "receive path: dev_add_pack ETH_P_NCSI at ncsi-manage.c:1737-1740; eth_type_trans pulls only ETH_HLEN",
+    "no pskb_may_pull/skb_linearize/headlen guard in the read ranges; rg unavailable in sandbox so the tree-wide accessor ranking was not done",
+    "artifact=findings/i026.json"
+  ]
+}

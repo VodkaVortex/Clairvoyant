@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "intent_id": "i032",
+  "branch": "caller-pointer-across-helper",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s01"
+  ],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/mac80211/rx.c",
+      "start": 3166,
+      "end": 3175,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;\n\n\t\tif (pskb_may_pull(rx->skb,\n\t\t\t\t  offsetof(struct ieee80211_tdls_data, u)) &&\n\t\t    tf->payload_type == WLAN_TDLS_SNAP_RFTYPE &&\n\t\t    tf->category == WLAN_CATEGORY_TDLS &&\n\t\t    (tf->action_code == WLAN_TDLS_CHANNEL_SWITCH_REQUEST ||",
+      "confidence": "medium",
+      "reason": "Untrusted source: ieee80211_rx_h_data() (net/mac80211/rx.c:3125-3126) runs on received 802.11 frames from the mac80211 RX handler chain, so tf is fully attacker-chosen (remote peer, TDLS-ethertype data frames). Violated invariant: tf = (void *)rx->skb->data (line 3169) is a pointer into the skb linear head captured BEFORE the helper pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) (line 3171); pskb_may_pull() can call __pskb_pull_tail(), which for a non-linear skb with payload in frags allocates a new head and frees the old one, so the saved tf becomes dangling. Unsafe use: after the pull returns true, the same expression dereferences tf->payload_type, tf->category and tf->action_code (lines 3173-3176) through the stale pointer without refetching tf from rx->skb->data. This is the seed's exact save/pull/stale-dereference shape across the pskb_may_pull helper boundary. Counterevidence checked: mac80211 RX skbs are commonly linear (drivers hand fresh linear buffers), in which case pskb_may_pull is a no-op and the code is merely fragile; the pull length is the compile-time constant offsetof(struct ieee80211_tdls_data, u) rather than the seed's attacker-chosen sb_len, which narrows the OOB aspect but not the stale-pointer mechanism; the C && evaluation order guarantees the pull is evaluated before the tf reads, so the defect is not a compiler-ordering artifact; the equivalent site in a different tree was independently reported in f027 (s02 rx.c:2555-2565), but line numbers here were re-verified against snapshots/s01 itself (sed/nl of rx.c 3166-3176). No build/KASAN run was possible (read-only snapshot, no network).",
+      "conclusion": "ieee80211_rx_h_data saves tf=rx->skb->data at rx.c:3169, pskb_may_pull at 3171 can free the head for a frag-backed RX frame, then tf->payload_type/category/action_code are read through the stale pointer at 3173-3176: remote stale-pointer (slab-UAF) read on non-linear TDLS frames."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/ip_options.c",
+      "line": 585,
+      "status": "safe",
+      "reason": "ip_options_rcv_srr() saves iph = ip_hdr(skb) and optptr = skb_network_header(skb) + opt->srr (lines 592-593), then calls the helper ip_route_input(skb, ...) (line 613) which passes the skb onward. ip_route_input performs only a route lookup (no pskb_may_pull/pskb_expand_head/linearization/trim on this path), and the subsequent loop reads optptr[2]/optptr[1], iph->saddr and writes iph->daddr (lines 605-629) with offsets already validated during IP option parsing, inside the network header that ip_rcv_core's pskb_may_pull(skb, sizeof(struct iphdr)) plus ip_options_compile guaranteed linear; no helper on this path reallocates the head, so no stale dereference.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv4/ip_forward.c",
+      "line": 144,
+      "status": "safe",
+      "reason": "ip_forward() correctly re-derives iph = ip_hdr(skb) at line 147 immediately after skb_cow(skb, LL_RESERVED_SPACE+header_len) at line 144, which is exactly the refetch pattern the seed patch applied; ip_forward_finish() lets ip_forward_options() (net/ipv4/ip_options.c:538-540) derive raw = skb_network_header(skb) fresh inside the callee after the NF_HOOK chain at ip_forward.c:162 rather than using any pre-hook pointer, so the netfilter chain does not strand a stale header pointer on this path.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/mac80211/rx.c",
+      "line": 2570,
+      "status": "safe",
+      "reason": "ieee80211_frame_allowed() (rx.c:2559-2579) casts ehdr = (struct ethhdr *)rx->skb->data inside the helper itself (line 2563) and its caller ieee80211_rx_h_data passes only the value fc (line 3163), not a pre-helper pointer; after the TDLS pskb_may_pull at 3171 the later ethhdr accesses in the same function are freshly cast from rx->skb->data (lines 3167, 3197), so no saved data pointer survives a head move there. Only the separate tf pointer (lines 3169-3176) is stale and is reported as the finding.",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "The prescribed two-level caller expansion of every pskb_may_pull/__pskb_pull_tail/pskb_pull/pskb_expand_head/skb_cow/skb_linearize/pskb_trim/ip_defrag/NF_HOOK/xfrm call site in net/ and drivers/net/ of s01 was not completed; the session finalized early with only the forwarding (ip_forward.c/ip_options.c), mac80211 rx.c and cb-struct-name sets triaged.",
+    "Per-protocol skb control-block structs (struct *_skb_cb: tipc_skb_cb, br_input_skb_cb, batadv_skb_cb, ovs_skb_cb, xfrm_mode_skb_cb, tls sk_skb_cb, amt_skb_cb and others found by name) were enumerated but never traced; whether any stores a data-derived pointer or offset that is read back after a head-moving helper remains unchecked.",
+    "Whether any mac80211 hardware driver actually delivers a non-linear (frag/fraglist-backed) skb into ieee80211_rx_h_data was assessed structurally, not by tracing each driver's RX allocation path; this is the empirical precondition for the reported finding.",
+    "No runtime KASAN build, reproducer or compilation was performed against the read-only snapshots/s01 tree, so the __pskb_pull_tail head reallocation on a frag-backed TDLS frame is inferred from source structure, not observed."
+  ],
+  "limitations": [
+    "The single finding is a source-reading hypothesis: it requires a non-linear skb at ieee80211_rx_h_data so pskb_may_pull actually reallocates and frees the old head; for the common linear-driver case the pull is a no-op and the code is merely fragile, not exploitable.",
+    "The pull length is the compile-time constant offsetof(struct ieee80211_tdls_data, u), so unlike the seed's attacker-chosen ph->sb_len there is no peer-controlled pull length; only the stale-pointer-into-skb-head mechanism matches the branch.",
+    "The finalize order capped post-resume investigation at four targeted reads, so the candidate set is far narrower than the branch method prescribes; unexamined helper call sites are recorded as coverage gaps rather than as classified or unresolved candidates.",
+    "Snapshot revision is opaque; line numbers and code state are valid only for snapshots/s01 as supplied, no git history, network access or cross-snapshot comparison was used, and net/phonet/pep.c pep_get_sb (present in this tree) was deliberately never reported per branch instruction."
+  ]
+}

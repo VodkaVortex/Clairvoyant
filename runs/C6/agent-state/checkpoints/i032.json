@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "intent_id": "i032",
+  "branch": "caller-pointer-across-helper",
+  "phase": "final",
+  "snapshot": "s01",
+  "status": "complete",
+  "notes": "Finalized per order. One medium-confidence finding: net/mac80211/rx.c ieee80211_rx_h_data saves tf=(void*)rx->skb->data at 3169, calls pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data,u)) at 3171, then dereferences stale tf->payload_type/category/action_code at 3173-3176. ip_options_rcv_srr, ip_forward/skb_cow and ieee80211_frame_allowed classified safe (refetch or no head-moving helper). Artifact at findings/i032.json.",
+  "candidates": [
+    {
+      "path": "net/mac80211/rx.c",
+      "line": 3169,
+      "status": "reported"
+    },
+    {
+      "path": "net/ipv4/ip_options.c",
+      "line": 585,
+      "status": "safe"
+    },
+    {
+      "path": "net/ipv4/ip_forward.c",
+      "line": 144,
+      "status": "safe"
+    },
+    {
+      "path": "net/mac80211/rx.c",
+      "line": 2570,
+      "status": "safe"
+    }
+  ]
+}

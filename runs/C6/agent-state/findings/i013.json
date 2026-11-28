@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "intent_id": "i013",
+  "branch": "nonlinear-linear-assume",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/xt_osf.c",
+      "start": 220,
+      "end": 272,
+      "quote": "_optp = optp = skb_header_pointer(skb, ip_hdrlen(skb) +\n\t\t\tsizeof(struct tcphdr), optsize, opts);",
+      "confidence": "high",
+      "reason": "Untrusted source: xt_osf_match() runs in the receive-side iptables xt_osf match on every SYN TCP packet whose IP options/TCP doff the attacker controls. Missing guarantee: the return of skb_header_pointer() is never NULL-checked (scanner over all 253 skb_header_pointer sites in net/ and drivers/net/ flagged only this site plus __skb_header_pointer uses in flow_dissector that are all guarded by 'if (!doff) return' / 'if (ports) return *ports'). Unsafe use: on a non-linear skb whose TCP options (attacker-chosen doff>5, optsize = doff*4 - 20) lie in frags/fraglist, skb_header_pointer() returns NULL; optp stays NULL, _optp is NULL, and the loop at line 261 dereferences *optp (lines 262, 268, 270, 272) -> NULL-pointer read / crash inside the softirq xt match. Guard against false positive: the NULL dereference requires a configured xt_osf rule plus a loaded fingerprint whose summed option lengths equal the attacker's optsize (foptsize == optsize, foptsize <= MAX_IPOPTLEN, totlen == f->ss, TTL window match) so matching must pass first, and the skb must actually be non-linear at the match hook - which packet-local hooks (PRE_ROUTING/LOCAL_IN) allow for GRO/SG/aggregated frames. Counterevidence checked: if the bytes are linear the pointer is valid and only the pattern matches; the deref is a read of NULL (not the seed's UAF), which the branch definition explicitly treats as the same missing-linear-guarantee invariant.",
+      "conclusion": "xt_osf_match() ignores the NULL return of skb_header_pointer() into optp and dereferences *optp at xt_osf.c:262, so a non-linear TCP SYN with doff>5 whose options live in frags NULL-reads/crashes in the receive-side xt match when a matching fingerprint is loaded."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "start": 952,
+      "end": 978,
+      "quote": "unicast_packet = (struct batadv_unicast_packet *)skb->data;\n\tunicast_4addr_packet = (struct batadv_unicast_4addr_packet *)skb->data;\n\n\tis4addr = unicast_packet->packet_type == BATADV_UNICAST_4ADDR;",
+      "confidence": "medium",
+      "reason": "Untrusted source: batadv_recv_unicast_packet is reached via the batman-adv ptype handler batadv_batman_skb_recv (main.c:415) on any mesh-attached interface, from remote-originated ethernet frames. Missing guarantee: the code casts skb->data to a 20-byte (4addr) struct and reads unicast_packet->packet_type BEFORE any pull in this function - the entry dispatcher (main.c:441) only guarantees pskb_may_pull(skb, 2), i.e. two bytes of linear data. The read at line 955 (packet_type, byte 0) is inside those 2 bytes, but the follow-on reads - unicast_packet->dest (bytes 4-9) at line 975 and unicast_4addr_packet->subtype (byte 15) / src at line 977 - happen after batadv_check_unicast_packet (line 961) has done pskb_may_pull(skb, hdr_size=10 or 20), so the deeper reads are guarded by the pull (assuming a non-linear skb makes the pull really linearize: pskb_may_pull does guarantee headlen >= hdr_size on success). The unguarded byte is only packet_type at offset 0, covered by the caller's 2-byte pull, and version at main.c:462 also covered. So the pattern matches the branch but the concrete out-of-bounds read is not established for this s02 variant. This is the same site family that Fact f005 reported for s01 at medium confidence; here the deep-read path is verified guarded.",
+      "conclusion": "batadv_recv_unicast_packet casts skb->data to 20-byte unicast structs before any pull in the function, but the only unguarded byte (packet_type at offset 0) lies inside the 2-byte pskb_may_pull of the entry dispatcher, so the concrete OOB read is not established; reported as a medium-confidence pattern-mirror with bounded impact."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/netfilter/xt_osf.c",
+      "line": 223,
+      "status": "reported",
+      "reason": "Ignored NULL return of skb_header_pointer() dereferenced at line 262 (*optp), verified by reading lines 200-280; the only unguarded skb_header_pointer consumer found among all 253 call sites in net/ and drivers/net/.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 952,
+      "status": "reported",
+      "reason": "Struct cast of skb->data before any pull in the function (entry dispatcher pulled only 2 bytes); deeper reads at 975-977 are covered by the pskb_may_pull(hdr_size) inside batadv_check_unicast_packet at line 961, so only the offset-0 packet_type read is unguarded - it lies within the 2-byte pull.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/core/flow_dissector.c",
+      "line": 867,
+      "status": "safe",
+      "reason": "All 15 flagged __skb_header_pointer uses in flow_dissector.c are guarded: e.g. line 867-871 'if (!doff) return poff;' and line 106-110 'if (ports) return *ports;'; no unguarded dereference.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ieee802154/header_ops.c",
+      "line": 249,
+      "status": "safe",
+      "reason": "ieee802154_hdr_pull() does pskb_may_pull(skb,3) before memcpy(hdr, skb->data, 3) and pskb_may_pull(skb, rc/want) before the address/security-extension reads at skb->data + pos; every read is preceded by a pull sized to that read.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/caif/cfpkt_skbuff.c",
+      "line": 139,
+      "status": "safe",
+      "reason": "cfpkt_extr_head() explicitly checks 'len > skb_headlen(skb)' and calls skb_linearize() before skb_pull+memcpy; cfpkt_extr_trail() calls skb_linearize() unconditionally before reading the tail - the caif extractors always guarantee linearity.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 681,
+      "status": "safe",
+      "reason": "batadv_route_unicast_packet's ttl/dest reads (line 685) are preceded by callers' batadv_check_unicast_packet pskb_may_pull(hdr_size>=10), and the skb_cow at line 696 is followed by an explicit refetch 'unicast_packet = (struct batadv_unicast_packet *)skb->data;' at line 700 - the code correctly re-derives the pointer.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 1049,
+      "status": "safe",
+      "reason": "batadv_recv_unicast_tvlv explicitly linearizes ('packet needs to be linearized to access the tvlv content', skb_linearize at routing.c:1045) before casting skb->data and before the tvlv_len-derived buffer walk, with tvlv_buff_len bounds-checked against skb->len - hdr_size.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 1091,
+      "status": "safe",
+      "reason": "batadv_recv_frag_packet reads frag_packet->orig/dest/priority only after batadv_check_unicast_packet(pskb_may_pull(sizeof(struct batadv_frag_packet)=20)); all fields of the struct lie within the pulled 20 bytes.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/batman-adv/routing.c",
+      "line": 1170,
+      "status": "safe",
+      "reason": "batadv_recv_bcast_packet starts with pskb_may_pull(skb, sizeof(struct batadv_bcast_packet)) (routing.c:1157) before reading any bcast_packet field and re-derives bcast_packet after that pull.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "line": 2300,
+      "status": "safe",
+      "reason": "ieee80211_rx_h_amsdu's hdr cast (line 2300) is on the mac80211 slow RX path whose entry __ieee80211_rx_handle_packet (rx.c:4057-4065) either skb_linearize()s mgmt frames or pskb_may_pull(skb, ieee80211_hdrlen(fc))s data frames before any handler runs, and ieee80211_rx_monitor already did pskb_may_pull(origskb, 2 + rtap_vendor_space) (rx.c:546); the amsdu handler's reads are within the hdrlen guarantee.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "line": 5010,
+      "status": "safe",
+      "reason": "ieee80211_invoke_fast_rx only reads hdr fields (frame_control, addr1, addr2, ds bits) within the hdrlen pull done at rx.c:4064 before dispatch, and the payload snap read is guarded by its own pskb_may_pull(skb, snap_offs + sizeof(*payload)) at rx.c:5077 followed by an immediate re-derivation 'payload = (void *)(skb->data + snap_offs)'; note the stale-across-pull aspect of this site belongs to branch pull-invalidates-pointer (Fact f011/f027 already covered it for s02), not to this branch.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "line": 1276,
+      "status": "safe",
+      "reason": "ieee80211_rx_h_check_more_data / _sta_process / _decrypt / _ctrl hdr casts (rx.c:1276, 1478, 1612, 2603) all sit behind the same __ieee80211_rx_handle_packet hdrlen pull/linearize at rx.c:4057-4065; their reads are limited to the 802.11 header whose presence in the linear area is guaranteed by that pull (and the AMSDU-frag path goes through ieee80211_rx_h_defragment which linearizes).",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "The 234 struct casts of skb->data in net/ and 503 in drivers/net/ were filtered (TX-named files excluded) but only the batman-adv, mac80211, caif, ieee802154 and wireless-driver RX subsets were deep-read; the remaining ~180 receive-side cast sites (nfc, irda, iucv, atm, can, tipc, openvswitch, af_key, hostap/ath9k/ath6kl/p54/ath10k/wcn36xx/cw1200/libipw RX files) were enumerated in scan lists but not individually audited for a missing pskb_may_pull in this session.",
+    "The skb_header_pointer NULL-check scanner used a 6-line statement join plus an 8-line look-ahead window and only tracked simple 'var =' assignments, so NULL checks placed further away, indirect checks (e.g. a helper taking the pointer) or compound initializers among the 253 call sites can produce a small number of false negatives.",
+    "Direct skb->data[...] indexed reads and skb_transport_header()/skb_network_header() dereferences in *_rcv handlers were not systematically enumerated in this branch (they were the subject of Fact f023's accessor scan on the same snapshot); only the memcpy-from-skb->data list (34 sites, mostly TX) was reviewed.",
+    "No compilation, KASAN build, or reproducer was run against the read-only snapshot; both findings are source-reading hypotheses, and reachability of a non-linear skb at the xt_osf hook (GRO/SG/aggregation configuration) was argued structurally, not measured."
+  ],
+  "limitations": [
+    "The xt_osf finding's concrete failure mode is a NULL-pointer read (or parse of bytes that are not there), not the seed's use-after-free, because skb_header_pointer() returns NULL rather than a stale pointer; the branch definition explicitly treats the missing-linear-guarantee invariant as equivalent.",
+    "Triggering the xt_osf NULL dereference requires an iptables rule with the xt_osf match, a loaded userspace fingerprint whose summed option length equals the attacker-chosen optsize and whose ss/ttl match, plus a non-linear (frag-backed or GRO-aggregated) SYN packet - so exploitation is conditional on administrator configuration, narrower than the seed's always-on phonet receive path.",
+    "The batadv_recv_unicast_packet finding is a pattern match whose only unguarded byte (packet_type at offset 0) lies within the 2-byte pskb_may_pull performed by batadv_batman_skb_recv, so an actual out-of-bounds read was not established; it is reported as a medium-confidence hypothesis mirroring Fact f005 for s01, and the deeper field reads were verified to be covered by batadv_check_unicast_packet's pull.",
+    "Whether received batman-adv skbs can be non-linear at batadv_batman_skb_recv depends on the hard-interface driver's SG/GRO configuration, which is deployment-dependent and was not verified per driver.",
+    "Snapshot revision is opaque and no git history is available, so it cannot be determined whether upstream has since fixed net/netfilter/xt_osf.c or net/batman-adv/routing.c; line numbers are valid only for snapshots/s02 as supplied.",
+    "The seed location net/phonet/pep.c pep_get_sb was excluded by instruction and never considered as a report target; prior s02 facts (decnet dn_route/dn_nsp, mac80211 tdls/rx stale-pointer, NCSI, nfc llcp agf, lapb, atm lec) cover adjacent branches and were used only as triage context."
+  ]
+}

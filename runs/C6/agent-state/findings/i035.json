@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "intent_id": "i035",
+  "branch": "caller-pointer-across-helper",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/rx.c",
+      "start": 3324,
+      "end": 3336,
+      "quote": "tf->payload_type == WLAN_TDLS_SNAP_RFTYPE &&",
+      "confidence": "medium",
+      "reason": "Untrusted source: a remote WiFi peer's data frame reaches ieee80211_rx_h_data (invoked via CALL_RXH at net/mac80211/rx.c:4243 in the RX handler chain); after 802.11-to-802.3 conversion the code checks ((struct ethhdr *)rx->skb->data)->h_proto == ETH_P_TDLS (line 3322) and saves struct ieee80211_tdls_data *tf = (void *)rx->skb->data (line 3324) -- a raw pointer into the skb linear head. Violated invariant: it then calls the helper pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) (lines 3326-3327); on a non-linear skb pskb_may_pull->__pskb_pull_tail allocates a new data buffer, copies, and frees the old head, but tf is not re-derived from the new rx->skb->data. Unsafe use: tf->payload_type, tf->category and tf->action_code are read at lines 3328-3331 through the stale pointer, i.e. a slab use-after-free read of the freed old head (same KASAN class as the seed's pep_get_sb). Counterevidence checked: the pull length is the compile-time constant offsetof(struct ieee80211_tdls_data, u), not attacker-chosen; if the RX skb is already linear (common for WiFi drivers that copy into a linear head) the pull is a no-op and tf stays valid, so the bug requires a frag-backed RX skb; the reads sit after the pull in the same && chain, so they execute only when the pull succeeded and are ordered after it by C evaluation order; CONFIG_MAC80211 and an associated peer sending a TDLS-ethertype data frame are needed, making it narrower than the seed's phonet path.",
+      "conclusion": "ieee80211_rx_h_data saves tf=rx->skb->data at rx.c:3324, pskb_may_pull at 3326-3327 can free/move the head on a non-linear TDLS RX frame, and the stale tf->payload_type/category/action_code reads at 3328-3331 give a remote slab-UAF read (medium confidence)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/rx.c",
+      "line": 3324,
+      "status": "reported",
+      "reason": "Exact save (3324), helper call (3326-3327 pskb_may_pull) and post-call stale dereferences (3328-3331) read directly in this session; the mechanism matches the seed's stale-pointer-into-skb-head invariant across a helper boundary on a remote receive path."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/rx.c",
+      "line": 2985,
+      "status": "unresolved",
+      "reason": "Mesh forwarding path has pskb_may_pull at 2979/2985 (grep hits confirmed in this session); whether any mesh/eth header pointer saved before those pulls survives and is dereferenced after was not read to a conclusion under the finalize order.",
+      "conclusion": "Follow up: read net/mac80211/rx.c around 2960-3040 to determine whether a mesh_hdr or ethhdr pointer cached before the pskb_may_pull calls at 2979/2985 is dereferenced afterwards without re-derivation on non-linear mesh frames."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/openvswitch/flow.c",
+      "line": 457,
+      "status": "unresolved",
+      "reason": "parse_vlan() around line 457 was flagged for a possible vlan header pointer held across pskb_may_pull; not read in this session, and OVS receive skbs (from internal/dev_queue_xmit or vxlan/geneve decap) can be non-linear.",
+      "conclusion": "Follow up: read net/openvswitch/flow.c parse_vlan (~450-480) to check whether the vlan header pointer is re-derived after pskb_may_pull and whether OVS-classified skbs can be non-linear at that point."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/ip6_gre.c",
+      "line": 513,
+      "status": "unresolved",
+      "reason": "ERSPAN/gre receive path flagged for a possible ershdr pointer held across pskb_may_pull; not read to a conclusion in this session.",
+      "conclusion": "Follow up: read net/ipv6/ip6_gre.c ~505-560 (and the ip_gre.c ERSPAN analogue) to check whether ershdr is re-derived after pskb_may_pull and used afterwards."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/nfc/hci/core.c",
+      "line": 912,
+      "status": "unresolved",
+      "reason": "NFC HCI receive path flagged for hcp_skb->data-derived pointers around pskb_may_pull; not read to a conclusion and the non-linearity of HCI skbs was not determined.",
+      "conclusion": "Follow up: read net/nfc/hci/core.c ~905-930 to check whether pointers into hcp_skb->data are re-derived after pskb_may_pull and whether NFC HCI link skbs can be non-linear."
+    }
+  ],
+  "coverage_gaps": [
+    "The two-level caller expansion of every pskb_may_pull/pskb_pull/skb_cow/skb_cow_head/pskb_expand_head/skb_linearize/pskb_trim/NF_HOOK/xfrm-input call site in s04 net/ and drivers/net/ was not completed; only mac80211 rx.c, the excluded phonet seed, and fact-card-flagged files were read under the finalize order.",
+    "Per-protocol skb control-block structs (*_skb_cb with pointer- or offset-typed fields, e.g. DN_CB/IPCB analogues) were not systematically enumerated in s04, and the branch's DECnet template is absent entirely (net/decnet/ does not exist in this snapshot).",
+    "No runtime KASAN build, reproducer, or per-driver audit was performed to prove that any WiFi driver actually delivers a frag-backed (non-linear) skb into ieee80211_rx_h_data on the s04 tree.",
+    "Same-function save/pull/use sites already reported for s04 under other intents (net/802/garp.c:447-504, drivers/net/ppp/ppp_generic.c:3111-3172) were not re-audited for the cross-helper shape here."
+  ],
+  "limitations": [
+    "The single finding is a source-reading hypothesis, not an observed crash: triggering requires a non-linear skb at ieee80211_rx_h_data so pskb_may_pull->__pskb_pull_tail actually reallocates and frees the old head; on linear-driver RX the pull is a no-op and tf remains valid.",
+    "Unlike the seed, the pull length is the compile-time constant offsetof(struct ieee80211_tdls_data, u), so no attacker-chosen pull length exists; only the stale-pointer-into-skb-head mechanism and the post-helper dereference match the branch invariant.",
+    "The stale tf reads occur inside the same boolean expression as the pull; the vulnerability judgment rests on C evaluation order (pskb_may_pull evaluated first) and on the compiler having to reload through tf since pskb_may_pull may alias the skb head, not on inspected generated code.",
+    "The reported lines were verified by direct reads (net/mac80211/rx.c:3282-3337), but the four unresolved candidates were triaged from this snapshot's prior fact cards and grep line numbers only and were not line-read in this session.",
+    "Snapshot revision is opaque (no git history, no network); line numbers are valid only for snapshots/s04 as supplied, and net/phonet/pep.c pep_get_sb (lines 55-65) exhibits the identical seed pattern but was excluded from reporting by assignment rule."
+  ]
+}

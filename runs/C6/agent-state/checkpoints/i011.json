@@ -1,0 +1,16 @@
+{
+  "intent_id": "i011",
+  "branch": "expand-cow-invalidates-pointer",
+  "status": "finalizing",
+  "snapshot": "s05",
+  "searched": "grep enumerated all pskb_expand_head/skb_realloc_headroom/skb_cow/skb_cow_head/skb_linearize/skb_linearize_cow/pskb_trim/pskb_trim_rcsum/pskb_carve/skb_copy_expand_head call sites in net/ and drivers/net/ (357 raw hits, ~250 files); derive-helper-use triples enumerated with python scanner (7 hits) plus targeted reads of ip_input/ip6_input/udp/tcp/llc/dsa/bridge/ovs/batman-adv/appletalk/decnet/i40e/ixgbe/mpls/hdlc_fr/ip_gre.",
+  "candidates": [
+    "mlx5e_ipsec_remove_trailer (ipsec_rxtx.c:112-131): ipv6hdr/ipv4hdr saved before pskb_trim, dereferenced after -> REPORTED (stale write on cloned skb)",
+    "be_lancer_xmit_workarounds (be_main.c:1129-1150): veh saved from skb->data, read veh->h_vlan_proto after pskb_trim -> REPORTED (stale read on cloned skb)",
+    "atalk_rcv/atalk_route_packet (ddp.c:1428-1364): ddp used after skb_trim, but also after skb_share_check+pskb_may_pull; ddp_hdr re-derivable; route path documented by author as known-realloc-unsafe -> unresolved (needs runtime confirm of cloned receive)",
+    "ieee80211_invoke_fast_rx (rx.c:4129-4252): hdr read-only via ieee80211_has_protected(hdr->frame_control) after pskb_trim -> safe (no reallocation: linear skb, pull guarantee, read-only)",
+    "wpa.c michael_mic_verify / ccmp handlers: hdr re-derived immediately after skb_linearize/pskb_expand_head -> safe",
+    "iwlagn_tx_skb (dvm/tx.c:265-319): hdr explicitly refetched after pskb_expand_head -> safe",
+    "ip_rcv/ip6_rcv/br_nf/ovs/llc/batadv-nc/hdlc_fr/ip_gre/dsa trims: all refetch hdr after pskb_trim_rcsum -> safe"
+  ]
+}

@@ -1,0 +1,100 @@
+{
+ "version": 1,
+ "intent_id": "i012",
+ "branch": "nonlinear-linear-assume",
+ "status": "in_progress",
+ "phase": "finalized",
+ "snapshot": "s01",
+ "plan": [
+  "grep net/ and drivers/net/ receive handlers for skb->data dereferences lacking pskb_may_pull/linearize guards",
+  "grep for unchecked skb_header_pointer results",
+  "grep for memcpy from skb->data with packet-controlled length",
+  "triage up to 12 candidates, classify reported/safe/unresolved"
+ ],
+ "candidates": [
+  {
+   "path": "net/batman-adv/routing.c",
+   "line": 951,
+   "status": "reported",
+   "reason": "batadv_recv_unicast_packet dereferences unicast_packet->packet_type from skb->data before any pskb_may_pull in this function; entry (batadv_batman_skb_recv, net/batman-adv/main.c:452) guarantees only 2 linear bytes, and batadv_check_unicast_packet's pskb_may_pull (routing.c:447) runs only after this read; fixed header up to 20 bytes (unicast_4addr_packet) is later read after guards",
+   "conclusion": "reported"
+  },
+  {
+   "path": "net/batman-adv/bat_v_elp.c",
+   "line": 526,
+   "status": "safe",
+   "reason": "elp_packet read is guarded by batadv_check_management_packet(skb, if_incoming, BATADV_ELP_HLEN) which pskb_may_pulls BATADV_ELP_HLEN (=sizeof batadv_elp_packet) before the cast",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/batman-adv/bat_v_ogm.c",
+   "line": 1013,
+   "status": "safe",
+   "reason": "ogm_packet walk is bounded by batadv_check_management_packet(BATADV_OGM2_HLEN) pull plus batadv_v_ogm_aggr_packet checks against skb_headlen(skb), so only linear bytes are touched",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/batman-adv/distributed-arp-table.c",
+   "line": 444,
+   "status": "safe",
+   "reason": "batadv_dbg_arp is debug-only output; callers (dat snooping) already did pskb_may_pull(hdr_size + ETH_HLEN [+...]) at distributed-arp-table.c:1010/1019/1758 before reaching it",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/hsr/hsr_framereg.c",
+   "line": 302,
+   "status": "safe",
+   "reason": "hsr_handle_sup_frame only runs after hsr_check_sup_frame (hsr_forward.c:59-103) pskb_may_pull'ed full supervision TLV chain incl. redbox TLV",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/netfilter/nf_conntrack_h323_main.c",
+   "line": 1180,
+   "status": "safe",
+   "reason": "get_udp_data result is NULL-checked at ras_help (line 1679-1680) before DecodeRasMessage; skb_header_pointer fallback into h323_buffer is length-bounded by datalen",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/netfilter/nft_exthdr.c",
+   "line": 187,
+   "status": "safe",
+   "reason": "nft_tcp_header_pointer result and second skb_header_pointer both NULL-checked by caller nft_exthdr_tcp_eval (line 198-200)",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/netfilter/nf_conntrack_proto_dccp.c",
+   "line": 511,
+   "status": "safe",
+   "reason": "dccp_header_pointer return is NULL-checked at nf_conntrack_dccp_packet line 528-529 before use; hdrlen bounded to sizeof(buf)",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/ipv6/netfilter/ip6t_NPT.c",
+   "line": 89,
+   "status": "safe",
+   "reason": "icmpv6_bounced_ipv6hdr result NULL-checked at both ip6t_snpt_tg (line 110-111) and ip6t_dnpt_tg (line 129-130) before ipv6_addr_prefix",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/ieee802154/header_ops.c",
+   "line": 294,
+   "status": "safe",
+   "reason": "ieee802154_hdr_pull pskb_may_pulls 3 then minlen (3+dlen+slen+sec) before get_addrs; sec-header read of skb->data[pos] is one byte beyond minlen when security_enabled but pos+sechdr_len is pulled before get_sechdr; the single-byte sc read at line 297 is covered because minlen already includes +1 for security_enabled",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/sctp/input.c",
+   "line": 1309,
+   "status": "safe",
+   "reason": "sctp_rcv linearizes the skb (input.c:120 skb_linearize) before sctp_chunkhdr walk, so skb->data chunk walk is over the linear buffer",
+   "conclusion": "safe"
+  },
+  {
+   "path": "net/hsr/hsr_forward.c",
+   "line": 90,
+   "status": "safe",
+   "reason": "hsr_sup_tlv read preceded by pskb_may_pull(total_length) with skb_pull/skb_push pattern keeping bytes linear",
+   "conclusion": "safe"
+  }
+ ]
+}

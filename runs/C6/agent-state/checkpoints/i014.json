@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "checkpoint_time": "final",
+  "snapshot": "s03",
+  "branch": "nonlinear-linear-assume",
+  "status": "complete",
+  "scans_done": [
+    "NULL-ignoring skb_header_pointer sites in net/ + drivers/net/ (19 raw hits, all re-read; mrp.c were false positives due to mrp_cb(skb)-> form)",
+    "pointer-into-skb-head used after pskb_may_pull/skb_linearize/skb_cow_head/skb_ensure_writable/pskb_trim in same function (15 hits)",
+    "pointer-from-skb_header_pointer or skb->data used after first capture without recapture (221 raw hits, triaged)",
+    "memcpy(skb->data,...) with packet-length sources; direct skb->data[] index reads; struct casts of skb->data on receive paths"
+  ],
+  "classified": {
+    "reported": [
+      "net/mac80211/tdls.c:2010-2026 tf from skb->data, skb_linearize(2020), stale tf->action_code(2026)",
+      "net/mac80211/rx.c:5010-5106 hdr from skb->data, pskb_may_pull(5077)/pskb_trim(5103), stale hdr->frame_control(5106)",
+      "drivers/net/wireless/mediatek/mt76/mt7925/mcu.c:642-647 rxd from skb->data, skb_linearize(644), stale rxd->option(647)"
+    ],
+    "safe": [
+      "net/netfilter/ipvs/ip_vs_core.c:1805-1808 (cih NULL checked)",
+      "net/ipv4/tcp_ipv4.c:2091-2108 (th refetched after pull)",
+      "net/ipv4/netfilter/ipt_ECN.c:51-67 (tcph re-derived after skb_ensure_writable)",
+      "net/netfilter/xt_TCPOPTSTRIP.c:44-57 (explicit reload after ensure_writable)",
+      "drivers/net/ethernet/freescale/gianfar.c:2417 (pskb_trim never reallocs head; driver-built linear RX)",
+      "net/802/mrp.c:694/774 (NULL checked via mrp_cb(skb)->vah; all reads via header_pointer/copy_bits)",
+      "net/netfilter/nfnetlink_osf.c:172-175 (NULL checked at 174 in s03)",
+      "net/netfilter/ipvs/ip_vs_proto_sctp.c:389-412 (both fetches checked)",
+      "drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c:3820-3924 (TX path)",
+      "net/sched/sch_cake.c:1011-1012 (NULL checked)"
+    ],
+    "unresolved": [
+      "net/mac80211/wpa.c:184 (hdr captured@102, skb_linearize@154, used@184; not deep-read this session)"
+    ]
+  },
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/C6/agent-state/findings/i014.json"
+}

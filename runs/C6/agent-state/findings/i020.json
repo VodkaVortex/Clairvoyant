@@ -1,0 +1,60 @@
+{
+ "version": 1,
+ "intent_id": "i020",
+ "branch": "free-invalidates-pointer",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s04"
+ ],
+ "findings": [
+  {
+   "snapshot": "s04",
+   "path": "net/bluetooth/6lowpan.c",
+   "start": 447,
+   "end": 449,
+   "quote": "chan->data = skb;",
+   "confidence": "low",
+   "reason": "Pattern-2 store of skb pointer into longer-lived per-channel state: send_pkt() (net/bluetooth/6lowpan.c:438-447) executes `chan->data = skb;` (line 447) for the IPSP l2cap channel while the skb is only borrowed, and the skb->data-derived kvec is built at line 449 (iv.iov_base = skb->data). The caller bt_xmit() unconditionally runs `dev_kfree_skb(skb);` at net/bluetooth/6lowpan.c:549 after send_pkt() returns, dropping the last reference, so chan->data becomes a dangling skb pointer that persists in channel state after every unicast TX. A later l2cap_sock.c style dereference of chan->data (l2cap_sock.c uses chan->data as `struct sock *` for normal L2CAP channels) would be a UAF; however in this snapshot I found no reader that dereferences chan->data for the 6lowpan IPSP channel (all chan->data readers found are in net/bluetooth/l2cap_sock.c and hci_conn/hci_core, which operate on `data_q`, a different field, or on socket channels, and lowpan_chan_ops has no callback that reads chan->data back). The untrusted source is attacker-supplied IPv6/6LoWPAN traffic via the bt6lowpan interface (ndo_start_xmit), the free is concrete and verbatim, and the stored pointer is the concrete use-shaped hazard, so I report it as a hypothesis with low confidence: a latent dangling skb pointer with no in-tree dereference demonstrated in s04.",
+   "conclusion": "bt_xmit() frees the skb (dev_kfree_skb at net/bluetooth/6lowpan.c:549) after send_pkt() stored that skb pointer into long-lived channel state (chan->data = skb, line 447), leaving a dangling stored pointer; no in-tree reader of chan->data for IPSP channels exists in s04, so the UAF is latent (low confidence)."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/fddi/defza.c",
+   "line": 1171,
+   "status": "safe",
+   "reason": "The only save/free/use triple found by the window scanner in net/ and drivers/net/. In fza_open() the dma address derived from skb->data (dma = dma_map_single(fp->bdev, skb->data, ...) at line 1171) is stored into fp->rx_dma[i] (line 1191) only on the success path where the same skb pointer is kept in fp->rx_skbuff[i]; the dev_kfree_skb(fp->rx_skbuff[i]) at line 1184 runs in the failure-unwind loop over already-completed indices and is paired with fp->rx_dma[i] = 0 and fp->rx_skbuff[i] = NULL, so no stale dma/pointer is dereferenced after any free.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/can/vxcan.c",
+   "line": 85,
+   "status": "safe",
+   "reason": "Checked for the s05 vxcan_xmit() shape (save cfd from skb->data, free/handoff, then read cfd->len). In s04 vxcan_xmit() never derives a pointer into the skb data: the length is taken via the scalar helper `len = can_skb_get_data_len(skb);` at drivers/net/can/vxcan.c:85 BEFORE the netif_rx(skb) handoff at line 86, and the post-handoff code (lines 87-92) only updates per-device statistics from the saved scalar. This is the fixed/correct ordering, unlike the s05 variant fact f010 describes.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s04",
+   "path": "drivers/net/can/dev/skb.c",
+   "line": 161,
+   "status": "safe",
+   "reason": "Checked __can_get_echo_skb()/can_get_echo_skb() for post-free reads of echo skb data: *len_ptr is filled from can_skb_get_data_len(skb) and *frame_len_ptr from the skb extension BEFORE the dev_consume_skb_any(skb) at drivers/net/can/dev/skb.c:138, and can_get_echo_skb() calls skb_get(skb) before netif_rx() and frees via dev_consume_skb_any/dev_kfree_skb_any only after the handoff with no further data reads.",
+   "conclusion": ""
+  }
+ ],
+ "coverage_gaps": [
+  "The window scanner only enumerated save/free/use triples where the derivation, the free/handoff call, and the use occur within one function body of at most 450 lines in net/ and drivers/net/, so frees hidden inside helper functions or free/use pairs crossing function boundaries were not systematically found.",
+  "Pattern-2 stores of skb->data-derived pointers into per-socket structs, request objects, timers, work items, and firmware command structs across the ~5321 free-call sites in net/ and drivers/net/ were only spot-checked (6lowpan chan->data, defza fp->rx_skbuff/rx_dma, CAN echo skb array); a systematic lifetime trace of every struct field that can hold an skb or skb->data pointer was not performed.",
+  "The 1655 `(struct X *)skb->data` cast sites in net/ and drivers/net/ were enumerated but not individually audited for a later free/handoff followed by a dereference of the cast pointer; only the top window-scanner hits and known fact-card shapes (vcan/vxcan, garp excluded as other branch) were read.",
+  "Non-net trees (fs/, netfilter helpers outside net/, drivers/ outside drivers/net/) were not searched per branch instructions, and pskb_may_pull/pskb_expand_head/skb_cow_head reallocation sites were deliberately excluded because other branches cover them."
+ ],
+ "limitations": [
+  "The single finding is a stored dangling pointer with no demonstrated dereference site in this snapshot: chan->data is written at net/bluetooth/6lowpan.c:447 by send_pkt() but no reader of chan->data for the 6lowpan IPSP channel could be found in s04, so no crash or disclosure is proven; it is reported as a low-confidence hypothesis.",
+  "No build, KASAN, or reproducer run was performed (read-only source snapshot; all work confined to grep, Python-assisted scanning, and source reading), so every conclusion rests on static reading of s04's exact lines.",
+  "The scanner's function-extent heuristic (column-0 braces), 450-line body cap, 100-line use window, and single-line derivation matching can mis-scope large functions and miss multi-line or indirect derivations (e.g., pointers passed through intermediate locals), so false negatives among the 5321 free-call sites cannot be excluded.",
+  "Snapshot revision is opaque; line numbers and code state are valid only for snapshots/s04 as supplied, and no git history exists to check whether upstream has since fixed net/bluetooth/6lowpan.c.",
+  "The seed location net/phonet/pep.c pep_get_sb exhibits the save/pull/deref shape in s04 but is excluded from reporting by assignment rules, and pskb_may_pull-induced head-reallocation variants are out of scope for this branch."
+ ]
+}

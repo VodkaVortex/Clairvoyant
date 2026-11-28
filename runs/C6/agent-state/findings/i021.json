@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "intent_id": "i021",
+  "branch": "free-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": ["s05"],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "net/atm/lec.c",
+      "start": 247,
+      "end": 305,
+      "quote": "lec_h = (struct lecdatahdr_8023 *)skb->data;",
+      "confidence": "high",
+      "reason": "Untrusted source: an Ethernet frame transmitted on a LANE emulated LAN device arrives from the network stack with attacker-influenced header content and length. Save: line 247 caches lec_h = (struct lecdatahdr_8023 *)skb->data and line 248 writes through it. Free/ownership transfer: when the frame is shorter than LEC_MINIMUM_8023_SIZE and lacks tailroom (attacker-chosen small frame), lines 266-269 skb_copy_expand() into a new skb and dev_kfree_skb(skb) free the original head while line 274 rebinds only the local skb variable; lec_h is never refetched (compare the explicit fix pattern in net/ax25/ax25_ip.c:152-162 which re-derives bp after kfree_skb). Unsafe use: line 281 dst = lec_h->h_dest, lines 289/293 lec_h->h_dest in pr_debug, and line 305 lec_h->h_dest in the tx_wait drain loop all dereference the dangling pointer after the free, giving a slab use-after-free read (and an input value, the destination MAC, taken from freed memory drives lec_arp_resolve routing). Counterevidence checked: if skb_copy_expand fails the function returns before any use; when no expansion occurs lec_h stays valid, so the UAF is conditional on the short-frame path (skb->len < 60 with insufficient tailroom), which is why confidence is not 'certain' at runtime; the frees at 295/309 happen after the last dereference. Impact: remote-triggerable UAF read and possibly wrong-VCC forwarding of attacker frames on LANE (CONFIG_ATM + lane module), reachable by sending a short frame through a lec0 device.",
+      "conclusion": "lec_send_packet() caches lec_h from skb->data at net/atm/lec.c:247, then dev_kfree_skb(skb) at :269 after skb_copy_expand frees that head on the short-frame path, and stale lec_h->h_dest is read at :281/:289/:293/:305, a slab-UAF read (high confidence, needs CONFIG_ATM lane and a short frame)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/wireless/intel/iwlwifi/mvm/tx.c",
+      "start": 825,
+      "end": 864,
+      "quote": "struct ieee80211_hdr *hdr = (void *)skb->data;",
+      "confidence": "medium",
+      "reason": "Untrusted source: the 802.11 header carried in the transmitted skb is attacker-influenced (locally generated or forwarded frames). Save: line 825 hdr = (void *)skb->data inside iwl_mvm_tx_tso_segment(). Ownership transfer/free: line 836 skb_gso_segment() consumes/frees the input skb and returns a list of new segmented skbs; line 841 consume_skb(skb) then drops the last reference, so hdr points into freed head memory. Unsafe use: line 864 ieee80211_is_data_qos(hdr->frame_control) inside the per-segment loop reads the 802.11 frame_control field through the stale pointer after the free, so a segmented A-MSDU frame whose first subframe is short (tcp_payload_len <= mss) dereferences freed memory and uses the stale bit to decide whether to strip the A-MSDU-present QoS bit. Counterevidence checked: the same hdr is captured again independently in iwl_mvm_tx_tso() at line 899, which is a separate function and separate skb lifetime, so only the iwl_mvm_tx_tso_segment copy is affected; ip_base_id (line 831) is saved by value before the free and is safe. Limitations: triggering requires hardware/software GSO segmentation to actually segment (gso_size set, A-MSDU-capable station), and no build/KASAN run was possible to empirically confirm skb_gso_segment always frees the original head (when it returns NULL, i.e. no segmentation, the skb is kept and hdr stays valid), hence medium confidence.",
+      "conclusion": "iwl_mvm_tx_tso_segment() saves hdr from skb->data at drivers/net/wireless/intel/iwlwifi/mvm/tx.c:825, skb_gso_segment()+consume_skb() at :836/:841 free that head, and stale hdr->frame_control is read at :864, a UAF read on the GSO-segmented TX path (medium confidence)."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/can/vxcan.c",
+      "start": 39,
+      "end": 65,
+      "quote": "struct canfd_frame *cfd = (struct canfd_frame *)skb->data;",
+      "confidence": "medium",
+      "reason": "Untrusted source: a CAN/CAN-FD frame sent on a vxcan tunnel whose CAN header (including the len field) is fully attacker-chosen via an unprivileged PF_CAN socket. Save: line 39 cfd = (struct canfd_frame *)skb->data. Ownership transfer and free: line 53 can_create_echo_skb(skb) (include/linux/can/skb.h:62) frees the original skb with consume_skb(skb) whenever the frame is shared (loopback-echo clones, can skb owners set by the CAN stack) and returns a clone with a different head, and line 63 netif_rx_ni(skb) hands the skb to the peer netdevice's receive queue, after which it can be consumed at any time by the peer. Unsafe use: lines 65 and 68 read cfd->len (srcstats->tx_bytes / peerstats->rx_bytes) after both the potential free and the netif_rx handoff, so the statistics byte count is taken from freed or foreign-owned memory. Counterevidence checked: can_dropped_invalid_skb() at line 42 validates the frame length before the pointer is saved, but nothing revalidates the pointer after the ownership changes; the unshared fast path (no clone) leaves cfd pointing into skb head that is still allocated when netif_rx_ni queues it, but once handed to the backlog the bytes may be consumed before line 65 runs, so the handoff case alone is still a lifetime violation. Impact is limited to wrong byte accounting plus the underlying UAF read of a freed slab head.",
+      "conclusion": "vxcan_xmit() saves cfd from skb->data at drivers/net/can/vxcan.c:39, can_create_echo_skb()+netif_rx_ni() at :53/:63 free or hand off the skb, and cfd->len is read at :65/:68, a UAF/ownership violation read in CAN frame accounting (medium confidence)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "net/atm/lec.c",
+      "line": 281,
+      "status": "reported",
+      "reason": "lec_h saved at 247, skb freed at 269 after skb_copy_expand, stale lec_h->h_dest read at 281/289/293/305.",
+      "conclusion": "Reported as finding: short-frame expansion path frees the skb head but the cached header pointer is used afterwards."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/wireless/intel/iwlwifi/mvm/tx.c",
+      "line": 864,
+      "status": "reported",
+      "reason": "hdr saved at 825, skb_gso_segment/consume_skb at 836/841 free it, stale hdr->frame_control read at 864.",
+      "conclusion": "Reported as finding: GSO segmentation frees the original skb head before hdr->frame_control is read in the segment loop."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/can/vxcan.c",
+      "line": 65,
+      "status": "reported",
+      "reason": "cfd saved at 39, skb freed by can_create_echo_skb clone or handed off by netif_rx_ni at 53/63, cfd->len read at 65/68.",
+      "conclusion": "Reported as finding: CAN echo-clone free and netif_rx handoff both precede the cfd->len statistics read."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bluetooth/l2cap_core.c",
+      "line": 7005,
+      "status": "safe",
+      "reason": "l2cap_recv_frame() queues skb on conn->pending_rx via skb_queue_tail (line 7012); queuing does not free the skb, and lh->cid/lh->len reads at 7017-7018 precede any free, so no use-after-free window exists here.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bluetooth/rfcomm/core.c",
+      "line": 1704,
+      "status": "safe",
+      "reason": "rfcomm_recv_frame() frees the skb at line 1710 only on the !s path, which returns immediately; hdr is dereferenced only when s is non-NULL.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bluetooth/cmtp/capi.c",
+      "line": 339,
+      "status": "safe",
+      "reason": "appl and contr are __u16/__u32 values read by value (CAPIMSG_APPID/CAPIMSG_CONTROL macros) before the kfree_skb at 348, and the reads at 352/357 use those saved scalars, not the skb memory; cmtp_recv_interopmsg likewise dereferences skb->data only before its trailing kfree_skb at 314.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/bluetooth/bnep/core.c",
+      "line": 306,
+      "status": "safe",
+      "reason": "type and ctrl_type are u8 values copied from the skb before the frees at 316/369; the later comparisons at 320/326 and s->eh.h_proto at 383 use saved values or the session struct, not the freed skb memory.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/nfc/hci/llc_shdlc.c",
+      "line": 472,
+      "status": "safe",
+      "reason": "control is a value read from the skb and u_frame_modifier = control & SHDLC_CONTROL_M_MASK at 494 uses the saved value after the kfree_skb at 491; no pointer into skb data survives.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/nfc/hci/core.c",
+      "line": 526,
+      "status": "safe",
+      "reason": "All skb->data[i] reads at 526-547 happen before kfree_skb at 531/549; the later pr_info uses the hdev->sw_* scalar copies, not the freed skb.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/wan/hdlc_fr.c",
+      "line": 902,
+      "status": "safe",
+      "reason": "fr_rx() reads fh->fecn/fh->becn at lines 902/909 before any dev_kfree_skb_any; the frees at 885/888 are on return paths that exit immediately.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ax25/ax25_ip.c",
+      "line": 102,
+      "status": "safe",
+      "reason": "All bp[] reads (bp[16], dst, src) happen before the skb_copy-based kfree_skb at 149; the code even contains an explicit dl9sau bugfix comment and re-derives bp from ourskb->data at 158 after the free, demonstrating the correct pattern.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/wireless/ath/ath9k/htc_hst.c",
+      "line": 424,
+      "status": "safe",
+      "reason": "The frees at 409/416-419 return immediately; htc_hdr dereferences at 424/427/446 occur only on paths where the skb is still alive, and the frees inside the ENDPOINT0 branch are after the last htc_hdr use.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/wireless/intersil/hostap/hostap_ap.c",
+      "line": 667,
+      "status": "safe",
+      "reason": "hostap_ap_tx_cb_auth(): the frees at 640/648/652 return immediately; hdr->addr1 uses at 665 and 681 happen before the final dev_kfree_skb at 685; same structure in hostap_ap_tx_cb_assoc (uses at 726/741 precede free at 742).",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "The sliding-window scanner only covered save-then-free/use windows of <=30 lines within a single function in net/ and drivers/net/, so free/use pairs separated by more lines or crossing function boundaries (helper-called frees) were not systematically found.",
+    "drivers/net/ beyond the top-level ethernet/wireless/wan/usb/can directories and all of net/ outside the saved-pointer heuristic (e.g. skb->cb, skb_shinfo, frag page pointers) were not audited.",
+    "No runtime reproducer, KASAN build, or compilation was performed (read-only snapshot), so all three findings rest on source reading of the exact save/free/use lines rather than execution.",
+    "Pattern-2 sites where an skb->data-derived pointer is stored into long-lived state (per-socket structs, timers, work items) were not systematically traced in s05; only net/bluetooth/6lowpan.c-style stores surfaced by the window scanner were inspected."
+  ],
+  "limitations": [
+    "net/atm/lec.c finding requires CONFIG_ATM plus a LANE emulated LAN device and a frame shorter than LEC_MINIMUM_8023_SIZE with insufficient tailroom to take the skb_copy_expand path; on the non-expanding path lec_h remains valid.",
+    "The iwlwifi finding only manifests when skb_gso_segment() actually segments the frame (non-NULL next list, triggering consume_skb at 841); when no segmentation occurs the original skb and hdr stay valid, and hardware offload may take a different path.",
+    "The vxcan finding's impact is limited to reading a length byte after the free/handoff for statistics accounting; the freed-memory read is real but the leaked value is only used for byte counters.",
+    "Line numbers and code state are valid only for snapshots/s05 as supplied; the snapshot revision is opaque, so no upstream fix status could be compared."
+  ]
+}

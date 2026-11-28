@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "intent_id": "i020",
+  "branch": "free-invalidates-pointer",
+  "checkpoint_time": "finalized",
+  "status": "complete",
+  "snapshot": "s04",
+  "findings": [
+    {"path": "net/bluetooth/6lowpan.c", "lines": "447-449, 549", "confidence": "low",
+     "summary": "send_pkt stores skb into long-lived chan->data (line 447) and builds iv.iov_base = skb->data (line 449); caller bt_xmit() runs dev_kfree_skb(skb) at line 549, leaving a dangling stored pointer with no in-tree reader for IPSP channels in s04."}
+  ],
+  "candidates": [
+    {"path": "drivers/net/fddi/defza.c", "line": 1171, "status": "safe", "reason": "dma from skb->data only stored on the path where the skb is retained in fp->rx_skbuff[i]; unwind loop pairs dev_kfree_skb with rx_dma[i]=0."},
+    {"path": "drivers/net/can/vxcan.c", "line": 85, "status": "safe", "reason": "len is a scalar read before netif_rx(skb); no pointer into skb data is used after the handoff in s04."},
+    {"path": "drivers/net/can/dev/skb.c", "line": 161, "status": "safe", "reason": "echo skb length/extension fields are read before dev_consume_skb_any; can_get_echo_skb uses skb_get() before netif_rx."}
+  ],
+  "artifact": "findings/i020.json"
+}

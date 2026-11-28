@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "intent_id": "i034",
+  "branch": "caller-pointer-across-helper",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/rx.c",
+      "start": 3321,
+      "end": 3336,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;",
+      "confidence": "medium",
+      "reason": "Untrusted source: over-the-air (remote station) data frame received by mac80211, an attacker-crafted skb reaching ieee80211_rx_h_data via CALL_RXH at rx.c:4266 after 802.11-to-802.3 conversion. Violated invariant: the caller saves a pointer into the skb's linear head (tf = (void *)rx->skb->data, net/mac80211/rx.c:3324) and then calls the helper pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) at rx.c:3326-3327; on a non-linear (frag/fraglist-backed) skb whose linear head is shorter than the pull length, __pskb_pull_tail calls pskb_expand_head, which allocates a new head and frees the old one, so skb->data moves and tf dangles. Unsafe use: tf->payload_type at 3328, tf->category at 3329 and tf->action_code at 3330 are read through the stale pointer after the pull (C && evaluation order guarantees the pull runs first), a slab use-after-free read of the freed head, mirroring the seed's pep_get_sb shape (fetch pointer, pskb_may_pull, dereference stale pointer). Counterevidence checked: the pull length is the compile-time constant offsetof(struct ieee80211_tdls_data, u), not an attacker-chosen field like ph->sb_len, and no refetch of tf exists between pull and use; a fully linear skb (the common case) makes pskb_may_pull a no-op so tf stays valid, hence medium not high confidence; no driver-level proof that a frag-backed skb reaches this handler was produced.",
+      "conclusion": "ieee80211_rx_h_data saves tf from rx->skb->data (rx.c:3324), pskb_may_pull at 3326-3327 can free/move the head on a non-linear TDLS RX frame, and the stale tf->payload_type/category/action_code reads at 3328-3330 give a remote stale-pointer (slab-UAF) read; medium confidence."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nf_flow_table_ip.c",
+      "line": 256,
+      "status": "unresolved",
+      "reason": "nf_flow_tuple_ip() (function at net/netfilter/nf_flow_table_ip.c:216) calls pskb_may_pull(skb, sizeof(*iph) + ctx->offset) at line 224 and a second pskb_may_pull(skb, thoff + ctx->hdrsize) at line 256 before nf_flow_tuple_encap at 283; the s05 analogue of this exact function (fact f033) saves iph = ip_hdr(skb) before the second pull and reads stale iph->saddr/daddr/protocol afterwards. In s03 only the grep skeleton (pull sites 224/256, tuple fill 283) was confirmed during the finalize order; the exact save line of iph and the post-256 dereference lines were not read, so the stale-pointer use is not yet proven in this snapshot. The function is reached from the nft software flowtable ingress on received packets (remote-reachable when configured).",
+      "conclusion": "Follow up: read net/netfilter/nf_flow_table_ip.c lines 216-283 to confirm iph (= ip_hdr(skb)) is saved before the pskb_may_pull at 256 and its fields are read afterwards without refetch, which would make it the same stale-pointer UAF read as the s05 analogue."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/mcast.c",
+      "line": 1485,
+      "status": "safe",
+      "reason": "igmp6_event_query()/mld_process_v2 path does refetch: mlh2 = (struct mld2_query *)skb_transport_header(skb) is re-derived at mcast.c:1472 after the pskb_may_pull at 1469 and again at 1489 after the pskb_may_pull at 1485-1486, and the later mld2q_nsrcs/mld2q_srcs reads at 1484/1523 use the refetched pointer, so no pointer derived from the skb head survives a head-moving helper on this path.",
+      "conclusion": "Not a finding: mlh2 is re-derived from skb_transport_header(skb) after each pskb_may_pull (1472, 1489), so the saved pointer does not dangle."
+    }
+  ],
+  "coverage_gaps": [
+    "The two-level caller expansion of pskb_may_pull/pskb_pull/skb_cow/pskb_expand_head/skb_linearize/NF_HOOK call sites across net/ and drivers/net/ was not completed; the finalize order limited reading to net/mac80211/rx.c, net/netfilter/nf_flow_table_ip.c and net/ipv6/mcast.c.",
+    "Per-protocol skb control-block structs (*_skb_cb with pointer- or offset-typed fields, e.g. DN_CB/IPCB analogues) were not enumerated in s03, so cb-stored stale offsets converted against a moved skb->data remain unsearched in this snapshot.",
+    "drivers/net/vxlan.c does not exist at that path in s03 (the driver lives under drivers/net/vxlan/ in this tree), so the vxlan_rcv pskb_may_pull candidate from prior facts was never opened here.",
+    "Other s03 candidates named in prior fact cards (net/x25/x25_in.c, net/decnet absent in s03, sfc ptp match pointer, OVS parse_vlan, seg6_local) were not read in this session and remain unclassified.",
+    "No per-driver audit or KASAN build proved that a non-linear (frag-backed) skb actually reaches ieee80211_rx_h_data; non-linearity was assessed structurally."
+  ],
+  "limitations": [
+    "The finding is a source-reading hypothesis, not a reproduction: no KASAN build, crafted TDLS frame or running wifi device was used, and the head reallocation is inferred from pskb_may_pull -> __pskb_pull_tail -> pskb_expand_head semantics rather than observed.",
+    "Triggering requires a non-linear skb at ieee80211_rx_h_data (scatter-gather RX driver); on a linear skb the pull is a no-op and tf stays valid, and unlike the seed the pull length is a compile-time constant rather than an attacker-chosen header field, so only the stale-pointer-into-skb-head mechanism matches.",
+    "The stale tf reads sit in the same boolean expression as the pull; the judgement rests on C && evaluation order (pull evaluated first) and on the compiler having to reload through tf, not on inspected generated code.",
+    "Snapshot revision is opaque (no git history, no network); line numbers are valid only for snapshots/s03 as supplied, and net/phonet/pep.c pep_get_sb (the seed, present in this tree) was excluded from reporting per assignment rules."
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "intent_id": "i018",
+  "branch": "free-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": ["s02"],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/atm/lec.c",
+      "start": 244,
+      "end": 305,
+      "quote": "lec_h = (struct lecdatahdr_8023 *)skb->data;",
+      "confidence": "high",
+      "reason": "lec_start_xmit() saves lec_h = (struct lecdatahdr_8023 *)skb->data at net/atm/lec.c:244. On the short-frame path, when skb->len + skb_tailroom < LEC_MINIMUM_8023_SIZE, skb_copy_expand() at :263 builds a new skb and dev_kfree_skb(skb) at :266 frees the original head, so lec_h is dangling. The stale pointer is then unconditionally dereferenced: dst = lec_h->h_dest at :278 is fed into lec_arp_resolve() at :280, and lec_h->h_dest is printed at :286, :290, :302 (pr_debug only). The free is inside the same function (no helper trace needed), the skb is attacker-influenced data on the LANE netdev TX path (frame length attacker-chosen), and no re-derivation of lec_h from the new skb2 occurs. Counterevidence checked: the non-expanding path (enough tailroom) leaves lec_h valid, and the headroom-expansion path at :227-241 reassigns skb=skb2 before skb_push, so only the skb_copy_expand branch is affected.",
+      "conclusion": "lec_start_xmit() caches lec_h from skb->data at net/atm/lec.c:244, dev_kfree_skb at :266 after skb_copy_expand frees that head, and stale lec_h->h_dest is read at :278/:286/:290/:302 - a slab UAF read (high confidence, needs CONFIG_ATM LANE and a short frame)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/6lowpan.c",
+      "start": 965,
+      "end": 987,
+      "quote": "struct sk_buff *skb = chan->data;",
+      "confidence": "medium",
+      "reason": "send_pkt() stores the skb pointer into long-lived l2cap channel state: chan->data = skb at net/bluetooth/6lowpan.c:515 (comment 'Remember the skb so that we can send EAGAIN to the caller if we run out of credits'). bt_xmit() frees that skb via dev_kfree_skb(skb) at :622 (and send_mcast_pkt kfree_skb at :573) without clearing chan->data. The l2cap core then invokes the channel callbacks on remote-driven events: chan->ops->suspend(chan) at net/bluetooth/l2cap_core.c:1270 and :2484 (LE flow-control credit exhaustion) and chan->ops->resume(chan) at :5579 (credits received) and :7414 (encryption change, i.e. attacker-supplied HCI traffic). chan_suspend_cb()/chan_resume_cb() at 6lowpan.c:965-987 reload struct sk_buff *skb = chan->data (:967/:979) and WRITE lowpan_cb(skb)->status = -EAGAIN at :974 / = 0 at :986, i.e. a 4-byte write into skb->cb of the freed skb. IPSP channels are created with chan->mode = L2CAP_MODE_LE_FLOWCTL at 6lowpan.c:743, so the suspend/resume path is exactly the one that stores chan->data. Counterevidence checked: chan->data is never re-derived or cleared anywhere in 6lowpan.c; the only other readers are these two callbacks; the window is per-channel 'last skb sent', so the UAF write only lands when the remote peer triggers suspend/resume/encryption after the freed skb.",
+      "conclusion": "send_pkt() stores skb into chan->data (net/bluetooth/6lowpan.c:515) that bt_xmit() then frees at :622, and remote-driven l2cap suspend/resume callbacks write lowpan_cb(skb)->status at :974/:986 through the dangling chan->data - a latent slab UAF write (medium confidence)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/wireless/intel/iwlwifi/mvm/tx.c",
+      "line": 634,
+      "status": "safe",
+      "reason": "In this snapshot's iwl_mvm_tx_tso(), hdr = (struct ieee80211_hdr *)skb->data at :634, skb_gso_segment at :766 and consume_skb(skb) at :771 free the head, but all uses of hdr (ieee80211_get_qos_ctl(hdr) at :645, hdr->frame_control at :653) occur before the segmentation, and the post-free while(next) loop at :777-816 dereferences only tmp-derived pointers (ip_hdr(tmp), ieee80211_get_qos_ctl((void *)tmp->data)). No stale hdr dereference after the free was found in this version.",
+      "conclusion": "iwl_mvm_tx_tso in s02 frees the skb at consume_skb:771 but its post-free loop only uses tmp-derived pointers, so the stale hdr is never dereferenced."
+    },
+    {
+      "snapshot": "s02",
+      "path": "drivers/net/can/vcan.c",
+      "line": 86,
+      "status": "safe",
+      "reason": "vcan_tx() saves cfd = (struct canfd_frame *)skb->data at :86, but both cfd->len reads (:94, :108) execute before consume_skb(skb) at :110 and before the can_create_echo_skb/netif_rx_ni handoff in vcan_rx (skb->data read at :71, cfd->len at :75 precede netif_rx_ni at :81). No post-free/post-handoff dereference of the saved pointer exists in this snapshot version (the echo path replaces skb entirely at :118).",
+      "conclusion": "vcan_tx/vcan_rx in s02 read cfd->len only before consume_skb:110 and netif_rx_ni:81, so there is no use-after-free of the saved skb->data pointer."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/bluetooth/6lowpan.c",
+      "line": 515,
+      "status": "reported",
+      "reason": "Promoted to a finding: chan->data = skb at :515 outlives the dev_kfree_skb at bt_xmit:622 and the suspend/resume callbacks write through the stale pointer at :974/:986.",
+      "conclusion": "See finding 2: stored dangling chan->data written by remote-driven l2cap suspend/resume callbacks."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/atm/lec.c",
+      "line": 244,
+      "status": "reported",
+      "reason": "Promoted to a finding: lec_h saved at :244, freed at :266, dereferenced at :278/:286/:290/:302.",
+      "conclusion": "See finding 1: lec_start_xmit short-frame path slab-UAF read of stale lec_h."
+    }
+  ],
+  "coverage_gaps": [
+    "A systematic sliding-window scan of all ~5000 kfree_skb/consume_skb/dev_kfree_skb sites in s02's net/ and drivers/net/ was not completed; only the fact-card variant shapes (atm/lec, bluetooth/6lowpan, iwlwifi tso, vcan) were verified in this session.",
+    "Pattern-2 sites storing skb->data-derived pointers into other long-lived state (driver/firmware private structs, timers, work items, per-socket state beyond net/bluetooth/6lowpan.c chan->data) were not enumerated in s02.",
+    "Frees that happen inside helper calls called between a pointer save and its use (dev_queue_xmit completion, netif_rx backlog drop, icmpv6_send, driver TX completion) were not traced in s02.",
+    "pskb_may_pull/pskb_pull/pskb_expand_head head-reallocation stale-pointer sites in s02 were deliberately excluded per branch instructions (other branches cover them; note fact i003 already covered s02 pull variants)."
+  ],
+  "limitations": [
+    "The lec.c finding requires CONFIG_ATM plus a LANE emulated LAN netdev and a frame shorter than LEC_MINIMUM_8023_SIZE with insufficient tailroom to take the skb_copy_expand path at :263; it is a local TX-path UAF read of a freed head (4-byte h_dest read into dst plus debug prints), not the seed's remote RX path.",
+    "The 6lowpan finding is a stored dangling pointer whose write (lowpan_cb(skb)->status, 4 bytes into freed skb->cb) requires the remote LE peer to trigger a suspend/resume or encryption event after the local side transmitted and freed a prior skb on the same IPSP channel; timing window per channel is bounded to the most recent skb.",
+    "No build, KASAN run, or reproducer was performed (read-only snapshot; all work confined to grep/reading of exact lines), so both findings are source-reading hypotheses.",
+    "Snapshot revision is opaque; line numbers and code state are valid only for snapshots/s02 as supplied, and no git history exists to check upstream fix status."
+  ]
+}

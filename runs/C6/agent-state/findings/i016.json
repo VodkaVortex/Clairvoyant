@@ -1,0 +1,107 @@
+{
+ "version": 1,
+ "intent_id": "i016",
+ "branch": "nonlinear-linear-assume",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s05"
+ ],
+ "findings": [
+  {
+   "snapshot": "s05",
+   "path": "net/ipv6/netfilter/ip6t_rt.c",
+   "start": 103,
+   "end": 113,
+   "quote": "rp = skb_header_pointer(skb,\n\t\t\t\tptr + offsetof(struct rt0_hdr,\n\t\t\t\t\t       reserved),\n\t\t\t\t\tsizeof(_reserved),\n\t\t\t\t\t&_reserved);\n\n\t\tret = (*rp == 0);",
+   "confidence": "high",
+   "reason": "rt_mt6() (ip6t_rt.c:36) is an xtables packet-match handler invoked on the netfilter receive path with attacker-controlled packets; an IPv6 routing extension header can arrive in an skb whose bytes live only in frags (GRO/scatter-gather), so nothing pulls those bytes into the linear head. The earlier skb_header_pointer for rh (line 56) IS NULL-checked, and the two loop uses (lines 130, 163) are NULL-checked, but the IP6T_RT_RES branch assigns rp at line 106 and immediately does 'ret = (*rp == 0)' at line 112 with no NULL test. skb_header_pointer returns NULL when the requested 4 bytes are not in the linear head, so a crafted non-linear IPv6 packet carrying a routing header plus an iptables '-m rt --rt-res' rule yields a NULL-pointer read in the match hook. Counterevidence checked: 'skb->len - ptr < hdrlen' at line 67 bounds only the logical length, not linear presence; no pskb_may_pull/skb_linearize exists anywhere in rt_mt6; no other deref of rp exists.",
+   "conclusion": "rt_mt6() dereferences the unchecked skb_header_pointer() result rp at net/ipv6/netfilter/ip6t_rt.c:112 on the IP6T_RT_RES path, so a non-linear IPv6 routing-header packet gives a NULL-read/crash in the receive-side xt match."
+  },
+  {
+   "snapshot": "s05",
+   "path": "net/netfilter/nfnetlink_osf.c",
+   "start": 185,
+   "end": 190,
+   "quote": "if (tcp->doff * 4 > sizeof(struct tcphdr)) {\n\t\tctx->optsize = tcp->doff * 4 - sizeof(struct tcphdr);\n\n\t\tctx->optp = skb_header_pointer(skb, ip_hdrlen(skb) +\n\t\t\t\tsizeof(struct tcphdr), ctx->optsize, opts);\n\t}",
+   "confidence": "medium",
+   "reason": "nf_osf_hdr_ctx_init() (nfnetlink_osf.c:166) is reached from nf_osf_match()/nf_osf_find(), the xt_osf and nft_osf passive-OS-fingerprint matches on the receive path. tcp->doff (a 4-bit packet field) can claim up to 60 bytes of TCP header; when ip_hdrlen(skb)+20+optsize bytes are not all in the linear head (non-linear skb from GRO/frags), skb_header_pointer returns NULL and ctx->optp stays NULL, yet nf_osf_match_one() later does 'if (f->opt[optnum].kind == *ctx->optp)' (line 99) after only a ctx->optsize == foptsize comparison, with no NULL check anywhere. The bytes whose presence was validated (the tcph doff used to size the fetch) and the bytes actually used (optp) are the same region, but presence in the linear area is never guaranteed. Counterevidence: the deref only happens when a fingerprint with matching optsize exists in the loaded osf table; when doff<=5, ctx->optp is also NULL but ctx->optsize==0 short-circuits at lines 92-93, so the NULL deref needs doff>5 plus a fingerprint whose foptsize equals the attacker-chosen optsize.",
+   "conclusion": "nf_osf_hdr_ctx_init() ignores the NULL return of skb_header_pointer() into ctx->optp (nfnetlink_osf.c:188), and nf_osf_match_one() dereferences *ctx->optp (line 99), so a non-linear TCP SYN packet with doff>5 and a matching OSF fingerprint NULL-derefs on receive."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s05",
+   "path": "net/phonet/pep.c",
+   "line": 55,
+   "status": "safe",
+   "reason": "This is the seed vulnerability location (pep_get_sb in s05 still shows the unpatched pre-pull pointer use at lines 55-64); it is explicitly excluded from reporting by the assignment.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s05",
+   "path": "net/batman-adv/distributed-arp-table.c",
+   "line": 1508,
+   "status": "safe",
+   "reason": "batadv_dat_check_dhcp_ipudp() NULL-checks udphdr in the very next statement ('if (!udphdr || udphdr->source != htons(67))'); the scanner merely missed the check on the following line.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s05",
+   "path": "net/sctp/input.c",
+   "line": 513,
+   "status": "safe",
+   "reason": "chunkhdr = skb_header_pointer(...) is immediately NULL-checked in the following 'if (!chunkhdr || chunkhdr->chunk_hdr.type != SCTP_CID_INIT ...)' before any dereference.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s05",
+   "path": "net/sched/sch_cake.c",
+   "line": 852,
+   "status": "safe",
+   "reason": "cake_get_iphdr()/cake_get_tcphdr() return the skb_header_pointer result directly to callers which NULL-check it before reading version/ihl/doff; no unchecked dereference on these paths.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s05",
+   "path": "net/ipv6/netfilter/ip6t_rt.c",
+   "line": 106,
+   "status": "reported",
+   "reason": "Promoted to a finding: unchecked skb_header_pointer() result rp dereferenced at line 112.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s05",
+   "path": "net/netfilter/nfnetlink_osf.c",
+   "line": 188,
+   "status": "reported",
+   "reason": "Promoted to a finding: unchecked skb_header_pointer() into ctx->optp later dereferenced at line 99.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s05",
+   "path": "net/6lowpan/nhc.c",
+   "line": 64,
+   "status": "unresolved",
+   "reason": "lowpan_nhc_by_nhcid() reads nhcid bytes directly from skb->data with only 'nhcid_skb_ptr + nhc->idlen > skb->data + skb->len' (line 72) as a bound; that compares against skb->len (logical length), not skb_headlen(), so if the 6LoWPAN NHC dispatch bytes sit in frags the memcpy at line 75 reads past the linear buffer. Reachability of non-linear skbs on the 802.15.4/6lowpan RX path (frag reassembly vs raw receive) was not traced to completion before the finalize directive.",
+   "conclusion": "Follow up: trace ieee802154 RX into lowpan_nhc_by_nhcid() to determine whether a non-linear skb (frag list) can reach nhc.c:75 memcpy and read beyond skb_headlen()."
+  },
+  {
+   "snapshot": "s05",
+   "path": "net/nfc/digital_dep.c",
+   "line": 497,
+   "status": "unresolved",
+   "reason": "digital_dep.c parses many attacker-chosen NFC frames via struct casts of skb->data (atr_req at 497, dep_req at 545/582/614/652, psl_req at 376) with only skb->len checks; NFC digital skbs are locally allocated per-response (nfc_alloc_recv_skb) and typically linear, so non-linearity is unlikely but the allocation path was not audited line-by-line before the finalize directive.",
+   "conclusion": "Follow up: audit nfc_alloc_recv_skb and the digital-target response path to confirm every parsed skb is fully linear before dereferencing skb->data casts in digital_dep.c."
+  }
+ ],
+ "coverage_gaps": [
+  "Legacy subsystems flagged by the coarse skb->data cast scan (net/802/fddi.c:95, net/appletalk/aarp.c:555, net/atm/br2684.c:396, net/ife/ife.c:50-75) were only skimmed; none showed an attacker-length-driven variable header, but per-function reachability traces were not done.",
+  "NFC (net/nfc/digital_*.c, llcp_core.c) skb->data struct casts were enumerated but only structurally triaged; the allocation/linearization behavior of the NFC digital receive path was not audited.",
+  "Only skb_header_pointer NULL-check misses and skb->data casts were scanned; direct skb_transport_header()/skb_network_header() dereferences without a preceding pskb_may_pull in *_rcv handlers were not systematically enumerated."
+ ],
+ "limitations": [
+  "Both findings are source-reading hypotheses, not reproductions: no KASAN build or crafted packet was run; the ip6t_rt NULL dereference additionally requires the IP6T_RT_RES match flag and a non-linear routing-header packet, and the osf one requires a loaded fingerprint whose foptsize equals the attacker-chosen optsize.",
+  "skb_header_pointer() returns NULL for bytes outside the linear head, so the concrete failure mode of both findings is a NULL-pointer read (or a parse of bytes that are not there) rather than the seed's use-after-free; the branch treats both as the same missing-linear-guarantee invariant.",
+  "The NULL-check scanner used a 4-line window and simple statement joining, so a small number of false negatives among the remaining ~270 skb_header_pointer call sites cannot be excluded."
+ ]
+}

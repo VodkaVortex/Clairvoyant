@@ -1,0 +1,13 @@
+{
+  "intent_id": "i034",
+  "branch": "caller-pointer-across-helper",
+  "snapshot": "s03",
+  "status": "complete",
+  "phase": "finalized",
+  "notes": "Finalize order received. Verified in s03: net/mac80211/rx.c ieee80211_rx_h_data saves tf=(void*)rx->skb->data at 3324, pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data,u)) at 3326-3327, stale tf->payload_type/category/action_code reads at 3328-3330 (reported, medium). nf_flow_tuple_ip (nf_flow_table_ip.c:216-283, pulls at 224 and 256) left unresolved pending read of save/use lines. net/ipv6/mcast.c igmp6_event_query safe: mlh2 refetched at 1472 and 1489 after pulls at 1469/1485. drivers/net/vxlan.c does not exist at that path in s03 (moved under drivers/net/vxlan/). Excluded: net/phonet/pep.c pep_get_sb.",
+  "candidates": [
+    {"path": "net/mac80211/rx.c", "line": 3326, "status": "reported"},
+    {"path": "net/netfilter/nf_flow_table_ip.c", "line": 256, "status": "unresolved"},
+    {"path": "net/ipv6/mcast.c", "line": 1485, "status": "safe"}
+  ]
+}

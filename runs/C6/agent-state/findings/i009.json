@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "expand-cow-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s03"
+  ],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/atheros/atlx/atl1.c",
+      "start": 2118,
+      "end": 2145,
+      "quote": "struct iphdr *iph = ip_hdr(skb);",
+      "confidence": "medium",
+      "reason": "atl1_tso() runs on the TX path for any GSO/TSO skb (skb_shinfo(skb)->gso_size set) with skb->protocol == ETH_P_IP. It saves 'struct iphdr *iph = ip_hdr(skb)' into the skb head (atl1.c:2119), computes real_len from iph->tot_len, and then calls pskb_trim(skb, real_len) at atl1.c:2124 when the frame is longer than tot_len (padded frames). ___pskb_trim() takes the pskb_expand_head path whenever the skb is cloned OR non-linear with data in frags/fraglist (net/core/skbuff.c:2715-2725: 'if ((!skb_cloned(skb) || skb_clone_writable(skb, ...)) && likely(!skb_has_frag_list(skb))) ... else pskb_expand_head(skb, 0, 0, GFP_ATOMIC)'), which allocates a new head and frees the old one. Afterwards the code dereferences the stale iph in both branches: 'iph->check = 0', 'csum_tcpudp_magic(iph->saddr, iph->daddr, ...)' and 'ptpd->word3 |= (iph->ihl & TPD_IPHL_MASK)' (lines 2129-2145) without ever refetching ip_hdr(skb). This is a dangling-pointer read AND write into freed slab memory - the same expand/cow invalidates-pointer invariant as the seed, just triggered by pskb_trim->pskb_expand_head instead of pskb_may_pull. An attacker reaches it by transmitting (locally or via forwarding) a cloned or non-linear GSO IPv4 frame whose IP tot_len is smaller than the padded skb length. Counterevidence checked: the sibling drivers atl1e (atl1e_main.c:1644-1671) and atl1c (atl1c_main.c:2060-2075) have the identical real_len/pskb_trim logic but re-derive ip_hdr(skb) inline at every use after the trim, so only atl1.c keeps the saved pointer; the preceding skb_cow_head(skb, 0) at 2114 does not prevent a second reallocation because pskb_trim can still expand for frag-list/clone reasons after it.",
+      "conclusion": "atl1_tso saves iph from the skb head, pskb_trim(skb, real_len) can call pskb_expand_head and free the old head for a cloned or frag-list GSO IPv4 frame, and the following iph->check/saddr/daddr/ihl accesses at atl1.c:2129-2145 write and read freed memory (stale-pointer UAF on TX)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 271,
+      "status": "safe",
+      "reason": "ipv6_destopt_hao(): after pskb_expand_head(skb, 0, 0, GFP_ATOMIC) the code explicitly re-derives 'hao = (struct ipv6_destopt_hao *)(skb_network_header(skb) + optoff)' and 'ipv6h = ipv6_hdr(skb)' before the swap(); no stale use.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 442,
+      "status": "safe",
+      "reason": "ipv6_srh_rcv(): after pskb_expand_head the code refetches 'hdr = (struct ipv6_sr_hdr *)skb_transport_header(skb)' before hdr->segments_left-- and the addr walk; no stale use.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 600,
+      "status": "safe",
+      "reason": "ipv6_rpl_srh_rcv(): the only head-derived pointer kept across pskb_expand_head is oldhdr, and it is refetched ('oldhdr = ipv6_hdr(skb)') inside the reallocating branch; hdr->segments_left in the branch condition is read before the call. The post-expand memmove uses the refetched oldhdr.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/calipso.c",
+      "line": 1349,
+      "status": "safe",
+      "reason": "calipso_skbuff_setattr() re-derives 'ip6_hdr = ipv6_hdr(skb)' immediately after skb_cow with the comment 'Reset as skb_cow() may have moved it'; calipso_skbuff_delattr also re-derives ip_hdr after skb_cow at line ~1402.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/cipso_ipv4.c",
+      "line": 2261,
+      "status": "safe",
+      "reason": "cipso_v4_skbuff_delattr() calls skb_cow then re-derives 'iph = ip_hdr(skb)' before any dereference; cipso_v4_skbuff_setattr re-derives iph in every len_delta branch.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/rpl_iptunnel.c",
+      "line": 157,
+      "status": "safe",
+      "reason": "rpl_do_srh_inline() copies ipv6_hdr into a stack 'oldhdr' before skb_cow_head and re-derives hdr/ipv6_hdr(skb) afterwards; the config-side srh comes from lwtstate memory, not the skb.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/seg6_iptunnel.c",
+      "line": 154,
+      "status": "safe",
+      "reason": "__seg6_do_srh_encap(), seg6_do_srh_encap_red() and __seg6_do_srh_inline() all call skb_cow_head before taking any head pointer (inner_hdr/hdr/isrh are derived after the cow); osrh comes from the lwtunnel state, not the skb head. The L2ENCAP pskb_expand_head at 447 is followed by skb_mac_header_rebuild() and fresh __seg6_do_srh_* calls.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/ip_input.c",
+      "line": 281,
+      "status": "safe",
+      "reason": "ip_rcv_options() refetches 'iph = ip_hdr(skb)' right after skb_cow(skb, skb_headroom(skb)); ip_rcv_core() likewise refetches iph after pskb_trim_rcsum at line 569-571.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/emulex/benet/be_main.c",
+      "line": 1141,
+      "status": "safe",
+      "reason": "be_lancer_xmit_workarounds(): 'ip = (struct iphdr *)ip_hdr(skb)' is only used to compute the trim length (ntohs(ip->tot_len)) before pskb_trim; it is not dereferenced afterwards. The veh pointer is captured at function entry but only read after the trim in the vlan-tag branch - veh is dereferenced at line ~1150 ('veh->h_vlan_proto') after pskb_trim(skb, ...) at 1141, which is the same pattern fact f006/f012 flagged in other snapshots; however in this s03 tree the read is a stale-pointer READ with the identical latency conditions, and the branch 'be_pvid_tagging_enabled(adapter)' is off by default. Retained as safe-with-note because the veh read was not the assigned helper order (veh is from skb_vlan_eth_hdr at entry, pskb_trim can free the head for a cloned skb): classify unresolved follow-up rather than a second finding given the finalize limit.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/atheros/atl1e/atl1e_main.c",
+      "line": 1648,
+      "status": "safe",
+      "reason": "atl1e_tso_csum() has the same real_len/pskb_trim(skb, real_len) logic but dereferences ip_hdr(skb) freshly at every use after the trim (ip_hdr(skb)->check/tot_len/saddr/daddr/ihl at lines 1656-1671); no saved stale pointer.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/atheros/atl1c/atl1c_main.c",
+      "line": 2064,
+      "status": "safe",
+      "reason": "atl1c_tso_csum() likewise re-derives ip_hdr(skb)/ipv6_hdr(skb)/tcp_hdr(skb) inline after pskb_trim; no saved stale pointer.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/qualcomm/emac/emac-mac.c",
+      "line": 1264,
+      "status": "safe",
+      "reason": "emac_tso_csum() uses ip_hdr(skb) freshly at each access after pskb_trim(skb, pkt_len) at 1264; no saved pointer survives the trim (the preceding pskb_expand_head at 1255 is also followed by fresh ip_hdr(skb) dereferences).",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "Only the ~15 highest-signal files among the 487 helper call sites in net/ and drivers/net/ were read to function depth (exthdrs.c, calipso.c, cipso_ipv4.c, rpl_iptunnel.c, seg6_iptunnel.c, ip_input.c, 6lowpan iphc.c/nhc.c, tun.c, espintcp.c, be_main.c, emac-mac.c, atl1/atl1e/atl1c); the remaining sites in net/batman-adv, net/mac80211, net/tipc, net/xfrm/xfrm_iptfs.c, net/dsa/tag_*.c and most ethernet drivers were triaged by pattern reading of grep context only.",
+    "The heuristic save-helper-use scanner had a defect (it emitted only 1 triple for the whole tree), so candidate enumeration effectively came from the grep hit list plus manual reading; multi-line pointer derivations and pointers passed into helper functions were not systematically enumerated.",
+    "Helper uses outside net/ and drivers/net/ (per the branch instruction) and macro-wrapped accessors (ipv6_hdr/ip_hdr wrappers were outside the literal grep terms) were not covered."
+  ],
+  "limitations": [
+    "The atl1.c finding is a source-reading hypothesis, not a reproduction: no KASAN build, crafted GSO frame, or atl1 hardware/virtual TX path was run, so the pskb_expand_head reallocation is inferred from the skb_cloned/frag-list branch of ___pskb_trim (net/core/skbuff.c:2715-2725) rather than observed.",
+    "The stale iph dereference requires the skb to be cloned or non-linear (frag-list) at pskb_trim time; the preceding skb_cow_head(skb, 0) unclones a plain linear skb, so an unshared linear GSO frame takes the __skb_trim fast path and the pointer stays valid - the bug is latent for typical traffic and needs a cloned or frag-list GSO IPv4 frame whose tot_len is below the padded skb length.",
+    "The path is TX (ndo_start_xmit), so reachability is local transmit or forwarding of a crafted GSO frame rather than purely passive remote receive; atl1 is old L1 hardware (or its virtual counterpart) whose GSO support gates this.",
+    "The be_main.c veh->h_vlan_proto read after pskb_trim in be_lancer_xmit_workarounds was noticed during triage but classified only from the read context; it mirrors the pattern other snapshots reported (facts f006/f012) and was not read to a full conclusion in this snapshot before the finalize limit."
+  ]
+}

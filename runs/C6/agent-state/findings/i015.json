@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "intent_id": "i015",
+  "branch": "nonlinear-linear-assume",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s04"
+  ],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/802/garp.c",
+      "start": 449,
+      "end": 485,
+      "quote": "\tga = (struct garp_attr_hdr *)skb->data;\n\tif (ga->len < sizeof(*ga))\n\t\treturn -1;\n\n\tif (!pskb_may_pull(skb, ga->len))\n\t\treturn -1;\n\tskb_pull(skb, ga->len);\n\tdlen = ga->len - sizeof(*ga);",
+      "confidence": "medium",
+      "reason": "Untrusted source: GARP PDU bytes received on a bridge port reach garp_pdu_rcv() (802.2 LLC/stp receive path) and garp_pdu_parse_attr() reads the attacker-chosen length byte ga->len straight from the PDU. Violated invariant: ga is a pointer into the skb linear head captured at line 449 and then used after pskb_may_pull(skb, ga->len) at line 453; on a non-linear skb (payload in frags, headlen < ga->len) pskb_may_pull()->__pskb_pull_tail() can allocate a new head buffer and free the old one, so ga dangles \u2014 exactly the seed's validated-then-invalidated pointer mechanism. Unsafe use: stale ga is dereferenced after the pull at lines 455/456 (ga->len), 461 (ga->event), and 485 (garp_attr_lookup(app, ga->data, dlen, attrtype) reads dlen bytes from the freed old head). Impact: slab use-after-free read on packet reception (expected KASAN 'slab-use-after-free in garp_pdu_parse_attr'), stale/freed-memory contents copied into GARP attribute state, and crash. Counterevidence checked: if the skb is fully linear the pull is a no-op and ga stays valid, so the bug requires an attacker-crafted non-linear GARP skb (scatter-gather RX, GRO, or L2 tunnel decap into a bridge port) \u2014 reachable in principle but not dynamically reproduced here; the sibling MRP parser (net/802/mrp.c) refetches via skb_header_pointer/uses skb_copy_bits and does not share this flaw.",
+      "conclusion": "garp_pdu_parse_attr() keeps ga pointing into the skb head across pskb_may_pull(skb, ga->len); on a non-linear GARP PDU the pull reallocates the head, so ga->len/ga->event/ga->data are read from freed memory (slab UAF read on receive)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/802/garp.c",
+      "start": 497,
+      "end": 504,
+      "quote": "\tif (!pskb_may_pull(skb, sizeof(*gm)))\n\t\treturn -1;\n\tgm = (struct garp_msg_hdr *)skb->data;\n\tif (gm->attrtype == 0)\n\t\treturn -1;\n\tskb_pull(skb, sizeof(*gm));\n\n\twhile (skb->len > 0) {\n\t\tif (garp_pdu_parse_attr(app, skb, gm->attrtype) < 0)",
+      "confidence": "medium",
+      "reason": "Same receive path (garp_pdu_rcv -> garp_pdu_parse_msg). Untrusted source: attacker-controlled GARP message header. Violated invariant: gm is captured once from skb->data at line 498, but the loop at lines 502-504 re-evaluates gm->attrtype on every iteration, i.e. after garp_pdu_parse_attr() (pskb_may_pull at lines 447/453, with attacker-chosen ga->len) and garp_pdu_parse_end_mark() (pskb_may_pull at line 427) have already run and potentially reallocated the head via __pskb_pull_tail(). Unsafe use: stale gm->attrtype dereference at line 504 from loop iteration 2 onward, and its value flows as the attrtype argument controlling attribute parsing. Impact: slab use-after-free read of the old freed head (same KASAN class as the seed). Counterevidence checked: on iteration 1 the read happens before any nested pull and is safe; the flaw only manifests after a nested pull actually relocated the head, which again requires a non-linear skb; the value is only a u8 attrtype so direct disclosure impact is limited, but the dangling read itself is the UAF.",
+      "conclusion": "garp_pdu_parse_msg() captures gm from skb->data once and re-reads gm->attrtype inside its loop after nested pskb_may_pull() calls that may have reallocated the head \u2014 stale-pointer (UAF) read on the GARP receive path."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/ethernet/eth.c",
+      "line": 187,
+      "status": "safe",
+      "reason": "sap = skb_header_pointer(skb, 0, sizeof(*sap), &skb->dev) result is used inline as '(sap && *sap == 0xFFFF)', so the NULL return is checked before the byte is read.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/icmp.c",
+      "line": 1305,
+      "status": "safe",
+      "reason": "ext_hdr and iio from skb_header_pointer() are both guarded by 'if (!ext_hdr || !iio) goto send_mal_query;' before any field dereference at net/ipv4/icmp.c:1311.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/sched/sch_cake.c",
+      "line": 951,
+      "status": "safe",
+      "reason": "cake_get_iphdr() checks 'if (!iph) return NULL;' after the first skb_header_pointer() and only dereferences the checked iph; the second skb_header_pointer() return is returned to callers that NULL-check it.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/802/mrp.c",
+      "line": 692,
+      "status": "safe",
+      "reason": "mrp_pdu_parse_vecattr() NULL-checks mrp_cb(skb)->vah before reading lenflags; all later payload access goes through skb_copy_bits(), which reads frags without reallocating the head.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/802/mrp.c",
+      "line": 763,
+      "status": "safe",
+      "reason": "mrp_pdu_parse_msg() NULL-checks mrp_cb(skb)->mh before dereferencing attrtype/attrlen, and the loop body uses skb_copy_bits()/end-mark reads, never pskb_may_pull, so the stored pointer cannot be invalidated.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/netfilter/nft_flow_offload.c",
+      "line": 72,
+      "status": "safe",
+      "reason": "tcph from skb_header_pointer() is used inline as 'if (unlikely(!tcph || tcph->fin || tcph->rst || ...))', so NULL is checked before dereference.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/core/skbuff.c",
+      "line": 7508,
+      "status": "safe",
+      "reason": "__vlan_get_protocol_offset() loops with 'vh = skb_header_pointer(...); if (unlikely(!vh || !--parse_depth)) return ...;' so vh is NULL-checked before vh->h_vlan_encapsulated_proto is read.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/packet/af_packet.c",
+      "line": 563,
+      "status": "safe",
+      "reason": "vlan_get_tag_dgram()-adjacent helper checks 'if (unlikely(!vh)) return 0;' before reading vh->h_vlan_TCI.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/realtek/r8169_main.c",
+      "line": 4392,
+      "status": "safe",
+      "reason": "rtl_skb_is_udp() uses inline guards 'return ih && ih->protocol == IPPROTO_UDP;' and 'return i6h && i6h->nexthdr == IPPROTO_UDP;' so the skb_header_pointer() NULL returns are never dereferenced.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/llc/llc_input.c",
+      "line": 119,
+      "status": "safe",
+      "reason": "llc_fixup_skb() calls 'if (unlikely(!pskb_may_pull(skb, sizeof(*pdu)))) return 0;' before casting skb->data to struct llc_pdu_un *, and pulls llc_len bytes before skb_pull().",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/netfilter/nf_conntrack_proto_sctp.c",
+      "line": 144,
+      "status": "safe",
+      "reason": "for_each_sctp_chunk() evaluates the skb_header_pointer() result as part of the loop condition, so the loop body only runs when the chunk header pointer is non-NULL.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/appletalk/aarp.c",
+      "line": 542,
+      "status": "safe",
+      "reason": "The (struct ddpehdr *)skb->data cast in aarp_send_ddp() is on the transmit path for a locally generated DDP skb whose header is in the linear head, not a receive-path parse of an untrusted non-linear skb.",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "Driver RX paths under drivers/net/ that cast skb->data to hardware descriptor structs (arcnet, CAN, ethernet drivers) were enumerated but not individually audited for non-linear skbs, since most operate on driver-private descriptor memory rather than the skb head.",
+    "Reachability of an attacker-crafted non-linear GARP PDU at garp_pdu_rcv() (e.g. scatter-gather RX, GRO, or L2 tunnel decap into a GARP-participating bridge port) was argued statically only; no KASAN reproduction or kernel build of s04 was performed.",
+    "Search patterns covered skb_header_pointer() NULL-ignoring uses and (struct X *)skb->data casts in net/ and drivers/net/; other stale-pointer shapes (e.g. pointers captured before skb_cow_head()/pskb_trim() in receive handlers) were not systematically enumerated."
+  ],
+  "limitations": [
+    "The garp.c findings are structural mirrors of the seed mechanism (pointer into the skb linear head used across pskb_may_pull()); triggering requires a non-linear skb on the GARP receive path, which is plausible but unproven, hence medium confidence.",
+    "No git history is available in the snapshot, so it cannot be verified whether upstream has since fixed net/802/garp.c.",
+    "The seed location net/phonet/pep.c (pep_get_sb, lines 55-65 in s04) exhibits the identical missing-refetch pattern but is excluded from reporting per assignment rules."
+  ]
+}

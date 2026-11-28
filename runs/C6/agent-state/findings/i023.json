@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "intent_id": "i023",
+  "branch": "header-accessor-no-linearize",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/ncsi/ncsi-rsp.c",
+      "start": 966,
+      "end": 1031,
+      "quote": "hdr = (struct ncsi_pkt_hdr *)skb_network_header(skb);\n\tif (hdr->type == NCSI_PKT_AEN)",
+      "confidence": "medium",
+      "reason": "ncsi_rcv_rsp() is the dev_add_pack() handler for ETH_P_NCSI (registered in net/ncsi/ncsi-manage.c:1242-1245), so the skb arrives from __netif_receive_skb_core immediately after eth_type_trans() (which sets the network header at skb->data after pulling only ETH_HLEN, net/ethernet/eth.c:163-166) and can be non-linear (frags/frag_list from the NIC, or GRO). The whole file contains zero pskb_may_pull/skb_linearize/skb_headlen/skb_is_nonlinear/skb_pagelen/skb_header_pointer calls (verified by grep over net/ncsi/*.c). At line 984 hdr = (struct ncsi_pkt_hdr *)skb_network_header(skb) is immediately dereferenced (hdr->type at 985/990/1002, hdr->id at 1008, hdr->length at 1025) with no guarantee the 16-byte ncsi_pkt_hdr is in the linear area; hdr->length (attacker-chosen, line 1025) then becomes 'payload' and is used in ncsi_validate_rsp_pkt() to compute pchecksum = (void *)(h+1) + payload - 4 (line 49) and run ncsi_calculate_checksum((unsigned char *)h, sizeof(*h) + payload - 4) (lines 53-54) over that many linear bytes, and the per-type handlers in the ncsi_rsp_handlers[] table (payload up to 172, e.g. ncsi_rsp_handler_gcps at 786) then struct-dereference rsp fields. Any negative/garbage length fails the ntohs(h->common.length) == payload equality at line 37 only when payload came from the handler table, but for the GP type (payload -1) payload is taken directly from the attacker's hdr->length, so the equality is tautological and the attacker-chosen length feeds the unchecked linear read. Counterevidence checked: (a) upstream later added skb len checks to NCSI; (b) reachability requires a driver registering an NCSI-capable device (net/ncsi/Kconfig NET_NCSI, e.g. faraday ftgmac100) and an attacker able to inject frames on the NC-SI side channel (typically BMC-internal network), which narrows remote reachability compared to an internet-facing port; (c) the earliest dereference (hdr->type) reads 8 bytes past the 14-byte pulled ETH_HLEN region when headlen==ETH_HLEN, an OOB linear read, not necessarily a UAF. This matches the branch invariant: accessor-derived pointer dereferenced with no pull/guard covering those bytes on a receive path.",
+      "conclusion": "NCSI receive handler ncsi_rcv_rsp() dereferences skb_network_header() pointers (hdr->type/id/length and, in ncsi_validate_rsp_pkt(), attacker-length-driven checksum reads) with no pskb_may_pull or headlen guard anywhere in net/ncsi, so a non-linear ETH_P_NCSI frame causes linear-area OOB reads."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/ncsi/ncsi-aen.c",
+      "line": 200,
+      "status": "reported",
+      "reason": "ncsi_aen_handler() does h = (struct ncsi_aen_pkt_hdr *)skb_network_header(skb) then dereferences h->type in the dispatch loop (lines 201-210) and passes h to ncsi_validate_aen_pkt()/payload handlers; same file/registration as the ncsi-rsp.c finding and equally unguarded. Folded into the primary finding's reachability; only hdr->type bytes are read here.",
+      "conclusion": "Same mechanism as the ncsi-rsp.c finding on the AEN branch: skb_network_header() pointer dereferenced with no linear-area guarantee for ETH_P_NCSI AEN frames."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/hsr/hsr_forward.c",
+      "line": 58,
+      "status": "safe",
+      "reason": "is_supervision_frame() casts skb_mac_header(skb) to struct ethhdr and reads h_dest/h_proto/hsr_sup_tag fields with no pull, but HSR rx_handler input is eth_type_trans output whose mac header offset was set before the ETH_HLEN pull; the ethhdr itself is guaranteed linear by driver delivery (skb_share_check/eth_type_trans contract) and HSR supervision parsing occurs before any pull that could invalidate it; no attacker-length variable header is parsed from the mac header pointer here.",
+      "conclusion": "HSR supervision-frame mac_header casts read only the fixed ethhdr, which drivers guarantee linear at eth_type_trans; no variable-length unguarded read found."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ieee802154/6lowpan/rx.c",
+      "line": 80,
+      "status": "unresolved",
+      "reason": "lowpan_rx_h_frag()/lowpan_rx_h_iphc() dereference *skb_network_header(skb) (single-byte dispatch reads at lines 80, 81, 107) with no pskb_may_pull on the path; lowpan_process_data() callers (ieee802154 netdev) were not traced to confirm whether the first byte can be non-linear, and f007 left the same nhc.c question open. The dispatch byte sits at skb->data, so only zero-headlen frames would fault; whether mac802154 deliverable skbs can have headlen==0 on the 6lowpan path was not determined.",
+      "conclusion": "Follow up: trace ieee802154 RX into lowpan_process_data/lowpan_invoke_rx_handlers to determine whether a zero-linear-length skb can reach the *skb_network_header(skb) dispatch reads at rx.c:80-81 and 107."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/netfilter/nf_conntrack_reasm.c",
+      "line": 590,
+      "status": "safe",
+      "reason": "nf_ct_frag6_queue() guards with pskb_may_pull(skb, fhoff + sizeof(*fhdr)) at line 585 before fhdr = (struct frag_hdr *)skb_transport_header(skb) at 590, so the frag header bytes are guaranteed linear before dereference.",
+      "conclusion": "Fragment header dereference is preceded by a covering pskb_may_pull at nf_conntrack_reasm.c:585; invariant holds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 264,
+      "status": "safe",
+      "reason": "ipv6_destopt_rcv()/ipv6_rthdr_rcv() paths call pskb_may_pull(skb, skb_transport_offset(skb) + 8) plus a second pull of the attacker-chosen hdrlen before dereferencing transport-header-derived extension header pointers (lines 264-266, 491-493, 840-842), and ip6_parse_tlv uses a skb_headlen() check at line 111; the exthdrs paths properly linearize before dereference.",
+      "conclusion": "IPv6 extension-header accessors are covered by explicit pskb_may_pull of the exact attacker-chosen length before dereference; invariant holds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv6/ip6_input.c",
+      "line": 238,
+      "status": "safe",
+      "reason": "ip6_input_finish() reads nexthdr = skb_network_header(skb)[nhoff] after pskb_pull(skb, skb_transport_offset(skb)) at line 233, and the IPv6 header itself was guaranteed by pskb_may_pull(skb, sizeof(*hdr)) at line 111 in ip6_rcv_finish; nhoff points inside the already-linear IPv6 header region parsed by ip6_parse_tlv with its headlen check.",
+      "conclusion": "nexthdr byte read is within the IPv6 header already linearized at ip6_input.c:111; invariant holds."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/xfrm/xfrm_input.c",
+      "line": 205,
+      "status": "unresolved",
+      "reason": "xfrm4/6_spi() and xfrm_input() read skb_transport_header(skb)+offset SPI/seq words and daddr from skb_network_header(skb) (lines 147, 157-158, 205) on the decap path with no visible pskb_may_pull in the excerpted lines; whether a preceding pskb_may_pull in xfrm4_rcv/xfrm6_rcv/esp_input covers those header bytes for all modes was not fully traced within the time budget.",
+      "conclusion": "Follow up: verify whether xfrm4_rcv/xfrm6_rcv linearize the IP+SPI header bytes before the skb_transport_header()-derived SPI/seq reads at xfrm_input.c:147-158 and the daddr read at 205."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/tcp_input.c",
+      "line": 6289,
+      "status": "safe",
+      "reason": "The skb_network_header(skb) memcpy at 6289 is on the listen-request processing path where the (possibly cloned) SYN skb has been through tcp_rcv_established/tail paths that pskb_may_pull the TCP header (tcp_hdr reads after pskb_may_pull in tcp_rcv_state_process) and the option copy length 'len' is bounded by the already-pulled doff; line 1649's transport-header pointer arithmetic is on an ack_skb whose header was pulled by tcp_validate_incoming.",
+      "conclusion": "tcp_input.c accessor uses occur after TCP-header linearization on their paths; no unguarded attacker-length dereference found."
+    }
+  ],
+  "coverage_gaps": [
+    "Only net/ and drivers/net/ .c files were grepped for the seven accessor names; drivers/net was ranked but not per-function audited after the receive-path filter, so unguarded dereferences in NIC rx handlers (i40e/fm10k/ixgbe/sunvnet tx-named files aside) may remain unreviewed.",
+    "net/ncsi reachability was established structurally (dev_add_pack of ETH_P_NCSI, eth_type_trans sets network header with only ETH_HLEN pulled) but no NCSI-capable driver (e.g. ftgmac100) was traced to confirm a frag-backed skb can actually be delivered to ncsi_rcv_rsp in s02.",
+    "The 667 accessor hit sites were filtered heuristically (tx/xmit/output/encap filename exclusion plus receive-keyword grep), so receive-path accessor dereferences in files without those keywords (e.g. net/qrqr/qrtr.c, net/rxrpc/peer_event.c, net/sched/act_nat.c, net/openvswitch/flow.c, net/packet/af_packet.c) were only skimmed by filename, not read.",
+    "No runtime KASAN build or crafted non-linear ETH_P_NCSI / 6lowpan / xfrm packet was produced; the NCSI finding is a source-reading hypothesis with no empirical confirmation of head reallocation or OOB read."
+  ],
+  "limitations": [
+    "The NCSI finding's concrete failure mode is an out-of-bounds read of the linear head (bytes past skb_headlen) rather than the seed's use-after-free, because no pskb_may_pull ever runs to move the head; the branch treats both as the same missing-linear-guarantee invariant.",
+    "Triggering the NCSI path requires CONFIG_NET_NCSI, a registered NCSI netdev, and an attacker positioned to inject frames on the NC-SI management side channel (often BMC-internal rather than internet-facing), so remote reachability is narrower than the seed's phonet case.",
+    "The hdr->length==payload equality at ncsi-rsp.c:37 blocks table-driven lengths, but the GP handler's payload==-1 path takes payload from the attacker's hdr->length directly, making the equality tautological; whether payload can exceed the actual linear bytes (rather than the full skb->len) was reasoned from source, not measured.",
+    "All candidates were classified by source reading in a single session with a bounded candidate budget (12); no cross-snapshot comparison, git history, or network access was used, per assignment constraints."
+  ]
+}

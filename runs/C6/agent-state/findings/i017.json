@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "intent_id": "i017",
+  "branch": "free-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": ["s01"],
+  "findings": [
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/6lowpan.c",
+      "start": 522,
+      "end": 544,
+      "quote": "err = send_pkt(lowpan_cb(skb)->chan, skb, netdev);",
+      "confidence": "low",
+      "reason": "Untrusted source: packets traversing the Bluetooth 6LoWPAN/IPSP netdev reach bt_xmit()/send_pkt(); remote peers can induce locally generated IPv6 traffic (ICMPv6/NDP replies) on this interface. Violated invariant: send_pkt() stores the skb pointer into channel-lifetime state at line 438 ('chan->data = skb;', comment 'Remember the skb so that we can send EAGAIN to the caller') without transferring ownership; bt_xmit() then unconditionally calls dev_kfree_skb(skb) at line 538 after send_pkt() returns, so chan->data retains a pointer to the freed sk_buff for the life of the l2cap_chan; send_mcast_pkt() (lines 479-488) repeats this per peer via local_skb followed by kfree_skb(local_skb). Unsafe use: any later reader of chan->data for an IPSP channel would dereference freed slab memory. Counterevidence checked: grep over net/bluetooth shows no reader of chan->data in 6lowpan.c (only the writer at 438) and the readers in l2cap_sock.c/smp.c/a2mp.c belong to socket/SMP/AMP channels, so the dangling pointer is currently latent; reported as a hypothesis with low confidence, no exploit claim.",
+      "conclusion": "bt_xmit() frees the skb (dev_kfree_skb, net/bluetooth/6lowpan.c:538) while send_pkt() saved that skb pointer into long-lived l2cap channel state (chan->data = skb, line 438), leaving a dangling stored pointer; no in-tree reader found, so the UAF is latent."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s01",
+      "path": "net/vmw_vsock/virtio_transport.c",
+      "line": 204,
+      "status": "safe",
+      "reason": "hdr = virtio_vsock_hdr(skb) is saved at 204, but both kfree_skb(skb) sites (209 and 215) immediately 'goto out_rcu' with no later hdr dereference in the function; hdr->dst_cid at 214 is read while the skb is still alive.",
+      "conclusion": "No post-free use: every kfree_skb branch exits before touching hdr again."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/sunrpc/svcsock.c",
+      "line": 631,
+      "status": "safe",
+      "reason": "rq_arg.head[0].iov_base = skb->data is paired with rqstp->rq_xprt_ctxt = skb (ownership deliberately transferred, skb freed only after the RPC reply), and the nonlinear path consume_skb(skb) happens after the data was copied out via csum_partial_copy_to_xdr.",
+      "conclusion": "Ownership transfer is explicit and the skb outlives its last data use; not a UAF."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/caif/chnl_net.c",
+      "line": 77,
+      "status": "safe",
+      "reason": "ip_version = skb_header_pointer(skb, 0, 1, &buf) is dereferenced (*ip_version >> 4) strictly before netif_rx(skb) hands the skb to the stack; after netif_rx only the previously saved integer pktlen is used.",
+      "conclusion": "Header pointer used before handoff, only a scalar used after; safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 441,
+      "status": "safe",
+      "reason": "In ipv6_srh_rcv/ipv6_rpl_rcv/ipv6_rthdr_rcv every kfree_skb(skb) error path returns -1 immediately (netif_rx(skb) at 413/523 also returns -1), and after pskb_expand_head the header pointer is refetched via hdr = (struct ... *)skb_transport_header(skb) at 441, 505 and 759 before further use.",
+      "conclusion": "All frees are on paths that return; header pointers are refetched after head expansion; safe for this branch."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/netrom/nr_route.c",
+      "line": 819,
+      "status": "safe",
+      "reason": "kfree_skb(skb); skb = skbn; skb->data[14]--; dereferences the fresh skb_copy_expand() copy, never the freed original skb.",
+      "conclusion": "Use targets the replacement skb; safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/hci_sock.c",
+      "line": 1871,
+      "status": "safe",
+      "reason": "skb_queue_tail(&hdev->raw_q, skb) and the later get_unaligned_le16(skb->data) at 1874 are in mutually exclusive if/else-if branches.",
+      "conclusion": "Branch structure prevents any post-handoff data read; safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/ipv6/netfilter/ip6t_SYNPROXY.c",
+      "line": 49,
+      "status": "safe",
+      "reason": "consume_skb(skb); return NF_STOLEN; exits the branch before the th->ack dereference at 52 which lives in the else-if path (same shape in net/ipv4/netfilter/ipt_SYNPROXY.c and nf_synproxy_core.c).",
+      "conclusion": "Free and th dereference are on exclusive paths; safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/rfcomm/tty.c",
+      "line": 613,
+      "status": "safe",
+      "reason": "skb_queue_tail(&dev->pending, skb); return; - the tty_insert_flip_string(&dev->port, skb->data, skb->len) at 619 is in the mutually exclusive else path, and the queued skb itself stays alive.",
+      "conclusion": "Queue path returns immediately; data use is on the other branch; safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/marvell/mwifiex/txrx.c",
+      "line": 102,
+      "status": "safe",
+      "reason": "The skb_queue_tail(&adapter->tx_data_q, skb) path returns 0 immediately; the local_tx_pd->flags write at the out: label is only reached on the host_to_card error path where the skb was never queued or freed, and this is the TX path not packet reception.",
+      "conclusion": "No free-before-use on any single path; TX path only; safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "drivers/net/wireless/ti/wlcore/cmd.c",
+      "line": 1072,
+      "status": "safe",
+      "reason": "ptr = skb->data is consumed by wl1271_cmd_template_set(), which memcpy's from it into a freshly kzalloc'd command buffer before the caller's dev_kfree_skb(skb) at 1080.",
+      "conclusion": "Data is copied out before the free; safe."
+    },
+    {
+      "snapshot": "s01",
+      "path": "net/bluetooth/6lowpan.c",
+      "line": 438,
+      "status": "reported",
+      "reason": "chan->data = skb stores the skb into l2cap channel state that outlives the xmit call, after which bt_xmit() (line 538) and send_mcast_pkt() (line 487) free that same skb; the dangling pointer is never read for IPSP channels in this tree, so this is the reported low-confidence latent finding.",
+      "conclusion": "Stored skb pointer outlives its dev_kfree_skb; no reader found, latent dangling state."
+    }
+  ],
+  "coverage_gaps": [
+    "drivers/net/ was only sampled (hits from the '= skb->data' and queue/handoff-then-use greps over USB, PPP, wwan and wireless drivers); the ~2900 kfree_skb sites there were not all individually audited.",
+    "Free/use pairs separated by more than the 6-12 line heuristic window, or where the free happens inside a helper (netif_rx backlog drop, icmpv6_send, dev_queue_xmit completion, driver TX completion), were not exhaustively traced.",
+    "skb pointers stored inside driver/firmware private structs (e.g. ps->tx_skb in drivers/net/dsa/mv88e6xxx/hwtstamp.c) were only spot-checked, not lifetime-traced to their freeing path.",
+    "pskb_may_pull/pskb_expand_head head-reallocation stale-pointer sites were deliberately excluded per branch instructions (other branches cover them)."
+  ],
+  "limitations": [
+    "The single finding is a stored dangling pointer with no demonstrated dereference site: chan->data is written at net/bluetooth/6lowpan.c:438 but never read for IPSP channels in this snapshot, so no crash or disclosure is proven; it is reported as a hypothesis with low confidence.",
+    "No build, KASAN or reproducer run was performed (read-only source snapshot, work confined to grep/reading), so all conclusions rest on static reading of this snapshot's exact lines.",
+    "Snapshot revision is opaque (hidden); line numbers and code state are valid only for snapshots/s01 as supplied."
+  ]
+}

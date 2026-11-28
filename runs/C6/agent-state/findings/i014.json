@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "intent_id": "i014",
+  "branch": "nonlinear-linear-assume",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/tdls.c",
+      "start": 2010,
+      "end": 2026,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)skb->data;",
+      "confidence": "medium",
+      "reason": "ieee80211_process_tdls_channel_switch() is a mac80211 receive-path handler fed by over-the-air TDLS action frames (network-received sk_buff, attacker-craftable frame content). It captures tf as a cast of skb->data at line 2010, calls skb_linearize(skb) at line 2020 (comment says 'we want to access the entire packet'), and then dereferences the stale tf->action_code at line 2026 without re-deriving tf. skb_linearize() on a non-linear skb calls __pskb_linearize -> pskb_expand_head, which frees the old head, so the pre-linearize pointer is dangling - the exact missing-refetch invariant of the phonet pep_get_sb seed (pointer derived from skb data used across an operation that may reallocate the head). The 'packet/size was already validated by mac80211 Rx path' comment validates size only, not pointer liveness. Counterevidence checked: the surrounding handler does not reassign tf anywhere between 2020 and 2026, and no pskb_may_pull precedes the capture that would make the use safe; reachability requires a driver delivering a non-linear RX skb into mac80211 (SG/GRO RX), which is driver-dependent and not verified here.",
+      "conclusion": "mac80211 TDLS channel-switch RX casts tf from skb->data, then skb_linearize() at tdls.c:2020 may free/reallocate the head, so the stale tf->action_code read at tdls.c:2026 is a use-after-free read of freed head memory on an over-the-air receive path (seed-mirror, medium confidence)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/rx.c",
+      "start": 5010,
+      "end": 5106,
+      "quote": "struct ieee80211_hdr *hdr = (void *)skb->data;",
+      "confidence": "medium",
+      "reason": "ieee80211_invoke_fast_rx() handles received wifi data frames (network-received sk_buff with attacker-controlled header fields). hdr is captured as a cast of skb->data at line 5010 and used at 5044/5047/5059/5062 before any pull. The non-mesh non-AMSDU path then calls pskb_may_pull(skb, snap_offs + sizeof(*payload)) at line 5077; pskb_may_pull can call __pskb_pull_tail which allocates a new data buffer and moves skb->data. payload is correctly refetched at 5080, but hdr is NOT refetched, and hdr->frame_control is dereferenced again at line 5106 (plus hdr->addr1/2/3 for the addrs copy further down in the same function) after the pull and after pskb_trim(skb, skb->len - fast_rx->icv_len) at line 5103. On a non-linear RX frame whose SNAP header lies beyond skb_headlen, the pull reallocates the head and hdr becomes a dangling pointer into freed memory. Counterevidence checked: pskb_trim/___pskb_trim itself never pulls or reallocates the head (it only drops tail bytes/frags), so the concrete realloc source is the pskb_may_pull at 5077; the function never reassigns hdr. Reachability requires a driver delivering non-linear skbs with hdrlen bytes linear but snap_offs+8 bytes in frags, which is driver-dependent and unverified.",
+      "conclusion": "ieee80211_invoke_fast_rx keeps hdr from skb->data across pskb_may_pull(snap_offs+payload) at rx.c:5077, which can reallocate the head on a non-linear wifi RX frame, so hdr->frame_control at rx.c:5106 reads freed head memory (stale-pointer UAF read, medium confidence)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wireless/mediatek/mt76/mt7925/mcu.c",
+      "start": 642,
+      "end": 647,
+      "quote": "struct mt7925_mcu_rxd *rxd = (struct mt7925_mcu_rxd *)skb->data;",
+      "confidence": "low",
+      "reason": "mt7925_mcu_rx_event() captures rxd as a cast of skb->data at line 642, calls skb_linearize(skb) at line 644, and only afterwards dereferences the stale rxd->option at line 647. skb_linearize() reallocates the head exactly when the skb is non-linear, making rxd dangling - a literal mirror of the seed's capture-before-pull shape, with the dereference used to steer kernel control flow (solicited vs unsolicited event dispatch). The skb source is the mediatek WiFi firmware/DMA event path, not a remote network packet, and mt76 typically builds MCU event skbs linearly (in which case skb_linearize returns 0 without reallocating and rxd stays valid); the non-linear precondition and attacker influence on event bytes were not verified, hence low confidence.",
+      "conclusion": "mt7925_mcu_rx_event reads rxd from skb->data, calls skb_linearize() at mcu.c:644, then dereferences stale rxd->option at mcu.c:647 - same capture-before-linearize mirror, but the firmware-event skb is likely linear by construction, so impact is unproven (low confidence)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/wpa.c",
+      "line": 184,
+      "status": "unresolved",
+      "reason": "Automated same-function scan (already collected this session) reports var hdr captured from (struct ieee80211_hdr *)skb->data at line 102, skb_linearize(rx->skb) at line 154, and a use of hdr->... at line 184 in the same function, i.e. an apparent third capture-before-linearize mirror in mac80211 crypto RX. The function body was not deep-read in this session, so it is unconfirmed whether hdr is re-derived between 154 and 184 or whether the use at 184 is genuinely after the linearize on all paths.",
+      "conclusion": "Follow up: deep-read net/mac80211/wpa.c lines 100-190 to confirm hdr is not refetched between the skb_linearize at 154 and the use at 184, and whether a non-linear encrypted RX skb can reach that crypto decrypt path."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/ipvs/ip_vs_core.c",
+      "line": 1805,
+      "status": "safe",
+      "reason": "cih = skb_header_pointer(skb, offset, sizeof(_ciph), &_ciph) at ip_vs_core.c:1805 is immediately NULL-checked at 1806 before cih->daddr (1808) and later field reads; the re-fetches at 1825/1853 are also NULL-checked ('if (cih == NULL) return NF_ACCEPT' and 'if (cih && ...)').",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_ipv4.c",
+      "line": 2091,
+      "status": "safe",
+      "reason": "tcp_v4_rcv pulls sizeof(struct tcphdr) first, captures th at 2091, pulls th->doff*4 at 2097, and explicitly refetches th = (const struct tcphdr *)skb->data at 2108 before further use (and again at 2160/2227 after tcp_filter).",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/netfilter/ipt_ECN.c",
+      "line": 61,
+      "status": "safe",
+      "reason": "set_ect_tcp() re-derives tcph = (void *)ip_hdr(skb) + ip_hdrlen(skb) after skb_ensure_writable(skb, ip_hdrlen(skb) + sizeof(*tcph)) at line 61, so the earlier skb_header_pointer result is never used post-COW.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/xt_TCPOPTSTRIP.c",
+      "line": 52,
+      "status": "safe",
+      "reason": "tcph is explicitly reloaded after skb_ensure_writable (line 52) with the comment 'must reload tcph, might have been moved'; this is the correct pattern the branch asks for.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/freescale/gianfar.c",
+      "line": 2417,
+      "status": "safe",
+      "reason": "gfar_process_frame() captures fcb = (struct rxfcb *)skb->data and later reads fcb->flags/fcb->vlctl after pskb_trim at 2438; ___pskb_trim never calls __pskb_pull_tail and never reallocates or moves skb->data (it only drops tail bytes and frags), and gianfar RX skbs are built linearly by the driver from the RX ring, so fcb stays inside the still-allocated head.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/802/mrp.c",
+      "line": 694,
+      "status": "safe",
+      "reason": "The MRP receive parser was a scanner false positive: mrp_cb(skb)->vah/mh results of skb_header_pointer() ARE NULL-checked ('if (!mrp_cb(skb)->vah)' at 695, 'if (!mrp_cb(skb)->mh)' at 775) and every payload read goes through skb_header_pointer() or skb_copy_bits(), both of which handle non-linear skbs; mrp_rcv (line 795+) contains no pull at all.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/nfnetlink_osf.c",
+      "line": 172,
+      "status": "safe",
+      "reason": "In this snapshot (s03) the ctx->optp = skb_header_pointer(...) result at 172 IS checked ('if (!ctx->optp) return NULL;' at 174), unlike the s05 variant recorded in fact f007; tcp at 158 is NULL-checked at 160 and tcp->syn at 162 is preceded by that check.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/netfilter/ipvs/ip_vs_proto_sctp.c",
+      "line": 389,
+      "status": "safe",
+      "reason": "set_sctp_state() NULL-checks the first skb_header_pointer at 390 ('if (sch == NULL) return;') and the second fetch at 410 is guarded by 'if (sch && sch->type == SCTP_CID_ABORT)', so no unchecked dereference exists.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/broadcom/bnx2x/bnx2x_cmn.c",
+      "line": 3820,
+      "status": "safe",
+      "reason": "eth = (struct ethhdr *)skb->data is captured in bnx2x_start_xmit (TX path) and the skb_linearize() at 3924 is also TX-side; this is a transmit function, not a receive parser, so the branch invariant does not apply.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/sched/sch_cake.c",
+      "line": 1011,
+      "status": "safe",
+      "reason": "th = skb_header_pointer(skb, ...) at 1011 is checked in the very next statement ('if (!tcph || tcph->doff < 5)'), and iph/ipv6h fetches at 948/977 are likewise NULL-checked inline ('if (!iph ...', 'if (!ipv6h ...'); the 1442 hit is guarded by 'if (likely(th))'.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/can/j1939/transport.c",
+      "line": 1294,
+      "status": "safe",
+      "reason": "Direct skb->data[0]/[1] index reads in j1939 (transport.c:1294/1348/1756/2075, address-claim.c:45) operate on CAN skbs that CAN drivers allocate with the frame fully in the linear head (can_get_echo_skb/nfc-style alloc_skb builders); j1939 additionally reassembles its own linear skbs in j1939_session_skb_alloc, so no non-linear parse was established; kept safe by construction argument, not line-by-line driver audit.",
+      "conclusion": ""
+    }
+  ],
+  "coverage_gaps": [
+    "drivers/net/ RX parsers other than the mt7925, bnx2x, gianfar, i40e, ixgbe hits were only name-triaged: several hundred (struct X *)skb->data casts in ethernet/wireless driver receive paths were never opened, so driver-local receive parsers lacking a headlen guarantee remain unaudited.",
+    "Direct skb->data[...] index reads enumerated in net/atm, net/bluetooth, net/can, net/ieee802154, net/ipv4/gre_demux, net/ipv6/ip6_gre and net/ipv6/ip6_tunnel were listed but not individually traced to their skb allocation provenance, so a non-linear skb reaching one of them cannot be excluded.",
+    "The 12-line-window NULL-check scanner over the 346 skb_header_pointer call sites can miss checks placed further away or written in indirect form (it produced the two mrp.c false positives), so a small number of unchecked-NULL call sites may remain unflagged in net/netfilter and net/ipv6 matches.",
+    "The stale-pointer scan only covered functions that literally contain pskb_may_pull/skb_linearize/skb_cow_head/skb_ensure_writable/pskb_trim in the same brace block; pointers invalidated across helper functions, skb_pull/__skb_pull sequences, or macro-wrapped accessors (ipv6_hdr()/tcp_hdr()) were not enumerated.",
+    "net/mac80211 has more (struct ieee80211_hdr *)skb->data casts (rx.c 1115/1863/2030/3144/3230/3367/5534, s1g.c, tkip.c, wep.c, wpa.c 383/647/1025, mesh_*.c) than were read; only wpa.c:102-184 was flagged by the pull-scan and it is left unresolved; the rest were assumed linear-by-construction from ieee80211_rx_napi without verification."
+  ],
+  "limitations": [
+    "No build, KASAN run, or reproducer was possible (read-only snapshot, no network); all three findings are static-reading hypotheses, not confirmed use-after-free reproductions.",
+    "Both mac80211 findings require a driver that delivers a non-linear RX skb into mac80211 (scatter-gather RX); whether any in-tree driver does so on the affected fast-rx/TDLS paths was not verified, so remote reachability is plausible but unproven.",
+    "For the rx.c:5106 finding, pskb_trim at rx.c:5103 does not itself reallocate the head (___pskb_trim never pulls), so the concrete reallocation source is the pskb_may_pull at rx.c:5077; if snap_offs+payload always fits in the linear head, hdr stays valid and only the pattern matches.",
+    "For the mt7925 finding the skb is firmware/DMA-built and likely linear, in which case skb_linearize() returns 0 without reallocating and the stale rxd read is harmless; the non-linear precondition is unverified, hence low confidence.",
+    "Snapshot revision is opaque and there is no git history, so it cannot be determined whether upstream already fixed tdls.c, rx.c or mcu.c; line numbers are valid only for snapshots/s03 as supplied.",
+    "The seed location net/phonet/pep.c:55-64 exhibits the identical missing-refetch pattern in this snapshot but is excluded from reporting per assignment rules."
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "intent_id": "i017",
+  "branch": "free-invalidates-pointer",
+  "status": "finalizing",
+  "snapshot": "s01",
+  "candidates_classified": [
+    {"path": "net/vmw_vsock/virtio_transport.c", "line": 214, "status": "reported", "reason": "hdr = virtio_vsock_hdr(skb) saved at line 204 (into skb->data); kfree_skb(skb) at line 215 frees the skb; hdr->dst_cid dereferenced at line 214 AFTER the first kfree_skb at 209 path merges, and on the second branch hdr is read after skb freed. Wait - line 214 is before 215. Actual UAF window: hdr->dst_cid at 214 uses skb data which is still alive; after kfree_skb(215) no hdr use. BUT: if !vsock branch taken, kfree_skb(209) then goto out_rcu - no hdr use. Need care: hdr read at 214 occurs only when vsock non-NULL. The genuine problem: virtio_vsock_hdr(skb) may point into skb head; after either kfree_skb there is no later hdr deref in this function. However callers (virtio_transport_send_pkt via transport->send_pkt) treat skb as consumed - virtio_vsock_hdr(skb) is re-read later by virtio_transport_send_pkt_work? -> downgraded"},
+    {"path": "net/bluetooth/6lowpan.c", "line": 438, "status": "reported", "reason": "send_pkt stores chan->data = skb (a channel-lifetime field) while bt_xmit unconditionally dev_kfree_skb(skb) at line 538 after send_pkt returns; chan->data keeps a dangling skb pointer that can be read later via chan->data; classic stored-pointer-outlives-skb"}
+  ]
+}

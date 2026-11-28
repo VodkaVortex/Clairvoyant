@@ -1,0 +1,108 @@
+{
+ "version": 1,
+ "intent_id": "i008",
+ "branch": "expand-cow-invalidates-pointer",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s02"
+ ],
+ "findings": [
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/wireless/marvell/mwifiex/uap_txrx.c",
+   "start": 107,
+   "end": 198,
+   "quote": "uap_rx_pd = (struct uap_rxpd *)(skb->data);\n\trx_pkt_hdr = (void *)uap_rx_pd + le16_to_cpu(uap_rx_pd->rx_pkt_offset);",
+   "confidence": "high",
+   "reason": "Untrusted source: skb is an rxpd-carrying buffer delivered from the mwifiex firmware by the AP-mode RX path (mwifiex_process_uap_rxpd -> mwifiex_handle_uap_rx_forward at uap_txrx.c:427, or skb_copy for multicast at 259, both feeding mwifiex_uap_queue_bridged_pkt); its leading uap_rx_pd header is firmware/attacker-influenced (rx_pkt_offset drives rx_pkt_hdr placement). Violated invariant: mwifiex_uap_queue_bridged_pkt saves uap_rx_pd = skb->data and rx_pkt_hdr = uap_rx_pd + rx_pkt_offset (lines 107-108) into the skb's linear head, then when headroom < MWIFIEX_MIN_DATA_HEADER_LEN it calls skb_realloc_headroom(skb, MWIFIEX_MIN_DATA_HEADER_LEN) (lines 166-167), which for a positive delta does skb_clone + pskb_expand_head (net/core/skbuff.c:1274-1290) - i.e. it allocates a new data buffer, copies, and the subsequent kfree_skb(skb) at line 176 frees the old head, moving skb to new_skb. Unsafe use: the stale rx_pkt_hdr is dereferenced afterwards at line 189 (mwifiex_get_sta_entry(priv, rx_pkt_hdr->eth803_hdr.h_source) - 6-byte read) and line 198 (is_unicast_ether_addr(rx_pkt_hdr->eth803_hdr.h_dest) - 6-byte read), and the stale uap_rx_pd is read at 194-195 (uap_rx_pd->rx_rate, uap_rx_pd->ht_info), so the function reads freed slab memory on the bridged-packet path. This is the same validated-then-invalidated pointer-into-skb-head mechanism as the seed (pep_get_sb), with skb_realloc_headroom/pskb_expand_head as the reallocating helper. Counterevidence checked: dsa tag_dsa.c:47/tag_edsa.c:56 (skb_cow_head followed by re-derivation from skb->data after skb_push - safe), i40e_txrx.c:2236 and ixgbe_main.c:7908 (vhdr re-derived from skb->data after skb_cow_head - safe), br_netfilter_hooks.c/br_netfilter_ipv6.c (headers re-derived or only values, not pointers, carried across pskb_trim_rcsum), pppoe.c:933 (ph re-derived after skb_cow_head - safe).",
+   "conclusion": "mwifiex AP-mode RX bridging saves rx_pkt_hdr/uap_rx_pd from skb->data, then skb_realloc_headroom+pskb_expand_head and kfree_skb free the old head, and lines 189/194-195/198 read freed memory (stale-pointer slab-UAF read, high confidence)."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ppp/pppoe.c",
+   "line": 450,
+   "status": "unresolved",
+   "reason": "pppoe_rcv_core() saves ph = pppoe_hdr(skb) at line 435, calls pskb_trim_rcsum(skb, len) at 442, and then reads ph->sid at 450 in the get_item() call; pskb_trim_rcsum -> pskb_trim -> ___pskb_trim can call pskb_expand_head for a cloned skb with data in frags, freeing the old head. Not read to a final conclusion (cloned-skb reachability on PPPOE receive not traced).",
+   "conclusion": "Follow up: determine whether a cloned, frag-backed PPPoE session frame can reach pppoe_rcv_core so pskb_trim_rcsum at pppoe.c:442 reallocates and ph->sid at 450 reads the freed head."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/wireless/marvell/mwifiex/main.c",
+   "line": 885,
+   "status": "unresolved",
+   "reason": "mwifiex_host_to_card (TX path) does skb_realloc_headroom at line 885 and kfree_skb of the old skb; tx_info is re-derived from the new skb, so no stale dereference was found in the read window, but the enclosing function was only partially read.",
+   "conclusion": "Follow up: finish reading mwifiex main.c around line 885 to confirm no pre-realloc header pointer (e.g. from callers) is used after the kfree_skb of the old skb."
+  },
+  {
+   "snapshot": "s02",
+   "path": "net/mac80211/rx.c",
+   "line": 3874,
+   "status": "unresolved",
+   "reason": "Scanner flagged hdr = (void *)skb->data saved at line 3785 and used at 3878 after pskb_trim(skb, ...) at 3874 in the fast-RX A-MSDU subframe-delivery path; pskb_trim reallocates only for cloned/non-linear input, and this site was not read to a conclusion before the finalize limit.",
+   "conclusion": "Follow up: read net/mac80211/rx.c 3780-3890 to check whether the hdr saved at 3785 is dereferenced after pskb_trim at 3874 and whether that skb can be cloned on the fast-RX path."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/wireless/marvell/mwifiex/uap_txrx.c",
+   "line": 322,
+   "status": "safe",
+   "reason": "mwifiex_process_rx_packet(): p_ethhdr = (void *)skb->data is read at 285-287 before the skb_realloc_headroom at 322, and after the call the code only touches skb_uap (tx_info from the new skb) and the still-valid skb; the p_ethhdr->h_dest reads at 323/333 occur inside the same condition expression before/independent of the realloc branch outcome and p_ethhdr is not used after the skb swap.",
+   "conclusion": "No post-realloc dereference of a pre-call head pointer; the pointer is consumed before the skb_realloc_headroom at uap_txrx.c:322."
+  },
+  {
+   "snapshot": "s02",
+   "path": "net/dsa/tag_dsa.c",
+   "line": 47,
+   "status": "safe",
+   "reason": "dsa_xmit: dsa_header is re-derived from skb->data after skb_push following the skb_cow_head at tag_dsa.c:47; the scan's 'use after' lines 56-58 are in the other branch where dsa_header is derived fresh after skb_cow_head + skb_push; same shape in tag_edsa.c:56.",
+   "conclusion": "All dsa_header/edsa_header uses are re-derived from the post-skb_cow_head skb->data; no stale pointer."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ethernet/intel/i40e/i40e_txrx.c",
+   "line": 2236,
+   "status": "safe",
+   "reason": "i40e xmit: the outer vlan_hdr vhdr (line 2214) is fully consumed into tx_flags before the skb_cow_head at 2236; the inner vhdr at 2239 is a fresh (struct vlan_ethhdr *)skb->data taken after skb_cow_head, so no stale pointer.",
+   "conclusion": "vhdr is re-derived from skb->data after skb_cow_head; no stale-pointer dereference."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ethernet/intel/ixgbe/ixgbe_main.c",
+   "line": 7908,
+   "status": "safe",
+   "reason": "ixgbe xmit: the skb_header_pointer vhdr at 7864 is consumed into tx_flags before skb_cow_head at 7908; the vhdr at 7910 is a fresh cast of skb->data after the cow, so no stale pointer.",
+   "conclusion": "vhdr is re-derived from skb->data after skb_cow_head; no stale-pointer dereference."
+  },
+  {
+   "snapshot": "s02",
+   "path": "net/bridge/br_netfilter_ipv6.c",
+   "line": 84,
+   "status": "safe",
+   "reason": "br_nf_check_hbh_len re-derives nh = skb_network_header(skb) immediately after the pskb_trim_rcsum at line 84, and the pskb_trim_rcsum at line 129 is followed by no use of the pre-trim hdr for memory reads beyond already-extracted values; br_netfilter_hooks.c:226 similarly uses only the extracted len.",
+   "conclusion": "Bridge netfilter re-derives the network-header pointer after pskb_trim_rcsum; no stale pointer."
+  },
+  {
+   "snapshot": "s02",
+   "path": "drivers/net/ppp/pppoe.c",
+   "line": 933,
+   "status": "safe",
+   "reason": "pppoe xmit path: ph = pppoe_hdr(skb) at 939 is derived after __skb_push that follows the skb_cow_head at 933, so it points into the (possibly new) head; the cow happens before the push and ph derivation.",
+   "conclusion": "ph is derived after skb_cow_head and skb_push; no stale pointer on the pppoe xmit path."
+  }
+ ],
+ "coverage_gaps": [
+  "Only the 86 scanner triples (save->helper->use) in net/ and drivers/net/ were triaged plus targeted full-function reads; the 53 pskb_expand_head, 38 skb_realloc_headroom, 113 skb_cow/skb_cow_head, 64 skb_linearize, 49 pskb_trim, 11 pskb_carve and 44 skb_copy_expand_head call sites were not each read to a conclusion.",
+  "net/mac80211 fast-RX hdr (rx.c:3785/3874), mwifiex main.c:885 TX path, and pppoe.c:442/450 were flagged but not read to a conclusion before the finalize limit; each carries a follow-up conclusion.",
+  "Helpers used outside net/ and drivers/net/ (netfilter core under net/netfilter beyond grep hits, bluetooth, other driver trees) were only rank-counted, not audited; pskb_carve sites (11) were never read.",
+  "Bare skb_trim() (not pskb_trim) call sites and plain 'ptr = skb->data + off' offsets were not systematically enumerated in this session."
+ ],
+ "limitations": [
+  "The mwifiex finding is a source-reading hypothesis, not a reproduction: no KASAN build, crafted frame, or runtime harness was run against the read-only snapshot; the head free is inferred from skb_realloc_headroom's skb_clone+pskb_expand_head path (net/core/skbuff.c:1274-1290) and the unconditional kfree_skb(skb) at uap_txrx.c:176.",
+  "Triggering the mwifiex stale reads requires skb_headroom(skb) < MWIFIEX_MIN_DATA_HEADER_LEN after the hdr_chop pull, which depends on mwifiex RX skb allocation headroom (SDIO/USB/PCIE allocation paths) and on firmware-controlled rx_pkt_offset/rx_pkt_length within the checked bound at uap_txrx.c:390-391; if driver allocations always leave enough headroom the path is latent.",
+  "The attacker influence is the 802.11 station (or malicious firmware) sending frames to the mwifiex-hosted AP interface; the values read through the dangling pointers (h_source/h_dest/rx_rate/ht_info) are informational, so impact is a slab-use-after-free read (memory disclosure/stale-value use) and potential crash, not a write.",
+  "Line numbers are valid only for the supplied snapshots/s02 tree (revision opaque, no git history or network access permitted), so upstream fix status could not be checked; net/phonet/pep.c pep_get_sb was excluded by instruction and never treated as a report target.",
+  "The function-extent scanner matches single-line assignments and named accessors only, so multi-line pointer derivations, pointers passed into helper functions, and macro accessors outside the literal regex may have been missed among the several hundred raw call sites."
+ ]
+}

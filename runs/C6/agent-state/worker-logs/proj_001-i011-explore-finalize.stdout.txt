@@ -1,0 +1,10 @@
+I'll finalize now with targeted line-number captures for the strongest candidates already triaged.
+The final artifact for intent i011 is written. Summary of the investigation on snapshot s05:
+
+**Findings (branch: expand-cow-invalidates-pointer):**
+
+1. **`drivers/net/ethernet/mellanox/mlx5/core/en_accel/ipsec_rxtx.c:112-131`** — `mlx5e_ipsec_remove_trailer()` saves `ipv6hdr = ipv6_hdr(skb)` / `ipv4hdr = ip_hdr(skb)` into the skb head, calls `pskb_trim(skb, skb->len - trailer_len)` (line 124), then writes `ipv4hdr->tot_len` / `ipv6hdr->payload_len` through the stale pointers. For a cloned non-linear skb, `pskb_trim → ___pskb_trim → pskb_expand_head` frees the old head (net/core/skbuff.c:1798-1809), making the post-trim header fixup a UAF write.
+
+2. **`drivers/net/ethernet/emulex/benet/be_main.c:1129-1151`** — `be_lancer_xmit_workarounds()` captures `veh = (struct vlan_ethhdr *)skb->data`, calls `pskb_trim()` at line 1143 for short padded IPv4 frames, then reads `veh->h_vlan_proto` at line 1150 through the stale pointer — UAF read when the trim reallocates a cloned skb.
+
+**Key triaged-safe sites:** iwlwifi dvm/tx.c, mac80211 wpa.c (all refetch after linearize/expand), mpls_iptunnel.c (only scalar ttl crosses `skb_cow`), i40e/ixgbe (re-derive vhdr after `skb_cow_head`), and the core RX trims in ip_input/ip6_input/br_netfilter_ipv6/ovs/llc/udp/dsa. One candidate left unresolved: the appletalk `atalk_rcv`/`atalk_route_packet` `skb_trim` + `ddp->` pattern, which needs a cloned frag-backed DDP frame to confirm.

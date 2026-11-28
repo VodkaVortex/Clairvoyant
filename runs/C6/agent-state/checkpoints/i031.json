@@ -1,0 +1,51 @@
+{
+ "intent_id": "i031",
+ "branch": "pull-return-unchecked",
+ "snapshot": "s05",
+ "status": "complete",
+ "notes": "Template dn_process_ack verified in place (s05 net/decnet/dn_nsp_in.c:128-162). Strongest candidates: (1) dn_process_ack -- unchecked skb_pull(2) at 138/152 with only skb->len<2 checks, *ptr reads at 137/151; NSP data segments are exempt from skb_linearize at dn_nsp_in.c:790-793, so a frag-backed skb reaches these reads past the linear head. (2) nfc_llcp_recv_agf -- unchecked skb_pull used as linearizer, skb->data[0]/[1] reads at 1377 and memcpy at 1397 with only skb->len checks. (3) dn_access_copy af_decnet.c:1001-1018 -- unchecked skb_pull and unvalidated length-byte memcpy reads, though dn_check_idf pre-validates in dn_nsp_conn_init path; classified safe on validation grounds with structural defect noted. lapb_decode safe (pskb_may_pull guards at 116/149/162). bpq_rcv, pptp_rcv_core, x25 paths checked and guarded. Scanner: 1160 pull-family sites in net/+drivers/net/, 103 flagged post-pull-dereference candidates triaged.",
+ "candidates": [
+  {
+   "path": "net/decnet/dn_nsp_in.c",
+   "line": 138,
+   "status": "reported",
+   "reason": "Only skb->len checked; unchecked skb_pull(2); *ptr 16-bit reads at 137/151; data segments exempt from skb_linearize at 790-793",
+   "conclusion": "Reported: unchecked pull-as-linearizer gives linear-area OOB read on non-linear NSP data frames."
+  },
+  {
+   "path": "net/nfc/llcp_core.c",
+   "line": 1374,
+   "status": "reported",
+   "reason": "skb_pull(LLCP_HEADER_SIZE) unchecked; skb->data[0]<<8|data[1] at 1377 and skb_put_data copy at 1397 use only skb->len checks",
+   "conclusion": "Reported: unchecked pull-as-linearizer reads 2-byte AGF PDU lengths past skb_headlen on non-linear frames."
+  },
+  {
+   "path": "net/decnet/af_decnet.c",
+   "line": 1016,
+   "status": "safe",
+   "reason": "dn_access_copy pulls and memcpys attacker length bytes, but the dn_nsp_conn_init path pre-validates each IDF with dn_check_idf (max 39/16, follow-on counted) before dn_accept queues the skb",
+   "conclusion": "Not reported: validation (dn_check_idf) precedes the copy on the reachable path."
+  },
+  {
+   "path": "net/lapb/lapb_subr.c",
+   "line": 145,
+   "status": "safe",
+   "reason": "pskb_may_pull(skb,2) guards at 116/149/162 precede every multi-byte read; remaining reads are single data[0] bytes within the guarded 2",
+   "conclusion": "Not reported: all post-pull dereferences are pskb_may_pull-guarded."
+  },
+  {
+   "path": "drivers/net/hamradio/bpqether.c",
+   "line": 209,
+   "status": "safe",
+   "reason": "skb_cow(skb, sizeof(struct ethhdr)) at 204 and pskb_may_pull(sizeof(struct ethhdr)) at 182 guarantee linear bytes before the len/pull at 207-210; subsequent netif_rx path re-parses via ax25",
+   "conclusion": "Not reported: linear head guaranteed by prior cow/pull."
+  },
+  {
+   "path": "drivers/net/ppp/pptp.c",
+   "line": 314,
+   "status": "safe",
+   "reason": "pskb_may_pull(skb, headersize + payload_len) at 301 guards payload[0..4] and the pull at 314/320",
+   "conclusion": "Not reported: explicit pskb_may_pull precedes the pull and payload reads."
+  }
+ ]
+}

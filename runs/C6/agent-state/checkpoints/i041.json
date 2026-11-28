@@ -1,0 +1,26 @@
+{
+  "intent_id": "i041",
+  "branch": "stacks-outside-net-dirs",
+  "status": "finalizing",
+  "snapshot": "s05",
+  "queries_run": [
+    "rg pskb_may_pull|pskb_pull(|skb_header_pointer under drivers/ and tree-wide outside net+drivers/net (25 non-net/drivers-net sites; only ssi_protocol.c:617)",
+    "rg skb_cow|pskb_trim|skb_linearize|pskb_expand_head|skb_realloc_headroom|skb_unclone|skb_carve under drivers/ excluding drivers/net (44 sites across scsi fc, s390 net, isdn, infiniband, atm, hsi, bluetooth, staging, block/aoe)",
+    "grep dev_add_pack outside drivers/net (only aoe: drivers/block/aoe/aoenet.c)",
+    "grep netif_rx|netif_receive_skb|napi_gro_receive outside drivers/net (firewire, dvb-core, s390 net, mptlan, xpnet, staging gdm724x/most/netlogic/rtl, infiniband ipoib/hfi1/nes)"
+  ],
+  "candidates": [
+    {"path": "drivers/infiniband/ulp/ipoib/ipoib_ib.c", "line": 595, "status": "reported", "reason": "phead=skb->data at 574 saved for GSO, skb_linearize at 595 can pskb_expand_head-free old head, stale phead passed to post_send tx_wr.header at 649/554"},
+    {"path": "drivers/scsi/bnx2fc/bnx2fc_fcoe.c", "line": 555, "status": "reported", "reason": "mac/dest_mac=eth_hdr(skb)->h_source/h_dest at 536-537, pskb_trim(skb,fr_len) at 555 can free old head for cloned skb, stale reads at 566/576/583"},
+    {"path": "drivers/media/dvb-core/dvb_net.c", "line": 254, "status": "reported", "reason": "ule_next_hdr walks attacker-controlled optional ext headers with no bound vs ule_skb length; p->ule_next_hdr += ext_len and ntohs(*(u16*)(ule_next_hdr-2)) at 255 read past the SNDU into adjacent slab"},
+    {"path": "drivers/hsi/clients/ssi_protocol.c", "line": 617, "status": "safe", "reason": "pskb_may_pull at 617 completes before any skb->data deref; skb_cow_head at 986 is on TX before data write and no saved pointer crosses it"},
+    {"path": "drivers/block/aoe/aoecmd.c", "line": 1155, "status": "safe", "reason": "hin/ahin derived at 1095-1097 after aoenet_rcv already __pskb_pull_tail'd 32 bytes; skb_linearize at 1155 precedes its own skb->data use at 1158"},
+    {"path": "drivers/scsi/qedf/qedf_main.c", "line": 2336, "status": "safe", "reason": "mac/dest_mac captured at 2315-2316 after unconditional skb_linearize at 2315, so linear and uncloned when pskb_trim runs"},
+    {"path": "drivers/scsi/cxgbi/cxgb4i/cxgb4i.c", "line": 1308, "status": "safe", "reason": "cpl read from skb->data at function entry, then __skb_pull/__pskb_trim consume it; bhs = skb->data is re-derived at 1226 after the trims"},
+    {"path": "drivers/s390/net/ctcm_main.c", "line": 171, "status": "safe", "reason": "rx skbs are linear driver-allocated buffers; header pointer read from pskb->data linear area with tailroom/len guards before each skb_put"},
+    {"path": "drivers/s390/net/netiucv.c", "line": 664, "status": "safe", "reason": "rx_buff is a linear alloc_skb driver buffer filled by iucv_message_receive; header->next bounded by skb_tailroom check at 637"},
+    {"path": "drivers/staging/gdm724x/gdm_lte.c", "line": 668, "status": "unresolved", "reason": "gdm_lte_multi_sdu_pkt walks num_packet SDUs with hci_len from device firmware; data pointer walk at 712 not proven bounded by the receive buffer length"},
+    {"path": "drivers/firewire/net.c", "line": 520, "status": "safe", "reason": "skb_pull at 520 precedes the eth pointer cast from skb_mac_header(skb); no pointer saved across a reallocating call on the inspected fwnet_receive_packet path"}
+  ],
+  "note": "Finalizing: three findings (ipoib, bnx2fc, dvb_net ULE ext-header walk) plus one unresolved (gdm724x multi-SDU)."
+}

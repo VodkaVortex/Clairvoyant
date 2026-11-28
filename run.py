@@ -18,12 +18,12 @@ from pathlib import Path, PurePosixPath
 
 HERE = Path(__file__).resolve().parent
 EXPERIMENTS = HERE.parent
-DEFAULT_REPO = Path(os.environ.get("LINUX_REPO", str(Path.home() / "linux")))
+DEFAULT_REPO = Path("/mnt/raid/home/yangshuangning/linux")
 DEFAULT_PREPARED = EXPERIMENTS / "benchmark_large_scale" / "prepared"
 DEFAULT_WORKSPACES = EXPERIMENTS / "benchmark_large_scale" / "workspaces"
 DEFAULT_CLAIRVOYANT = EXPERIMENTS / ".clairvoyant-build" / "release" / "clairvoyant"
-DEFAULT_CLAUDE = Path(os.environ.get("CLAUDE_BIN", shutil.which("claude") or "claude"))
-DEFAULT_BASE_URL = os.environ.get("GLM_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+DEFAULT_CLAUDE = Path("/mnt/raid/home/yangshuangning/claude-code-2.1.88/claude")
+DEFAULT_BASE_URL = "https://llm.shtech.org"
 ALLOWED_CONFIDENCE = {"high", "medium", "low"}
 MAX_FINDING_LINES = 100
 
@@ -673,7 +673,7 @@ def parse_args() -> argparse.Namespace:
                 "--worker-max-turns", type=int, default=100,
                 help="hard cap on Claude Code turns per worker (1-100)",
             )
-            sub.add_argument("--timeout", type=int, default=7200)
+            sub.add_argument("--timeout", type=int, default=28800)
             sub.add_argument("--max-ticks", type=int, default=64)
         if name == "api-smoke":
             sub.add_argument("--model", default="GLM-5.3")

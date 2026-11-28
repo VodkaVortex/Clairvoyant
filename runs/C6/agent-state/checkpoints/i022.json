@@ -1,0 +1,85 @@
+{
+ "intent_id": "i022",
+ "branch": "header-accessor-no-linearize",
+ "snapshot": "s01",
+ "status": "complete",
+ "step": "finalized; artifact written to findings/i022.json",
+ "method": "grep 964 accessor hits in 260 net/+drivers/net files, rank by dereference + receive-path keywords, then full-function reading of top candidates",
+ "candidates": [
+  {
+   "path": "net/ieee802154/6lowpan/rx.c",
+   "line": 68,
+   "status": "reported",
+   "reason": "*skb_network_header(skb) with only skb->len guard, no pskb_may_pull/linearize in file"
+  },
+  {
+   "path": "net/mac802154/llsec.c",
+   "line": 876,
+   "status": "reported",
+   "reason": "sg over skb_mac_header..tail with no headlen guard on RX decrypt path"
+  },
+  {
+   "path": "net/ipv6/exthdrs.c",
+   "line": 375,
+   "status": "reported",
+   "reason": "hdr captured before seg6_hmac_validate_skb call, not re-derived; expand path re-derives correctly"
+  },
+  {
+   "path": "net/ipv6/mip6.c",
+   "line": 216,
+   "status": "safe",
+   "reason": "ipv6_find_tlv bounds by tail pointer; caller pulled"
+  },
+  {
+   "path": "net/xfrm/xfrm_input.c",
+   "line": 554,
+   "status": "safe",
+   "reason": "daddr read after covering pskb_may_pull in xfrm4/6_rcv and xfrm_parse_spi"
+  },
+  {
+   "path": "net/ipv6/reassembly.c",
+   "line": 345,
+   "status": "safe",
+   "reason": "pull then re-derive hdr/fhdr"
+  },
+  {
+   "path": "net/sched/act_ct.c",
+   "line": 550,
+   "status": "safe",
+   "reason": "pskb_network_may_pull before every cast"
+  },
+  {
+   "path": "net/sched/act_nat.c",
+   "line": 187,
+   "status": "safe",
+   "reason": "pskb_may_pull before every cast"
+  },
+  {
+   "path": "net/hsr/hsr_forward.c",
+   "line": 44,
+   "status": "safe",
+   "reason": "pskb_may_pull of total_length before casts"
+  },
+  {
+   "path": "net/ipv6/exthdrs.c",
+   "line": 78,
+   "status": "safe",
+   "reason": "TLV walkers covered by caller pull of whole ext header"
+  },
+  {
+   "path": "net/ipv6/ndisc.c",
+   "line": 0,
+   "status": "unresolved",
+   "reason": "name-triaged only"
+  },
+  {
+   "path": "net/netfilter/nf_flow_table_ip.c",
+   "line": 0,
+   "status": "unresolved",
+   "reason": "name-triaged only"
+  }
+ ],
+ "findings": [
+  "see findings/i022.json"
+ ]
+}

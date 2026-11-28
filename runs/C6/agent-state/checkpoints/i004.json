@@ -1,0 +1,21 @@
+{
+  "intent_id": "i004",
+  "branch": "pull-invalidates-pointer",
+  "snapshot": "s03",
+  "status": "complete",
+  "step": "final artifact written; findings: ppp_ccp_peek, ieee80211_rx_h_data TDLS, ieee80211_invoke_fast_rx",
+  "method": "two function-scoped save/pull/use scanners over net/ and drivers/ of snapshots/s03 (102 + 5 hits), then line-reading of garp.c, ppp_generic.c, mac80211/rx.c, ip_gre.c, ip6_gre.c, tcp_ipv4.c, hdlc_fr.c, l2cap_core.c, skbuff.c",
+  "candidates": [
+    {"path": "drivers/net/ppp/ppp_generic.c", "line": 3153, "status": "reported"},
+    {"path": "net/mac80211/rx.c", "line": 3326, "status": "reported"},
+    {"path": "net/mac80211/rx.c", "line": 5077, "status": "reported"},
+    {"path": "net/802/garp.c", "line": 451, "status": "safe", "reason": "ga refetched from skb->data after pskb_may_pull in s03 (fixed)"},
+    {"path": "net/ipv4/ip_gre.c", "line": 309, "status": "safe", "reason": "ershdr only in sizeof() constant after 2nd pull; pkt_md refetched via skb_network_header"},
+    {"path": "net/ipv6/ip6_gre.c", "line": 513, "status": "safe", "reason": "same as ip_gre"},
+    {"path": "net/ipv4/tcp_ipv4.c", "line": 2097, "status": "safe", "reason": "th refetched at 2091 before doff pull; flagged use is comment text"},
+    {"path": "drivers/net/wan/hdlc_fr.c", "line": 949, "status": "safe", "reason": "data[] reads on branches whose sibling skb_pull did not run; skb_pull never reallocates"},
+    {"path": "net/bluetooth/l2cap_core.c", "line": 7005, "status": "safe", "reason": "skb_pull only advances data pointer, never frees head"},
+    {"path": "drivers/net/ethernet/sfc/ptp.c", "line": 1747, "status": "unresolved", "reason": "provenance of 'match' pointer not read"},
+    {"path": "net/ipv6/mcast.c", "line": 1485, "status": "unresolved", "reason": "possible mlh2 deref after pull not fully read"}
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "intent_id": "i006",
+  "branch": "pull-invalidates-pointer",
+  "status": "complete",
+  "snapshot": "s05",
+  "invariant": "A raw pointer into an sk_buff's linear data area captured before a call that may pull/linearize/reallocate the head must be re-derived before any later dereference.",
+  "progress": [
+    "scanned all 686 pskb_may_pull/pskb_pull/skb_pull/__pskb_pull_tail sites in net/ and drivers/ of s05",
+    "cross-checked pull length args derived from struct pointers (garp.c:439, br_netfilter_hooks.c:194, icmp.c:753, ip_input.c:465, tcp_ipv4.c:1804, tcp_ipv6.c:1461, mac80211, pep.c seed)",
+    "deep-read DECnet: dn_route_rx_long, dn_route_rx_short, dn_nsp_rx_packet, dn_find_listener, dn_process_ack -> 3 findings (stale ptr=skb->data used after pskb_may_pull)",
+    "classified icmp_socket_deliver, tcp_v4_rcv as safe (refetch/local copy); seed pep.c excluded; l2cap, hdlc_fr, dn_process_ack left unresolved",
+    "final artifact written to agent-state/findings/i006.json"
+  ],
+  "findings": [
+    "net/decnet/dn_route.c:531-590 dn_route_rx_long stale ptr after pskb_may_pull(skb,21)",
+    "net/decnet/dn_route.c:571-595 dn_route_rx_short stale ptr after pskb_may_pull(skb,6)",
+    "net/decnet/dn_nsp_in.c:709-745 dn_nsp_rx_packet stale ptr after pskb_may_pull(skb,2)"
+  ]
+}

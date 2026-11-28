@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "intent_id": "i036",
+  "branch": "caller-pointer-across-helper",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s05"
+  ],
+  "findings": [
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/seg6_local.c",
+      "start": 66,
+      "end": 88,
+      "quote": "\t\tsrh = (struct ipv6_sr_hdr *)(skb->data + srhoff);\n\n\t\tlen = (srh->hdrlen + 1) << 3;\n\n\t\tif (!pskb_may_pull(skb, srhoff + len))\n\t\t\treturn NULL;\n\n\t\tif (!seg6_validate_srh(srh, len))\n\t\t\treturn NULL;\n",
+      "confidence": "medium",
+      "reason": "Untrusted source: a remotely sent IPv6 packet carrying a routing header reaches get_srh() via seg6local lwt input (input_action_end/end_x/end_t at :202/:222/:242 and decap_and_validate at :114, dispatched from seg6_local_input). Violated invariant: srh is derived from skb->data at :77 (after a pull that only guarantees sizeof(*srh) linear bytes at :74), then pskb_may_pull(skb, srhoff+len) at :81 runs with len=(srh->hdrlen+1)<<3, i.e. an attacker-chosen length up to ~2048 bytes; for a frag-backed skb whose SRH tail is not linear, __pskb_pull_tail/pskb_expand_head allocates a new head and frees the old one. Unsafe use: seg6_validate_srh(srh, len) at :84 walks the stale freed srh, and the stale srh is then returned and dereferenced at :98 (srh->segments_left) and :115, and passed to advance_nextseg(srh,...) at :206/:226/:245/:434/:493 which reads segments and writes segments_left through it. Impact: slab use-after-free read (and a freed-memory write of one byte) plus flow mis-steering, same mechanism as the seed's pep_get_sb. Counterevidence checked: srhoff is a plain offset (stable across reallocation), nothing re-derives srh after the second pull; if skb_headlen(skb) already covers srhoff+len the pull is a no-op and srh stays valid; the old head is only freed when __pskb_pull_tail must actually pskb_expand_head (cloned skb or insufficient tailroom), so triggering needs a genuinely non-linear/tight skb.",
+      "conclusion": "get_srh() caches srh=skb->data+srhoff at :77, then pskb_may_pull(skb, srhoff+(hdrlen+1)<<3) at :81 can free the old head, so seg6_validate_srh(srh,len) at :84 and the returned srh (segments_left reads at :98/:115, advance_nextseg writes at :206+) are stale-pointer UAF reads on frag-backed IPv6 SRH packets."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/netfilter/nf_flow_table_ip.c",
+      "start": 164,
+      "end": 199,
+      "quote": "\t\tthoff = iph->ihl * 4;\n\t\tif (!pskb_may_pull(skb, thoff + sizeof(*ports)))\n\t\t\treturn -1;\n\n\t\tports = (struct flow_ports *)(skb_network_header(skb) + thoff);\n\n\t\ttuple->src_v4.s_addr\t= iph->saddr;\n\t\ttuple->dst_v4.s_addr\t= iph->daddr;\n",
+      "confidence": "medium",
+      "reason": "Untrusted source: an IPv4 TCP/UDP packet received on an interface with an nft software flowtable hits nf_flow_offload_ip_hook -> nf_flow_tuple_ip (net/netfilter/nf_flow_table_ip.c:164). Violated invariant: iph=ip_hdr(skb) is captured at :174 after only the 20-byte pull at :171; pskb_may_pull(skb, thoff+sizeof(*ports)) at :189 can call __pskb_pull_tail/pskb_expand_head and free the old head. Unsafe use: the stale iph is dereferenced after the pull at :194/:195 (iph->saddr/daddr) and :199 (iph->protocol) to build the flow tuple, giving a slab use-after-free read and a corrupted tuple (flow mismatch/misoffload). Counterevidence checked: options are rejected at :177-:179 so thoff==sizeof(struct iphdr)==20 always, so reallocation needs skb_headlen in [20,27] with at least 28 total bytes in frags; the ports pointer is correctly re-derived at :192 (pskb_pull-free path uses skb_network_header), so only iph is stale; when headlen>=28 the second pull is a no-op and iph stays valid.",
+      "conclusion": "nf_flow_tuple_ip() saves iph=ip_hdr(skb) at :174, pskb_may_pull(skb,thoff+sizeof(*ports)) at :189 can free the head for a 20-27-byte-linear non-linear flowtable skb, and stale iph->saddr/daddr/protocol are read at :194/:195/:199 to build the flow tuple."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/seg6_local.c",
+      "line": 77,
+      "status": "reported",
+      "reason": "srh derived from skb->data+srhoff at :77 survives pskb_may_pull(skb, srhoff+len) at :81 with attacker-controlled len; stale use at :84, :98, :115 and advance_nextseg callers.",
+      "conclusion": "Reported as finding 1: stale srh across the second pskb_may_pull in get_srh()."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/netfilter/nf_flow_table_ip.c",
+      "line": 174,
+      "status": "reported",
+      "reason": "iph=ip_hdr(skb) saved at :174, pskb_may_pull(skb, thoff+sizeof(*ports)) at :189, stale iph->saddr/daddr/protocol read at :194/:195/:199; ports pointer is re-derived at :192 so only iph is stale.",
+      "conclusion": "Reported as finding 2: stale iph across the ports pskb_may_pull in nf_flow_tuple_ip()."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/x25/x25_subr.c",
+      "line": 268,
+      "status": "safe",
+      "reason": "Session triage of x25_subr.c around :268 found no skb->data-derived local live across the linearizing helper; parsed values are re-read from skb->data after each pull.",
+      "conclusion": "No pre-pull pointer is dereferenced after the helper in x25_subr.c."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/x25/af_x25.c",
+      "line": 963,
+      "status": "safe",
+      "reason": "Session triage of af_x25.c around :963 found the skb->data-derived value consumed before the helper call or re-derived afterwards; no post-helper stale dereference.",
+      "conclusion": "No stale-pointer use across the helper in af_x25.c."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/ipv6/exthdrs.c",
+      "line": 290,
+      "status": "safe",
+      "reason": "Session read of the exthdrs.c routing-header path showed the header pointer re-derived from skb after each pskb_may_pull/pskb_pull (offsets, not raw pointers, carried across), so no stale dereference.",
+      "conclusion": "ipv6 rthdr handling re-derives header pointers after pulls; safe."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/openvswitch/flow.c",
+      "line": 178,
+      "status": "safe",
+      "reason": "check_header()/arphdr_ok() (flow.c:173-185) run pskb_may_pull before any header pointer is derived; check_iphdr (flow.c:187+) saves only the offset nh_ofs, which is stable across head reallocation, and re-derives ip_hdrlen(skb) after check_header returns.",
+      "conclusion": "OVS flow extraction pulls first and carries offsets, not head pointers, across helpers; safe."
+    },
+    {
+      "snapshot": "s05",
+      "path": "net/x25/x25_in.c",
+      "line": 107,
+      "status": "unresolved",
+      "reason": "x25_state1_machine pulls X25_STD_MIN_LEN at :107 then delegates to x25_parse_address_block(skb,...) which pulls again internally; whether any pointer or cb-stored offset saved before :107 survives into later use was not traced to the end of the call-in call frame.",
+      "conclusion": "Follow up: read x25_parse_address_block (net/x25/x25_subr.c) and the remainder of x25_state1_machine to confirm no skb->data-derived pointer or saved offset from before :107 is dereferenced after the internal pulls."
+    },
+    {
+      "snapshot": "s05",
+      "path": "drivers/net/vxlan.c",
+      "line": 1508,
+      "status": "unresolved",
+      "reason": "vxlan_rcv calls pskb_may_pull(skb, offset+sizeof(u16)) at :1508 for the inner-protocol field; whether a vxlan header/metadata pointer captured from the head before :1508 is dereferenced after it was not read to a conclusion.",
+      "conclusion": "Follow up: read drivers/net/vxlan.c ~1480-1560 (vxlan_rcv) and check every head-derived local (vxh, md, inner ip/ipv6 pointers) for use after the pskb_may_pull at :1508."
+    }
+  ],
+  "coverage_gaps": [
+    "The two-level caller expansion of every pskb_may_pull/pskb_pull/skb_cow/pskb_expand_head/NF_HOOK call site in net/ and drivers/net/ was not completed; only the seg6_local, x25, OVS, nf_flow_table and vxlan candidate sets were read before the finalize order.",
+    "Per-protocol skb->cb structs with pointer- or offset-typed fields (beyond DN_SKB_CB/IPCB) were not systematically enumerated in s05, so cb-stored stale offsets against a moved skb->data remain unsearched.",
+    "Non-linearity delivery into seg6local input (IPv6 SRH bytes in frags) and into the nft software-flowtable ingress was assessed structurally; no per-driver/GRO audit confirmed frag-backed skbs on those exact receive paths.",
+    "No runtime KASAN build, reproducer, or compilation was performed against the read-only snapshot; head reallocation on both reported paths is inferred from __pskb_pull_tail/pskb_expand_head logic rather than observed."
+  ],
+  "limitations": [
+    "Both findings are source-reading hypotheses: the stale dereference occurs only when the second pskb_may_pull actually reallocates (non-linear skb whose pulled span exceeds skb_headlen while skb->len covers it) and __pskb_pull_tail must pskb_expand_head (cloned skb or insufficient tailroom); otherwise the stale pointer still aliases the live head and the read is silent.",
+    "The seg6_local finding requires CONFIG_IPV6_SEG6_LWTUNNEL and a configured seg6local route/action so input_action_end*/decap_and_validate run on attacker IPv6 packets carrying a routing header, narrowing remote reachability versus the seed's phonet socket case.",
+    "The nf_flow_tuple_ip finding requires an nft software flowtable ingress on the receiving interface and skb_headlen between 20 and 27 bytes with at least 28 total bytes, a narrow GRO/driver configuration; impact is a stale tuple read (flow mis-match) plus the UAF read itself.",
+    "net/phonet/pep.c pep_get_sb was excluded by instruction and never reported; line numbers are valid only for the supplied snapshots/s05 tree (revision opaque, no git history, network, or cross-snapshot comparison used)."
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "intent_id": "i004",
+  "branch": "pull-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": ["s03"],
+  "findings": [
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ppp/ppp_generic.c",
+      "start": 3117,
+      "end": 3172,
+      "quote": "dp = skb->data + 2;",
+      "confidence": "medium",
+      "reason": "ppp_ccp_peek() saves dp = skb->data + 2 (line 3119) after a first pskb_may_pull(skb, CCP_HDRLEN + 2) (3117). In the CCP_CONFACK case it reads the peer-chosen len = CCP_LENGTH(dp) (3152) and calls pskb_may_pull(skb, len + 2) (3153) with that attacker-controlled 16-bit length; on a non-linear PPP skb __pskb_pull_tail can allocate a new head and free the old one, after which the stale dp is advanced (dp += CCP_HDRLEN, 3155) and dereferenced via CCP_OPT_LENGTH(dp) (3157) and passed to ppp->rcomp->decomp_init(rc_state, dp, len, ...) / ppp->xcomp->comp_init(xc_state, dp, len, ...) (~3162-3172) with no refetch of dp from skb->data. Untrusted source: any peer CCP ConfAck on a PPP link whose channel delivers a non-linear skb (e.g. pppoe/pptp-backed channels under GRO); counterevidence checked: no other dp reassignment between pull and use; requires SC_CCP_OPEN|SC_CCP_UP state and a negotiated compressor for the decomp_init/comp_init leg, but the CCP_OPT_LENGTH(dp) stale read at 3157 needs only the ConfAck.",
+      "conclusion": "ppp_ccp_peek() caches dp=skb->data+2, then pskb_may_pull(skb, CCP_LENGTH(dp)+2) with the peer-chosen CCP length can free/move the head, and the stale dp is offset, dereferenced (CCP_OPT_LENGTH) and fed to decomp_init/comp_init without refetch: peer-reachable slab-UAF read on non-linear CCP packets (medium)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/rx.c",
+      "start": 3321,
+      "end": 3331,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;",
+      "confidence": "medium",
+      "reason": "ieee80211_rx_h_data() saves tf = (void *)rx->skb->data (3324) after __ieee80211_data_to_8023() converted the frame; the very next statement chain calls pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) (3326-3327) and then, inside the same condition, dereferences the stale tf (tf->payload_type 3328, tf->category 3329, tf->action_code 3330-3331) with no refetch. Untrusted source: remotely received WiFi data frame whose 802.3 payload ethertype is ETH_P_TDLS; the skb can be non-linear because mac80211 slow-path RX handles A-MSDU/aggregated frames and the sibling fast path (ieee80211_invoke_fast_rx, line 5077) itself calls pskb_may_pull before payload deref, showing maintainers assume non-linear RX skbs here; counterevidence checked: no re-derivation of tf between the pull and the uses.",
+      "conclusion": "ieee80211_rx_h_data() caches tf=rx->skb->data, then pskb_may_pull(rx->skb, offsetof(struct ieee80211_tdls_data, u)) inside the same if can free/move the head, and the stale tf->payload_type/category/action_code are read without refetch: remotely reachable slab-UAF read on non-linear TDLS WiFi frames (medium)."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/mac80211/rx.c",
+      "start": 5010,
+      "end": 5109,
+      "quote": "if (!pskb_may_pull(skb, snap_offs + sizeof(*payload)))",
+      "confidence": "medium",
+      "reason": "ieee80211_invoke_fast_rx() saves hdr = (void *)skb->data at function entry (~5010) and reads hdrlen/hdr->frame_control from it; later, on the !mesh && !AMSDU path, it calls pskb_may_pull(skb, snap_offs + sizeof(*payload)) (~5077) which on a non-linear RX skb can reallocate and free the head. The code correctly refetches payload = (void *)(skb->data + snap_offs) right after the pull (~5080), but hdr is never refetched: after pskb_trim it evaluates ieee80211_has_protected(hdr->frame_control) (~5106) through the stale pre-pull pointer. Untrusted source: over-the-air data frame matching the fast_rx filter with rx->key set (needed to reach the stale use); counterevidence checked: addrs are re-copied from skb->data (fresh), and on the mesh/AMSDU paths the pull is skipped, so the bug needs a non-linear skb on the pull path only.",
+      "conclusion": "ieee80211_invoke_fast_rx() caches hdr=skb->data at entry, pskb_may_pull(skb, snap_offs + sizeof(*payload)) can free/move the head, and the stale hdr->frame_control is read later at the rx->key check with no refetch: slab-UAF read on non-linear encrypted WiFi frames (medium; line numbers from scanner offsets, +/-2)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s03",
+      "path": "net/802/garp.c",
+      "line": 451,
+      "status": "safe",
+      "reason": "In s03 garp_pdu_parse_attr() refetches ga = (struct garp_attr_hdr *)skb->data immediately after the second pskb_may_pull(skb, ga->len) (lines 447-455), so the pre-pull pointer is not reused; this variant is patched here (unlike s04/s05).",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/ip_gre.c",
+      "line": 309,
+      "status": "safe",
+      "reason": "ershdr is set at 295 after the first pskb_may_pull (291-292); after the second pskb_may_pull (309) the only textual reuse is sizeof(*ershdr) in the pkt_md expression (343-344), which is a compile-time constant, and pkt_md itself is re-derived from skb_network_header(skb) (341) with an explicit 'old pkt_md no longer valid' comment.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/ip6_gre.c",
+      "line": 513,
+      "status": "safe",
+      "reason": "Same shape as ip_gre: ershdr set at 504 after a prior pull, second pskb_may_pull at 513, and the later occurrences are sizeof(*ershdr) constants plus a pkt_md re-derived from skb_network_header (546-549).",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv4/tcp_ipv4.c",
+      "line": 2097,
+      "status": "safe",
+      "reason": "tcp_v4_rcv refetches th = (const struct tcphdr *)skb->data at ~2091 before pskb_may_pull(skb, th->doff * 4) (~2097); the scanner's flagged post-pull 'use' is the text of a source comment, and a further refetch follows the doff pull.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/wan/hdlc_fr.c",
+      "line": 949,
+      "status": "safe",
+      "reason": "In fr_rx() the data[3]/data[4] reads (946/954/962/965/977) each execute on branches where the skb_pull calls of sibling branches have not run, and skb_pull() only advances skb->data without reallocating or freeing the head, so no pull-invalidation UAF exists here (no pskb_may_pull in fr_rx at all).",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/bluetooth/l2cap_core.c",
+      "line": 7005,
+      "status": "safe",
+      "reason": "l2cap_recv_frame() reads lh->cid/lh->len (7006-7007) after skb_pull(skb, L2CAP_HDR_SIZE) (7005), but skb_pull never reallocates the head; the bytes remain inside the allocated head, so this is not the pull-reallocation mechanism.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s03",
+      "path": "drivers/net/ethernet/sfc/ptp.c",
+      "line": 1747,
+      "status": "unresolved",
+      "reason": "Scanner flagged 'match' as used after pskb_may_pull(skb, PTP_V1/V2_MIN_LENGTH) in efx_ptp_rx() (ptp.c 1747-1768, siena/ptp.c 1629-1671); the full function was not read, so it is unknown whether 'match' points into the skb's data or into a driver-internal queue entry.",
+      "conclusion": "Follow up: read efx_ptp_rx() in drivers/net/ethernet/sfc/ptp.c (and siena/ptp.c) to determine whether the 'match' pointer saved before pskb_may_pull is skb-data-derived and dereferenced afterwards."
+    },
+    {
+      "snapshot": "s03",
+      "path": "net/ipv6/mcast.c",
+      "line": 1485,
+      "status": "unresolved",
+      "reason": "mlh2 = (struct mld2_query *)skb_transport_header(skb) is saved at 1472 and the pskb_may_pull at 1485-1486 uses mlh2->mld2q_nsrcs; the scanner stopped at the pull's own continuation line, so any later dereference of mlh2 after the pull was not verified.",
+      "conclusion": "Follow up: read igmp6_event_query()/the enclosing MLD2 query handler in net/ipv6/mcast.c lines 1470-1560 to check whether mlh2 is dereferenced after the pskb_may_pull at 1485 without refetch."
+    }
+  ],
+  "coverage_gaps": [
+    "The save/pull/use scanners only match single-line pointer derivations whose variable name reappears on a later line, column-0 brace function boundaries, and only the first use after each pull, so multi-line derivations, pointers smuggled through helper functions, pulls hidden inside called helpers, and post-pull uses beyond the first were not systematically covered.",
+    "Only net/ and drivers/ .c files of snapshots/s03 were scanned; header files and all other directories were not, and of the 102 flagged skb_pull-family sites only the pskb_may_pull-bearing ones (mac80211, ppp, garp, gre, tcp, mcast, sfc) were line-read, since plain skb_pull never reallocates the head.",
+    "No runtime reproducer, KASAN build, or per-driver audit was produced to prove that non-linear skbs actually reach ieee80211_rx_h_data(), ieee80211_invoke_fast_rx() or ppp_ccp_peek() in any concrete s03 configuration; non-linearity was assessed structurally."
+  ],
+  "limitations": [
+    "All three findings are source-reading hypotheses, not reproductions: each requires a non-linear skb so that __pskb_pull_tail actually reallocates and frees the old head, and exploit impact (crash/infoleak vs. controlled disclosure) was not assessed.",
+    "The ppp_ccp_peek finding needs a PPP channel that hands up a non-linear skb plus, for the decomp_init/comp_init leg, negotiated compression state (SC_CCP_OPEN|SC_CCP_UP); only the CCP_OPT_LENGTH(dp) stale read at 3157 needs the peer ConfAck itself.",
+    "Line numbers for ieee80211_invoke_fast_rx come from scanner offsets anchored to a verified dump of net/mac80211/rx.c lines 5000-5120 and may be off by 1-2 lines; the reported 100-line range 5010-5109 covers save, pull and stale use.",
+    "The seed code net/phonet/pep.c pep_get_sb() (lines 46-67) is present and still unpatched in s03 but was excluded from reporting by assignment."
+  ]
+}

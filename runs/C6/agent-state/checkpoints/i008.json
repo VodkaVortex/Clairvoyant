@@ -1,0 +1,40 @@
+{
+ "version": 1,
+ "intent_id": "i008",
+ "branch": "expand-cow-invalidates-pointer",
+ "snapshot": "s02",
+ "status": "finalizing",
+ "progress": [
+  "Recovered prior-session scanner artifacts (hits.json, 86 raw triples) in TMPDIR; grep counts confirmed 53 pskb_expand_head, 38 skb_realloc_headroom, 113 skb_cow*, 64 skb_linearize*, 49 pskb_trim*, 11 pskb_carve, 44 skb_copy_expand* sites in net/ + drivers/net/.",
+  "Strongest candidate: drivers/net/wireless/marvell/mwifiex/uap_txrx.c mwifiex_uap_queue_bridged_pkt: uap_rx_pd/rx_pkt_hdr saved at 107-108, skb_realloc_headroom+pskb_expand_head+kfree_skb(old) at 166-177, stale rx_pkt_hdr/uap_rx_pd used at 189-198 - confirmed by full read.",
+  "Other candidates triaged from scan.out/hits.json: dsa tag_dsa/tag_edsa (uses after skb_cow_head are re-derived via skb->data after skb_push - safe); i40e_txrx.c:2236 and ixgbe_main.c:7908 vhdr re-derived after skb_cow_head - safe; pppoe.c:442 ph used at 450 after pskb_trim_rcsum - candidate; br_netfilter pskb_trim_rcsum sites re-derive headers - safe.",
+  "mwifiex_uap_recv_packet/uap_txrx.c:322 and main.c:885: p_ethhdr saved before skb_realloc_headroom but not used after in uap_txrx.c:322 case (p_ethhdr used only before); main.c:885 tx_info from new skb - need check but lower priority.",
+  "Finalizing: reporting mwifiex uap_txrx.c:107-198 (high-credibility: realloc + kfree_skb + stale reads), pppoe.c as secondary; unresolved candidates listed."
+ ],
+ "candidates": [
+  {
+   "path": "drivers/net/wireless/marvell/mwifiex/uap_txrx.c",
+   "line": 189,
+   "status": "reported",
+   "reason": "rx_pkt_hdr/uap_rx_pd derived from skb->data at 107-108; skb_realloc_headroom (pskb_expand_head) at 166-167 plus kfree_skb(skb) at 176 free the old head; stale pointers dereferenced at 189-198."
+  },
+  {
+   "path": "drivers/net/ppp/pppoe.c",
+   "line": 450,
+   "status": "unresolved",
+   "reason": "ph = pppoe_hdr(skb) at 435 used (ph->sid) at 450 after pskb_trim_rcsum at 442; trim realloc only for cloned skb; not read to conclusion."
+  },
+  {
+   "path": "drivers/net/wireless/marvell/mwifiex/main.c",
+   "line": 885,
+   "status": "unresolved",
+   "reason": "skb_realloc_headroom site; whether any pre-call header pointer survives into post-call use not fully read."
+  },
+  {
+   "path": "net/mac80211/rx.c",
+   "line": 3874,
+   "status": "unresolved",
+   "reason": "hdr = skb->data at 3785 used after pskb_trim at 3874 in fast-rx path; not read to conclusion."
+  }
+ ]
+}

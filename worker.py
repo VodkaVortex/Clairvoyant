@@ -342,14 +342,24 @@ def build_fact_card(artifact: Path, expected_snapshot: str | None = None,
     candidates = payload.get("candidates", [])
     limitations = payload.get("limitations")
     coverage_gaps = payload.get("coverage_gaps")
-    if (not isinstance(checked, list) or len(checked) != 1
-            or not isinstance(checked[0], str) or not checked[0]):
-        raise ValueError("artifact has invalid snapshots_checked")
-    if expected_snapshot is not None and checked != [expected_snapshot]:
-        raise ValueError(
-            f"artifact must check only assigned snapshot {expected_snapshot}; got {checked}"
-        )
-    snapshot = checked[0]
+    if execution_status == "timed_out":
+        if expected_snapshot is None:
+            raise ValueError("timed_out artifact requires an expected snapshot")
+        if checked not in ([], [expected_snapshot]):
+            raise ValueError(
+                f"timed_out artifact must use no checked snapshot or only "
+                f"{expected_snapshot}; got {checked}"
+            )
+        snapshot = expected_snapshot
+    else:
+        if (not isinstance(checked, list) or len(checked) != 1
+                or not isinstance(checked[0], str) or not checked[0]):
+            raise ValueError("artifact has invalid snapshots_checked")
+        if expected_snapshot is not None and checked != [expected_snapshot]:
+            raise ValueError(
+                f"artifact must check only assigned snapshot {expected_snapshot}; got {checked}"
+            )
+        snapshot = checked[0]
     if not isinstance(findings, list) or not isinstance(candidates, list):
         raise ValueError("artifact findings/candidates must be lists")
     if not isinstance(limitations, list):
@@ -394,6 +404,8 @@ def build_fact_card(artifact: Path, expected_snapshot: str | None = None,
         for value in limitations
         if (text := card_limitation_text(value)) is not None
     ]
+    if execution_status == "timed_out" and not limitation_candidates:
+        raise ValueError("timed_out artifact must record a limitation")
     header = (
         f"intent={intent_id} snapshot={snapshot} branch={branch} status={execution_status}"
     )
@@ -1092,7 +1104,7 @@ def main() -> int:
     environment["ANTHROPIC_API_KEY"] = environment.get("GLM_API_KEY", "")
     environment["ANTHROPIC_AUTH_TOKEN"] = environment.get("GLM_API_KEY", "")
     environment["ANTHROPIC_BASE_URL"] = environment.get(
-        "GLM_ANTHROPIC_BASE_URL", "https://api.anthropic.com"
+        "GLM_ANTHROPIC_BASE_URL", "https://llm.shtech.org"
     )
     environment["CLAUDE_CONFIG_DIR"] = str(config_dir)
     environment["TMPDIR"] = str(tmp_dir)
@@ -1209,42 +1221,18 @@ def main() -> int:
                   if values else [])
     if timed_out and args.role == "explore" and not conclude:
         try:
-            build_fact_card(artifact, selected_snapshot, intent, selected_branch)
+            summary = build_fact_card(
+                artifact, selected_snapshot, intent, selected_branch
+            )
             events = [{
                 "event": "done",
-                "description": "worker deadline reached after writing a valid final artifact",
+                "description": summary,
                 "complete": False,
             }]
-        except (OSError, ValueError, json.JSONDecodeError):
-            try:
-                existing_artifact = json.loads(artifact.read_text(encoding="utf-8"))
-                artifact_complete = (
-                    isinstance(existing_artifact, dict)
-                    and existing_artifact.get("execution_status") == "complete"
-                )
-            except (OSError, json.JSONDecodeError):
-                artifact_complete = False
-            if not artifact_complete:
-                atomic_json(artifact, {
-                    "version": 1,
-                    "intent_id": intent,
-                    "branch": "timed-out exploration",
-                    "execution_status": "timed_out",
-                    # A timeout does not establish that the assigned snapshot was
-                    # actually searched, so it must not be recorded as checked.
-                    "snapshots_checked": [],
-                    "findings": [],
-                    "candidates": [],
-                    "coverage_gaps": [
-                        f"Claude Code reached its {timeout}s adapter deadline before completing coverage"
-                    ],
-                    "limitations": [
-                        f"Claude Code reached its {timeout}s adapter deadline; inspect the durable stream log"
-                    ],
-                })
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
             events = [{
                 "event": "error",
-                "message": f"timed out after {timeout}s; durable stream log retained for retry",
+                "message": f"timed out after {timeout}s; invalid or missing artifact: {exc}",
             }]
     if (not timed_out and not events and args.role == "explore" and not conclude):
         try:
@@ -1256,7 +1244,7 @@ def main() -> int:
             }]
         except (OSError, ValueError, json.JSONDecodeError):
             pass
-    if (args.role == "explore" and not terminal_triggered
+    if (args.role == "explore" and not terminal_triggered and not timed_out
             and any(e.get("event") == "done" for e in events)):
         try:
             summary = build_fact_card(artifact, selected_snapshot, intent, selected_branch)

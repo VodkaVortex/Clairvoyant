@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "intent_id": "i021",
+  "branch": "free-invalidates-pointer",
+  "status": "complete",
+  "snapshot": "s05",
+  "progress": [
+    {"step": "init", "note": "Read seed.json (phonet pep_get_sb UAF), TASK.md, inventory. Assignment: s05 only."},
+    {"step": "scan", "note": "4154 skb-free sites in net/+drivers/net/; python sliding-window scanner for save(skb->data)->free/handoff->use triples; 155 raw, 114 after de-scoping."},
+    {"step": "triage", "note": "Classified hdlc_fr fr_rx, l2cap_core 7005, rfcomm 1704, ax25_in/ax25_ip, cmtp capi, bnep, llc_shdlc, nfc hci, hostap_ap, ath9k htc_hst as safe (uses precede frees or value copies)."},
+    {"step": "findings", "note": "Confirmed 3 findings: net/atm/lec.c:247-305 (lec_h stale after dev_kfree_skb at 269), drivers/net/wireless/intel/iwlwifi/mvm/tx.c:825-864 (hdr stale after skb_gso_segment+consume_skb), drivers/net/can/vxcan.c:39-65 (cfd stale after can_create_echo_skb free + netif_rx_ni handoff)."},
+    {"step": "final", "note": "Final artifact written to agent-state/findings/i021.json; quotes verified literal in reported ranges; JSON validated."}
+  ],
+  "final_artifact": "findings/i021.json"
+}

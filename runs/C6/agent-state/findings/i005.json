@@ -1,0 +1,196 @@
+{
+  "version": 1,
+  "intent_id": "i005",
+  "branch": "pull-invalidates-pointer",
+  "execution_status": "complete",
+  "snapshots_checked": ["s04"],
+  "findings": [
+    {
+      "snapshot": "s04",
+      "path": "net/802/garp.c",
+      "start": 447,
+      "end": 456,
+      "quote": "ga = (struct garp_attr_hdr *)skb->data;\n\tif (ga->len < sizeof(*ga))\n\t\treturn -1;\n\n\tif (!pskb_may_pull(skb, ga->len))\n\t\treturn -1;\n\tskb_pull(skb, ga->len);\n\tdlen = ga->len - sizeof(*ga);",
+      "confidence": "medium",
+      "reason": "Untrusted source: garp_pdu_rcv() (garp.c:512, registered as .rcv via stp_proto_register at garp.c:642, i.e. the LLC/SAP 0x42 STP-GARP packet path) hands a remote GARP PDU skb straight to garp_pdu_parse_attr; nothing in that path forces linearity, so a frag-backed skb from GRO/NAPI reaches it. Save: line 449 'ga = (struct garp_attr_hdr *)skb->data;' after pskb_may_pull(sizeof(*ga)). Pull: line 453 'pskb_may_pull(skb, ga->len)' where ga->len is the attacker-chosen attribute length (only checked >= sizeof(*ga)==2), so for a non-linear skb with the attribute body in frags __pskb_pull_tail() kfree()s the old head and skb->data moves. Use without refetch: line 455 skb_pull(skb, ga->len), line 456 'dlen = ga->len - sizeof(*ga)' reads the freed head, line 461 'switch (ga->event)', line 485 garp_attr_lookup(app, ga->data, dlen, attrtype) reads ga->data (a two-byte read of the pointer value itself from freed memory plus subsequent comparison bytes) - exactly the seed's save-pull-stale-deref shape, differing only in that the pointer comes from skb->data instead of skb_header_pointer (and skb_header_pointer with the full hlen falls back to a stack copy, which this code never does). Impact: slab use-after-free read of up to 2 bytes via ga->event/ga->data plus a non-atomic-length skb_pull computed from stale ga->len, remotely triggerable by an unauthenticated GARP/MRP PDU when a GARP/MRP applicant is instantiated on a port. Counterevidence: not executed under KASAN (no build); if the arriving skb is fully linear the pull is a no-op and ga stays valid, so the bug requires a non-linear skb; garp_attr_hdr access at line 450 is before the pull and fine; I confirmed no reassignment of ga between lines 449-485.",
+      "conclusion": "garp_pdu_parse_attr() caches ga=skb->data, pskb_may_pull(skb, ga->len) can free/move the head, then ga->len/ga->event/ga->data are read through the stale pointer, giving a remotely reachable slab-UAF read on non-linear GARP PDUs (medium confidence)."
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ppp/ppp_generic.c",
+      "start": 3111,
+      "end": 3172,
+      "quote": "if (!pskb_may_pull(skb, CCP_HDRLEN + 2))\n\t\treturn;\t/* no header */\n\tdp = skb->data + 2;",
+      "confidence": "medium",
+      "reason": "Untrusted source: ppp_ccp_peek() is called from ppp_receive_nonstandard_frame (ppp_generic.c:2474, inbound=true) for every received CCP packet whose payload is fully attacker-supplied by the PPP peer; those skbs come from a ppp channel (async/PPPoE/PPTP/L2TP) and can be non-linear. Save: ppp_generic.c:3122 'dp = skb->data + 2;' after pskb_may_pull(skb, CCP_HDRLEN + 2). Pull: line 3152 'if (!pskb_may_pull(skb, len + 2))' where len = CCP_LENGTH(dp) is the attacker-chosen CCP length field, so a long ConfAck whose body sits in frags forces __pskb_pull_tail() to reallocate and free the old head while dp still points into it. Use without refetch: line 3155 'dp += CCP_HDRLEN;' (pointer arithmetic on a stale pointer), line 3157 'len < CCP_OPT_LENGTH(dp)' dereferences freed memory, lines 3163 and 3172 pass dp to decomp_init()/comp_init() as the option blob, i.e. a multi-byte read of freed slab memory. Impact: slab use-after-free read of CCP options by the peer, plus comp/decomp_init consuming stale bytes. Counterevidence: not executed (no KASAN build); if the CCP packet is fully linear the pull is a no-op and dp remains valid; the decomp_init/comp_init calls are guarded by SC_CCP_OPEN|SC_CCP_UP and rc_state/xc_state, which merely narrows reachability; I confirmed dp is not re-derived from skb anywhere between lines 3122 and 3172.",
+      "conclusion": "ppp_ccp_peek() caches dp=skb->data+2, pskb_may_pull(skb, len+2) with the peer-chosen CCP length can free/move the head, and dp is then offset/dereferenced and passed to decomp_init/comp_init, a peer-reachable slab-UAF read on non-linear CCP packets (medium confidence)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/tcp_ipv4.c",
+      "line": 2098,
+      "status": "safe",
+      "reason": "th is re-derived immediately after pskb_may_pull (line 2110 'th = (const struct tcphdr *)skb->data;') before any later th-> use; the shape is save-pull-refetch-use, the fixed pattern.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/hsr/hsr_forward.c",
+      "line": 103,
+      "status": "safe",
+      "reason": "hsr_sup_tlv is re-fetched via skb_pull(skb, total_length); hsr_sup_tlv = (struct hsr_sup_tlv *)skb->data; after every pskb_may_pull in is_supervision_frame(); the pre-pull uses are before the pull, not after.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv4/gre_demux.c",
+      "line": 79,
+      "status": "safe",
+      "reason": "parse_gre_header() re-derives greh after pskb_may_pull(skb, nhs + hdr_len) (line 84) and all flag/option dereferences use the refetched pointer; skb_header_pointer at line ~118 uses a stack fallback.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ife/ife.c",
+      "line": 82,
+      "status": "safe",
+      "reason": "ife_decode() refetches ifehdr after the second pskb_may_pull (line ~90) before returning &ifehdr->tlv_data.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/lapb/lapb_subr.c",
+      "line": 116,
+      "status": "safe",
+      "reason": "lapb_decode() never caches a data pointer across a pull; every access re-reads skb->data[0]/[1] after the intervening pskb_may_pull(skb,2) calls, and skb_pull only advances the cursor.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/psp/psp_main.c",
+      "line": 329,
+      "status": "safe",
+      "reason": "psp_dev_rcv() refetches psph (line ~344) and the iph/ipv6h pointers after the second pskb_may_pull, so all post-pull dereferences use current pointers.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/x25/x25_subr.c",
+      "line": 294,
+      "status": "safe",
+      "reason": "x25_decode() refetches 'frame = skb->data;' immediately after each pskb_may_pull(skb, X25_EXT_MIN_LEN); the same holds at line 312.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/x25/af_x25.c",
+      "line": 977,
+      "status": "safe",
+      "reason": "Only the scalar len is captured (len = skb->data[0] + 1), a value copy, not a pointer; no stale address is dereferenced after pskb_may_pull(skb, len).",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/xfrm/xfrm_input.c",
+      "line": 172,
+      "status": "safe",
+      "reason": "spi/seq are immediate scalar loads (*(__be32 *)skb_transport_header(...)) dereferenced at assignment time, before the pull in xfrm_input(); no pointer variable survives.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/gtp.c",
+      "line": 826,
+      "status": "safe",
+      "reason": "gtp1u_handle_echo_req path: gtp1 is re-derived after pskb_may_pull(skb, hdrlen) (line 826: gtp1 = (struct gtp1_header *)(skb->data + sizeof(struct udphdr));), so the stale-pointer concern is the pre-pull reads only, which are before the pull.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/mellanox/mlx5/core/en_rx.c",
+      "line": 1257,
+      "status": "safe",
+      "reason": "is_last_ethertype_ip() copies the __be16 h_proto value out of the head before pskb_may_pull and the pull result is returned as a bool; no pointer is captured and dereferenced after.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "drivers/net/ethernet/sfc/ptp.c",
+      "line": 1756,
+      "status": "safe",
+      "reason": "efx_ptp_rx() sets data = skb->data only after the pskb_may_pull completes in each branch; no pull occurs between the assignment and the reads.",
+      "conclusion": ""
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/openvswitch/flow.c",
+      "line": 457,
+      "status": "unresolved",
+      "reason": "Scanner flagged vh = (struct vlan_head *)skb->data with uses at 462-464 around a pskb_may_pull at 457 in parse_vlan(); the function was not read to a conclusion before the finalize limit.",
+      "conclusion": "Read net/openvswitch/flow.c parse_vlan() (approx. lines 450-480) to check whether vh is re-derived after pskb_may_pull and whether the skb can be non-linear at that point."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/rx.c",
+      "line": 2985,
+      "status": "unresolved",
+      "reason": "mesh_hdr = (struct ieee80211s_hdr *)(skb->data + sizeof(*eth)) flagged with uses at 2992-3012 spanning pskb_may_pull sites; not read to a conclusion.",
+      "conclusion": "Read net/mac80211/rx.c mesh forwarding path (approx. lines 2960-3030) to determine whether mesh_hdr survives a pskb_may_pull without refetch."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/mac80211/wpa.c",
+      "line": 538,
+      "status": "unresolved",
+      "reason": "hdr = (void *)rx->skb->data captured at line 538 (and the parallel case at 750) with later dereferences at 575/576/599 and 787/788/811 across pskb_may_pull calls in the CCMP/GCMP replay handler; not read to a conclusion.",
+      "conclusion": "Read net/mac80211/wpa.c ieee80211_ccmp_gcmp_decrypt (approx. lines 530-620) and the 750-820 variant to check for stale hdr use after pskb_may_pull."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/nfc/hci/core.c",
+      "line": 912,
+      "status": "unresolved",
+      "reason": "packet = (struct hcp_packet *)hcp_skb->data with uses at 918-922 spanning pskb_may_pull; not read to a conclusion.",
+      "conclusion": "Read net/nfc/hci/core.c around lines 905-930 to check whether hcp_skb->data pointers are re-derived after pskb_may_pull and whether NFC HCI skbs can be non-linear."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/seg6.c",
+      "line": 91,
+      "status": "unresolved",
+      "reason": "srh = (struct ipv6_sr_hdr *)(skb->data + srhoff) flagged with uses at 98-103; not read to a conclusion (seg6 code commonly refetches via pskb_may_pull(data, srhoff + len) followed by srh = (struct ipv6_sr_hdr *)(skb->data + srhoff)).",
+      "conclusion": "Read net/ipv6/seg6.c seg6_do_srh() region (approx. lines 85-110) to confirm the refetch after pskb_may_pull is present."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/ip6_tunnel.c",
+      "line": 423,
+      "status": "unresolved",
+      "reason": "hdr = (struct ipv6_opt_hdr *)(skb->data + off) with uses at 427-460 spanning pskb_may_pull calls in ipv6_skip_exthdr(); not read to a conclusion.",
+      "conclusion": "Read net/ipv6/ip6_tunnel.c ipv6_skip_exthdr (approx. lines 415-470) to verify hdr is refetched after each pskb_may_pull."
+    },
+    {
+      "snapshot": "s04",
+      "path": "net/ipv6/ip6_gre.c",
+      "line": 513,
+      "status": "unresolved",
+      "reason": "ershdr = (struct erspan_base_hdr *)skb->data flagged with a use at 550 after pskb_may_pull calls; the parallel ip_gre.c:309 case (use at 345) has the same shape; neither was read to a conclusion.",
+      "conclusion": "Read net/ipv6/ip6_gre.c approx. lines 505-560 and net/ipv4/ip_gre.c approx. lines 300-350 to check whether ershdr is re-derived after pskb_may_pull."
+    }
+  ],
+  "coverage_gaps": [
+    "Only the ~60 highest-scoring save/pull/use triples from the 182 pskb_may_pull-bearing files in net/ and drivers/ were read in full; the remaining ~120 lower-scoring files were never line-read.",
+    "Bare skb_pull()/pskb_pull()/__pskb_pull callers (59 grep hits) were never systematically enumerated for pointers cached across the pull; only ones surfaced incidentally (garp, ife) were checked.",
+    "The six unresolved candidates (openvswitch/flow.c, mac80211/rx.c, mac80211/wpa.c, nfc/hci/core.c, ipv6/seg6.c, ipv6/ip6_tunnel.c, ip6_gre.c/ip_gre.c) were flagged by the scanner but not read to a safe/reported conclusion.",
+    "No runtime reproducer or KASAN build was produced to confirm that garp_pdu_parse_attr and ppp_ccp_peek actually receive non-linear skbs on any concrete driver configuration."
+  ],
+  "limitations": [
+    "Both findings are hypotheses from source reading of the exact save/pull/use lines, not from execution; a non-linear skb is required because pskb_may_pull on an already-linear head is a no-op.",
+    "The garp finding's stale ga->data read is bounded (2 bytes of freed head at a time) and the skb_pull(skb, ga->len) uses the pre-pull validated value, so it is a UAF read rather than a write; exploit impact was not assessed beyond crash/infoleak.",
+    "The ppp finding requires a PPP channel that delivers non-linear skbs and a peer-negotiated CCP ConfAck with attacker-chosen CCP length; reachability of non-linear skbs per ppp channel driver was not audited.",
+    "The scanner's function-extent heuristic (column-0 braces) and single-line derivation matching can mis-scope large functions and miss multi-line pointer derivations, so false negatives among the 354 flagged triples cannot be excluded.",
+    "Seed code net/phonet/pep.c pep_get_sb (lines 46-67) was located in s04 but excluded from reporting by assignment; it still exhibits the unpatched save-pull-stale-deref shape."
+  ]
+}

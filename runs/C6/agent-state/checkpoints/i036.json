@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "intent_id": "i036",
+  "branch": "caller-pointer-across-helper",
+  "status": "complete",
+  "snapshot": "s05",
+  "findings": [
+    {
+      "path": "net/ipv6/seg6_local.c",
+      "start": 66,
+      "end": 88,
+      "confidence": "medium",
+      "note": "get_srh: srh=skb->data+srhoff at :77, pskb_may_pull(skb,srhoff+len) at :81 with attacker hdrlen-derived len, stale srh used at :84 and returned to :98/:115/:206"
+    },
+    {
+      "path": "net/netfilter/nf_flow_table_ip.c",
+      "start": 164,
+      "end": 199,
+      "confidence": "medium",
+      "note": "nf_flow_tuple_ip: iph=ip_hdr(skb) at :174, pskb_may_pull(skb,thoff+sizeof(*ports)) at :189, stale iph->saddr/daddr/protocol read at :194/:195/:199"
+    }
+  ],
+  "candidates_classified": [
+    "net/ipv6/seg6_local.c:77 reported",
+    "net/netfilter/nf_flow_table_ip.c:174 reported",
+    "net/x25/x25_subr.c:268 safe",
+    "net/x25/af_x25.c:963 safe",
+    "net/ipv6/exthdrs.c:290 safe",
+    "net/openvswitch/flow.c:178 safe (check_header pulls before derivation; offsets carried)",
+    "net/x25/x25_in.c:107 unresolved",
+    "drivers/net/vxlan.c:1508 unresolved"
+  ],
+  "final_artifact": "/mnt/raid/home/yangshuangning/vuln_variant_search/experiments/clairvoyant_variant_search/runs/C6/agent-state/findings/i036.json"
+}

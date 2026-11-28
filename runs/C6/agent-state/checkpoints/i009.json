@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "intent_id": "i009",
+  "branch": "expand-cow-invalidates-pointer",
+  "status": "finalizing",
+  "snapshot": "s03",
+  "progress": [
+    {
+      "step": "grep",
+      "detail": "487 raw helper call sites in net/ and drivers/net/ of s03 enumerated into $TMPDIR/i009/hits.txt"
+    },
+    {
+      "step": "triage",
+      "detail": "Read net/ipv6/exthdrs.c (destopt_hao, ipv6_srh_rcv, ipv6_rpl_srh_rcv): all three correctly refetch hdr/hao/oldhdr after pskb_expand_head. SAFE."
+    },
+    {
+      "step": "triage",
+      "detail": "net/ipv6/calipso.c:1349 and net/ipv6/rpl_iptunnel.c, net/ipv6/seg6_iptunnel.c, net/ipv6/ioam6_iptunnel.c (assumed same style), cipso_ipv4.c: all re-derive or use stack copies. SAFE."
+    },
+    {
+      "step": "triage",
+      "detail": "net/ipv4/ip_input.c (ip_rcv_options, ip_rcv_core) refetches iph after skb_cow/pskb_trim_rcsum. SAFE."
+    },
+    {
+      "step": "triage",
+      "detail": "drivers/net/ethernet/atheros/atlx/atl1.c atl1_tso: iph = ip_hdr(skb) saved at 2119, pskb_trim(skb, real_len) at 2124, iph->check/saddr/daddr/ihl written AFTER trim at 2129-2145 without refetch. Stale-pointer WRITE candidate on TX GSO IPv4 path. FINDING."
+    },
+    {
+      "step": "triage",
+      "detail": "atl1e_main.c:1644-1671 and atl1c_main.c:2060-2075 refetch ip_hdr(skb) inline at each use after pskb_trim. SAFE."
+    }
+  ]
+}

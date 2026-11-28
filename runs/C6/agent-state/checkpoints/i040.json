@@ -1,0 +1,71 @@
+{
+ "version": 1,
+ "intent_id": "i040",
+ "branch": "stacks-outside-net-dirs",
+ "status": "finalizing",
+ "snapshot": "s04",
+ "note": "Searching stopped per finalize instruction. Evidence collected: bnx2fc_fcoe.c stale mac/dest_mac across pskb_trim; cxgb4i.c stale cpl/rpl across __pskb_trim; ipoib_ib.c stale phead across skb_linearize; qeth/ctcm/aoe/ssi_protocol/firewire audited safe.",
+ "candidates": [
+  {
+   "path": "drivers/scsi/bnx2fc/bnx2fc_fcoe.c",
+   "line": 530,
+   "status": "reported",
+   "reason": "mac/dest_mac saved at 530-531, pskb_trim at 552 can free old head for cloned skb, stale reads at 563/576/585"
+  },
+  {
+   "path": "drivers/scsi/cxgbi/cxgb4i/cxgb4i.c",
+   "line": 1583,
+   "status": "reported",
+   "reason": "rpl saved at 1515, __pskb_trim at 1555, rpl->ulp_crc dereferenced at 1583; same shape for cpl at 1248/1282/1303"
+  },
+  {
+   "path": "drivers/infiniband/ulp/ipoib/ipoib_ib.c",
+   "line": 602,
+   "status": "reported",
+   "reason": "phead=skb->data at 602, skb_linearize at 623, stale phead passed to post_send at 679"
+  },
+  {
+   "path": "drivers/s390/net/qeth_core_main.c",
+   "line": 3994,
+   "status": "safe",
+   "reason": "skb_linearize at 3994 followed by fresh re-derivation of data pointers"
+  },
+  {
+   "path": "drivers/s390/net/ctcm_main.c",
+   "line": 168,
+   "status": "safe",
+   "reason": "copies out before netif_rx; header re-derived each loop iteration"
+  },
+  {
+   "path": "drivers/block/aoe/aoenet.c",
+   "line": 150,
+   "status": "safe",
+   "reason": "pointer derived after __pskb_pull_tail completes"
+  },
+  {
+   "path": "drivers/hsi/clients/ssi_protocol.c",
+   "line": 618,
+   "status": "safe",
+   "reason": "pskb_may_pull precedes all skb->data reads"
+  },
+  {
+   "path": "drivers/firewire/net.c",
+   "line": 479,
+   "status": "safe",
+   "reason": "eth/rawp derived after dev_hard_header; no invalidating call between"
+  },
+  {
+   "path": "drivers/infiniband/ulp/ipoib/ipoib_cm.c",
+   "line": 668,
+   "status": "safe",
+   "reason": "driver-constructed linear RX skb; no invalidating call between derivation and use"
+  }
+ ],
+ "queries_planned": [
+  "rg 'pskb_may_pull|pskb_pull|__pskb_pull' drivers/ -g '!drivers/net/**'",
+  "rg 'skb_cow|pskb_trim|skb_linearize|pskb_expand_head|skb_realloc_headroom|skb_carve' drivers/ -g '!drivers/net/**'",
+  "rg 'skb_header_pointer' drivers/ -g '!drivers/net/**'",
+  "rg 'kfree_skb|dev_kfree_skb' in target dirs (drivers/nfc, drivers/bluetooth, drivers/infiniband, drivers/s390/net, drivers/hsi, drivers/tty, drivers/isdn, drivers/atm, drivers/staging, drivers/scsi)",
+  "rg 'skb->data' casts in HCI parsers"
+ ]
+}

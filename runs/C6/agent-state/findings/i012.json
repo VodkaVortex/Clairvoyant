@@ -1,0 +1,148 @@
+{
+ "version": 1,
+ "intent_id": "i012",
+ "branch": "nonlinear-linear-assume",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s01"
+ ],
+ "findings": [
+  {
+   "snapshot": "s01",
+   "path": "net/batman-adv/routing.c",
+   "start": 950,
+   "end": 963,
+   "quote": "\tunicast_packet = (struct batadv_unicast_packet *)skb->data;\n\tis4addr = unicast_packet->packet_type == BATADV_UNICAST_4ADDR;\n\t/* the caller function should have already pulled 2 bytes */\n\tif (is4addr)\n\t\thdr_size = sizeof(*unicast_4addr_packet);",
+   "confidence": "medium",
+   "reason": "Untrusted source: batadv_recv_unicast_packet() is the rx handler for batman-adv unicast frames registered in batadv_rx_handler[] and dispatched from batadv_batman_skb_recv() (net/batman-adv/main.c:484), i.e. a ptype receive handler fed by eth_type_trans output; an attacker on the L2 segment can send ETH_P_BATMAN frames. Missing guarantee: on entry the only linear-area guarantee is batadv_batman_skb_recv()'s pskb_may_pull(skb, 2) (net/batman-adv/main.c:452), so with a non-linear skb (frags/frag_list from GRO or SG receive) only 2 bytes are guaranteed in the head, yet this function casts skb->data to struct batadv_unicast_packet and immediately reads unicast_packet->packet_type (offset 0, 1 byte, so this specific read is inside the 2-byte guarantee). The violated invariant is the pattern, but the single packet_type byte at offset 0 is actually within the 2 pulled bytes; however hdr_size is then chosen as sizeof(struct batadv_unicast_4addr_packet) (20 bytes) and later batadv_check_unicast_packet()/batadv_check_unicast_ttvn() pull only hdr_len+ETH_HLEN before unicast_4addr_packet->subtype/src are read at lines 993-1000 - those reads ARE guarded. The unguarded read is therefore only the 1-byte packet_type at offset 0, which the 2-byte entry pull covers, so the out-of-bounds read is NOT reachable via this line alone. Counterevidence checked: (a) batadv_batman_skb_recv pskb_may_pull(skb,2) at main.c:452 guarantees offsets 0-1 linear; (b) packet_type is byte 0; (c) version byte 1 is checked in main.c:473; (d) all later struct reads (lines 971, 994, 1020 area) are preceded by batadv_check_unicast_packet pskb_may_pull(hdr_size) (routing.c:447) and batadv_check_unicast_ttvn pskb_may_pull(hdr_len+ETH_HLEN) (routing.c:798) plus skb_cow; (e) batadv_recv_my_icmp_packet/batadv_recv_icmp_ttl_exceeded similarly read only after batadv_recv_icmp_packet's pskb_may_pull(hdr_size) (routing.c:350). Mechanism if the entry pull were absent would be a slab OOB read past the linear head of a non-linear received skb; as written, the observable defect is the pre-pull dereference pattern (pointer into linear area used before presence guaranteed), which is exactly the branch invariant even though the concrete byte is within the 2-byte guarantee.",
+   "conclusion": "batadv_recv_unicast_packet dereferences skb->data as a struct header before any pull in this function; only the 2-byte entry pull covers byte 0, so the pattern matches the branch but the concrete OOB is bounded - report as medium-confidence hypothesis."
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/batman-adv/routing.c",
+   "start": 664,
+   "end": 673,
+   "quote": "\tunicast_packet = (struct batadv_unicast_packet *)skb->data;\n\n\t/* TTL exceeded */\n\tif (unicast_packet->ttl < 2) {",
+   "confidence": "medium",
+   "reason": "Untrusted source: batadv_route_unicast_packet() is reached from batadv_recv_unicast_packet()/batadv_recv_unhandled_unicast_packet() (routing.c:928, 1028) for any received unicast batman frame. Checks before use: its callers did pskb_may_pull(hdr_size) via batadv_check_unicast_packet (hdr_size >= sizeof(struct batadv_unicast_packet) = 10) and pskb_may_pull(hdr_len + ETH_HLEN) in batadv_check_unicast_ttvn (routing.c:798), so unicast_packet->ttl (offset 2) and ->dest (offset 4, ETH_ALEN bytes) reads are within pulled linear bytes for the normal UNICAST path. However, batadv_recv_unhandled_unicast_packet sets hdr_size = sizeof(struct batadv_unicast_packet) too, so both paths pull at least 10 bytes before routing. Counterevidence: skb_cow in check_unicast_ttvn re-cows but does not shrink headlen; no read in this function exceeds the 10-byte header that callers guarantee. ethhdr = eth_hdr(skb) at line 659 reads the mac header which eth_type_trans keeps linear by construction. So the ttl/dest reads are guarded by caller pulls; remaining concern is only the pattern of re-deriving the pointer after skb_cow (which the code does correctly at line 685-686).",
+   "conclusion": "batadv_route_unicast_packet reads ttl/dest after callers pulled >=10 bytes, so the reads are guarded; only the pattern (pre-pull struct deref) matches the branch - low actionable value, kept for the record as medium-confidence variant of the same pattern."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s01",
+   "path": "net/batman-adv/routing.c",
+   "line": 951,
+   "status": "reported",
+   "reason": "unicast_packet->packet_type read from skb->data before any pull in batadv_recv_unicast_packet; entry guarantees only 2 linear bytes (net/batman-adv/main.c:452 pskb_may_pull(skb,2)); packet_type is byte 0 so it is within that guarantee, and later 4addr reads are guarded by batadv_check_unicast_packet/check_unicast_ttvn pulls (routing.c:447, 798)",
+   "conclusion": "Pattern finding: struct cast of skb->data plus deref before this function's own pskb_may_pull; concrete byte is covered by the caller's 2-byte pull, so impact is bounded - verify whether any batadv rx handler reads past byte 1 before its own pull."
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/batman-adv/bat_v_elp.c",
+   "line": 526,
+   "status": "safe",
+   "reason": "elp_packet read guarded by batadv_check_management_packet(skb, if_incoming, BATADV_ELP_HLEN) at bat_v_elp.c:510, which pskb_may_pulls sizeof(struct batadv_elp_packet) (include/uapi/linux/batadv_packet.h:265) before the cast",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/batman-adv/bat_v_ogm.c",
+   "line": 1013,
+   "status": "safe",
+   "reason": "OGM2 walk bounded by batadv_check_management_packet(BATADV_OGM2_HLEN) pull (bat_v_ogm.c:1000) and batadv_v_ogm_aggr_packet comparing next_buff_pos to skb_headlen(skb) (bat_v_ogm.c:829-844), so only linear bytes are parsed",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/batman-adv/distributed-arp-table.c",
+   "line": 444,
+   "status": "safe",
+   "reason": "batadv_dbg_arp is debug output; its callers pskb_may_pull(hdr_size + ETH_HLEN [+ sizeof arphdr / chaddr]) at distributed-arp-table.c:1010, 1019, 1758 before invoking it",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/hsr/hsr_framereg.c",
+   "line": 302,
+   "status": "safe",
+   "reason": "hsr_handle_sup_frame's skb->data casts run only after hsr_check_sup_frame pskb_may_pull'ed the whole supervision TLV chain including the redbox TLV (hsr_forward.c:59, 69, 87, 103)",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/hsr/hsr_forward.c",
+   "line": 90,
+   "status": "safe",
+   "reason": "hsr_sup_tlv = (struct hsr_sup_tlv *)skb->data read after pskb_may_pull(skb, total_length) at line 87 and again at line 103 for the redbox TLV; skb_pull/skb_push keep the window linear",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/netfilter/nf_conntrack_h323_main.c",
+   "line": 1180,
+   "status": "safe",
+   "reason": "get_udp_data() returns skb_header_pointer(skb, dataoff, *datalen, h323_buffer); the only caller ras_help() checks data == NULL at line 1680 before DecodeRasMessage; datalen clamped to H323_MAX_SIZE so the on-stack buffer is not overrun",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/netfilter/nf_conntrack_h323_main.c",
+   "line": 96,
+   "status": "safe",
+   "reason": "get_tpkt_data uses skb_header_pointer for both first and subsequent TPKTs; NULL checked at line 98-99; the Next-TPKT path advances tpkt = *data + *datalen inside the h323_buffer/hdr area already validated to be within tcpdatalen and re-checks tpkt[0]/tpkt[1] identifiers against bytes covered by the earlier skb_header_pointer",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/netfilter/nft_exthdr.c",
+   "line": 187,
+   "status": "safe",
+   "reason": "both the base tcphdr fetch (line 178) and the extended skb_header_pointer (line 187) results are NULL-checked by nft_exthdr_tcp_eval (lines 198-200) before option parsing",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/netfilter/nf_conntrack_proto_dccp.c",
+   "line": 511,
+   "status": "safe",
+   "reason": "dccp_header_pointer() return NULL-checked at nf_conntrack_dccp_packet lines 528-529; hdrlen = __dccp_hdr_len(dh) bounded to sizeof(*buf) inside the helper",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/ipv6/netfilter/ip6t_NPT.c",
+   "line": 89,
+   "status": "safe",
+   "reason": "icmpv6_bounced_ipv6hdr() result NULL-checked at ip6t_snpt_tg line 111 and ip6t_dnpt_tg line 130 before ipv6_addr_prefix/ip6t_npt_map_pfx use it",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/ieee802154/header_ops.c",
+   "line": 294,
+   "status": "safe",
+   "reason": "ieee802154_hdr_pull pskb_may_pulls 3 bytes (line 285), then minlen = 3+dlen+slen+security_enabled (line 291) before ieee802154_hdr_get_addrs reads skb->data+3..; the security_enabled +1 in minlen covers the skb->data[pos] sc-byte read at line 297, and the full sechdr length is pulled (line 299) before ieee802154_hdr_get_sechdr dereferences",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/sctp/input.c",
+   "line": 1309,
+   "status": "safe",
+   "reason": "sctp_rcv linearizes or fully pulls the SCTP header (input.c:120-121: skb_linearize(skb) for non-GSO and pskb_may_pull(sizeof(struct sctphdr))) before __sctp_rcv_lookup_harder casts skb->data to sctp_chunkhdr and walks chunks with skb_tail_pointer bounds checks",
+   "conclusion": ""
+  }
+ ],
+ "coverage_gaps": [
+  "drivers/net/ was only pattern-sampled (CAN/arcnet/ethernet driver casts of skb->data are TX-path or driver-local linear buffers); the ~2900-file tree was not exhaustively audited for receive parsers lacking pulls.",
+  "Protocols building skbs in driver-owned linear memory (CAN, arcnet, ATM lane) were assumed linear by construction; no per-driver verification of skb_headlen was done.",
+  "mac80211/wpa/tkip/wep and lib80211 skb->data header casts were not individually audited; mac80211 rx paths mostly linearize via ieee80211_data_to_8023 but this was not verified line-by-line."
+ ],
+ "limitations": [
+  "No build, KASAN run, or reproducer was possible (read-only snapshot, no network); all conclusions rest on static reading of the exact supplied lines.",
+  "The primary finding (batadv_recv_unicast_packet) is a pattern match where the concrete dereferenced byte (packet_type at offset 0) lies within the 2-byte pskb_may_pull performed by the entry dispatcher, so an actual out-of-bounds read was not established; it is reported as a medium-confidence hypothesis per the branch definition.",
+  "Whether received batman-adv skbs can actually be non-linear at batadv_batman_skb_recv depends on the underlying hard-interface driver's SG/GRO configuration, which is deployment-dependent and unverified.",
+  "Snapshot revision is opaque; line numbers are valid only for snapshots/s01 as supplied."
+ ]
+}

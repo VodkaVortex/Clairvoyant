@@ -1,0 +1,85 @@
+{
+ "version": 1,
+ "intent_id": "i019",
+ "branch": "free-invalidates-pointer",
+ "status": "finalizing",
+ "snapshot": "s03",
+ "note": "Window scanner (515 save-free-use triples over net/ + drivers/net/) triaged. Strongest candidate: net/bluetooth/6lowpan.c chan->data=skb at 447 then dev_kfree_skb at 549 (store of skb into long-lived l2cap chan state, freed by bt_xmit; latent dangling pointer, same shape f004/f026 but write-through deref not found in s03). ath10k htc.c:71-79 hdr save then dev_kfree_skb_any then hdr->flags read rejected: restore_tx_skb only skb_pull (no free of head, that is the excluded pull branch anyway). x25, hdlc_fr, esd_usb, virtio_can, mac80211 rx/tx, hci_event, nfc hci/llcp, nci, arcnet, batadv frag all checked safe (value copies or free is last op).",
+ "candidates": [
+  {
+   "path": "net/bluetooth/6lowpan.c",
+   "line": 447,
+   "status": "reported"
+  },
+  {
+   "path": "drivers/net/wireless/ath/ath10k/htc.c",
+   "line": 71,
+   "status": "safe"
+  },
+  {
+   "path": "net/x25/x25_dev.c",
+   "line": 35,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/net/wan/hdlc_fr.c",
+   "line": 893,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/net/can/usb/esd_usb.c",
+   "line": 824,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/net/can/virtio_can.c",
+   "line": 311,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/net/can/janz-ican3.c",
+   "line": 1299,
+   "status": "safe"
+  },
+  {
+   "path": "net/nfc/hci/core.c",
+   "line": 869,
+   "status": "safe"
+  },
+  {
+   "path": "net/nfc/llcp_core.c",
+   "line": 1437,
+   "status": "safe"
+  },
+  {
+   "path": "net/nfc/nci/ntf.c",
+   "line": 900,
+   "status": "safe"
+  },
+  {
+   "path": "net/ipv6/exthdrs.c",
+   "line": 512,
+   "status": "safe"
+  },
+  {
+   "path": "net/bluetooth/hci_event.c",
+   "line": 7805,
+   "status": "safe"
+  },
+  {
+   "path": "net/mac80211/rx.c",
+   "line": 1809,
+   "status": "safe"
+  },
+  {
+   "path": "drivers/net/arcnet/rfc1201.c",
+   "line": 348,
+   "status": "unresolved"
+  },
+  {
+   "path": "drivers/net/ethernet/qualcomm/rmnet/rmnet_map_command.c",
+   "line": 15,
+   "status": "unresolved"
+  }
+ ]
+}

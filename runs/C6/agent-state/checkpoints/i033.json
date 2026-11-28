@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "intent_id": "i033",
+  "snapshot": "s02",
+  "status": "complete",
+  "branch": "caller-pointer-across-helper",
+  "findings": [
+    "net/decnet/dn_route.c:547-583 dn_route_rx_long ptr=skb->data saved, pskb_may_pull(skb,21) at 552, stale ptr used 560-574",
+    "net/decnet/dn_route.c:587-605 dn_route_rx_short ptr=skb->data saved, pskb_may_pull(skb,6) at 592, stale ptr used 598-602",
+    "net/decnet/dn_nsp_in.c:717-772 dn_nsp_rx_packet ptr=skb->data saved, pskb_may_pull(skb,2/3/5) at 725/755/768, stale ptr used 729/761/769",
+    "net/mac80211/rx.c:2555-2566 ieee80211_rx_h_data tf=rx->skb->data saved at 2558, pskb_may_pull at 2560, stale tf-> derefs 2562-2565"
+  ],
+  "candidates": [
+    "net/ipv4/ip_forward.c:132 safe: iph = ip_hdr(skb) is re-derived AFTER skb_cow at 130, the correct pattern",
+    "net/ipv4/ip_forward.c:72 unresolved: whether any head-derived pointer is live across ip_forward_options(skb)"
+  ]
+}

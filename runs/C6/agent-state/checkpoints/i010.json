@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "intent_id": "i010",
+  "branch": "expand-cow-invalidates-pointer",
+  "status": "finalized",
+  "snapshot": "s04",
+  "method": [
+    "grep enumerated 559 helper call-site lines in net/ and drivers/net/ (308 files)",
+    "function-extent scanner flagged 33 candidate var/helper/use triples",
+    "manual read of strongest candidates; verified reallocation engine in net/core/skbuff.c (pskb_expand_head:2285, ___pskb_trim:2712, __skb_cow:2444)"
+  ],
+  "classified": {
+    "reported": [
+      "drivers/net/ethernet/mellanox/mlx5/core/en_accel/ipsec_rxtx.c:47-68 (ipv4hdr/ipv6hdr stale after pskb_trim)",
+      "drivers/net/ethernet/emulex/benet/be_main.c:1123-1157 (veh stale after pskb_trim)"
+    ],
+    "safe": [
+      "net/ipv6/exthdrs.c:273,444,602,767 (refetch after pskb_expand_head)",
+      "net/ipv6/calipso.c:1343 (explicit refetch comment)",
+      "net/ipv6/ip6mr.c:2094 (refetch)",
+      "net/ipv6/sit.c:1004 (skb replaced + refetch)",
+      "net/ipv4/ip_input.c:568, net/ipv6/ip6_input.c:314, net/ipv4/udp.c:2610, net/ipv6/udp.c:1095, net/ipv6/netfilter/nf_reject_ipv6.c:38 (refetch after pskb_trim_rcsum)",
+      "net/batman-adv/routing.c:371/375 (refetch ethhdr+icmph after linearize/cow)",
+      "net/sched/act_pedit.c:450 (d used before cow; ptr re-derived after)",
+      "net/netfilter/nf_conntrack_proto_icmpv6.c:171 (nd_opt used before, comment acknowledges)",
+      "drivers/net/ethernet/atheros/atlx/atl1.c:2129 (skb_cow_head(skb,0) at 2115 unclones, so later pskb_trim cannot realloc)",
+      "drivers/net/ethernet/atheros/atl1c/atl1c_main.c:2063, atl1e_main.c:1647 (fresh ip_hdr(skb) accessor after trim)",
+      "drivers/net/ethernet/apm/xgene/xgene_enet_main.c:347 (iph->protocol read only when linearize branch not taken)",
+      "net/netfilter/nf_flow_table_ip.c:611 (verified refetch; scalar pre-copies)"
+    ],
+    "unresolved": [
+      "drivers/net/ethernet/intel/i40e/i40e_txrx.c:3050 vhdr after skb_cow_head",
+      "drivers/net/ethernet/intel/ixgbe/ixgbe_main.c:9461 vhdr after skb_cow_head",
+      "net/mpls/mpls_iptunnel.c:108 ttl after skb_cow_head"
+    ]
+  },
+  "progress": [
+    "final artifact written to findings/i010.json"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "intent_id": "i024",
+  "branch": "header-accessor-no-linearize",
+  "snapshot": "s03",
+  "status": "final",
+  "progress": "Investigation complete. Grepped net/ and drivers/net/ for skb_{network,transport,mac,inner_*}_header accessors (145 net/ files, 82 drivers/net/ files). Deep-read NCSI receive path: ncsi_rcv_rsp() (packet_type handler, ETH_P_NCSI, dev_add_pack) dereferences skb_network_header()-derived struct ncsi_pkt_hdr fields with zero pskb_may_pull/skb_linearize/skb_headlen guards in the whole net/ncsi/ tree, plus payload-relative checksum reads; reported as two medium-confidence findings. Classified reassembly.c, xfrm_input.c, hsr_forward.c, nf_flow_table_ip.c, ip_tunnel_core.c as safe (guarded). Five unresolved candidates remain (6lowpan rx, mac802154 llsec, mctp i2c/i3c, pppoe, sja1105 tagger) with one-line follow-ups. Final artifact written to agent-state/findings/i024.json.",
+  "candidates": [
+    {"path": "net/ncsi/ncsi-rsp.c", "line": 1185, "status": "reported"},
+    {"path": "net/ncsi/ncsi-aen.c", "line": 216, "status": "reported"},
+    {"path": "net/ipv6/reassembly.c", "line": 354, "status": "safe"},
+    {"path": "net/xfrm/xfrm_input.c", "line": 175, "status": "safe"},
+    {"path": "net/hsr/hsr_forward.c", "line": 44, "status": "safe"},
+    {"path": "net/netfilter/nf_flow_table_ip.c", "line": 33, "status": "safe"},
+    {"path": "net/ipv4/ip_tunnel_core.c", "line": 411, "status": "safe"},
+    {"path": "net/ieee802154/6lowpan/rx.c", "line": 97, "status": "unresolved"},
+    {"path": "net/mac802154/llsec.c", "line": 631, "status": "unresolved"},
+    {"path": "drivers/net/mctp/mctp-i2c.c", "line": 499, "status": "unresolved"},
+    {"path": "drivers/net/ppp/pppoe.c", "line": 1219, "status": "unresolved"},
+    {"path": "net/dsa/tag_sja1105.c", "line": 105, "status": "unresolved"}
+  ]
+}

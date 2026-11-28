@@ -1,0 +1,137 @@
+{
+ "version": 1,
+ "intent_id": "i002",
+ "branch": "pull-invalidates-pointer",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s01"
+ ],
+ "findings": [
+  {
+   "snapshot": "s01",
+   "path": "net/802/garp.c",
+   "start": 447,
+   "end": 485,
+   "quote": "if (!pskb_may_pull(skb, ga->len))\n\t\treturn -1;\n\tskb_pull(skb, ga->len);\n\tdlen = sizeof(*ga) - ga->len;",
+   "confidence": "medium",
+   "reason": "Untrusted source: garp_pdu_parse_attr() parses a GARP PDU delivered by garp_pdu_rcv() (net/802/garp.c:512) from the STP packet path, i.e. a network-received sk_buff whose layout and length fields are attacker-chosen. Violated invariant: ga = (struct garp_attr_hdr *)skb->data is captured at line 449 after a first pskb_may_pull(sizeof(*ga)), then the peer-chosen ga->len is fed into a second pskb_may_pull(skb, ga->len) at line 453; pskb_may_pull/__pskb_pull_tail (net/core/skbuff.c) may allocate a new data buffer and free the old head when the bytes are in frags, so ga becomes dangling. Unsafe use without refetch: ga->len is dereferenced again at line 455 (argument to skb_pull), line 456 (dlen computation), ga->event at line 461, and ga->data at line 485 (garp_attr_lookup), all through the stale pointer. Non-linearity is realistic: the skb arrives via dev_queue_xmit_nit/STP registration into __netif_receive_skb and modern GRO/NAPI paths can hand frag-backed skbs to the GARP ethertype handler; skb_share_check is not the reallocator here, the pull is. Counterevidence checked: the first pull is a fixed 2-byte header pull that cannot exceed headlen in practice but the second pull length is fully attacker-controlled; there is no re-derivation of ga between line 453 and the uses; garp_pdu_parse_msg's own gm pointer is refetched-style (fixed-size read after pull), so only ga goes stale; the sibling MRP implementation (net/802/mrp.c:694-810) uses skb_header_pointer()/skb_copy_bits() with offsets and avoids the pattern, showing the safe idiom exists in-tree. No runtime KASAN reproduction was possible in the read-only snapshot.",
+   "conclusion": "garp_pdu_parse_attr() keeps ga=skb->data across pskb_may_pull(skb, ga->len) with the peer-chosen length, then reads ga->len/ga->event/ga->data through the stale pointer, a remotely reachable slab-UAF read on non-linear GARP PDUs (medium confidence)."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/ppp/ppp_generic.c",
+   "start": 3091,
+   "end": 3137,
+   "quote": "if (!pskb_may_pull(skb, CCP_HDRLEN + 2))\n\t\treturn;\t/* no header */\n\tdp = skb->data + 2;",
+   "confidence": "medium",
+   "reason": "Untrusted source: ppp_ccp_peek() is called on received PPP CCP packets from ppp_receive_frame (drivers/net/ppp/ppp_generic.c:2448, inbound=1) and on to-be-sent CCP frames at line 1814; the CCP ConfAck body is peer-crafted, so CCP_LENGTH(dp) at line 3126 is an attacker-chosen length. Violated invariant: dp = skb->data + 2 is captured at line 3093 after the initial fixed-size pull, then pskb_may_pull(skb, len + 2) at line 3127 (len from the packet) may reallocate/free the head via __pskb_pull_tail when the remaining bytes live in frags; dp is not re-derived. Unsafe use without refetch: dp += CCP_HDRLEN at line 3129, CCP_OPT_LENGTH(dp) at line 3131, and dp is handed to ppp->rcomp->decomp_init(ppp->rc_state, dp, len, ...) at line 3137 (or comp_init at 3146), which parses the stale freed head as compressor options. Counterevidence checked: reaching the ConfAck case requires (ppp->flags & (SC_CCP_OPEN|SC_CCP_UP)) == SC_CCP_OPEN, i.e. CCP negotiation mid-flight, and a PPP channel (ppp_input path) that delivers non-linear skbs; whether every ppp channel driver linearizes first was not audited (ppp_async/ppp_synctty build linear skbs, pppoe/pppox and pppol2tp can carry frag-backed skbs), so non-linearity is a deployment-dependent precondition rather than a refutation. No runtime reproduction was possible.",
+   "conclusion": "ppp_ccp_peek() caches dp=skb->data+2, pulls a peer-chosen CCP length with pskb_may_pull(skb, len+2) that can free the head, then offsets and dereferences dp (CCP_OPT_LENGTH, decomp_init/comp_init), a peer-reachable slab-UAF read on non-linear CCP ConfAcks (medium confidence)."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/wan/hdlc_fr.c",
+   "start": 940,
+   "end": 969,
+   "quote": "skb = skb_share_check(skb, GFP_ATOMIC);\n\tif (!skb) {\n\t\tfrad->stats.rx_dropped++;\n\t\treturn NET_RX_DROP;\n\t}\n\n\tif (data[3] == NLPID_IP) {",
+   "confidence": "low",
+   "reason": "Untrusted source: fr_rx() handles a Frame Relay frame received by the FRAD driver, so skb contents including the Q.922/NLPID bytes are attacker-controlled at the far end of the PVC. Violated invariant: data = skb->data (and fh = (struct fr_hdr *)skb->data) are captured at drivers/net/wan/hdlc_fr.c:893-894; skb_share_check() at line 940 can unshare a cloned skb by copying it into a fresh head, and __pskb_pull_tail-based reallocation inside pskb_may_pull is not the concern here but the copy-on-share is, after which data[3]/data[4] at lines 946/965 and fh->fecn/fh->becn at lines 924/931 are read through the pointer saved before the share_check. Unsafe use without refetch: data[3] at 946, data[4] at 965 (and fh reads before it), plus the unchecked skb_pull(4/5) calls that assume 4-5 linear bytes. Counterevidence checked: skb_share_check only copies when the incoming skb is cloned; many WAN drivers deliver freshly built linear skbs (single-alloc), in which case data stays valid and the code is merely fragile, and the fh->fecn/becn reads at 924/931 happen before the share_check so only the data[3]/data[4] uses after it are stale-capable; prior fact f016 for this same file reported the shape from the pull-return-unchecked branch, which corroborates the fragility but also that reachability of cloned/non-linear FRAD skbs is unverified. Kept at low confidence because the reallocating operation is share-check (clone copy) rather than a pull, and no driver path handing cloned skbs to hdlc_type_trans/fr_rx was confirmed.",
+   "conclusion": "fr_rx() reads data[3]/data[4] through a pointer saved before skb_share_check() can copy the head, so a cloned received FR frame yields a stale-head read plus unchecked skb_pull(4/5) linearization (low confidence; FRAD must deliver cloned/non-linear skbs)."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s01",
+   "path": "net/802/mrp.c",
+   "line": 810,
+   "status": "safe",
+   "reason": "mrp_rcv() uses skb_header_pointer() for the PDU header and mrp_pdu_parse_msg/vecattr use skb_header_pointer()/skb_copy_bits() with byte offsets, never caching a raw skb->data pointer across a pull; the struct mrp_skb_cb cached pointers are always freshly derived via skb_header_pointer.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/ipv4/tcp_ipv4.c",
+   "line": 2036,
+   "status": "safe",
+   "reason": "tcp_add_backlog() captures th=(struct tcphdr*)skb->data at line 2036 and thtail into tail->data, but the intervening operations are __skb_pull(skb, hdrlen) on skb (pull of already-linear header bytes; pskb_may_pull for the TCP header happened in the caller before) and skb_try_coalesce(tail,...) which only appends frags to tail and never reallocates tail->data; thtail->window/thtail->fin writes at lines 2071/2081 target tail's head, which skb_try_coalesce does not free; skb_condense() at line 2019 runs before th is captured.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/wan/hdlc_fr.c",
+   "line": 894,
+   "status": "reported",
+   "reason": "Reported as a low-confidence finding: data=skb->data at line 894 is dereferenced at 946/965 after skb_share_check at 940 which can replace the head on a cloned skb.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/phonet/pep.c",
+   "line": 55,
+   "status": "safe",
+   "reason": "This is the seed demonstration (pep_get_sb, net/phonet/pep.c:45-67): ph=skb_header_pointer(...) at line 55 is dereferenced after pskb_may_pull(skb, ph->sb_len) at line 56 without refetch, exactly the seed mechanism; excluded from reporting by assignment instruction, classified here only for the record.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/wireless/intel/iwlwifi/mei/net.c",
+   "line": 428,
+   "status": "unresolved",
+   "reason": "iwl_mei_tx_copy_to_csme() saves hdr=(void*)skb->data then calls pskb_pull(skb, ieee80211_hdrlen(hdr->frame_control)+ivlen+6); the hdr->frame_control read happens before the pull (argument evaluation), so a stale-deref is not established on the single visible line, but whether hdr is reused after the pskb_pull and whether that TX skb can be non-linear was not read to conclusion before the bounded search was stopped.",
+   "conclusion": "Read iwlwifi/mei/net.c iwl_mei_tx_copy_to_csme fully to check whether hdr is dereferenced after the pskb_pull and whether the TX skb can be non-linear (frag-backed) at that point."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/bluetooth/btmtksdio.c",
+   "line": 508,
+   "status": "unresolved",
+   "reason": "btmtksdio_rx_packet() saves sdio_hdr=(void*)skb->data before a pull; the use flagged by the scanner is the skb_pull(skb, sizeof(*sdio_hdr)) itself, but the function continues to parse the RX packet and whether any sdio_hdr field is read after the pull (and whether SDIO RX skbs can be non-linear) was not read to conclusion.",
+   "conclusion": "Re-read drivers/bluetooth/btmtksdio.c btmtksdio_rx_packet() in full to check for sdio_hdr field reads after the pull and for non-linear RX skbs from the SDIO transport."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c",
+   "line": 1874,
+   "status": "unresolved",
+   "reason": "brcmf_sdio_rxglom() saves dptr=(u8*)(pfirst->data) and the scanner flagged a dptr[SDPCM_HWHDR_LEN] read after a pull-family call; brcmfmac SDIO glom skbs are aggregates whose heads can be reallocated by __pskb_pull_tail during __skb_pull processing, but the full block was not read to conclusion.",
+   "conclusion": "Re-read brcmfmac/sdio.c brcmf_sdio_rxglom() lines ~1698-1880 to confirm whether dptr survives a pull/linearization and whether glom RX skbs can be non-linear."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/net/usb/ax88179_178a.c",
+   "line": 1470,
+   "status": "unresolved",
+   "reason": "ax88179_rx_fixup() saves pkt_hdr=(u32*)(skb->data+hdr_off) and loops pkt_hdr++ while processing RX aggregates; usbnet rx_fixup skbs are the linear URB transfer buffer so they are linear by construction, but the loop's re-derivation of pkt_hdr from skb->data after skb_pull(skb, pkt_len) was not verified line-by-line before the search was bounded.",
+   "conclusion": "Verify ax88179_178a.c rx_fixup re-derives pkt_hdr from skb->data after each skb_pull and that usbnet rx_fixup skbs are always linear (napi_alloc_coalesced/alloc_skb heads)."
+  },
+  {
+   "snapshot": "s01",
+   "path": "drivers/isdn/mISDN/layer2.c",
+   "line": 1321,
+   "status": "unresolved",
+   "reason": "l2_got_iframe() saves nr=(skb->data[i]>>5)&7 and PollFlag from skb->data before a pull-family call and uses them after; the reads are value copies (not pointers), so a stale-pointer UAF is not the shape, but the linear-availability of skb->data[i] on a non-linear mISDN skb was not concluded.",
+   "conclusion": "Check whether mISDN layer2 receive skbs can be non-linear such that skb->data[i] reads at layer2.c:1320-1322 touch non-linear bytes (missing pull before read), distinct from the stale-pointer shape."
+  },
+  {
+   "snapshot": "s01",
+   "path": "net/nfc/llcp_core.c",
+   "line": 1401,
+   "status": "unresolved",
+   "reason": "nfc_llcp_recv_agf() reads pdu_len=skb->data[0]<<8|skb->data[1] and the scanner flagged a later use after a pull; inherited from prior fact coverage (f016/f003 flagged the same function), non-linearity of NFC LLCP AGF skbs per driver was never resolved.",
+   "conclusion": "Determine whether any NFC driver delivers a non-linear skb to nfc_llcp_recv_agf and whether the pdu_len bytes and later skb->data reads are linear-guaranteed before the pull."
+  }
+ ],
+ "coverage_gaps": [
+  "Only the ~115 save/pull/use triples flagged by the structural scanner over the 227 pskb_may_pull-bearing .c files in net/ and drivers/ were triaged; lower-ranked files (e.g. drivers/net/wireless offload paths, net/ipv6 extension-header parsers flagged in earlier intents) were never line-read in s01.",
+  "Bare skb_pull()/__skb_pull() callers (which cannot reallocate but can move skb->data and invalidate saved data pointers, a weaker variant of the branch) were only sampled, not enumerated exhaustively in s01.",
+  "The six unresolved candidates (iwlwifi mei, btmtksdio, brcmfmac sdio, ax88179, mISDN layer2, nfc llcp_agf) remain unclassified because per-driver skb non-linearity/cloning behavior could not be settled from the snapshot alone.",
+  "No runtime KASAN build or reproducer was produced for garp_pdu_parse_attr, ppp_ccp_peek, or fr_rx, so head reallocation on non-linear input is inferred from __pskb_pull_tail's reallocation branch (net/core/skbuff.c) rather than observed."
+ ],
+ "limitations": [
+  "All findings are source-reading hypotheses: triggering requires a non-linear skb so pskb_may_pull/pskb_pull_tail actually reallocates and frees the old head; for already-linear heads the pull is a no-op and the code is merely fragile.",
+  "The garp finding's stale reads are bounded (2-4 bytes of freed head per dereference) and constitute a UAF read (infoleak/crash) rather than a write; whether any driver configuration delivers non-linear GARP PDUs into garp_pdu_rcv was not audited.",
+  "The ppp finding requires a PPP channel that hands non-linear skbs into ppp_input and a peer-negotiated CCP ConfAck while (SC_CCP_OPEN|SC_CCP_UP) == SC_CCP_OPEN; reachability per channel driver (pppoe/pppox/pppol2tp vs async) was not audited.",
+  "The hdlc_fr finding depends on the FRAD delivering a cloned skb at skb_share_check and/or non-linear bytes; many WAN drivers build fresh linear skbs, in which case the data pointer stays valid and the finding is latent, hence low confidence.",
+  "The scanner's function-extent heuristic (column-0 braces) and single-line derivation matching can mis-scope large functions and miss multi-line pointer derivations, so false negatives among the several hundred pull call sites in s01 cannot be excluded.",
+  "Snapshot revision is opaque; all line numbers and code state are valid only for snapshots/s01 as supplied, and no git history, network access, or cross-snapshot comparison was used per assignment constraints."
+ ]
+}

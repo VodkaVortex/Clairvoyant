@@ -1,0 +1,204 @@
+{
+ "version": 1,
+ "intent_id": "i019",
+ "branch": "free-invalidates-pointer",
+ "execution_status": "complete",
+ "snapshots_checked": [
+  "s03"
+ ],
+ "findings": [
+  {
+   "snapshot": "s03",
+   "path": "net/bluetooth/6lowpan.c",
+   "start": 437,
+   "end": 447,
+   "quote": "static int send_pkt(struct l2cap_chan *chan, struct sk_buff *skb,\n\t\t    struct net_device *netdev)\n{\n\tstruct msghdr msg;\n\tstruct kvec iv;\n\tint err;\n\n\t/* Remember the skb so that we can send EAGAIN to the caller if\n\t * we run out of credits.\n\t */\n\tchan->data = skb;",
+   "confidence": "low",
+   "reason": "send_pkt() stores the skb pointer into long-lived l2cap channel state (chan->data = skb, net/bluetooth/6lowpan.c:447, with the comment 'Remember the skb'), and both callers then free the skb: the unicast path bt_xmit() calls send_pkt(lowpan_cb(skb)->chan, skb, netdev) at net/bluetooth/6lowpan.c:541 and dev_kfree_skb(skb) at :549; the multicast path send_mcast_pkt() calls send_pkt(pentry->chan, local_skb, netdev) at :498 then kfree_skb(local_skb) at :501. After those frees, chan->data is a dangling skb pointer that lives until the next send_pkt overwrites it or the channel closes. l2cap_chan_send() itself takes no reference on the skb (it copies out of skb->data via the kvec at :449-450), so ownership definitively returns to the xmit path. I searched all readers of chan->data in net/bluetooth/ (grep 'chan->data'): every other reader is in net/bluetooth/l2cap_sock.c, where chan->data holds a struct sock * for socket-backed channels; for the 6lowpan IPSP channel (ops = bt_6lowpan_chan_ops, no .teardown of chan->data, chan_create() never initializes chan->data to NULL explicitly before use and l2cap_sock readers are never invoked for 6lowpan ops), no dereference of the stale skb pointer was found in this snapshot, so no crash or disclosure is proven - this is the stored-dangling-pointer shape (branch pattern 2), reported as a latent UAF hypothesis with low confidence, mirroring facts f004/f026 which found the identical store in s01/s02.",
+   "conclusion": "send_pkt() stores skb into long-lived chan->data (net/bluetooth/6lowpan.c:447) that bt_xmit/send_mcast_pkt free via dev_kfree_skb at :549 / kfree_skb at :501, leaving a dangling stored skb pointer with no in-tree reader - a latent stored-pointer UAF, low confidence."
+  }
+ ],
+ "candidates": [
+  {
+   "snapshot": "s03",
+   "path": "net/bluetooth/6lowpan.c",
+   "line": 447,
+   "status": "reported",
+   "reason": "chan->data = skb stored at :447; freed by dev_kfree_skb(skb) at :549 (bt_xmit unicast) and kfree_skb(local_skb) at :501 (send_mcast_pkt); no reader of chan->data for 6lowpan channels found in s03.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/net/wireless/ath/ath10k/htc.c",
+   "line": 71,
+   "status": "safe",
+   "reason": "hdr = (struct ath10k_htc_hdr *)skb->data at :71, ath10k_htc_restore_tx_skb (pull only, no free) at :72, dev_kfree_skb_any(skb) at :75/:79, hdr->flags read at :79-80. Wait - the read at :79 is before the free at :80 on the bundle branch; on the !ep_tx_complete branch the free at :75 returns immediately without reading hdr. Re-verified ordering: save(71) pull(72) free(75, returns) then if-free(79)/read(80)/free(80); hdr->flags is read at :80 before that branch's own dev_kfree_skb_any, so no post-free dereference; the only invalidation between save and read is the skb_pull, which is the excluded reallocation branch.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/x25/x25_dev.c",
+   "line": 35,
+   "status": "safe",
+   "reason": "frametype/lci are scalar copies (skb->data[0..2] read into u8/u32) saved before kfree_skb(skb) at :79; x25_forward_data copies the frame via pskb_copy and never frees the original; the after-free uses at :84/:87 read only the copied scalars.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/net/wan/hdlc_fr.c",
+   "line": 893,
+   "status": "safe",
+   "reason": "fr_rx(): fh/data saved at :893-895; on the LMI path fr_lmi_recv() only reads skb->data (no free), dev_kfree_skb_any(skb) at :910 is followed immediately by return; all post-free uses at :914/:923/:945 are on the non-LMI path where the skb is alive; skb_share_check at :929 does not free on success.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/net/can/usb/esd_usb.c",
+   "line": 824,
+   "status": "safe",
+   "reason": "cfd = (struct canfd_frame *)skb->data at :824; dev_kfree_skb at :838/:847 are error returns that skip the cfd uses; the last cfd dereference (memcpy at :876) precedes can_put_echo_skb(skb, ...) at :914 which stores/clones the skb rather than freeing it on the success path.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/net/can/virtio_can.c",
+   "line": 311,
+   "status": "safe",
+   "reason": "cf = (struct canfd_frame *)skb->data at :311; kfree_skb at :328 is an allocation-failure return with no cf use after; all cf reads (:334-:349) precede can_put_echo_skb at :362; the virtqueue_add_sgs error path's can_free_echo_skb at :388 correctly does not touch cf.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/net/can/janz-ican3.c",
+   "line": 1299,
+   "status": "safe",
+   "reason": "ican3_get_echo_skb(): cf = (struct can_frame *)skb->data at :1299, dlc = cf->len copied to a scalar before kfree_skb(skb) at :1304; only dlc (a copy) is returned after the free.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/nfc/hci/core.c",
+   "line": 869,
+   "status": "safe",
+   "reason": "nfc_hci_recv_from_llc(): packet = (struct hcp_packet *)skb->data at :869; skb_queue_tail(&hdev->rx_hcp_frags, skb) at :874 transfers ownership and returns immediately; the use at :876 is on the separate last-fragment branch where the skb is still owned.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/nfc/llcp_core.c",
+   "line": 1437,
+   "status": "safe",
+   "reason": "nfc_llcp_recv_agf(): pdu_len is a scalar copy from skb->data[0..1]; kfree_skb(new_skb) at :1460 frees the freshly allocated new_skb, not the outer skb whose data pdu_len came from; skb_pull(skb, pdu_len) at :1462 operates on the still-alive outer skb.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/nfc/nci/ntf.c",
+   "line": 900,
+   "status": "safe",
+   "reason": "nci_rf_deactivate_ntf_packet(): ntf = (struct nci_rf_deactivate_ntf *)skb->data at :902; kfree_skb(ndev->rx_data_reassembly) at :912 frees a different, reassembly skb; ntf->type at :921 belongs to the still-alive skb.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/ipv6/exthdrs.c",
+   "line": 512,
+   "status": "safe",
+   "reason": "ipv6_rpl_srh_rcv(): hdr = (struct ipv6_rpl_sr_hdr *)skb_transport_header(skb) at :511; netif_rx(skb) at :535 hands off the skb but returns -1 immediately after; the skb->transport_header += (hdr->hdrlen+1)<<3 use at :535 is on the non-nexthdr path that returns without handing off.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/bluetooth/hci_event.c",
+   "line": 7805,
+   "status": "safe",
+   "reason": "hci_event_packet(): hdr = (struct hci_event_hdr *)skb->data at :7805; kfree_skb(hdev->recv_event) at :7817 frees the previously stored clone, not this skb; event = hdr->evt at :7821 reads the live skb.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/mac80211/rx.c",
+   "line": 1809,
+   "status": "safe",
+   "reason": "ieee80211_rx_h_uapsd_and_pspoll(): hdr = (void *)rx->skb->data at :1809; dev_kfree_skb(rx->skb) at :1839 returns RX_QUEUED immediately; the hdr->frame_control read at :1842 is on the else-branch where the skb survives.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/mac80211/rx.c",
+   "line": 4040,
+   "status": "safe",
+   "reason": "ieee80211_rx_h_action_post_userspace(): mgmt = (struct ieee80211_mgmt *)rx->skb->data at :4040; dev_kfree_skb(rx->skb) at :4074 is the last statement before return RX_QUEUED; no mgmt use after the free.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/mac80211/tx.c",
+   "line": 4830,
+   "status": "safe",
+   "reason": "ieee80211_subif_start_xmit_8023(): ehdr = (struct ethhdr *)skb->data at :4830; kfree_skb(skb) at :4832 returns immediately; the ehdr->h_dest use at :4836 is on the path where the skb was not freed; skb is requeued locally by ieee80211_convert_to_unicast without a free.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/net/macsec.c",
+   "line": 917,
+   "status": "safe",
+   "reason": "macsec_decrypt(): hdr = (struct macsec_eth_header *)skb->data at :917; the kfree_skb calls at :907/:912/:921 are error returns; hdr->tci_an read at :941 precedes skb_unshare at :950 and the aead decrypt handoff at :962 which carries the skb, after which no hdr use occurs.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/batman-adv/fragmentation.c",
+   "line": 409,
+   "status": "safe",
+   "reason": "batadv_frag_skb_fwd(): packet = (struct batadv_frag_packet *)skb->data at :409; kfree_skb(skb) at :420/:427 are error returns; the code explicitly refetches packet = (struct batadv_frag_packet *)skb->data at :433 after skb_cow before packet->ttl-- at :439.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/bluetooth/l2cap_core.c",
+   "line": 6994,
+   "status": "safe",
+   "reason": "l2cap_recv_frame(): lh = (void *)skb->data at :6994; skb_queue_tail(&conn->pending_rx, skb) at :7000 returns immediately (ownership transferred); cid/len reads at :7005-7006 are on the connected path where the skb is still owned.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "net/bluetooth/rfcomm/core.c",
+   "line": 1772,
+   "status": "safe",
+   "reason": "rfcomm_recv_frame(): hdr = (void *)skb->data at :1772; the !s branch frees skb at :1776 and returns s without touching hdr; dlci/type reads at :1780-1781 are only reached when s was non-NULL.",
+   "conclusion": ""
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/net/arcnet/rfc1201.c",
+   "line": 348,
+   "status": "unresolved",
+   "reason": "rx() saves pkt = (struct archdr *)in->skb->data at :348, later reassigns skb = in->skb at :366, hands skb to netif_rx at :383 after clearing in->skb, and the trailing arc_printk/BUGLVL references use pkt->hard.source after the handoff; only followed up from window-scanner context, the full sequence around pkt uses at :379-381 was not read to a conclusion.",
+   "conclusion": "Follow up: read drivers/net/arcnet/rfc1201.c rx() lines 340-395 fully to check whether pkt->hard.source (or any pkt/soft deref) executes after netif_rx(skb) at :383 when debug printing (BUGLVL) is enabled, and whether in->skb can alias the handed-off skb."
+  },
+  {
+   "snapshot": "s03",
+   "path": "drivers/net/ethernet/qualcomm/rmnet/rmnet_map_command.c",
+   "line": 15,
+   "status": "unresolved",
+   "reason": "map_header = (struct rmnet_map_header *)skb->data at :15; kfree_skb(skb) at :23 sits between the save and the later cmd = (struct rmnet_map_control_command *)(map_header + 1) use at :63; from window-scanner context the :23 free appears to be on an error return path, but the intervening control flow to :63 was not fully read.",
+   "conclusion": "Follow up: read rmnet_map_command.c lines 10-70 to confirm the kfree_skb(skb) at :23 is on a return-only error path so that map_header+1 at :63 never dereferences freed data, or to record it as a finding if any path falls through."
+  }
+ ],
+ "coverage_gaps": [
+  "The primary enumerator was a single-function 60-line sliding-window scan (515 save-free-use triples) over net/ and drivers/net/; free/use pairs farther apart, in separate functions, or via helper-called frees were not systematically found.",
+  "drivers/net/ beyond the directories sampled in the hit list (ethernet, wireless, wan, can, usb, arcnet, fddi, ppp) and non-net trees (fs/, other drivers/) were not audited; ~4756 free-call sites exist in the scanned trees alone.",
+  "Pattern-2 sites storing skb->data-derived pointers (not the skb pointer itself) into long-lived state - driver private structs, firmware command structs, timers, work items - were not enumerated; only chan->data in net/bluetooth/6lowpan.c was followed end-to-end.",
+  "pskb_may_pull/pskb_pull/pskb_expand_head/skb_cow head-reallocation stale-pointer sites were deliberately excluded per branch instructions (facts i004/i009/i014 cover s03 pull/expand variants)."
+ ],
+ "limitations": [
+  "The single finding is a stored dangling pointer with no demonstrated dereference in s03: chan->data is written at net/bluetooth/6lowpan.c:447 but every chan->data reader in net/bluetooth/ belongs to l2cap_sock.c socket channels, so no crash or disclosure is proven (low confidence).",
+  "No build, KASAN run, or reproducer was performed (read-only snapshot, no network); every conclusion rests on static reading of s03's exact lines.",
+  "The scanner's derivation regex (var = ... skb->data ...) misses multi-line derivations, pointers passed through helper functions, and skb->cb/skb_shinfo/frag-page based derivations, so false negatives among the 4756 free sites cannot be excluded.",
+  "The seed net/phonet/pep.c pep_get_sb (lines 45-67, present and unpatched in s03) was excluded per assignment rules, as were pull-induced head-reallocation variants (other branches).",
+  "Snapshot revision is opaque; line numbers and code state are valid only for snapshots/s03 as supplied and no git history exists to check upstream fix status."
+ ]
+}

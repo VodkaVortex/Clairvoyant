@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "intent_id": "i033",
+  "branch": "caller-pointer-across-helper",
+  "execution_status": "complete",
+  "snapshots_checked": [
+    "s02"
+  ],
+  "findings": [
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_route.c",
+      "start": 547,
+      "end": 574,
+      "quote": "unsigned char *ptr = skb->data;\n\n\tif (!pskb_may_pull(skb, 21)) /* 20 for long header, 1 for shortest nsp */\n\t\tgoto drop_it;",
+      "confidence": "medium",
+      "reason": "dn_route_rx_long() (remote receive of ETH_P_DNA_RT frames via dn_route_rcv) saves ptr = skb->data at line 550 before calling pskb_may_pull(skb, 21) at 552. For a non-linear skb (payload in frags), pskb_may_pull->__pskb_pull_tail can allocate a new head and free the old one, so the saved ptr dangles; the caller then reads attacker-influenced header bytes through it at 560-574 (cb->dst = dn_eth2dn(ptr), memcmp(ptr, dn_hiord_addr, 4), cb->src, cb->hops = *ptr++). Counterevidence checked: nothing re-derives ptr after the pull, and skb_pull(20) at 555 only advances data. Requires CONFIG_DECNET and a frag-backed skb so reallocation actually happens; no KASAN/reproducer run.",
+      "conclusion": "dn_route_rx_long() keeps ptr=skb->data across pskb_may_pull(skb,21), which can free the old head for a non-linear DNA_RT packet, so the later cb->dst/src/hops reads at 560-574 are a remote slab-use-after-free read (medium confidence)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_route.c",
+      "start": 587,
+      "end": 606,
+      "quote": "unsigned char *ptr = skb->data;\n\n\tif (!pskb_may_pull(skb, 6)) /* 5 for short header + 1 for shortest nsp */\n\t\tgoto drop_it;",
+      "confidence": "medium",
+      "reason": "dn_route_rx_short() saves ptr = skb->data at line 590, then pskb_may_pull(skb, 6) at 592 may reallocate/free the head on a non-linear skb; the stale ptr is dereferenced afterwards at 598-602 (cb->dst = *(__le16 *)ptr, cb->src, cb->hops = *ptr & 0x3f). Same remote ETH_P_DNA_RT receive path and same preconditions (CONFIG_DECNET, payload bytes in frags) as the long-header variant; no re-derivation of ptr exists.",
+      "conclusion": "dn_route_rx_short() captures ptr=skb->data before pskb_may_pull(skb,6) and reads cb->dst/src/hops through the stale pointer at 598-602, a remote slab-use-after-free read for short-header DNA_RT packets (medium confidence)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/decnet/dn_nsp_in.c",
+      "start": 717,
+      "end": 772,
+      "quote": "unsigned char *ptr = (unsigned char *)skb->data;\n\tunsigned short reason = NSP_REASON_NL;\n\n\tif (!pskb_may_pull(skb, 2))\n\t\tgoto free_out;\n\n\tskb_reset_transport_header(skb);\n\tcb->nsp_flags = *ptr++;",
+      "confidence": "medium",
+      "reason": "dn_nsp_rx_packet(), the NSP classification function reached after DECnet routing (dn_route_rx_packet), saves ptr = (unsigned char *)skb->data at line 722, then calls pskb_may_pull(skb, 2) at 725, pskb_may_pull(skb, 3) at 755, and pskb_may_pull(skb, 5) at 768; each can free/move the head for a non-linear skb. The stale ptr is dereferenced after the pulls at 729 (cb->nsp_flags = *ptr++), 761 (cb->dst_port = *(__le16 *)ptr) and 769 (cb->src_port = *(__le16 *)ptr). Counterevidence checked: nothing re-reads skb->data between the pulls and uses; skb_reset_transport_header only sets an offset. Requires CONFIG_DECNET and a frag-backed NSP frame.",
+      "conclusion": "dn_nsp_rx_packet() saves ptr=skb->data at 722, then pskb_may_pull(skb,2/3/5) at 725/755/768 can free the head and the stale ptr is read at 729/761/769 for nsp_flags/dst_port/src_port, a remote slab-use-after-free read in NSP classification (medium confidence)."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/mac80211/rx.c",
+      "start": 2555,
+      "end": 2565,
+      "quote": "struct ieee80211_tdls_data *tf = (void *)rx->skb->data;\n\n\t\tif (pskb_may_pull(rx->skb,\n\t\t\t\t  offsetof(struct ieee80211_tdls_data, u)) &&\n\t\t    tf->payload_type == WLAN_TDLS_SNAP_RFTYPE &&",
+      "confidence": "medium",
+      "reason": "ieee80211_rx_h_data() in the mac80211 RX pipeline saves tf = (void *)rx->skb->data at line 2558 (after the ethhdr h_proto check at 2556 confirmed the attacker-chosen ETH_P_TDLS ethertype), then calls pskb_may_pull(rx->skb, offsetof(...,u)) at 2560 inside the same condition; on a non-linear (A-MSDU/frag-backed) frame this pull can allocate a new head and free the old one, and the subsequent tf->payload_type / tf->category / tf->action_code reads at 2562-2565 use the stale pointer. Counterevidence checked: tf is not re-derived, and the short-circuit && means the reads happen only when the pull succeeded (i.e. exactly when reallocation was possible). Requires a WiFi driver delivering non-linear RX frames to the data handler.",
+      "conclusion": "ieee80211_rx_h_data() keeps tf=rx->skb->data across pskb_may_pull() at rx.c:2560 and dereferences tf->payload_type/category/action_code at 2562-2565, a stale-pointer slab-use-after-free read on non-linear TDLS WiFi RX frames (medium confidence)."
+    }
+  ],
+  "candidates": [
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/ip_forward.c",
+      "line": 132,
+      "status": "safe",
+      "reason": "ip_forward() re-derives iph = ip_hdr(skb) at line 132 strictly AFTER skb_cow(skb, ...) at 130, and all later uses (ip_decrease_ttl(iph), rt_tos2priority(iph->tos)) happen after the re-derivation; this is the correct pattern, not the invariant violation.",
+      "conclusion": "ip_forward.c is the safe reference pattern: the header pointer is taken after skb_cow, so no stale dereference."
+    },
+    {
+      "snapshot": "s02",
+      "path": "net/ipv4/ip_forward.c",
+      "line": 72,
+      "status": "unresolved",
+      "reason": "ip_forward_finish() calls ip_forward_options(skb) at line 72 with opt = &(IPCB(skb)->opt) taken at line 66; IPCB lives in skb->cb (not the head) so the caller-side read is not itself head-derived, but ip_forward_options() (net/ipv4/ip_options.c) manipulates the on-packet SRR option via header pointers and may itself hold stale head pointers across pskb operations; this callee body was not read to a conclusion in this session.",
+      "conclusion": "Follow up: read net/ipv4/ip_options.c ip_forward_options() to check whether any header pointer it derives from the skb head survives an internal pskb_may_pull/pskb_pull and is dereferenced afterwards on the forwarded-SRR path."
+    }
+  ],
+  "coverage_gaps": [
+    "The two-level caller expansion of every pskb_may_pull/pskb_pull/skb_cow/pskb_expand_head/NF_HOOK call site in net/ and drivers/net/ was not completed; the session's greps were triaged down to the DECnet, mac80211, ip_forward and NCSI/L2CAP sets before the finalize order.",
+    "Per-protocol skb control-block structs (any *_skb_cb with pointer- or offset-typed fields, beyond DN_SKB_CB and IPCB) were not systematically enumerated and their cb-stored values not traced across helpers that can move the head.",
+    "Non-linearity preconditions were assessed structurally (which subsystems linearize before parsing) without a per-driver audit of which RX paths actually deliver frag-backed skbs to the DECnet and mac80211 handlers reported here.",
+    "No runtime KASAN build, reproducer, or compilation was performed against the read-only snapshot, so head reallocation on each reported path is inferred from the __pskb_pull_tail reallocation logic rather than observed."
+  ],
+  "limitations": [
+    "All four findings are source-reading hypotheses: triggering requires a non-linear skb so __pskb_pull_tail actually reallocates and frees the old head, and CONFIG_DECNET=y/m for the three DECnet sites, so exploitability may be narrower than the seed's phonet case.",
+    "net/phonet/pep.c pep_get_sb was excluded by instruction and never considered as a report target; line numbers are valid only for the supplied s02 tree (snapshot revision opaque, no git history or network used).",
+    "The mac80211 finding's stale reads occur inside the same boolean expression as the pull, so a compiler could in principle reorder the loads; the vulnerability judgment rests on C evaluation-order semantics (pull first due to &&) and source reading, not on generated code."
+  ]
+}
